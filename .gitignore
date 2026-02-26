@@ -1,0 +1,49 @@
+# 临时文件
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 日志文件
+*.log
+
+# 配置文件
+*.ini
+*.cfg
+
+# 可执行文件
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# 压缩文件
+*.zip
+*.rar
+*.7z
+
+# IDE相关
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 操作系统相关
+Thumbs.db
+.DS_Store
+
+# 测试相关
+pytest_cache/
+
+# 构建相关
+dist/
+build/
+*.egg-info/
+
+# 环境相关
+.env
+venv/
+env/
+
+# 任务文件
+download_tasks.json

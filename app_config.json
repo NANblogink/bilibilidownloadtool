@@ -1,0 +1,47 @@
+{
+    "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+        "Referer": "https://www.bilibili.com/",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Cache-Control": "no-cache",
+        "Origin": "https://www.bilibili.com",
+        "Connection": "keep-alive",
+        "Pragma": "no-cache",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-site"
+    },
+    "quality_map": {
+        "16": "360P",
+        "32": "480P",
+        "64": "720P",
+        "74": "720P高码率",
+        "80": "1080P",
+        "112": "1080P+",
+        "120": "1080P高码率",
+        "125": "4K HDR",
+        "127": "4K 杜比视界"
+    },
+    "api_urls": {
+        "login_status_api": "https://api.bilibili.com/x/web-interface/nav?jsonp=jsonp",
+        "user_info_api": "https://api.bilibili.com/x/space/wbi/acc/info?mid={mid}&jsonp=jsonp",
+        "av_info_api": "https://api.bilibili.com/x/web-interface/view?aid={aid}&jsonp=jsonp",
+        "cid_api": "https://api.bilibili.com/x/player/pagelist?bvid={bvid}&jsonp=jsonp",
+        "video_info_api": "https://api.bilibili.com/x/web-interface/view?bvid={bvid}&jsonp=jsonp",
+        "play_url_api": "https://api.bilibili.com/x/player/playurl?fnval={fnval}&cid={cid}&bvid={bvid}&fourk=1&otype=json",
+        "tv_play_url_api": "https://api.bilibili.com/x/player/playurl?fnval=16&cid={cid}&bvid={bvid}&platform=tv&otype=json",
+        "bangumi_section_api": "https://api.bilibili.com/pgc/web/season/section?season_id={ssid}",
+        "bangumi_play_url_api": "https://api.bilibili.com/pgc/player/web/playurl?cid={cid}&bvid={bvid}&fnval={fnval}&fourk=1&otype=json",
+        "danmaku_api": "https://api.bilibili.com/x/v1/dm/list.so?oid={oid}&type={type}"
+    },
+    "other_urls": {
+        "hevc_extension_url": "https://apps.microsoft.com/store/detail/microsoft-hevc-video-extension/9NMZQFK7HTR4"
+    },
+    "app_settings": {
+        "default_save_path": "C:\\Users\\22739\\Desktop\\python学习\\解析\\B站下载",
+        "last_save_path": "C:\\Users\\22739\\Desktop\\python学习\\解析\\B站下载",
+        "max_threads": 10
+    }
+}

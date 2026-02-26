@@ -1,0 +1,36 @@
+{
+  "headers": {
+    "referer": "https://www.bilibili.com/",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Cache-Control": "no-cache",
+    "Origin": "https://www.bilibili.com",
+    "Content-Type": "application/json;charset=UTF-8"
+  },
+  "quality_map": {
+    "16": "360P 流畅（免费）",
+    "32": "480P 清晰（免费）",
+    "64": "720P 高清（免费）",
+    "80": "1080P 高清（免费）",
+    "112": "1080P+ 高码率（会员）",
+    "120": "4K 超清（会员）",
+    "125": "HDR 真彩（会员，HEVC）",
+    "127": "杜比视界（会员，HEVC）",
+    "0": "默认画质"
+  },
+  "api_urls": {
+    "video_info_api": "https://api.bilibili.com/x/web-interface/view?bvid={bvid}&jsonp=jsonp",
+    "av_info_api": "https://api.bilibili.com/x/web-interface/view?aid={aid}&jsonp=jsonp",
+    "cid_api": "https://api.bilibili.com/x/player/pagelist?bvid={bvid}&jsonp=jsonp",
+    "play_url_api": "https://api.bilibili.com/x/player/playurl?fnval={fnval}&cid={cid}&bvid={bvid}&fourk=1&otype=json",
+    "tv_play_url_api": "https://api.bilibili.com/x/player/playurl?fnval=16&cid={cid}&bvid={bvid}&platform=tv&otype=json",
+    "bangumi_section_api": "https://api.bilibili.com/pgc/web/season/section?season_id={ssid}",
+    "bangumi_play_url_api": "https://api.bilibili.com/pgc/player/web/playurl?cid={cid}&bvid={bvid}&fnval={fnval}&fourk=1&otype=json",
+    "user_info_api": "https://api.bilibili.com/x/space/wbi/acc/info?mid={mid}&jsonp=jsonp",
+    "login_status_api": "https://api.bilibili.com/x/web-interface/nav?jsonp=jsonp",
+    "danmaku_api": "https://api.bilibili.com/x/v1/dm/list.so?oid={oid}&type={type}"
+  },
+  "other_urls": {
+    "hevc_extension_url": "https://apps.microsoft.com/store/api/Products/GetProductDownloadUrl?productId=9N4WGH0Z6VHQ&deviceFamily=windows10"
+  }
+}
