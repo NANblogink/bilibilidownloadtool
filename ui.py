@@ -1679,7 +1679,13 @@ class FloatingBall(QWidget):
             logger.info(f"音频格式：{download_params.get('audio_format')}")
             logger.info(f"弹幕格式：{download_params.get('danmaku_format')}")
             logger.info(f"下载参数：{download_params}")
-            
+
+            # 检查HEVC/AV1视频并询问
+            if download_video and self.parent and hasattr(self.parent, 'parser'):
+                hevc_ask = self.parent.config.get_app_setting("hevc_not_supported_ask", True)
+                if hevc_ask:
+                    self._check_hevc_before_download(selected_videos, save_path)
+
             try:
                 
                 if self.parent and hasattr(self.parent, 'download_manager') and self.parent.download_manager:
@@ -1862,23 +1868,7 @@ class FloatingBall(QWidget):
             if self.parent and hasattr(self.parent, 'show_notification'):
                 self.parent.show_notification(f"视频下载完成：{message}", "success")
             
-            # 下载完成后打开文件夹
-            if self.parent and hasattr(self.parent, 'config'):
-                auto_open_folder = self.parent.config.get_app_setting("auto_open_folder", False)
-                if auto_open_folder:
-                    try:
-                        import subprocess
-                        # 从消息中提取文件路径
-                        if "完成：" in message:
-                            file_path = message.replace("完成：", "").strip()
-                            folder_path = os.path.dirname(file_path)
-                            if os.path.exists(folder_path):
-                                if os.name == 'nt':  # Windows
-                                    subprocess.run(['explorer', folder_path], shell=True)
-                                elif os.name == 'posix':  # macOS/Linux
-                                    subprocess.run(['open' if os.uname().sysname == 'Darwin' else 'xdg-open', folder_path])
-                    except Exception as e:
-                        print(f"打开文件夹失败：{str(e)}")
+
             
             # 下载完成后播放提示音
             if self.parent and hasattr(self.parent, 'config'):
@@ -7220,6 +7210,68 @@ class BilibiliDownloader(BaseWindow):
         floating_layout.addWidget(self.floating_checkbox)
         floating_layout.addStretch(1)
         
+        # 添加系统详细信息
+        import platform
+        import subprocess
+        
+        # 系统信息
+        system_info = platform.system()
+        system_release = platform.release()
+        system_version = platform.version()
+        machine = platform.machine()
+        processor = platform.processor()
+        
+        # 屏幕信息
+        from PyQt5.QtWidgets import QApplication
+        screen = QApplication.primaryScreen()
+        if screen:
+            geometry = screen.geometry()
+            screen_resolution = f"{geometry.width()}x{geometry.height()}"
+            dpi = screen.logicalDotsPerInch()
+        else:
+            screen_resolution = "未知"
+            dpi = "未知"
+        
+        # 优化布局：自适应不同分辨率和DPI
+        info_layout = QVBoxLayout()
+        
+        # 基础信息布局
+        basic_info_layout = QHBoxLayout()
+        basic_info_layout.setSpacing(12)
+        
+        # 系统信息
+        system_label = QLabel(f"系统: {system_info} {system_release} {machine}")
+        system_label.setWordWrap(True)
+        system_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        basic_info_layout.addWidget(system_label)
+        
+        # 屏幕信息
+        screen_label = QLabel(f"屏幕: {screen_resolution}, DPI: {dpi}")
+        screen_label.setWordWrap(True)
+        screen_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        basic_info_layout.addWidget(screen_label)
+        
+        # 第二行信息
+        secondary_info_layout = QHBoxLayout()
+        secondary_info_layout.setSpacing(12)
+        
+        # Python信息
+        python_label = QLabel(f"Python: {platform.python_version()}")
+        python_label.setWordWrap(True)
+        python_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        secondary_info_layout.addWidget(python_label)
+        
+        # 处理器信息
+        cpu_label = QLabel(f"处理器: {processor}")
+        cpu_label.setWordWrap(True)
+        cpu_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        secondary_info_layout.addWidget(cpu_label)
+        
+        # 添加到主布局
+        info_layout.addLayout(basic_info_layout)
+        info_layout.addLayout(secondary_info_layout)
+        
+        sys_layout.addLayout(info_layout)
         sys_layout.addLayout(floating_layout)
 
         content_layout.addWidget(sys_info_group)
@@ -7681,7 +7733,7 @@ class BilibiliDownloader(BaseWindow):
         
         # 右侧：收藏内容区域
         content_section = QWidget()
-        content_section.setStyleSheet("background-color: white; border-radius: 8px;")
+        content_section.setStyleSheet("background-color: white; border-radius: 8px; z-index: 1000;")
         content_section.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         content_section_layout = QVBoxLayout(content_section)
         content_section_layout.setSpacing(12)
@@ -7772,7 +7824,6 @@ class BilibiliDownloader(BaseWindow):
         self.content_list.setFlow(QListWidget.LeftToRight)
         self.content_list.setSpacing(12)
         self.content_list.setSelectionMode(QListWidget.ExtendedSelection)
-        self.content_list.setMinimumHeight(800)
         self.content_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.content_list.setWrapping(True)
         self.content_list.setWordWrap(True)
@@ -7784,15 +7835,16 @@ class BilibiliDownloader(BaseWindow):
                 border-radius: 6px;
                 background-color: #f9fafb;
                 padding: 12px;
-                min-height: 800px;
-                max-height: 2000px;
+                z-index: 1000;
             }
             QListWidget::item {
                 border: none;
                 background: transparent;
+                z-index: 1000;
             }
             QListWidget::item:selected {
                 background: transparent;
+                z-index: 1000;
             }
             QScrollBar:vertical {
                 width: 8px;
@@ -7813,12 +7865,12 @@ class BilibiliDownloader(BaseWindow):
         # 使用QScrollArea确保完整的滚动功能
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setStyleSheet("border: none;")
-        scroll_area.setMinimumHeight(600)
+        scroll_area.setStyleSheet("border: none; z-index: 1000;")
         scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
         # 创建一个容器widget来容纳内容列表
         scroll_container = QWidget()
+        scroll_container.setStyleSheet("z-index: 1000;")
         scroll_layout = QVBoxLayout(scroll_container)
         scroll_layout.setContentsMargins(0, 0, 0, 0)
         scroll_layout.addWidget(self.content_list)
@@ -7826,19 +7878,85 @@ class BilibiliDownloader(BaseWindow):
         scroll_area.setWidget(scroll_container)
         content_section_layout.addWidget(scroll_area, stretch=1)
         
+        # 确保内容区域置顶
+        content_section.raise_()
+        scroll_area.raise_()
+        self.content_list.raise_()
+        
         main_content_layout.addWidget(content_section, stretch=1)
         
         favorite_layout.addLayout(main_content_layout, stretch=1)
         
+        # 字幕解析标签页
+        subtitle_tab = QWidget()
+        subtitle_layout = QVBoxLayout(subtitle_tab)
+        subtitle_layout.setSpacing(15)
+        subtitle_layout.setContentsMargins(15, 15, 15, 15)
+        
+        subtitle_info_group = QGroupBox("字幕信息")
+        subtitle_info_layout = QVBoxLayout(subtitle_info_group)
+        subtitle_info_layout.setSpacing(12)
+        
+        subtitle_count_layout = QHBoxLayout()
+        subtitle_count_label = QLabel("字幕数量：")
+        subtitle_count_label.setMinimumWidth(80)
+        subtitle_count_label.setMinimumHeight(24)
+        self.subtitle_count_label = QLabel("未解析")
+        self.subtitle_count_label.setMinimumHeight(24)
+        subtitle_count_layout.addWidget(subtitle_count_label)
+        subtitle_count_layout.addWidget(self.subtitle_count_label, stretch=1)
+        subtitle_info_layout.addLayout(subtitle_count_layout)
+        
+        subtitle_type_layout = QHBoxLayout()
+        subtitle_type_label = QLabel("字幕类型：")
+        subtitle_type_label.setMinimumWidth(80)
+        subtitle_type_label.setMinimumHeight(24)
+        self.subtitle_type_label = QLabel("-")
+        self.subtitle_type_label.setMinimumHeight(24)
+        subtitle_type_layout.addWidget(subtitle_type_label)
+        subtitle_type_layout.addWidget(self.subtitle_type_label, stretch=1)
+        subtitle_info_layout.addLayout(subtitle_type_layout)
+        
+        subtitle_lang_layout = QHBoxLayout()
+        subtitle_lang_label = QLabel("语言：")
+        subtitle_lang_label.setMinimumWidth(80)
+        subtitle_lang_label.setMinimumHeight(24)
+        self.subtitle_lang_label = QLabel("-")
+        self.subtitle_lang_label.setMinimumHeight(24)
+        subtitle_lang_layout.addWidget(subtitle_lang_label)
+        subtitle_lang_layout.addWidget(self.subtitle_lang_label, stretch=1)
+        subtitle_info_layout.addLayout(subtitle_lang_layout)
+        
+        subtitle_options_layout = QVBoxLayout()
+        self.subtitle_checkbox = QCheckBox("下载字幕")
+        self.subtitle_checkbox.setMinimumHeight(24)
+        self.subtitle_checkbox.setStyleSheet("font-size: 13px;")
+        self.subtitle_checkbox.setEnabled(False)
+        subtitle_options_layout.addWidget(self.subtitle_checkbox)
+        
+        # 添加选择字幕按钮
+        self.select_subtitle_btn = QPushButton("查看字幕内容")
+        self.select_subtitle_btn.setMinimumHeight(24)
+        self.select_subtitle_btn.setMinimumWidth(100)
+        self.select_subtitle_btn.setEnabled(False)
+        subtitle_options_layout.addWidget(self.select_subtitle_btn)
+        
+        subtitle_info_layout.addLayout(subtitle_options_layout)
+        subtitle_layout.addWidget(subtitle_info_group)
+        subtitle_layout.addStretch(1)
+        
         # 添加标签页
         self.tab_widget.addTab(video_tab, "视频解析")
         self.tab_widget.addTab(danmaku_tab, "弹幕解析")
+        self.tab_widget.addTab(subtitle_tab, "字幕解析")
         self.tab_widget.addTab(favorite_tab, "收藏夹")
         
         # 连接标签页切换信号
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
         
-        content_layout.addWidget(self.tab_widget)
+        # 为tab_widget设置合适的大小策略
+        self.tab_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        content_layout.addWidget(self.tab_widget, stretch=1)
 
         
         progress_layout = QVBoxLayout()
@@ -7859,7 +7977,7 @@ class BilibiliDownloader(BaseWindow):
         self.status_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         progress_layout.addWidget(self.status_label, alignment=Qt.AlignCenter)
         
-        content_layout.addLayout(progress_layout, stretch=1)
+        content_layout.addLayout(progress_layout)
 
         
         btn_layout = QHBoxLayout()
@@ -7943,6 +8061,79 @@ class BilibiliDownloader(BaseWindow):
             return
         
         self.status_label.setText("正在获取收藏夹列表...")
+        
+        # 清空内容列表并显示骨架屏
+        def clear_content_and_show_skeleton():
+            if hasattr(self, 'content_list'):
+                # 清空内容列表
+                self.content_list.clear()
+                
+                # 显示骨架屏
+                for i in range(12):  # 显示12个骨架屏
+                    skeleton_widget = QWidget()
+                    skeleton_widget.setFixedSize(190, 150)
+                    skeleton_layout = QVBoxLayout()
+                    
+                    # 骨架屏样式
+                    skeleton_style = """
+                        QWidget {
+                            background-color: #f3f4f6;
+                            border-radius: 8px;
+                            position: relative;
+                            overflow: hidden;
+                        }
+                        QWidget::after {
+                            content: '';
+                            position: absolute;
+                            top: 0;
+                            left: -100%;
+                            width: 100%;
+                            height: 100%;
+                            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+                        }
+                    """
+                    
+                    # 封面骨架
+                    cover_skeleton = QWidget()
+                    cover_skeleton.setFixedSize(180, 100)
+                    cover_skeleton.setStyleSheet(skeleton_style)
+                    skeleton_layout.addWidget(cover_skeleton, alignment=Qt.AlignCenter)
+                    
+                    # 标题骨架
+                    skeleton_layout.addSpacing(15)
+                    title_skeleton = QWidget()
+                    title_skeleton.setFixedSize(160, 16)
+                    title_skeleton.setStyleSheet(skeleton_style)
+                    skeleton_layout.addWidget(title_skeleton, alignment=Qt.AlignCenter)
+                    
+                    # UP主骨架
+                    skeleton_layout.addSpacing(8)
+                    up_skeleton = QWidget()
+                    up_skeleton.setFixedSize(100, 12)
+                    up_skeleton.setStyleSheet(skeleton_style)
+                    skeleton_layout.addWidget(up_skeleton, alignment=Qt.AlignCenter)
+                    
+                    # 时长骨架
+                    duration_skeleton = QWidget()
+                    duration_skeleton.setFixedSize(60, 12)
+                    duration_skeleton.setStyleSheet(skeleton_style)
+                    skeleton_layout.addWidget(duration_skeleton, alignment=Qt.AlignCenter)
+                    
+                    skeleton_widget.setLayout(skeleton_layout)
+                    
+                    # 创建列表项并设置大小
+                    skeleton_item = QListWidgetItem()
+                    skeleton_item.setSizeHint(QSize(190, 150))
+                    
+                    # 添加到列表
+                    self.content_list.addItem(skeleton_item)
+                    self.content_list.setItemWidget(skeleton_item, skeleton_widget)
+                
+                # 强制处理事件，避免界面卡顿
+                QApplication.processEvents()
+        
+        # 在主线程中执行
+        QTimer.singleShot(0, clear_content_and_show_skeleton)
         
         import threading
         def get_folders():
@@ -8087,6 +8278,79 @@ class BilibiliDownloader(BaseWindow):
         logger.info("更新状态标签为'正在获取收藏内容...'")
         self.status_label.setText("正在获取收藏内容...")
         
+        # 清空内容列表并显示骨架屏
+        def clear_content_and_show_skeleton():
+            if hasattr(self, 'content_list'):
+                # 清空内容列表
+                self.content_list.clear()
+                
+                # 显示骨架屏
+                for i in range(12):  # 显示12个骨架屏
+                    skeleton_widget = QWidget()
+                    skeleton_widget.setFixedSize(190, 150)
+                    skeleton_layout = QVBoxLayout()
+                    
+                    # 骨架屏样式
+                    skeleton_style = """
+                        QWidget {
+                            background-color: #f3f4f6;
+                            border-radius: 8px;
+                            position: relative;
+                            overflow: hidden;
+                        }
+                        QWidget::after {
+                            content: '';
+                            position: absolute;
+                            top: 0;
+                            left: -100%;
+                            width: 100%;
+                            height: 100%;
+                            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+                        }
+                    """
+                    
+                    # 封面骨架
+                    cover_skeleton = QWidget()
+                    cover_skeleton.setFixedSize(180, 100)
+                    cover_skeleton.setStyleSheet(skeleton_style)
+                    skeleton_layout.addWidget(cover_skeleton, alignment=Qt.AlignCenter)
+                    
+                    # 标题骨架
+                    skeleton_layout.addSpacing(15)
+                    title_skeleton = QWidget()
+                    title_skeleton.setFixedSize(160, 16)
+                    title_skeleton.setStyleSheet(skeleton_style)
+                    skeleton_layout.addWidget(title_skeleton, alignment=Qt.AlignCenter)
+                    
+                    # UP主骨架
+                    skeleton_layout.addSpacing(8)
+                    up_skeleton = QWidget()
+                    up_skeleton.setFixedSize(100, 12)
+                    up_skeleton.setStyleSheet(skeleton_style)
+                    skeleton_layout.addWidget(up_skeleton, alignment=Qt.AlignCenter)
+                    
+                    # 时长骨架
+                    duration_skeleton = QWidget()
+                    duration_skeleton.setFixedSize(60, 12)
+                    duration_skeleton.setStyleSheet(skeleton_style)
+                    skeleton_layout.addWidget(duration_skeleton, alignment=Qt.AlignCenter)
+                    
+                    skeleton_widget.setLayout(skeleton_layout)
+                    
+                    # 创建列表项并设置大小
+                    skeleton_item = QListWidgetItem()
+                    skeleton_item.setSizeHint(QSize(190, 150))
+                    
+                    # 添加到列表
+                    self.content_list.addItem(skeleton_item)
+                    self.content_list.setItemWidget(skeleton_item, skeleton_widget)
+                
+                # 强制处理事件，避免界面卡顿
+                QApplication.processEvents()
+        
+        # 在主线程中执行
+        QTimer.singleShot(0, clear_content_and_show_skeleton)
+        
         import threading
         
         def get_folder_content():
@@ -8094,7 +8358,8 @@ class BilibiliDownloader(BaseWindow):
             logger.info("get_folder_content线程开始执行")
             try:
                 logger.info(f"开始获取收藏夹内容，folder_id: {folder_id}")
-                content = self.parser.get_folder_content(folder_id)
+                # 使用get_all=True获取所有收藏内容
+                content = self.parser.get_folder_content(folder_id, page_size=50, get_all=True)
                 logger.info(f"获取收藏夹内容成功，返回数据: {content}")
                 logger.info(f"获取收藏夹内容成功，共 {len(content['items'])} 个项目")
                 
@@ -8191,7 +8456,7 @@ class BilibiliDownloader(BaseWindow):
 
     def create_favorite_card(self, item, index):
         widget = QWidget()
-        widget.setFixedSize(190, 180)
+        widget.setFixedSize(190, 150)
         widget.setObjectName(f"favorite_card_{index}")
         widget.setStyleSheet("""
             QWidget {
@@ -8295,22 +8560,57 @@ class BilibiliDownloader(BaseWindow):
             # 保存线程引用
             self.cover_loaders.append(loader)
         
-        # 标题区域
+        # 标题区域 - 使用跑马灯效果
         title = item.get('title', '未知视频')
         title_label = QLabel(title)
-        title_label.setFixedSize(186, 48)
+        title_label.setFixedSize(186, 20)
         title_label.setStyleSheet("""
             QLabel {
                 font-size: 12px;
                 font-weight: 500;
                 color: #1f2937;
-                line-height: 1.4;
                 background: transparent;
                 padding: 0 4px;
             }
         """)
-        title_label.setWordWrap(True)
-        title_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        title_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        title_label.setContentsMargins(4, 0, 4, 0)
+        
+        # 添加跑马灯效果
+        title_label.setMinimumWidth(186)
+        title_label.setMaximumWidth(186)
+        title_label.setWordWrap(False)
+        title_label.setTextInteractionFlags(Qt.NoTextInteraction)
+        
+        # 检查标题长度，如果超过一定长度，启动跑马灯
+        if len(title) > 18:
+            # 创建一个定时器来实现跑马灯效果
+            class MarqueeTimer(QTimer):
+                def __init__(self, label):
+                    super().__init__()
+                    self.label = label
+                    self.text = label.text()
+                    self.index = 0
+                    self.timeout.connect(self.update_text)
+                    self.start(200)  # 每200毫秒更新一次
+                
+                def update_text(self):
+                    if hasattr(self.label, 'isVisible') and self.label.isVisible():
+                        self.index = (self.index + 1) % len(self.text)
+                        display_text = self.text[self.index:] + ' ' + self.text[:self.index]
+                        self.label.setText(display_text)
+                    else:
+                        self.stop()
+            
+            # 启动跑马灯
+            timer = MarqueeTimer(title_label)
+            # 保存定时器引用，避免被垃圾回收
+            if not hasattr(self, 'marquee_timers'):
+                self.marquee_timers = []
+            self.marquee_timers.append(timer)
+        
+        # 标题往下一点
+        layout.addSpacing(15)
         layout.addWidget(title_label, alignment=Qt.AlignCenter)
         
         # UP主
@@ -8354,6 +8654,79 @@ class BilibiliDownloader(BaseWindow):
                 self.parse_favorite_btn.setEnabled(False)
             logger.info("收藏内容列表为空")
         else:
+            # 显示骨架屏
+            skeleton_items = []
+            for i in range(min(12, len(items))):  # 显示最多12个骨架屏
+                skeleton_widget = QWidget()
+                skeleton_widget.setFixedSize(190, 150)
+                skeleton_layout = QVBoxLayout()
+                
+                # 骨架屏样式
+                skeleton_style = """
+                    QWidget {
+                        background-color: #f3f4f6;
+                        border-radius: 8px;
+                        position: relative;
+                        overflow: hidden;
+                    }
+                    QWidget::after {
+                        content: '';
+                        position: absolute;
+                        top: 0;
+                        left: -100%;
+                        width: 100%;
+                        height: 100%;
+                        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+                        animation: loading 1.5s infinite;
+                    }
+                """
+                
+                # 封面骨架
+                cover_skeleton = QWidget()
+                cover_skeleton.setFixedSize(180, 100)
+                cover_skeleton.setStyleSheet(skeleton_style)
+                skeleton_layout.addWidget(cover_skeleton, alignment=Qt.AlignCenter)
+                
+                # 标题骨架
+                skeleton_layout.addSpacing(15)
+                title_skeleton = QWidget()
+                title_skeleton.setFixedSize(160, 16)
+                title_skeleton.setStyleSheet(skeleton_style)
+                skeleton_layout.addWidget(title_skeleton, alignment=Qt.AlignCenter)
+                
+                # UP主骨架
+                skeleton_layout.addSpacing(8)
+                up_skeleton = QWidget()
+                up_skeleton.setFixedSize(100, 12)
+                up_skeleton.setStyleSheet(skeleton_style)
+                skeleton_layout.addWidget(up_skeleton, alignment=Qt.AlignCenter)
+                
+                # 时长骨架
+                duration_skeleton = QWidget()
+                duration_skeleton.setFixedSize(60, 12)
+                duration_skeleton.setStyleSheet(skeleton_style)
+                skeleton_layout.addWidget(duration_skeleton, alignment=Qt.AlignCenter)
+                
+                skeleton_widget.setLayout(skeleton_layout)
+                
+                # 创建列表项并设置大小
+                skeleton_item = QListWidgetItem()
+                skeleton_item.setSizeHint(QSize(190, 150))
+                
+                # 添加到列表
+                self.content_list.addItem(skeleton_item)
+                self.content_list.setItemWidget(skeleton_item, skeleton_widget)
+                skeleton_items.append(skeleton_item)
+                
+                # 强制处理事件，避免界面卡顿
+                QApplication.processEvents()
+            
+            # 短暂延迟，让骨架屏显示一会儿
+            time.sleep(0.2)
+            
+            # 清空骨架屏
+            self.content_list.clear()
+            
             # 确保items是一个列表
             if not isinstance(items, list):
                 logger.error(f"items类型错误，期望列表，实际是：{type(items)}")
@@ -8371,7 +8744,7 @@ class BilibiliDownloader(BaseWindow):
                 
                 # 创建列表项并设置大小
                 list_item = QListWidgetItem()
-                list_item.setSizeHint(QSize(190, 180))
+                list_item.setSizeHint(QSize(190, 150))
                 list_item.setData(Qt.UserRole, item)
                 
                 # 添加到列表
@@ -8380,6 +8753,12 @@ class BilibiliDownloader(BaseWindow):
                 
                 added_count += 1
                 logger.info(f"添加收藏内容 {i+1}/{len(items)}：{item.get('title', '未知视频')}")
+                
+                # 强制处理事件，避免界面卡顿
+                QApplication.processEvents()
+                
+                # 短暂延迟，避免请求过快
+                time.sleep(0.05)
             
             # 启用解析按钮
             if hasattr(self, 'parse_favorite_btn'):
@@ -10044,8 +10423,11 @@ class BilibiliDownloader(BaseWindow):
                 audio_quality_map = {
                     30251: "Hi-Res无损",
                     30250: "杜比全景声",
+                    100010: "高音质 (320K)",
                     30280: "高音质 (192K)",
+                    100009: "标准音质 (192K)",
                     30232: "标准音质 (132K)",
+                    100008: "低音质 (128K)",
                     30216: "低音质 (64K)"
                 }
                 
@@ -10202,6 +10584,102 @@ class BilibiliDownloader(BaseWindow):
                     self.danmaku_count_label.setText("无cid")
             else:
                 print("警告：danmaku_count_label控件不存在")
+            
+            # 获取字幕信息
+            print("获取字幕信息")
+            if hasattr(self, 'subtitle_count_label'):
+                bvid = video_info.get("bvid", "")
+                if bvid:
+                    print(f"获取字幕，bvid: {bvid}")
+                    import threading
+                    def get_subtitle_info():
+                        try:
+                            if not hasattr(self, 'parser') or not self.parser:
+                                print("parser未初始化，无法获取字幕信息")
+                                def update_subtitle_error():
+                                    try:
+                                        self.subtitle_count_label.setText("获取失败")
+                                        self.subtitle_count_label.repaint()
+                                        QApplication.processEvents()
+                                    except Exception as e:
+                                        print(f"更新字幕错误UI失败：{str(e)}")
+                                QTimer.singleShot(0, update_subtitle_error)
+                                return
+                            
+                            print(f"开始获取字幕ID，bvid: {bvid}")
+                            subtitle_info_data = self.parser._get_subtitle_info(bvid)
+                            print(f"字幕ID获取结果: {subtitle_info_data}")
+                            
+                            subtitle_id = subtitle_info_data.get('subtitle_id', '')
+                            if not subtitle_id:
+                                print("未找到字幕ID")
+                                def update_subtitle_error():
+                                    try:
+                                        self.subtitle_count_label.setText("无字幕")
+                                        self.subtitle_count_label.repaint()
+                                        QApplication.processEvents()
+                                    except Exception as e:
+                                        print(f"更新字幕错误UI失败：{str(e)}")
+                                QTimer.singleShot(0, update_subtitle_error)
+                                return
+                            
+                            print(f"开始获取字幕内容，subtitle_id: {subtitle_id}")
+                            subtitle_info = self.parser.get_subtitle(subtitle_id)
+                            print(f"获取字幕信息结果: {subtitle_info}")
+                            if subtitle_info.get('error') == "":
+                                data = subtitle_info.get('data', {})
+                                count = len(data.get('body', []))
+                                sub_type = data.get('type', '-')
+                                sub_lang = data.get('lang', '-')
+                                print(f"字幕数量：{count}条")
+                                # 保存字幕数据
+                                self.current_subtitle_data = subtitle_info
+                                # 启用字幕按钮
+                                self.select_subtitle_btn.setEnabled(True)
+                                # 更新UI
+                                def update_subtitle_count():
+                                    try:
+                                        print(f"更新字幕数量UI：{count}条")
+                                        self.subtitle_count_label.setText(f"{count}条")
+                                        self.subtitle_type_label.setText(sub_type)
+                                        self.subtitle_lang_label.setText(sub_lang)
+                                        self.subtitle_count_label.repaint()
+                                        self.subtitle_type_label.repaint()
+                                        self.subtitle_lang_label.repaint()
+                                        QApplication.processEvents()
+                                        print("字幕数量UI更新成功")
+                                    except Exception as e:
+                                        print(f"更新字幕数量UI失败：{str(e)}")
+                                QTimer.singleShot(0, update_subtitle_count)
+                            else:
+                                print("字幕获取失败")
+                                def update_subtitle_error():
+                                    try:
+                                        self.subtitle_count_label.setText("无字幕")
+                                        self.subtitle_count_label.repaint()
+                                        QApplication.processEvents()
+                                    except Exception as e:
+                                        print(f"更新字幕错误UI失败：{str(e)}")
+                                QTimer.singleShot(0, update_subtitle_error)
+                        except Exception as e:
+                            print(f"获取字幕信息失败：{str(e)}")
+                            traceback.print_exc()
+                            def update_subtitle_error():
+                                try:
+                                    self.subtitle_count_label.setText("获取失败")
+                                    self.subtitle_count_label.repaint()
+                                    QApplication.processEvents()
+                                except Exception as e:
+                                    print(f"更新字幕错误UI失败：{str(e)}")
+                            QTimer.singleShot(0, update_subtitle_error)
+                    
+                    thread = threading.Thread(target=get_subtitle_info, daemon=True)
+                    thread.start()
+                else:
+                    print("未找到bvid，无法获取字幕信息")
+                    self.subtitle_count_label.setText("无bvid")
+            else:
+                print("警告：subtitle_count_label控件不存在")
             
             # 强制更新UI
             print("强制更新UI")
@@ -11030,30 +11508,80 @@ class BilibiliDownloader(BaseWindow):
     def finish_episode(self, *args):
         if len(args) == 4:
             task_id, ep_index, success, message = args
-            
+
             # 主窗口显示通知
             if success:
                 self.show_notification(f"视频下载完成：{message}", "success")
+                
+                # 下载完成后打开文件夹
+                auto_open_folder = self.config.get_app_setting("auto_open_folder", False)
+                if auto_open_folder:
+                    try:
+                        import subprocess
+                        import re
+                        import os
+                        # 从消息中提取文件路径
+                        match = re.search(r'完成：视频：(.+?)\.mp4', message)
+                        if match:
+                            # 获取保存路径
+                            save_path = self.config.get_app_setting("save_path", os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载"))
+                            folder_path = save_path
+                            if os.path.exists(folder_path):
+                                if os.name == 'nt':  # Windows
+                                    subprocess.run(['explorer', folder_path], shell=True)
+                                elif os.name == 'posix':  # macOS/Linux
+                                    subprocess.run(['open' if os.uname().sysname == 'Darwin' else 'xdg-open', folder_path])
+                    except Exception as e:
+                        print(f"打开文件夹失败：{str(e)}")
             else:
                 self.show_notification(f"视频下载失败：{message}", "error")
-            
+
             # 转发给其他窗口
             for window in self.batch_windows.values():
                 if window and window.isVisible():
                     window.finish_episode(task_id, ep_index, success, message)
+
+            # 检查视频兼容性并处理
+            if success:
+                self._check_and_convert_video(task_id, ep_index, message)
         elif len(args) == 3:
             index, success, message = args
-            
+
             # 主窗口显示通知
             if success:
                 self.show_notification(f"视频下载完成：{message}", "success")
+                
+                # 下载完成后打开文件夹
+                auto_open_folder = self.config.get_app_setting("auto_open_folder", False)
+                if auto_open_folder:
+                    try:
+                        import subprocess
+                        import re
+                        import os
+                        # 从消息中提取文件路径
+                        match = re.search(r'完成：视频：(.+?)\.mp4', message)
+                        if match:
+                            # 获取保存路径
+                            save_path = self.config.get_app_setting("save_path", os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载"))
+                            folder_path = save_path
+                            if os.path.exists(folder_path):
+                                if os.name == 'nt':  # Windows
+                                    subprocess.run(['explorer', folder_path], shell=True)
+                                elif os.name == 'posix':  # macOS/Linux
+                                    subprocess.run(['open' if os.uname().sysname == 'Darwin' else 'xdg-open', folder_path])
+                    except Exception as e:
+                        print(f"打开文件夹失败：{str(e)}")
             else:
                 self.show_notification(f"视频下载失败：{message}", "error")
-            
+
             # 转发给其他窗口
             for window in self.batch_windows.values():
                 if window and window.isVisible():
                     window.finish_episode(index, success, message)
+
+            # 检查视频兼容性并处理
+            if success:
+                self._check_and_convert_video(None, index, message)
         
         # 检查是否所有下载任务都已完成
         all_completed = True
@@ -11079,8 +11607,117 @@ class BilibiliDownloader(BaseWindow):
         # 更新状态标签
         self.status_label.setText("下载窗口已关闭，可重新开始下载")
 
-    
-    
+    def _check_hevc_before_download(self, selected_videos, save_path):
+        try:
+            import os
+
+            if not hasattr(self, 'parser') or not self.parser:
+                return
+
+            # 检查HEVC是否支持
+            hevc_supported = self.parser.check_hevc_support()
+            if hevc_supported:
+                return
+
+            # 获取视频编码信息（这里通过API获取，实际视频下载后才能确定，但可以检测B站返回的编码格式）
+            has_hevc = False
+            for ep in selected_videos:
+                ep_title = ep.get('title', ep.get('ep_title', f"第{ep.get('ep_index', 0)+1}集"))
+                # 检测是否有HEVC/AV1编码的剧集（通过检查dash信息）
+                video_urls = ep.get('video_urls', {})
+                if video_urls:
+                    for qn, url in video_urls.items():
+                        if 'hevc' in str(url).lower() or 'av01' in str(url).lower():
+                            has_hevc = True
+                            break
+
+            if not has_hevc:
+                return
+
+            # 显示询问对话框
+            dialog = QDialog(self)
+            dialog.setWindowTitle("检测到不兼容编码")
+            dialog.setMinimumSize(500, 200)
+            dialog.setStyleSheet(self.styleSheet())
+
+            layout = QVBoxLayout(dialog)
+
+            label = QLabel(f"检测到选中的视频包含HEVC/AV1编码，您的电脑尚未安装对应的解码器。\n\n是否现在安装HEVC解码器扩展？\n（安装后可正常播放HEVC/AV1编码的视频）")
+            label.setWordWrap(True)
+            layout.addWidget(label)
+
+            dont_ask_checkbox = QCheckBox("不再询问（可随时在设置中重新开启）")
+            layout.addWidget(dont_ask_checkbox)
+
+            btn_layout = QHBoxLayout()
+            install_btn = QPushButton("安装解码器")
+            install_btn.setStyleSheet("background-color: #409eff; color: white; padding: 8px 16px; border-radius: 4px;")
+            skip_btn = QPushButton("跳过（下载后手动转换）")
+            skip_btn.setStyleSheet("padding: 8px 16px; border-radius: 4px;")
+
+            btn_layout.addWidget(install_btn)
+            btn_layout.addWidget(skip_btn)
+            layout.addLayout(btn_layout)
+
+            def on_install():
+                self.signal_emitter.install_hevc.emit()
+                if dont_ask_checkbox.isChecked():
+                    self.config.set_app_setting("hevc_not_supported_ask", False)
+                dialog.accept()
+
+            def on_skip():
+                if dont_ask_checkbox.isChecked():
+                    self.config.set_app_setting("hevc_not_supported_ask", False)
+                dialog.accept()
+
+            install_btn.clicked.connect(on_install)
+            skip_btn.clicked.connect(on_skip)
+
+            dialog.exec_()
+
+        except Exception as e:
+            print(f"HEVC检测失败：{str(e)}")
+
+    def _check_and_convert_video(self, task_id, ep_index, message):
+        try:
+            import os
+            import re
+
+            if not hasattr(self, 'parser') or not self.parser:
+                return
+
+            auto_convert = self.config.get_app_setting("auto_convert_incompatible", False)
+            if not auto_convert:
+                return
+
+            match = re.search(r'完成：(.+\.mp4)', message)
+            if not match:
+                return
+
+            video_path = match.group(1)
+            if not os.path.exists(video_path):
+                return
+
+            codec_info = self.parser.check_video_codec_compatible(video_path)
+            if codec_info.get("compatible", True):
+                return
+
+            codec_name = codec_info.get("codec", "unknown")
+            output_path = video_path.rsplit('.', 1)[0] + f"_{codec_name}_converted.mp4"
+
+            self.show_notification(f"检测到{codec_name}编码视频，正在转换为H.264...", "info")
+
+            def progress_callback(progress):
+                pass
+
+            success, result_msg = self.parser.convert_video_to_h264(video_path, output_path, progress_callback)
+            if success:
+                self.show_notification(f"视频转换成功：{os.path.basename(output_path)}", "success")
+            else:
+                self.show_notification(f"视频转换失败：{result_msg}", "error")
+
+        except Exception as e:
+            print(f"视频兼容性检查失败：{str(e)}")
 
     def toggle_maximize(self):
         
@@ -13989,19 +14626,10 @@ class BilibiliDownloader(BaseWindow):
                                 print(f"handle_verification_video_info函数发生异常：{str(e)}")
                                 traceback.print_exc()
                         
-                        print("准备调用handle_verification_video_info")
-                        
-                        try:
-                            print("直接调用handle_verification_video_info")
-                            handle_verification_video_info()
-                            print("handle_verification_video_info直接调用完成")
-                        except Exception as e:
-                            print(f"直接调用handle_verification_video_info失败：{str(e)}")
-                            traceback.print_exc()
-                            
-                            print("尝试通过QTimer调用handle_verification_video_info")
-                            QTimer.singleShot(0, handle_verification_video_info)
-                            print("handle_verification_video_info已通过QTimer安排执行")
+                        print("准备通过QTimer调用handle_verification_video_info")
+                        # 直接使用QTimer在主线程中执行，避免线程安全问题
+                        QTimer.singleShot(0, handle_verification_video_info)
+                        print("handle_verification_video_info已通过QTimer安排执行")
                     except Exception as e:
                         print(f"Cookie处理异常：{str(e)}")
                         traceback.print_exc()
@@ -14094,8 +14722,8 @@ class BilibiliDownloader(BaseWindow):
         
         content_widget = QWidget()
         content_layout = QGridLayout(content_widget)
-        content_layout.setContentsMargins(10, 10, 10, 10)
-        content_layout.setSpacing(10)
+        content_layout.setContentsMargins(15, 15, 15, 15)
+        content_layout.setSpacing(15)
         content_layout.setColumnStretch(0, 1)
         content_layout.setColumnStretch(1, 1)
 
@@ -14179,11 +14807,10 @@ class BilibiliDownloader(BaseWindow):
 
         # 下载设置组
         download_group = QGroupBox("下载设置")
-        download_group.setStyleSheet("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; } QLabel { font-size: 13px; } QCheckBox { spacing: 8px; font-size: 13px; }")
-        download_group.setMinimumHeight(320)
+        download_group.setStyleSheet("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; } QLabel { font-size: 13px; } QCheckBox { spacing: 8px; font-size: 13px; } QComboBox { max-width: 200px; }")
         download_layout = QVBoxLayout(download_group)
-        download_layout.setContentsMargins(10, 10, 10, 10)
-        download_layout.setSpacing(6)
+        download_layout.setContentsMargins(15, 15, 15, 15)
+        download_layout.setSpacing(8)
         
         # 默认下载质量
         quality_layout = QHBoxLayout()
@@ -14191,7 +14818,7 @@ class BilibiliDownloader(BaseWindow):
         quality_label.setMinimumHeight(22)
         quality_combo = QComboBox()
         quality_combo.setMinimumHeight(26)
-        quality_combo.setStyleSheet("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px;")
+        quality_combo.setStyleSheet("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px; max-width: 200px;")
         
         # 获取用户登录状态
         is_vip = False
@@ -14237,29 +14864,35 @@ class BilibiliDownloader(BaseWindow):
         quality_layout.addWidget(quality_combo, stretch=1)
         download_layout.addLayout(quality_layout)
         
+        # 复选框布局（两行两列）
+        checkbox_layout = QGridLayout()
+        checkbox_layout.setSpacing(8)
+        
         # 自动下载封面
         auto_cover_checkbox = QCheckBox("自动下载视频封面")
         auto_cover_checkbox.setMinimumHeight(22)
         auto_cover_checkbox.setChecked(self.config.get_app_setting("auto_download_cover", True))
-        download_layout.addWidget(auto_cover_checkbox)
+        checkbox_layout.addWidget(auto_cover_checkbox, 0, 0)
         
         # 自动下载弹幕
         auto_danmaku_checkbox = QCheckBox("自动下载弹幕文件")
         auto_danmaku_checkbox.setMinimumHeight(22)
         auto_danmaku_checkbox.setChecked(self.config.get_app_setting("auto_download_danmaku", False))
-        download_layout.addWidget(auto_danmaku_checkbox)
+        checkbox_layout.addWidget(auto_danmaku_checkbox, 0, 1)
         
         # 下载完成后打开文件夹
         auto_open_folder_checkbox = QCheckBox("下载完成后打开文件夹")
         auto_open_folder_checkbox.setMinimumHeight(22)
         auto_open_folder_checkbox.setChecked(self.config.get_app_setting("auto_open_folder", False))
-        download_layout.addWidget(auto_open_folder_checkbox)
+        checkbox_layout.addWidget(auto_open_folder_checkbox, 1, 0)
         
         # 下载完成后播放提示音
         play_sound_checkbox = QCheckBox("下载完成后播放提示音")
         play_sound_checkbox.setMinimumHeight(22)
         play_sound_checkbox.setChecked(self.config.get_app_setting("play_sound_on_complete", True))
-        download_layout.addWidget(play_sound_checkbox)
+        checkbox_layout.addWidget(play_sound_checkbox, 1, 1)
+        
+        download_layout.addLayout(checkbox_layout)
         
         # 视频输出格式
         video_format_layout = QHBoxLayout()
@@ -14267,7 +14900,7 @@ class BilibiliDownloader(BaseWindow):
         video_format_label.setMinimumHeight(22)
         video_format_combo = QComboBox()
         video_format_combo.setMinimumHeight(26)
-        video_format_combo.setStyleSheet("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px;")
+        video_format_combo.setStyleSheet("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px; max-width: 200px;")
         video_format_options = [
             ("MP4", "mp4"),
             ("MKV", "mkv"),
@@ -14349,12 +14982,15 @@ class BilibiliDownloader(BaseWindow):
         audio_quality_label.setMinimumHeight(22)
         audio_quality_combo = QComboBox()
         audio_quality_combo.setMinimumHeight(26)
-        audio_quality_combo.setStyleSheet("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px;")
+        audio_quality_combo.setStyleSheet("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px; max-width: 200px;")
         audio_quality_options = [
             ("Hi-Res无损", 30251),
             ("杜比全景声", 30250),
+            ("高音质 (320K)", 100010),
             ("高音质 (192K)", 30280),
+            ("标准音质 (192K)", 100009),
             ("标准音质 (132K)", 30232),
+            ("低音质 (128K)", 100008),
             ("低音质 (64K)", 30216)
         ]
         for text, value in audio_quality_options:
@@ -14376,7 +15012,7 @@ class BilibiliDownloader(BaseWindow):
         danmaku_format_label.setMinimumHeight(22)
         danmaku_format_combo = QComboBox()
         danmaku_format_combo.setMinimumHeight(26)
-        danmaku_format_combo.setStyleSheet("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px;")
+        danmaku_format_combo.setStyleSheet("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px; max-width: 200px;")
         danmaku_format_options = [
             ("XML", "xml"),
             ("ASS", "ass"),
@@ -14399,21 +15035,21 @@ class BilibiliDownloader(BaseWindow):
         danmaku_format_layout.addWidget(danmaku_format_combo, stretch=1)
         download_layout.addLayout(danmaku_format_layout)
         
-        content_layout.addWidget(download_group, 2, 0, 1, 2)
+        content_layout.addWidget(download_group, 2, 0)
 
         # 网络设置组
         network_group = QGroupBox("网络设置")
-        network_group.setStyleSheet("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; } QLabel { font-size: 13px; }")
+        network_group.setStyleSheet("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; } QLabel { font-size: 13px; } QComboBox { max-width: 150px; }")
         network_layout = QVBoxLayout(network_group)
-        network_layout.setContentsMargins(10, 10, 10, 10)
-        network_layout.setSpacing(8)
+        network_layout.setContentsMargins(15, 15, 15, 15)
+        network_layout.setSpacing(10)
         
         # 超时时间
         timeout_layout = QHBoxLayout()
         timeout_label = QLabel("网络超时时间（秒）：")
         timeout_spin = QComboBox()
         timeout_spin.setMinimumHeight(28)
-        timeout_spin.setStyleSheet("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px;")
+        timeout_spin.setStyleSheet("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px; max-width: 150px;")
         for i in [5, 10, 15, 20, 30, 60]:
             timeout_spin.addItem(str(i), i)
         current_timeout = self.config.get_app_setting("network_timeout", 15)
@@ -14430,7 +15066,7 @@ class BilibiliDownloader(BaseWindow):
         retry_label = QLabel("下载失败重试次数：")
         retry_spin = QComboBox()
         retry_spin.setMinimumHeight(28)
-        retry_spin.setStyleSheet("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px;")
+        retry_spin.setStyleSheet("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px; max-width: 150px;")
         for i in [1, 2, 3, 5, 10]:
             retry_spin.addItem(str(i), i)
         current_retry = self.config.get_app_setting("max_retry", 3)
@@ -14442,36 +15078,52 @@ class BilibiliDownloader(BaseWindow):
         retry_layout.addWidget(retry_spin, stretch=1)
         network_layout.addLayout(retry_layout)
         
-        content_layout.addWidget(network_group, 3, 0)
+        content_layout.addWidget(network_group, 2, 1)
 
         # 其他设置组
         other_group = QGroupBox("其他设置")
         other_group.setStyleSheet("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; } QCheckBox { spacing: 8px; font-size: 13px; }")
         other_layout = QVBoxLayout(other_group)
-        other_layout.setContentsMargins(10, 10, 10, 10)
-        other_layout.setSpacing(6)
+        other_layout.setContentsMargins(15, 15, 15, 15)
+        other_layout.setSpacing(8)
+        
+        # 复选框布局（两行三列）
+        other_checkbox_layout = QGridLayout()
+        other_checkbox_layout.setSpacing(8)
         
         # 自动检查更新
         auto_update_checkbox = QCheckBox("启动时自动检查更新")
         auto_update_checkbox.setChecked(self.config.get_app_setting("auto_check_update", True))
-        other_layout.addWidget(auto_update_checkbox)
+        other_checkbox_layout.addWidget(auto_update_checkbox, 0, 0)
         
         # 显示下载速度
         show_speed_checkbox = QCheckBox("显示下载速度")
         show_speed_checkbox.setChecked(self.config.get_app_setting("show_download_speed", True))
-        other_layout.addWidget(show_speed_checkbox)
+        other_checkbox_layout.addWidget(show_speed_checkbox, 0, 1)
         
         # 显示悬浮球
         show_float_checkbox = QCheckBox("显示悬浮球")
         show_float_checkbox.setChecked(self.config.get_app_setting("show_floating_ball", True))
-        other_layout.addWidget(show_float_checkbox)
+        other_checkbox_layout.addWidget(show_float_checkbox, 0, 2)
         
         # 显示合并窗口
         show_merge_window_checkbox = QCheckBox("显示合并进度窗口")
         show_merge_window_checkbox.setChecked(self.config.get_app_setting("show_merge_window", False))
-        other_layout.addWidget(show_merge_window_checkbox)
+        other_checkbox_layout.addWidget(show_merge_window_checkbox, 1, 0)
+
+        # 自动转换不兼容视频
+        auto_convert_checkbox = QCheckBox("下载完成后自动转换不兼容视频(AV1/HEVC)")
+        auto_convert_checkbox.setChecked(self.config.get_app_setting("auto_convert_incompatible", False))
+        other_checkbox_layout.addWidget(auto_convert_checkbox, 1, 1, 1, 2)
+
+        # HEVC不支持时询问
+        hevc_not_support_ask_checkbox = QCheckBox("HEVC/AV1视频下载时询问是否安装解码器")
+        hevc_not_support_ask_checkbox.setChecked(self.config.get_app_setting("hevc_not_supported_ask", True))
+        other_checkbox_layout.addWidget(hevc_not_support_ask_checkbox, 2, 0, 1, 3)
         
-        content_layout.addWidget(other_group, 3, 1)
+        other_layout.addLayout(other_checkbox_layout)
+
+        content_layout.addWidget(other_group, 3, 0, 1, 2)
         
         # 按钮布局
         btn_layout = QHBoxLayout()
@@ -14531,6 +15183,8 @@ class BilibiliDownloader(BaseWindow):
             self.config.set_app_setting("show_download_speed", show_speed_checkbox.isChecked())
             self.config.set_app_setting("show_floating_ball", show_float_checkbox.isChecked())
             self.config.set_app_setting("show_merge_window", show_merge_window_checkbox.isChecked())
+            self.config.set_app_setting("auto_convert_incompatible", auto_convert_checkbox.isChecked())
+            self.config.set_app_setting("hevc_not_supported_ask", hevc_not_support_ask_checkbox.isChecked())
             
             dialog.accept()
         
