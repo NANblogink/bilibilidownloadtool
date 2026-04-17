@@ -9,9 +9,17 @@ import logging
 import requests
 import asyncio
 from wbi_sign import WbiSign
-import orjson
 
 logger = logging.getLogger(__name__)
+
+# 条件导入：优先使用orjson，失败则使用标准json模块
+try:
+    import orjson
+    json = orjson
+    logger.debug("使用orjson库进行JSON解析")
+except ImportError:
+    import json
+    logger.debug("orjson库导入失败，使用标准json模块")
 
 class ApiRequest:
     def __init__(self, session=None):
@@ -72,7 +80,7 @@ class ApiRequest:
                             content = content[start_index:]
                     
                     try:
-                        data = orjson.loads(content)
+                        data = json.loads(content)
                         
                         code = data.get('code', 0)
                         if code != 0:
@@ -186,7 +194,7 @@ class ApiRequest:
                             content = content[start_index:]
                     
                     try:
-                        data = orjson.loads(content)
+                        data = json.loads(content)
                         
                         code = data.get('code', 0)
                         if code != 0:
