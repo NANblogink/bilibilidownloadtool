@@ -151,10 +151,9 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"检查环境时出错：{str(e)}")
         dependency_thread = threading.Thread(target=check_dependencies)
-        # 移除daemon=True，让线程正常完成
         dependency_thread.start()
         # 等待环境检测完成
-        dependency_thread.join(timeout=30)  # 最多等待30秒
+        dependency_thread.join(timeout=30)
         app.processEvents()
         splash.update_progress(50, "初始化组件...")
         app.processEvents()

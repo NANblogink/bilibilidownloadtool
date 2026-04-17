@@ -12,13 +12,25 @@ import hashlib
 import hmac
 from Crypto.Cipher import AES
 from Crypto.PublicKey import RSA
+import logging
 from Crypto.Cipher import PKCS1_OAEP
 from Crypto.Hash import SHA1
 from wbi_sign import WbiSign
 from api_request import ApiRequest
 from video_parser import VideoParser
-import orjson
 import requests
+
+logger = logging.getLogger(__name__)
+
+# 条件导入：优先使用orjson进行字符串解析，始终使用标准json进行文件操作
+import json as std_json
+try:
+    import orjson
+    json = orjson
+    logger.debug("使用orjson库进行JSON解析")
+except ImportError:
+    import json
+    logger.debug("orjson库导入失败，使用标准json模块")
 
 # 预编译正则表达式
 KID_REGEX = {
@@ -124,7 +136,7 @@ class SimpleBiliDRM:
                     raise Exception(f"DRM API请求失败，状态码: {resp.status}")
                 
                 try:
-                    response = orjson.loads(response_text)
+                    response = json.loads(response_text)
                 except Exception as e:
                     logger.error(f"解析DRM API响应失败: {str(e)}")
                     raise Exception(f"解析DRM API响应失败: {str(e)}")
@@ -277,7 +289,7 @@ class BilibiliParser:
             cache_file = 'wbi_cache.json'
             if os.path.exists(cache_file):
                 with open(cache_file, 'r', encoding='utf-8') as f:
-                    cache_data = json.load(f)
+                    cache_data = std_json.load(f)
                 img_key = cache_data.get('wbi_img_key', '')
                 sub_key = cache_data.get('wbi_sub_key', '')
                 self.wbi_sign.set_wbi_keys(img_key, sub_key)
@@ -295,7 +307,7 @@ class BilibiliParser:
                 'wbi_update_time': time.time()
             }
             with open(cache_file, 'w', encoding='utf-8') as f:
-                json.dump(cache_data, f, ensure_ascii=False, indent=2)
+                std_json.dump(cache_data, f, ensure_ascii=False, indent=2)
             logger.debug("Wbi密钥保存到缓存成功")
         except Exception as e:
             logger.error(f"保存Wbi缓存失败：{str(e)}")
@@ -410,7 +422,7 @@ class BilibiliParser:
         if os.path.exists(self.cookie_path):
             try:
                 with open(self.cookie_path, 'r', encoding='utf-8') as f:
-                    cookie_data = json.load(f)
+                    cookie_data = std_json.load(f)
 
                 if isinstance(cookie_data, list):
                     if len(cookie_data) > 0 and 'name' in cookie_data[0] and 'value' in cookie_data[0]:
@@ -432,7 +444,7 @@ class BilibiliParser:
         try:
             if isinstance(cookies, str):
                 try:
-                    cookies = orjson.loads(cookies.strip())
+                    cookies = json.loads(cookies.strip())
                 except Exception:
                     cookies = self._parse_cookie_text(cookies)
 
@@ -448,7 +460,7 @@ class BilibiliParser:
 
             cookie_list = [{'name': k, 'value': v} for k, v in cookies.items()]
             with open(self.cookie_path, 'w', encoding='utf-8') as f:
-                json.dump(cookie_list, f, ensure_ascii=False, indent=2)
+                std_json.dump(cookie_list, f, ensure_ascii=False, indent=2)
 
             self.cookies = cookies
             self.session.cookies.clear()
@@ -478,7 +490,7 @@ class BilibiliParser:
     _api_cache = {}
     _cache_expiry = 300  # 缓存有效期（秒）
     
-    def _api_request(self, url, timeout=15, max_retries=3, use_wbi=False, params=None):
+    def _api_request(self, url, timeout=15, max_retries=3, use_wbi=False, params=None, use_cache=True):
         try:
             if not url or not isinstance(url, str):
                 return False, {"error": "无效的API请求地址"}
@@ -487,9 +499,10 @@ class BilibiliParser:
             cache_key = self._generate_cache_key(url, params, use_wbi)
             
             # 检查缓存
-            cached_data = self._get_cached_data(cache_key)
-            if cached_data:
-                return True, cached_data
+            if use_cache:
+                cached_data = self._get_cached_data(cache_key)
+                if cached_data:
+                    return True, cached_data
             
             for retry in range(max_retries):
                 try:
@@ -540,7 +553,7 @@ class BilibiliParser:
                             content = content[start_index:]
                     
                     try:
-                        data = orjson.loads(content)
+                        data = json.loads(content)
                         
                         code = data.get('code', 0)
                         if code != 0:
@@ -648,7 +661,8 @@ class BilibiliParser:
         if not api_url:
             return False, "配置错误：未找到用户信息API地址"
 
-        success, result = self._api_request(api_url)
+        # 调用_api_request时禁用缓存，确保每次都是最新的验证
+        success, result = self._api_request(api_url, timeout=10, max_retries=1, use_cache=False)
         if not success:
             return False, f"API请求失败：{result['error']}"
 
@@ -718,7 +732,7 @@ class BilibiliParser:
             
             # 解析JSON响应
             try:
-                data = orjson.loads(content)
+                data = json.loads(content)
                 logger.info(f"解析后的JSON数据：{data}")
             except json.JSONDecodeError as e:
                 # 清理响应内容，处理可能的前缀
@@ -728,7 +742,7 @@ class BilibiliParser:
                     if start_index != -1:
                         content = content[start_index:]
                 try:
-                    data = orjson.loads(content)
+                    data = json.loads(content)
                     logger.info(f"清理后解析的JSON数据：{data}")
                 except json.JSONDecodeError as e:
                     raise Exception(f"获取二维码失败：JSON解析错误：{str(e)}")
@@ -792,7 +806,7 @@ class BilibiliParser:
                         start_index = content.find('{')
                         if start_index != -1:
                             content = content[start_index:]
-                    data = orjson.loads(content)
+                    data = json.loads(content)
                 
                 code = data.get('code', 0)
                 if code != 0:
@@ -879,7 +893,7 @@ class BilibiliParser:
             
             
             try:
-                data = orjson.loads(content)
+                data = json.loads(content)
             except json.JSONDecodeError:
                 
                 content = content.strip()
@@ -888,7 +902,7 @@ class BilibiliParser:
                     if start_index != -1:
                         content = content[start_index:]
                 try:
-                    data = orjson.loads(content)
+                    data = json.loads(content)
                 except json.JSONDecodeError as e:
                     raise Exception(f"轮询登录状态失败：JSON解析错误：{str(e)}")
             
@@ -1680,59 +1694,146 @@ class BilibiliParser:
             self.hevc_supported = False
             return False
 
-    def install_hevc(self, progress_callback):
+    def install_hevc(self, progress_callback=None):
         try:
-            
-            hevc_url = "https://download.ihsdus.cn/down/2025down/11/12/HEVC4061.zip?timestamp=69a90922&auth_key=992a5c333c270c3f7838d4007c40d08d"
-            
             import os
-            import tempfile
-            import requests
-            import zipfile
             import subprocess
-            
-            
-            temp_dir = tempfile.mkdtemp()
-            download_path = os.path.join(temp_dir, "HEVC4061.zip")
-            
-            
-            response = requests.get(hevc_url, stream=True, verify=False)
-            total_size = int(response.headers.get('content-length', 0))
-            downloaded_size = 0
-            
-            with open(download_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded_size += len(chunk)
-                        if total_size > 0:
-                            progress = int((downloaded_size / total_size) * 100)
-                            progress_callback(progress)
-            
-            
-            extract_dir = os.path.join(temp_dir, "HEVC")
-            os.makedirs(extract_dir, exist_ok=True)
-            
-            with zipfile.ZipFile(download_path, 'r') as zip_ref:
-                zip_ref.extractall(extract_dir)
-            
-            
-            exe_found = False
-            for root, dirs, files in os.walk(extract_dir):
-                for file in files:
-                    if file.endswith('.exe'):
-                        exe_path = os.path.join(root, file)
-                        
-                        subprocess.run([exe_path], shell=True)
-                        exe_found = True
-                        break
-                if exe_found:
-                    break
-            
-            progress_callback(100)
-            return True, "HEVC扩展下载并安装成功"
+
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            hevc_appx = os.path.join(script_dir, "hevc安装.Appx")
+
+            if not os.path.exists(hevc_appx):
+                return False, f"未找到HEVC安装文件：{hevc_appx}"
+
+            if not progress_callback:
+                def empty_progress(p):
+                    pass
+                progress_callback = empty_progress
+
+            progress_callback(10)
+
+            try:
+                result = subprocess.run(
+                    ["powershell", "-Command", f"Add-AppxPackage -Path '{hevc_appx}'"],
+                    capture_output=True,
+                    text=True,
+                    timeout=120
+                )
+
+                progress_callback(100)
+
+                if result.returncode == 0:
+                    return True, "HEVC扩展安装成功"
+                else:
+                    error_msg = result.stderr if result.stderr else result.stdout
+                    if "已安装" in error_msg or "already installed" in error_msg.lower():
+                        return True, "HEVC扩展已安装"
+                    return False, f"安装失败：{error_msg}"
+            except subprocess.TimeoutExpired:
+                return False, "HEVC扩展安装超时"
+            except Exception as e:
+                return False, f"安装异常：{str(e)}"
+
         except Exception as e:
             print(f"HEVC扩展安装失败：{str(e)}")
+            return False, str(e)
+
+    def check_video_codec_compatible(self, video_path):
+        try:
+            import json
+            import subprocess
+
+            ffprobe_path = self.ffmpeg_local.replace('ffmpeg.exe', 'ffprobe.exe')
+            if not os.path.exists(ffprobe_path):
+                ffprobe_path = shutil.which('ffprobe')
+
+            if not ffprobe_path:
+                return {"compatible": True, "codec": "unknown", "reason": "无法检测编码"}
+
+            cmd = [ffprobe_path, '-v', 'quiet', '-print_format', 'json', '-show_streams', video_path]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+            if result.returncode != 0:
+                return {"compatible": True, "codec": "unknown", "reason": "检测失败"}
+
+            data = json.loads(result.stdout)
+            for stream in data.get('streams', []):
+                if stream.get('codec_type') == 'video':
+                    codec_name = stream.get('codec_name', '')
+                    codec_long_name = stream.get('codec_long_name', '')
+
+                    incompatible_codecs = ['av1', 'hevc', 'h265']
+                    if codec_name in incompatible_codecs:
+                        return {
+                            "compatible": False,
+                            "codec": codec_name,
+                            "reason": f"当前视频使用{codec_long_name}编码，部分播放器可能无法直接播放"
+                        }
+                    return {"compatible": True, "codec": codec_name, "reason": ""}
+
+            return {"compatible": True, "codec": "unknown", "reason": ""}
+        except Exception as e:
+            print(f"视频兼容性检测失败：{str(e)}")
+            return {"compatible": True, "codec": "unknown", "reason": str(e)}
+
+    def convert_video_to_h264(self, input_path, output_path, progress_callback=None):
+        try:
+            import subprocess
+
+            ffmpeg_path = self.ffmpeg_local
+            if not ffmpeg_path or not os.path.exists(ffmpeg_path):
+                ffmpeg_path = shutil.which('ffmpeg')
+
+            if not ffmpeg_path:
+                return False, "未找到FFmpeg"
+
+            if not progress_callback:
+                def empty_progress(p):
+                    pass
+                progress_callback = empty_progress
+
+            cmd = [
+                ffmpeg_path,
+                '-i', input_path,
+                '-c:v', 'libx264',
+                '-preset', 'medium',
+                '-crf', '23',
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                '-y',
+                output_path
+            ]
+
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                shell=True
+            )
+
+            for line in process.stdout:
+                try:
+                    decoded_line = line.decode('utf-8', errors='replace')
+                    if 'frame=' in decoded_line:
+                        import re
+                        match = re.search(r'frame=\s*(\d+)', decoded_line)
+                        if match:
+                            frame_num = int(match.group(1))
+                            progress = min(int(frame_num / 100), 99)
+                            progress_callback(progress)
+                except Exception:
+                    pass
+
+            process.wait()
+
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                progress_callback(100)
+                return True, "转换成功"
+            else:
+                return False, "转换失败"
+
+        except Exception as e:
+            print(f"视频转换失败：{str(e)}")
             return False, str(e)
 
     def av2bv(self, aid):
@@ -1929,7 +2030,7 @@ class BilibiliParser:
                     start_index = content.find('{')
                     if start_index != -1:
                         content = content[start_index:]
-                login_data = orjson.loads(content)
+                login_data = json.loads(content)
             except Exception as e:
                 logger.error(f"解析登录响应失败：{str(e)}")
                 return {
@@ -2183,7 +2284,7 @@ class BilibiliParser:
                     start_index = content.find('{')
                     if start_index != -1:
                         content = content[start_index:]
-                sms_data = orjson.loads(content)
+                sms_data = json.loads(content)
             
             code = sms_data.get('code', 0)
             message = sms_data.get('message', '未知错误')
@@ -2272,7 +2373,7 @@ class BilibiliParser:
                     start_index = content.find('{')
                     if start_index != -1:
                         content = content[start_index:]
-                verify_data = orjson.loads(content)
+                verify_data = json.loads(content)
             
             code = verify_data.get('code', 0)
             message = verify_data.get('message', '未知错误')
@@ -2872,7 +2973,7 @@ class BilibiliParser:
                 logger.debug(f"从ep字段获取剧集数量：{len(episodes)}")
 
             if not episodes:
-                logger.error(f"API未返回剧集数据，result: {orjson.dumps(result).decode('utf-8')[:1000]}...")
+                logger.error(f"API未返回剧集数据，result: {json.dumps(result).decode('utf-8')[:1000]}...")
                 
                 return {
                     "success": True,
@@ -2900,7 +3001,7 @@ class BilibiliParser:
             bangumi_episodes = []
             for idx, ep in enumerate(episodes, 1):
                 logger.info(f"剧集{idx}信息字段：{list(ep.keys())}")
-                logger.info(f"剧集{idx}信息：{orjson.dumps(ep).decode('utf-8')[:500]}")
+                logger.info(f"剧集{idx}信息：{json.dumps(ep).decode('utf-8')[:500]}")
                 ep_type = ep.get('type_name', '')
                 ep_num = ep.get('ep', idx)
                 
@@ -3153,7 +3254,7 @@ class BilibiliParser:
             logger.info(f"获取到的剧集数量：{len(episodes)}")
             
             if not episodes:
-                logger.error(f"API未返回剧集数据，data: {orjson.dumps(data).decode('utf-8')[:500]}...")
+                logger.error(f"API未返回剧集数据，data: {json.dumps(data).decode('utf-8')[:500]}...")
                 raise Exception("API未返回剧集数据")
 
             season_title = data.get('title', '未知课程')
@@ -3257,63 +3358,165 @@ class BilibiliParser:
             logger.error(error_msg)
             raise
 
-    def get_folder_content(self, media_id, page=1, page_size=20):
+    def get_folder_content(self, media_id, page=1, page_size=20, get_all=False):
         try:
-            logger.info(f"开始获取收藏夹内容，media_id: {media_id}, page: {page}, page_size: {page_size}")
+            logger.info(f"开始获取收藏夹内容，media_id: {media_id}, page: {page}, page_size: {page_size}, get_all: {get_all}")
             
             if not self.cookies:
                 raise Exception("请先登录")
             
-            url = "https://api.bilibili.com/x/v3/fav/resource/list"
-            params = {
+            # 构建API参数，严格按照B站API文档
+            base_params = {
                 'media_id': media_id,
-                'platform': 'web',
+                'ps': min(page_size, 20),  # API限制ps最大为20
                 'pn': page,
-                'ps': page_size
+                'platform': 'web'
             }
             
-            success, api_data = self._api_request(url, timeout=15, use_wbi=True, params=params)
+            # 使用B站API文档指定的URL
+            url = "https://api.bilibili.com/x/v3/fav/resource/list"
             
-            if not success:
-                logger.info("尝试不使用WBI签名获取收藏夹内容")
-                success, api_data = self._api_request(url, timeout=15, use_wbi=False, params=params)
-                if not success:
-                    logger.error(f"API请求失败：{api_data['error']}")
-                    raise Exception(f"获取收藏夹内容失败：{api_data['error']}")
-
-            if api_data.get('code') != 0:
-                error_msg = api_data.get('message', '未知错误')
-                logger.error(f"API错误信息：{error_msg}")
-                raise Exception(f"获取收藏夹内容失败：{error_msg}")
-
-            data = api_data.get('data', {})
-            medias = data.get('medias', [])
-            has_more = data.get('has_more', False)
+            # 直接使用requests库发送请求
+            import requests
+            session = requests.Session()
+            session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+                'Referer': 'https://www.bilibili.com',
+                'Accept': 'application/json, text/plain, */*'
+            })
+            
+            # 构建cookies字典
+            cookies = {}
+            for cookie in self.cookies:
+                if isinstance(cookie, dict):
+                    cookies[cookie.get('name')] = cookie.get('value')
+                elif '=' in cookie:
+                    name, value = cookie.split('=', 1)
+                    cookies[name.strip()] = value.strip()
+            
+            logger.info(f"发送请求到：{url}")
+            logger.info(f"请求参数：{base_params}")
+            logger.info(f"Cookies数量：{len(cookies)}")
+            
+            # 发送请求
+            resp = session.get(url, params=base_params, cookies=cookies, timeout=15, proxies={}, allow_redirects=True)
+            
+            logger.info(f"响应状态码：{resp.status_code}")
+            logger.info(f"响应内容：{resp.text[:500]}...")  # 限制日志长度
+            
+            if resp.status_code != 200:
+                raise Exception(f"获取收藏夹内容失败：HTTP {resp.status_code}")
+            
+            # 解析响应
+            import json
+            try:
+                data = json.loads(resp.text)
+                logger.info(f"解析后的响应数据：{data}")
+            except json.JSONDecodeError as e:
+                raise Exception(f"获取收藏夹内容失败：JSON解析错误：{str(e)}")
+            
+            # 检查响应码
+            code = data.get('code', 0)
+            if code != 0:
+                error_msg = data.get('message', '未知错误')
+                raise Exception(f"获取收藏夹内容失败：{error_msg}（code={code}）")
+            
+            # 处理数据
+            result_data = data.get('data', {})
+            medias = result_data.get('medias', [])
+            has_more = result_data.get('has_more', False)
             
             logger.info(f"获取到 {len(medias)} 个收藏内容")
             
             collection_items = []
             for item in medias:
-                collection_items.append({
-                    'id': item.get('id'),
-                    'type': 'video',
-                    'title': item.get('title', '未知内容'),
-                    'cover': item.get('cover'),
-                    'bvid': item.get('bv_id') or item.get('bvid') or item.get('aid'),
-                    'up_name': item.get('upper', {}).get('name', '未知UP主'),
-                    'duration': item.get('duration', 0),
-                    'fav_time': item.get('fav_time', 0)
-                })
+                # 根据API文档，类型为2的是视频稿件
+                if item.get('type') == 2:
+                    collection_items.append({
+                        'id': item.get('id'),
+                        'type': 'video',
+                        'title': item.get('title', '未知内容'),
+                        'cover': item.get('cover'),
+                        'bvid': item.get('bv_id') or item.get('bvid'),
+                        'aid': item.get('id'),  # 视频ID就是aid
+                        'up_name': item.get('upper', {}).get('name', '未知UP主'),
+                        'duration': item.get('duration', 0),
+                        'fav_time': item.get('fav_time', 0)
+                    })
             
             logger.info(f"处理后收藏内容数量：{len(collection_items)}")
-            for item in collection_items:
+            for item in collection_items[:5]:  # 只打印前5个，避免日志过多
                 logger.info(f"收藏内容：{item['title']} - BV号：{item['bvid']}")
+            if len(collection_items) > 5:
+                logger.info(f"... 还有 {len(collection_items) - 5} 个收藏内容")
             
-            return {
-                'items': collection_items,
-                'has_more': has_more,
-                'total': data.get('info', {}).get('media_count', 0)
-            }
+            # 如果需要获取所有内容
+            if get_all and has_more:
+                all_items = collection_items.copy()
+                current_page = page + 1
+                
+                while True:
+                    params = {
+                        'media_id': media_id,
+                        'ps': 20,  # API限制最大为20
+                        'pn': current_page,
+                        'platform': 'web'
+                    }
+                    
+                    logger.info(f"获取第{current_page}页收藏内容")
+                    resp = session.get(url, params=params, cookies=cookies, timeout=15, proxies={}, allow_redirects=True)
+                    
+                    if resp.status_code != 200:
+                        raise Exception(f"获取收藏夹内容失败：HTTP {resp.status_code}")
+                    
+                    data = json.loads(resp.text)
+                    if data.get('code') != 0:
+                        error_msg = data.get('message', '未知错误')
+                        raise Exception(f"获取收藏夹内容失败：{error_msg}（code={data.get('code')}）")
+                    
+                    page_data = data.get('data', {})
+                    page_medias = page_data.get('medias', [])
+                    has_more = page_data.get('has_more', False)
+                    
+                    logger.info(f"第{current_page}页获取到 {len(page_medias)} 个收藏内容")
+                    
+                    for item in page_medias:
+                        if item.get('type') == 2:  # 只处理视频稿件
+                            all_items.append({
+                                'id': item.get('id'),
+                                'type': 'video',
+                                'title': item.get('title', '未知内容'),
+                                'cover': item.get('cover'),
+                                'bvid': item.get('bv_id') or item.get('bvid'),
+                                'aid': item.get('id'),
+                                'up_name': item.get('upper', {}).get('name', '未知UP主'),
+                                'duration': item.get('duration', 0),
+                                'fav_time': item.get('fav_time', 0)
+                            })
+                    
+                    if not has_more:
+                        break
+                    
+                    current_page += 1
+                    # 避免请求过快被封
+                    import time
+                    time.sleep(0.5)
+                
+                logger.info(f"处理后收藏内容总数量：{len(all_items)}")
+                return {
+                    'items': all_items,
+                    'has_more': False,
+                    'total': len(all_items)
+                }
+            else:
+                # 从API响应中获取真实的收藏夹内容数量
+                total = result_data.get('info', {}).get('media_count', 0)
+                logger.info(f"收藏夹总内容数量：{total}")
+                return {
+                    'items': collection_items,
+                    'has_more': has_more,
+                    'total': total
+                }
         except Exception as e:
             error_msg = str(e)
             # 避免错误信息重复
@@ -3538,6 +3741,91 @@ class BilibiliParser:
             return video_data
         except Exception as e:
             raise Exception(f"视频主信息获取失败：{str(e)}（bvid={bvid}）")
+
+    def _get_subtitle_info(self, bvid):
+        try:
+            url = self.config.get_api_url("video_info_api").format(bvid=bvid)
+            
+            import urllib.parse
+            url_parts = list(urllib.parse.urlparse(url))
+            query = dict(urllib.parse.parse_qsl(url_parts[4]))
+            success, data = self._api_request(url, timeout=10, use_wbi=True, params=query)
+            if not success:
+                return {}
+            if data.get('code') != 0:
+                return {}
+            
+            if 'data' in data:
+                video_data = data['data']
+            elif 'result' in data:
+                video_data = data['result']
+            else:
+                return {}
+            
+            if 'View' in video_data:
+                view_data = video_data['View']
+                video_data.update(view_data)
+            
+            subtitle_info = video_data.get('subtitle', {})
+            logger.info(f"字幕信息完整数据：{subtitle_info}")
+            
+            if subtitle_info:
+                subtitle_list = subtitle_info.get('list', [])
+                logger.info(f"字幕列表完整数据：{subtitle_list}")
+                if subtitle_list:
+                    # 使用第一个字幕的id
+                    first_subtitle = subtitle_list[0]
+                    logger.info(f"第一个字幕完整数据：{first_subtitle}")
+                    logger.info(f"第一个字幕所有字段：{list(first_subtitle.keys())}")
+                    
+                    # 检查字幕对象中是否有ai_subtitle字段或者其他字段包含完整的字幕ID
+                    # 根据字幕api.txt，字幕ID应该是一个长十六进制字符串
+                    subtitle_id = None
+                    subtitle_url_from_list = None
+                    
+                    # 先检查是否有直接的subtitle_url字段
+                    if 'subtitle_url' in first_subtitle and first_subtitle.get('subtitle_url'):
+                        subtitle_url_from_list = first_subtitle.get('subtitle_url')
+                        logger.info(f"找到字幕URL字段：{subtitle_url_from_list}")
+                    
+                    # 尝试查找可能包含字幕ID的字段
+                    if 'ai_subtitle' in first_subtitle:
+                        subtitle_id = first_subtitle.get('ai_subtitle')
+                    elif 'id_str' in first_subtitle:
+                        subtitle_id = first_subtitle.get('id_str')
+                    elif 'oid' in first_subtitle:
+                        subtitle_id = first_subtitle.get('oid')
+                    elif 'id' in first_subtitle:
+                        # 尝试使用id字段，但可能需要进一步处理
+                        subtitle_id_num = first_subtitle.get('id')
+                        if subtitle_id_num:
+                            # 先尝试直接使用id的字符串形式
+                            subtitle_id = str(subtitle_id_num)
+                    
+                    # 如果有直接的字幕URL，尝试从中提取字幕ID
+                    if subtitle_url_from_list:
+                        # 从URL中提取字幕ID
+                        import re
+                        match = re.search(r'/bfs/ai_subtitle/prod/([^/?]+)', subtitle_url_from_list)
+                        if match:
+                            subtitle_id = match.group(1)
+                            logger.info(f"从URL中提取到字幕ID：{subtitle_id}")
+                    
+                    if subtitle_id:
+                        logger.info(f"找到字幕ID：{subtitle_id}")
+                        subtitle_url = f"https://aisubtitle.hdslb.com/bfs/ai_subtitle/prod/{subtitle_id}"
+                        logger.info(f"字幕URL：{subtitle_url}")
+                        return {
+                            "subtitle_id": subtitle_id,
+                            "subtitle_url": subtitle_url
+                        }
+            
+            return {}
+        except Exception as e:
+            logger.error(f"获取字幕信息失败：{str(e)}（bvid={bvid}）")
+            import traceback
+            traceback.print_exc()
+            return {}
             
     def _get_interact_video_info(self, bvid, graph_version, edge_id=0):
         try:
@@ -3762,6 +4050,12 @@ class BilibiliParser:
                                 quality_name = "杜比全景声"
                             elif audio_id == 30251:
                                 quality_name = "Hi-Res无损"
+                            elif audio_id == 100010:
+                                quality_name = "高音质 (320K)"
+                            elif audio_id == 100009:
+                                quality_name = "标准音质 (192K)"
+                            elif audio_id == 100008:
+                                quality_name = "低音质 (128K)"
                             else:
                                 quality_name = f"未知音质 ({audio_id})"
                             audio_qualities.append((audio_id, quality_name))
@@ -3770,7 +4064,7 @@ class BilibiliParser:
                     # 根据用户选择的音频质量返回对应的音频URL
                     if audio_qualities:
                         # 按音质优先级排序（从高到低）
-                        audio_quality_priority = [30251, 30250, 30280, 30232, 30216]
+                        audio_quality_priority = [30251, 30250, 100010, 30280, 100009, 30232, 100008, 30216]
                         sorted_audio_qualities = sorted(audio_qualities, key=lambda x: audio_quality_priority.index(x[0]) if x[0] in audio_quality_priority else 999)
                         
                         if audio_quality and audio_quality in audio_urls:
@@ -5931,6 +6225,80 @@ class BilibiliParser:
             traceback.print_exc()
             return {"data": {}, "error": str(e)}
             
+    def get_subtitle(self, subtitle_id):
+        import logging
+        import json
+        import requests
+        import time
+        import random
+        import string
+        logger = logging.getLogger(__name__)
+        
+        try:
+            logger.info(f"开始获取字幕，subtitle_id: {subtitle_id}")
+            
+            # 生成auth_key
+            timestamp = int(time.time())
+            random_str1 = ''.join(random.choices(string.ascii_lowercase + string.digits, k=32))
+            random_str2 = ''.join(random.choices(string.ascii_lowercase + string.digits, k=32))
+            auth_key = f"{timestamp}-{random_str1}-0-{random_str2}"
+            
+            subtitle_url = f"https://aisubtitle.hdslb.com/bfs/ai_subtitle/prod/{subtitle_id}?auth_key={auth_key}"
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Referer': 'https://www.bilibili.com',
+                'Origin': 'https://www.bilibili.com',
+                'Accept': '*/*',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            }
+            
+            logger.info(f"字幕API请求URL：{subtitle_url}")
+            logger.info(f"字幕API请求头：{headers}")
+            
+            # 使用self.session来保持cookies（登录态）
+            response = self.session.get(subtitle_url, headers=headers, timeout=15)
+            logger.info(f"字幕API响应状态码：{response.status_code}")
+            
+            if response.status_code != 200:
+                logger.error(f"获取字幕失败，状态码：{response.status_code}")
+                return {"data": {}, "error": f"HTTP {response.status_code}"}
+            
+            content = response.text.strip()
+            logger.info(f"字幕API响应内容长度：{len(content)}")
+            
+            try:
+                data = json.loads(content)
+                
+                subtitle_info = {
+                    "font_size": data.get("font_size", 0.4),
+                    "font_color": data.get("font_color", "#FFFFFF"),
+                    "background_alpha": data.get("background_alpha", 0.5),
+                    "background_color": data.get("background_color", "#9C27B0"),
+                    "stroke": data.get("Stroke", "none"),
+                    "lang": data.get("lang", "zh"),
+                    "type": data.get("type", "AIsubtitle"),
+                    "version": data.get("version", "v1.7.0.4"),
+                    "body": data.get("body", [])
+                }
+                
+                logger.info(f"字幕获取成功，共 {len(subtitle_info['body'])} 条")
+                return {"data": subtitle_info, "error": ""}
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"解析字幕JSON失败：{str(e)}")
+                return {"data": {}, "error": f"JSON解析失败：{str(e)}"}
+                
+        except requests.exceptions.Timeout:
+            logger.error("获取字幕请求超时")
+            return {"data": {}, "error": "请求超时"}
+        except Exception as e:
+            logger.error(f"获取字幕失败：{str(e)}")
+            import traceback
+            traceback.print_exc()
+            return {"data": {}, "error": str(e)}
+            
     def _get_danmaku_info(self, cid, aid=None):
         import logging
         import json
@@ -5961,7 +6329,7 @@ class BilibiliParser:
             logger.info(f"弹幕API响应内容前200字符：{content[:200]}")
             
             try:
-                data = orjson.loads(content)
+                data = json.loads(content)
                 code = data.get('code', 0)
                 if code != 0:
                     error_message = data.get('message', '未知错误')
@@ -6174,7 +6542,7 @@ class BilibiliParser:
                 return self._convert_to_ass(danmaku_list)
             elif format_type == "JSON":
                 import json
-                return orjson.dumps(danmaku_list).decode('utf-8')
+                return json.dumps(danmaku_list).decode('utf-8')
             else:
                 logger.error(f"不支持的弹幕格式：{format_type}")
                 return ""
@@ -6251,6 +6619,35 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         secs = seconds % 60
         return f"{hours:02d}:{minutes:02d}:{secs:.2f}"
 
+    def _get_video_codec(self, video_path, ffmpeg_exec):
+        """获取视频文件的编码格式"""
+        try:
+            import subprocess
+            cmd = [
+                ffmpeg_exec,
+                '-v', 'quiet',
+                '-print_format', 'json',
+                '-show_streams',
+                video_path
+            ]
+            result = subprocess.run(
+                cmd,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                shell=False
+            )
+            import json
+            output = result.stdout.decode('utf-8', errors='ignore')
+            data = json.loads(output)
+            for stream in data.get('streams', []):
+                if stream.get('codec_type') == 'video':
+                    return stream.get('codec_name', 'unknown')
+            return 'unknown'
+        except Exception as e:
+            logger.warning(f"获取视频编码失败：{str(e)}")
+            return 'unknown'
+    
     async def merge_media(self, video_path, audio_path, output_path, kid=None):
         import os
         try:
@@ -6298,9 +6695,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             logger.debug(f"使用的ffmpeg路径：{ffmpeg_exec}")
             
+            # 检测视频编码
+            video_codec = self._get_video_codec(decrypted_video_path, ffmpeg_exec)
+            logger.info(f"视频编码：{video_codec}")
+            
             # 检测输出格式
             output_ext = os.path.splitext(output_path)[1].lower()
             is_amv = output_ext == '.amv'
+            
+            # 需要转换编码的情况：AV1或HEVC
+            need_conversion = video_codec in ['av1', 'hevc', 'h265']
             
             # 根据是否有音频文件构建不同的命令
             if decrypted_audio_path:
@@ -6322,18 +6726,35 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         output_path
                     ]
                 else:
-                    # 其他格式可以直接复制编码
-                    cmd = [
-                        ffmpeg_exec,
-                        '-i', decrypted_video_path,
-                        '-i', decrypted_audio_path,
-                        '-c:v', 'copy',
-                        '-c:a', 'copy',
-                        '-shortest',
-                        '-loglevel', 'error',
-                        '-y',
-                        output_path
-                    ]
+                    if need_conversion:
+                        # 需要转换编码为H.264，确保Windows播放器支持
+                        logger.info("检测到不支持的视频编码，自动转换为H.264")
+                        cmd = [
+                            ffmpeg_exec,
+                            '-i', decrypted_video_path,
+                            '-i', decrypted_audio_path,
+                            '-c:v', 'libx264',
+                            '-preset', 'medium',
+                            '-crf', '23',
+                            '-c:a', 'copy',
+                            '-shortest',
+                            '-loglevel', 'error',
+                            '-y',
+                            output_path
+                        ]
+                    else:
+                        # 其他格式可以直接复制编码
+                        cmd = [
+                            ffmpeg_exec,
+                            '-i', decrypted_video_path,
+                            '-i', decrypted_audio_path,
+                            '-c:v', 'copy',
+                            '-c:a', 'copy',
+                            '-shortest',
+                            '-loglevel', 'error',
+                            '-y',
+                            output_path
+                        ]
             else:
                 if is_amv:
                     cmd = [
@@ -6345,14 +6766,28 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         output_path
                     ]
                 else:
-                    cmd = [
-                        ffmpeg_exec,
-                        '-i', decrypted_video_path,
-                        '-c:v', 'copy',
-                        '-loglevel', 'error',
-                        '-y',
-                        output_path
-                    ]
+                    if need_conversion:
+                        # 需要转换编码为H.264，确保Windows播放器支持
+                        logger.info("检测到不支持的视频编码，自动转换为H.264")
+                        cmd = [
+                            ffmpeg_exec,
+                            '-i', decrypted_video_path,
+                            '-c:v', 'libx264',
+                            '-preset', 'medium',
+                            '-crf', '23',
+                            '-loglevel', 'error',
+                            '-y',
+                            output_path
+                        ]
+                    else:
+                        cmd = [
+                            ffmpeg_exec,
+                            '-i', decrypted_video_path,
+                            '-c:v', 'copy',
+                            '-loglevel', 'error',
+                            '-y',
+                            output_path
+                        ]
 
             logger.debug(f"执行ffmpeg命令：{' '.join(cmd)}")
             

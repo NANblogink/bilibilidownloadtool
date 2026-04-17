@@ -43,7 +43,9 @@ class ConfigLoader:
             "app_settings": {
                 "default_save_path": os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载"),
                 "last_save_path": "",
-                "max_threads": 2
+                "max_threads": 2,
+                "auto_convert_incompatible": False,
+                "hevc_not_supported_ask": True
             }
         }
     def _load_config(self):
