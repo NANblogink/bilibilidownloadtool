@@ -18,6 +18,32 @@ from tkinter import Tk, Label, Button, Entry, Text, Frame, filedialog
 from tkinter import ttk
 from tkinterdnd2 import TkinterDnD, DND_FILES
 
+
+def run_subprocess(cmd, capture_output=True, text=True, timeout=30, **kwargs):
+    """静默运行子进程，不显示命令行窗口"""
+    if os.name == 'nt':
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+        creationflags = subprocess.CREATE_NO_WINDOW
+        kwargs['startupinfo'] = startupinfo
+        kwargs['creationflags'] = creationflags
+    return subprocess.run(
+        cmd, capture_output=capture_output, text=text, timeout=timeout, **kwargs
+    )
+
+
+def popen_subprocess(cmd, **kwargs):
+    """静默启动子进程，不显示命令行窗口"""
+    if os.name == 'nt':
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+        creationflags = subprocess.CREATE_NO_WINDOW
+        kwargs['startupinfo'] = startupinfo
+        kwargs['creationflags'] = creationflags
+    return subprocess.Popen(cmd, **kwargs)
+
 class VideoConverter:
     def __init__(self, root):
         self.root = root
@@ -40,7 +66,13 @@ class VideoConverter:
             return ffmpeg
         
         # 尝试本地FFmpeg
-        local_ffmpeg = os.path.join(os.path.dirname(__file__), 'ffmpeg', 'bin', 'ffmpeg.exe')
+        import sys
+        if hasattr(sys, '_MEIPASS'):
+            # EXE模式
+            local_ffmpeg = os.path.join(sys._MEIPASS, 'ffmpeg', 'bin', 'ffmpeg.exe')
+        else:
+            # 开发模式
+            local_ffmpeg = os.path.join(os.path.dirname(__file__), 'ffmpeg', 'bin', 'ffmpeg.exe')
         if os.path.exists(local_ffmpeg):
             return local_ffmpeg
         
@@ -213,7 +245,7 @@ class VideoConverter:
                 file_path
             ]
             
-            result = subprocess.run(
+            result = run_subprocess(
                 cmd,
                 check=True,
                 stdout=subprocess.PIPE,
@@ -341,7 +373,7 @@ class VideoConverter:
             
             print(f"[转换线程] 执行命令: {' '.join(cmd)}")
             
-            process = subprocess.Popen(
+            process = popen_subprocess(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,

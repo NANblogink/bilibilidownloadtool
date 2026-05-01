@@ -22,7 +22,7 @@ def load_version_info():
     except Exception as e:
         print(f"读取版本信息失败：{str(e)}")
         return {
-            "version": "V1.9",
+            "version": "2026年5月1日09:38:46维护版",
             "author": "寒烟似雪",
             "qq": "2273962061",
             "description": "B站视频解析下载工具"
@@ -157,6 +157,34 @@ if __name__ == "__main__":
         app.processEvents()
         splash.update_progress(50, "初始化组件...")
         app.processEvents()
+        
+        # 检查工具状态
+        tool_missing = False
+        try:
+            splash.update_progress(55, "检查工具文件...")
+            app.processEvents()
+            from tool_manager import get_tool_manager
+            tool_manager = get_tool_manager()
+            
+            # 检查工具是否已安装
+            tool_status = tool_manager.check_tools_installed()
+            print(f"工具检查结果: {tool_status}")
+            
+            if not (tool_status['ffmpeg_exists'] and tool_status['bento4_exists']):
+                tool_missing = True
+                print("工具未完全安装")
+            else:
+                print("工具已安装")
+            
+            splash.update_progress(65, "工具检查完成")
+            app.processEvents()
+        except Exception as e:
+            print(f"工具检查失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            splash.update_progress(65, "工具检查跳过")
+            app.processEvents()
+        
         import threading
         parser = [None]
         task_manager = [None]
@@ -202,7 +230,7 @@ if __name__ == "__main__":
         while not components_ready.is_set() and time.time() - wait_start < max_wait_time:
             app.processEvents()
             time.sleep(0.01)
-            progress = 50 + min(int((time.time() - wait_start) / max_wait_time * 40), 40)
+            progress = 65 + min(int((time.time() - wait_start) / max_wait_time * 35), 35)
             splash.update_progress(progress, "初始化组件...")
         app.processEvents()
         from PyQt5.QtCore import QTimer
@@ -249,6 +277,85 @@ if __name__ == "__main__":
                 print("window未准备好，退出init_after_ui")
                 return
             print("window已准备好，继续执行init_after_ui")
+            
+            # 检查工具是否缺失，如果缺失则弹窗提示
+            if tool_missing:
+                def show_tool_missing_dialog():
+                    from PyQt5.QtWidgets import QMessageBox, QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout
+                    from PyQt5.QtCore import Qt
+                    
+                    dialog = QDialog(window)
+                    dialog.setWindowTitle("工具缺失提示")
+                    dialog.setMinimumSize(450, 250)
+                    
+                    layout = QVBoxLayout(dialog)
+                    
+                    # 标题
+                    title_label = QLabel("工具缺失提示")
+                    title_label.setAlignment(Qt.AlignCenter)
+                    title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #d4380d; margin: 15px 10px 5px 10px;")
+                    layout.addWidget(title_label)
+                    
+                    # 提示文字
+                    info_label = QLabel(
+                        "检测到 FFmpeg 和 Bento4 工具未完整安装！\n\n"
+                        "这些工具对于视频下载和处理非常重要。\n"
+                        "是否现在安装这些工具？"
+                    )
+                    info_label.setAlignment(Qt.AlignCenter)
+                    info_label.setWordWrap(True)
+                    info_label.setStyleSheet("font-size: 14px; margin: 10px; color: #333;")
+                    layout.addWidget(info_label)
+                    
+                    # 按钮
+                    button_layout = QHBoxLayout()
+                    
+                    install_button = QPushButton("立即安装")
+                    install_button.setMinimumHeight(40)
+                    install_button.setStyleSheet("""
+                        QPushButton {
+                            background-color: #1890ff;
+                            color: white;
+                            border: none;
+                            border-radius: 6px;
+                            font-size: 14px;
+                            font-weight: bold;
+                        }
+                        QPushButton:hover {
+                            background-color: #40a9ff;
+                        }
+                    """)
+                    install_button.clicked.connect(dialog.accept)
+                    button_layout.addWidget(install_button)
+                    
+                    later_button = QPushButton("稍后安装")
+                    later_button.setMinimumHeight(40)
+                    later_button.setStyleSheet("""
+                        QPushButton {
+                            background-color: #f0f0f0;
+                            color: #333;
+                            border: none;
+                            border-radius: 6px;
+                            font-size: 14px;
+                        }
+                        QPushButton:hover {
+                            background-color: #e0e0e0;
+                        }
+                    """)
+                    later_button.clicked.connect(dialog.reject)
+                    button_layout.addWidget(later_button)
+                    
+                    layout.addLayout(button_layout)
+                    
+                    # 显示对话框
+                    result = dialog.exec_()
+                    
+                    # 如果用户选择安装
+                    if result == QDialog.Accepted:
+                        QTimer.singleShot(100, lambda: window.install_tools())
+                
+                QTimer.singleShot(500, show_tool_missing_dialog)
+            
             def init_tasks():
                 def check_hevc():
                     hevc_supported = parser[0].check_hevc_support()
@@ -314,12 +421,30 @@ if __name__ == "__main__":
                 thread.start()
             window.signal_emitter.verify_cookie.connect(handle_cookie_verification)
             def handle_load_user_info():
-                user_info = parser[0].get_user_info()
-                window.update_user_info(user_info)
+                def load_in_thread():
+                    try:
+                        user_info = parser[0].get_user_info()
+                        QTimer.singleShot(0, lambda: window.update_user_info(user_info))
+                    except Exception as e:
+                        print(f"加载用户信息异常：{str(e)}")
+                        import traceback
+                        traceback.print_exc()
+                thread = threading.Thread(target=load_in_thread)
+                thread.daemon = True
+                thread.start()
             window.signal_emitter.load_user_info.connect(handle_load_user_info)
             def handle_check_hevc():
-                hevc_supported = parser[0].check_hevc_support()
-                window.update_hevc_status(hevc_supported)
+                def check_in_thread():
+                    try:
+                        hevc_supported = parser[0].check_hevc_support()
+                        QTimer.singleShot(0, lambda: window.update_hevc_status(hevc_supported))
+                    except Exception as e:
+                        print(f"检查HEVC支持异常：{str(e)}")
+                        import traceback
+                        traceback.print_exc()
+                thread = threading.Thread(target=check_in_thread)
+                thread.daemon = True
+                thread.start()
             window.signal_emitter.check_hevc.connect(handle_check_hevc)
             def handle_install_hevc():
                 def install_in_thread():
