@@ -1,0 +1,17 @@
+# 排除编译和打包文件
+dist/
+build/
+*.spec
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+*.log
+
+# 排除大数据文件
+*.zip
+*.7z
+
+# 排除系统文件
+.DS_Store
+Thumbs.db

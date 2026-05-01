@@ -1,0 +1,498 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>BilibiliDownloader</class>
+ <widget class="QMainWindow" name="BilibiliDownloader">
+  <property name="geometry">
+   <rect>
+    <x>100</x>
+    <y>100</y>
+    <width>900</width>
+    <height>800</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>B站视频解析下载工具 - 作者：寒烟似雪(逸雨) QQ：2273962061/3241417097</string>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>850</width>
+    <height>750</height>
+   </size>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">QMainWindow { background-color: #f5f7fa; }
+QWidget { font-family: "Microsoft YaHei", "Segoe UI", sans-serif; font-size: 13px; }
+QLineEdit, QTextEdit, QComboBox, QListWidget {
+    padding: 8px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background-color: white;
+}
+QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QListWidget:focus {
+    border-color: #409eff;
+}
+QPushButton {
+    padding: 9px 18px;
+    border: none;
+    border-radius: 6px;
+    color: white;
+    background-color: #409eff;
+}
+QPushButton:hover { background-color: #66b1ff; }
+QPushButton:disabled { background-color: #d1d5db; }
+QPushButton#cancelBtn { background-color: #f56c6c; }
+QPushButton#hevcBtn { background-color: #fa8c16; }
+QPushButton#selectAllBtn { background-color: #52c41a; }
+QPushButton#deselectAllBtn { background-color: #919191; }
+QPushButton#applyCookieBtn { background-color: #9f7aea; }
+QPushButton#bilibiliBtn { background-color: #00a1d6; }
+QGroupBox {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 15px;
+    margin-top: 12px;
+    background-color: white;
+}
+QGroupBox::title { font-size: 14px; font-weight: 600; color: #2563eb; margin-left: 10px; }
+QProgressBar { height: 8px; border-radius: 4px; background-color: #e2e8f0; }
+QProgressBar::chunk { border-radius: 4px; background-color: #409eff; }
+QLabel#statusLabel { color: #6b7280; font-size: 12px; }
+QLabel#bilibiliLabel { color: #00a1d6; text-decoration: underline; }
+QCheckBox { margin: 6px 0; spacing: 8px; }
+QScrollArea { border: none; background-color: transparent; }
+QScrollBar:vertical { width: 8px; }
+QScrollBar::handle:vertical { background-color: #cbd5e1; border-radius: 4px; }
+QDialog { 
+    border-radius: 8px; 
+    background-color: white;
+}
+QDialog QLabel { font-size: 14px; }
+QListWidget { border-radius: 6px; }
+QListWidget::item { 
+    padding: 8px 12px; 
+    border-bottom: 1px solid #f0f2f5; 
+    height: 40px;
+}
+QListWidget::item:hover { background-color: #f8fafc; }
+QListWidget::item:selected { 
+    background-color: #e6f7ff; 
+    color: #2f5496;
+}
+.card-view QListWidget::item { 
+    width: 120px; 
+    margin: 8px; 
+    border: 1px solid #e2e8f0; 
+    border-radius: 6px; 
+    height: 80px;
+}
+.card-view QListWidget::item:hover { background-color: #f8fafc; }
+.card-view QListWidget::item:selected { 
+    border-color: #409eff; 
+    background-color: #e6f7ff;
+}
+</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="verticalLayout">
+    <property name="contentsMargins">
+     <rect>
+      <x>25</x>
+      <y>20</y>
+      <width>25</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="spacing">
+     <number>15</number>
+    </property>
+    <item>
+     <widget class="QLabel" name="title_label">
+      <property name="text">
+       <string>B站视频解析下载工具 - 作者：寒烟似雪(逸雨) QQ：2273962061/3241417097</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">font-size: 20px; font-weight: bold; color: #2563eb; text-align: center;</string>
+      </property>
+      <property name="wordWrap">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="bilibiliLayout">
+      <item>
+       <spacer name="horizontalSpacer_4">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QLabel" name="bilibiliLabel">
+        <property name="text">
+         <string>哔哩哔哩：不会玩python的man</string>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">color: #00a1d6; text-decoration: underline; cursor: pointer;</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="bilibiliBtn">
+        <property name="objectName">
+         <string>bilibiliBtn</string>
+        </property>
+        <property name="text">
+         <string>访问主页</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <widget class="QGroupBox" name="sys_info_group">
+      <property name="title">
+       <string>系统信息</string>
+      </property>
+      <layout class="QVBoxLayout" name="verticalLayout_2">
+       <property name="spacing">
+        <number>8</number>
+       </property>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout">
+         <item>
+          <widget class="QLabel" name="label">
+           <property name="text">
+            <string>登录状态：</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="user_info_label">
+           <property name="text">
+            <string>加载中...</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="vip_label">
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_2">
+         <item>
+          <widget class="QLabel" name="label_2">
+           <property name="text">
+            <string>HEVC支持：</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="hevc_label">
+           <property name="text">
+            <string>检测中...</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="hevc_btn">
+           <property name="objectName">
+            <string>hevcBtn</string>
+           </property>
+           <property name="text">
+            <string>安装HEVC扩展</string>
+           </property>
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <widget class="QGroupBox" name="cookie_group">
+      <property name="title">
+       <string>Cookie设置</string>
+      </property>
+      <layout class="QVBoxLayout" name="verticalLayout_3">
+       <property name="spacing">
+        <number>10</number>
+       </property>
+       <item>
+        <widget class="QTextEdit" name="cookie_edit">
+         <property name="placeholderText">
+          <string>请输入Cookie（SESSDATA/bili_jct/DedeUserID）</string>
+         </property>
+         <property name="maximumHeight">
+          <number>180</number>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_3">
+         <item>
+          <widget class="QPushButton" name="apply_cookie_btn">
+           <property name="objectName">
+            <string>applyCookieBtn</string>
+           </property>
+           <property name="text">
+            <string>验证并保存</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="clear_cookie_btn">
+           <property name="text">
+            <string>清空</string>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">background-color: #919191;</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="horizontalSpacer">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QLabel" name="cookie_status">
+         <property name="text">
+          <string>状态：未输入Cookie</string>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">font-size: 11px; color: #6b7280;</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="horizontalLayout_4">
+      <item>
+       <widget class="QLabel" name="label_3">
+        <property name="text">
+         <string>视频链接：</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLineEdit" name="url_edit">
+        <property name="placeholderText">
+         <string>支持BV/ss/av号</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="parse_btn">
+        <property name="text">
+         <string>解析链接</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <widget class="QCheckBox" name="tv_mode_checkbox">
+      <property name="text">
+       <string>TV端无水印模式</string>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QGroupBox" name="result_group">
+      <property name="title">
+       <string>解析结果</string>
+      </property>
+      <layout class="QVBoxLayout" name="verticalLayout_4">
+       <property name="spacing">
+        <number>12</number>
+       </property>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_5">
+         <item>
+          <widget class="QLabel" name="label_4">
+           <property name="text">
+            <string>标题：</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="video_title">
+           <property name="text">
+            <string>未解析</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QPushButton" name="select_episode_btn">
+         <property name="text">
+          <string>选择集数</string>
+         </property>
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_6">
+         <item>
+          <widget class="QLabel" name="label_5">
+           <property name="text">
+            <string>清晰度：</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="quality_combo">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_7">
+         <item>
+          <widget class="QLabel" name="label_6">
+           <property name="text">
+            <string>保存路径：</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="path_edit">
+           <property name="text">
+            <string>B站下载</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="browse_btn">
+           <property name="text">
+            <string>浏览</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <layout class="QVBoxLayout" name="verticalLayout_5">
+      <item>
+       <widget class="QProgressBar" name="main_progress">
+        <property name="value">
+         <number>0</number>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="status_label">
+        <property name="objectName">
+         <string>statusLabel</string>
+        </property>
+        <property name="text">
+         <string>就绪 - 请输入链接并解析</string>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignCenter</set>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="horizontalLayout_8">
+      <item>
+       <spacer name="horizontalSpacer_2">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QPushButton" name="download_btn">
+        <property name="text">
+         <string>开始下载</string>
+        </property>
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacer_3">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeType">
+         <enum>QSizePolicy::Fixed</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>10</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QPushButton" name="cancel_btn">
+        <property name="objectName">
+         <string>cancelBtn</string>
+        </property>
+        <property name="text">
+         <string>取消下载</string>
+        </property>
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
