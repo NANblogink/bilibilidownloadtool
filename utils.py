@@ -2,16 +2,42 @@
 import os
 import time
 import requests
+import subprocess
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import QMessageBox
+
+
+def run_subprocess(cmd, capture_output=True, text=True, timeout=30, **kwargs):
+    """静默运行子进程，不显示命令行窗口"""
+    if os.name == 'nt':
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+        creationflags = subprocess.CREATE_NO_WINDOW
+        kwargs['startupinfo'] = startupinfo
+        kwargs['creationflags'] = creationflags
+    return subprocess.run(
+        cmd, capture_output=capture_output, text=text, timeout=timeout, **kwargs
+    )
+
+
+def popen_subprocess(cmd, **kwargs):
+    """静默启动子进程，不显示命令行窗口"""
+    if os.name == 'nt':
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+        creationflags = subprocess.CREATE_NO_WINDOW
+        kwargs['startupinfo'] = startupinfo
+        kwargs['creationflags'] = creationflags
+    return subprocess.Popen(cmd, **kwargs)
 
 class HEVCCheckThread(QThread):
     result_signal = pyqtSignal(bool)
 
     def run(self):
         try:
-            import subprocess
-            proc = subprocess.run(
+            proc = run_subprocess(
                 ["powershell", "Get-AppxPackage *HEVCVideoExtension*"],
                 capture_output=True, text=True, timeout=10
             )
@@ -50,7 +76,8 @@ class HEVCDownloadThread(QThread):
                         progress = int((downloaded_size / total_size) * 100)
                         self.progress_signal.emit(progress)
 
-            subprocess.run(["powershell", "Add-AppxPackage", save_path], check=True, timeout=60)
+            run_subprocess(["powershell", "Add-AppxPackage", save_path], 
+                          check=True, timeout=60)
             self.finish_signal.emit(True, "HEVC扩展安装成功")
         except Exception as e:
             self.finish_signal.emit(False, f"HEVC处理失败：{str(e)}")
@@ -75,9 +102,9 @@ def get_unique_filename(filename):
 def generate_qrcode(url):
     try:
         import qrcode
-        from PIL import Image
         import io
-        
+        from PyQt5.QtGui import QImage, QPainter, QColor
+        from PyQt5.QtCore import Qt, QBuffer, QIODevice
         
         qr = qrcode.QRCode(
             version=1,
@@ -86,21 +113,53 @@ def generate_qrcode(url):
             border=4,
         )
         
-        
         qr.add_data(url)
         qr.make(fit=True)
         
+        # 获取QR矩阵
+        matrix = qr.get_matrix()
+        box_size = 10
+        border = 4
         
-        img = qr.make_image(fill_color="black", back_color="white")
+        # 计算尺寸
+        qr_size = len(matrix)
+        width = (qr_size + border * 2) * box_size
+        height = width
         
+        # 创建PyQt5图像
+        image = QImage(width, height, QImage.Format_RGB32)
+        image.fill(QColor(255, 255, 255))  # 白色背景
         
-        buffer = io.BytesIO()
-        img.save(buffer, format="PNG")
-        buffer.seek(0)
+        painter = QPainter(image)
+        painter.setBrush(QColor(0, 0, 0))  # 黑色前景
+        painter.setPen(Qt.NoPen)
         
-        return buffer
-    except ImportError:
-        raise ImportError("请安装qrcode和Pillow库：pip install qrcode pillow")
+        # 绘制二维码
+        for y in range(qr_size):
+            for x in range(qr_size):
+                if matrix[y][x]:
+                    painter.drawRect(
+                        (x + border) * box_size,
+                        (y + border) * box_size,
+                        box_size,
+                        box_size
+                    )
+        
+        painter.end()
+        
+        # 保存到buffer
+        buffer = QBuffer()
+        buffer.open(QIODevice.WriteOnly)
+        image.save(buffer, "PNG")
+        buffer.close()
+        
+        # 转换为BytesIO
+        bytesio = io.BytesIO(buffer.data())
+        bytesio.seek(0)
+        
+        return bytesio
+    except ImportError as e:
+        raise Exception(f"缺少必要的库：{str(e)}，请安装 qrcode")
     except Exception as e:
         raise Exception(f"生成二维码失败：{str(e)}")
 

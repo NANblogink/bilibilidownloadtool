@@ -9,12 +9,39 @@ import traceback
 import logging
 import ctypes
 import requests
+import subprocess
+
+
+def run_subprocess(cmd, capture_output=True, text=True, timeout=30, **kwargs):
+    """静默运行子进程，不显示命令行窗口"""
+    if os.name == 'nt':
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+        creationflags = subprocess.CREATE_NO_WINDOW
+        kwargs['startupinfo'] = startupinfo
+        kwargs['creationflags'] = creationflags
+    return subprocess.run(
+        cmd, capture_output=capture_output, text=text, timeout=timeout, **kwargs
+    )
+
+
+def popen_subprocess(cmd, **kwargs):
+    """静默启动子进程，不显示命令行窗口"""
+    if os.name == 'nt':
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+        creationflags = subprocess.CREATE_NO_WINDOW
+        kwargs['startupinfo'] = startupinfo
+        kwargs['creationflags'] = creationflags
+    return subprocess.Popen(cmd, **kwargs)
 
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QPushButton, QScrollArea,
                              QComboBox, QLabel, QFileDialog, QProgressBar, QMessageBox, QGroupBox,
                              QCheckBox, QTextEdit, QDialog, QListWidget, QListWidgetItem,
                              QStackedWidget, QRadioButton, QButtonGroup, QSpacerItem, QSizePolicy, QMenu,
-                             QApplication, QSpinBox, QTabWidget, QSystemTrayIcon, QCompleter, QToolBar, QAction, QStyle, QSplitter, QTreeView, QFileSystemModel)
+                             QApplication, QSpinBox, QTabWidget, QSystemTrayIcon, QCompleter, QToolBar, QAction, QStyle, QSplitter, QTreeView, QFileSystemModel, QFrame)
 from PyQt5.QtCore import QSize, Qt, pyqtSignal, QObject, QEvent, pyqtSlot, QPoint, QThread, QTimer, QEventLoop, QUrl, QCoreApplication, QMetaObject, Q_ARG, QDir
 from PyQt5.QtGui import QFont, QPalette, QColor, QCursor, QPixmap, QPainter, QBrush, QIcon, QPainterPath, QImage
 from PyQt5.QtWebEngineWidgets import QWebEngineView
@@ -627,7 +654,14 @@ class ExpandedCard(QDialog):
         logo_layout = QVBoxLayout()
         logo_layout.setAlignment(Qt.AlignCenter)
         logo_label = QLabel()
-        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
+        # 处理logo路径
+        import sys
+        if hasattr(sys, '_MEIPASS'):
+            # 在EXE模式下
+            logo_path = os.path.join(sys._MEIPASS, "logo.png")
+        else:
+            # 在开发模式下
+            logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
         if os.path.exists(logo_path):
             pixmap = QPixmap(logo_path)
             logo_size = scale(80)
@@ -1065,7 +1099,13 @@ class FloatingBall(QWidget):
         painter.drawEllipse(0, 0, self.width() - 1, self.height() - 1)  
         
         # 绘制logo或文字
-        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
+        import sys
+        if hasattr(sys, '_MEIPASS'):
+            # 在EXE模式下
+            logo_path = os.path.join(sys._MEIPASS, "logo.png")
+        else:
+            # 在开发模式下
+            logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
         if os.path.exists(logo_path):
             pixmap = QPixmap(logo_path)
             # 计算logo大小
@@ -1572,15 +1612,11 @@ class FloatingBall(QWidget):
         self.video_list.selectAll()
     
     def select_save_path(self):
-        
-        
-        default_path = self.path_edit.text() if hasattr(self, 'path_edit') else os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载")
-        
+        default_path = self.path_edit.text() if hasattr(self, 'path_edit') and self.path_edit.text() else os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载")
         
         if self.parent and hasattr(self.parent, 'show_custom_file_dialog'):
             folder = self.parent.show_custom_file_dialog("选择保存路径")
         else:
-            
             folder = QFileDialog.getExistingDirectory(
                 None,  
                 "选择保存路径",
@@ -1589,7 +1625,28 @@ class FloatingBall(QWidget):
             )
         
         if folder:
-            self.path_edit.setText(folder)
+            # 验证选择的路径
+            try:
+                # 规范化路径
+                folder = os.path.normpath(folder)
+                
+                # 确保路径存在且可写
+                if not os.path.exists(folder):
+                    os.makedirs(folder, exist_ok=True)
+                
+                # 简单的权限测试（避免创建临时文件）
+                # 尝试写入目录元数据来测试权限
+                os.access(folder, os.W_OK)
+                
+                self.path_edit.setText(folder)
+                if self.parent and hasattr(self.parent, 'show_notification'):
+                    self.parent.show_notification("保存路径选择成功", "success")
+                    
+            except Exception as e:
+                error_msg = f"无法使用该路径: {str(e)}"
+                logger.error(error_msg)
+                if self.parent and hasattr(self.parent, 'show_notification'):
+                    self.parent.show_notification(error_msg, "error")
     
     def on_download(self):
         
@@ -1646,7 +1703,29 @@ class FloatingBall(QWidget):
             
             url = self.url_edit.text().strip()
             
-            save_path = self.path_edit.text() if hasattr(self, 'path_edit') else (self.parent.path_edit.text() if hasattr(self.parent, 'path_edit') else os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载"))
+            # 获取并验证保存路径
+            save_path = self.path_edit.text() if hasattr(self, 'path_edit') else (self.parent.path_edit.text() if hasattr(self.parent, 'path_edit') else "")
+            
+            # 验证并规范化保存路径
+            try:
+                if not save_path or not isinstance(save_path, str) or len(save_path.strip()) == 0:
+                    save_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载")
+                    logger.warning(f"保存路径无效，使用默认路径: {save_path}")
+                else:
+                    save_path = os.path.normpath(save_path)
+                
+                # 确保路径存在且可写
+                if not os.path.exists(save_path):
+                    os.makedirs(save_path, exist_ok=True)
+                
+                # 简单的权限测试（避免创建临时文件）
+                # 尝试写入目录元数据来测试权限
+                os.access(save_path, os.W_OK)
+                
+                logger.info(f"保存路径验证通过: {save_path}")
+                
+            except Exception as e:
+                logger.warning(f"保存路径验证警告: {str(e)}，继续任务")
             
             if not self.current_video_info:
                 if self.parent and hasattr(self.parent, 'show_notification'):
@@ -1898,7 +1977,13 @@ class ParseProgressWindow(QDialog):
         
         # 设置窗口图标
         try:
-            logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
+            import sys
+            if hasattr(sys, '_MEIPASS'):
+                # 在EXE模式下
+                logo_path = os.path.join(sys._MEIPASS, "logo.ico")
+            else:
+                # 在开发模式下
+                logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
             if os.path.exists(logo_path):
                 icon = QIcon(logo_path)
                 self.setWindowIcon(icon)
@@ -2682,7 +2767,13 @@ class DanmakuSelectionDialog(QDialog):
         
         # 设置窗口图标
         try:
-            logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
+            import sys
+            if hasattr(sys, '_MEIPASS'):
+                # 在EXE模式下
+                logo_path = os.path.join(sys._MEIPASS, "logo.ico")
+            else:
+                # 在开发模式下
+                logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
             if os.path.exists(logo_path):
                 icon = QIcon(logo_path)
                 self.setWindowIcon(icon)
@@ -3052,7 +3143,13 @@ class EpisodeSelectionDialog(QDialog):
         
         # 设置窗口图标
         try:
-            logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
+            import sys
+            if hasattr(sys, '_MEIPASS'):
+                # 在EXE模式下
+                logo_path = os.path.join(sys._MEIPASS, "logo.ico")
+            else:
+                # 在开发模式下
+                logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
             if os.path.exists(logo_path):
                 icon = QIcon(logo_path)
                 self.setWindowIcon(icon)
@@ -3925,8 +4022,8 @@ class EpisodeSelectionDialog(QDialog):
 
 
 class TaskManagerWindow(BaseWindow):
-    def __init__(self, task_manager, parser, download_manager, config):
-        super().__init__()
+    def __init__(self, task_manager, parser, download_manager, config, parent=None):
+        super().__init__(parent)
         
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.Tool)
         self.task_manager = task_manager
@@ -4368,7 +4465,10 @@ class TaskManagerWindow(BaseWindow):
                 selected_task_ids.append(task_id)
         
         if not selected_task_ids:
-            self.parent().show_notification("请先选择要删除的任务", "warning")
+            if self.parent() and hasattr(self.parent(), 'show_notification'):
+                self.parent().show_notification("请先选择要删除的任务", "warning")
+            else:
+                QMessageBox.warning(self, "提示", "请先选择要删除的任务")
             return
         
         task_count = len(selected_task_ids)
@@ -4392,9 +4492,9 @@ class TaskManagerWindow(BaseWindow):
         import subprocess
         try:
             if os.name == 'nt':
-                subprocess.run(['explorer', os.path.normpath(path)], check=False)
+                run_subprocess(['explorer', os.path.normpath(path)], check=False)
             elif os.name == 'posix':
-                subprocess.run(['open', path] if sys.platform == 'darwin' else ['xdg-open', path], check=True)
+                run_subprocess(['open', path] if sys.platform == 'darwin' else ['xdg-open', path], check=True)
         except Exception as e:
             print(f"打开目录失败：{str(e)}")
 
@@ -4945,9 +5045,9 @@ class TaskManagerWindow(BaseWindow):
         import subprocess
         try:
             if os.name == 'nt':  
-                subprocess.run(['explorer', '/select,', file_path], check=False)
+                run_subprocess(['explorer', '/select,', file_path], check=False)
             elif os.name == 'posix':  
-                subprocess.run(['open', file_path] if sys.platform == 'darwin' else ['xdg-open', os.path.dirname(file_path)], check=False)
+                run_subprocess(['open', file_path] if sys.platform == 'darwin' else ['xdg-open', os.path.dirname(file_path)], check=False)
         except Exception as e:
             print(f"打开文件失败：{str(e)}")
     
@@ -6282,7 +6382,13 @@ class BilibiliDownloader(BaseWindow):
         self._check_network_before_start()
         
         try:
-            logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
+            import sys
+            if hasattr(sys, '_MEIPASS'):
+                # 在EXE模式下
+                logo_path = os.path.join(sys._MEIPASS, "logo.ico")
+            else:
+                # 在开发模式下
+                logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
             if os.path.exists(logo_path):
                 icon = QIcon(logo_path)
                 self.setWindowIcon(icon)
@@ -6681,8 +6787,8 @@ class BilibiliDownloader(BaseWindow):
         # 创建开发菜单窗口
         dialog = QDialog(self)
         dialog.setWindowTitle("开发者菜单")
-        dialog.setGeometry(100, 100, 300, 200)
-        dialog.setMinimumSize(250, 180)
+        dialog.setGeometry(100, 100, 500, 600)
+        dialog.setMinimumSize(450, 550)
         
         # 设置窗口样式
         dialog.setStyleSheet("""
@@ -6712,6 +6818,24 @@ class BilibiliDownloader(BaseWindow):
             QPushButton:pressed {
                 background-color: #096dd9;
             }
+            QPushButton#checkBtn {
+                background-color: #52c41a;
+            }
+            QPushButton#checkBtn:hover {
+                background-color: #73d13d;
+            }
+            QPushButton#installBtn {
+                background-color: #faad14;
+            }
+            QPushButton#installBtn:hover {
+                background-color: #ffc53d;
+            }
+            QPushButton#envBtn {
+                background-color: #722ed1;
+            }
+            QPushButton#envBtn:hover {
+                background-color: #9254de;
+            }
         """)
         
         layout = QVBoxLayout(dialog)
@@ -6720,6 +6844,40 @@ class BilibiliDownloader(BaseWindow):
         title_label = QLabel("开发者菜单")
         title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(title_label)
+        
+        # 添加工具管理区域
+        tool_group_label = QLabel("🛠️ 工具管理")
+        tool_group_label.setStyleSheet("font-size: 14px; color: #1890ff; margin-top: 10px;")
+        layout.addWidget(tool_group_label)
+        
+        # 检查工具是否存在的按钮
+        check_tools_btn = QPushButton("检查工具文件")
+        check_tools_btn.setObjectName("checkBtn")
+        check_tools_btn.clicked.connect(self.check_tools_existence)
+        layout.addWidget(check_tools_btn)
+        
+        # 安装工具到系统的按钮
+        install_tools_btn = QPushButton("安装工具到系统")
+        install_tools_btn.setObjectName("installBtn")
+        install_tools_btn.clicked.connect(lambda: self.install_tools())
+        layout.addWidget(install_tools_btn)
+        
+        # 添加环境变量的按钮
+        add_env_btn = QPushButton("添加到环境变量")
+        add_env_btn.setObjectName("envBtn")
+        add_env_btn.clicked.connect(lambda: self.add_to_env())
+        layout.addWidget(add_env_btn)
+        
+        # 工具管理区域的分隔线
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(line)
+        
+        # 添加其他功能区域
+        other_group_label = QLabel("📋 其他功能")
+        other_group_label.setStyleSheet("font-size: 14px; color: #1890ff; margin-top: 10px;")
+        layout.addWidget(other_group_label)
         
         # 测试致命错误的按钮
         test_error_btn = QPushButton("测试致命错误")
@@ -6730,6 +6888,11 @@ class BilibiliDownloader(BaseWindow):
         info_btn = QPushButton("显示系统信息")
         info_btn.clicked.connect(self.show_system_info)
         layout.addWidget(info_btn)
+        
+        # 测试Cookie的按钮
+        cookie_test_btn = QPushButton("测试Cookie")
+        cookie_test_btn.clicked.connect(self.show_cookie_test)
+        layout.addWidget(cookie_test_btn)
         
         # 关闭按钮
         close_btn = QPushButton("关闭")
@@ -6745,13 +6908,340 @@ class BilibiliDownloader(BaseWindow):
     
     def show_system_info(self):
         import platform
+        from PyQt5.QtCore import QT_VERSION_STR
         
         info = f"Python版本: {platform.python_version()}\n"
         info += f"系统平台: {platform.system()} {platform.release()}\n"
-        info += f"Qt版本: {Qt.QT_VERSION_STR}\n"
+        info += f"Qt版本: {QT_VERSION_STR}\n"
         info += f"应用路径: {sys.executable}\n"
         
         QMessageBox.information(self, "系统信息", info)
+    
+    def show_cookie_test(self):
+        print("显示Cookie测试对话框")
+        if hasattr(self, 'parser') and self.parser:
+            dialog = CookieTestDialog(self.parser, self)
+            dialog.exec_()
+        else:
+            QMessageBox.warning(self, "错误", "parser未初始化，请重启应用")
+    
+    def check_tools_existence(self):
+        """检查必需的工具文件是否存在"""
+        print("开始检查工具文件")
+        
+        # 收集检查结果
+        results = []
+        
+        # 检查FFmpeg
+        results.append("=== FFmpeg 检查 ===")
+        if hasattr(self, 'parser') and self.parser:
+            ffmpeg_path = self.parser.ffmpeg_local
+            results.append(f"FFmpeg路径: {ffmpeg_path}")
+            if os.path.exists(ffmpeg_path):
+                results.append(f"✅ FFmpeg存在: {ffmpeg_path}")
+            else:
+                results.append(f"❌ FFmpeg不存在: {ffmpeg_path}")
+        else:
+            results.append("❌ parser未初始化，无法检查FFmpeg")
+        
+        # 检查Bento4
+        results.append("\n=== Bento4 检查 ===")
+        if hasattr(self, 'parser') and self.parser:
+            bento4_dir = self.parser.bento4_dir
+            results.append(f"Bento4目录: {bento4_dir}")
+            if os.path.exists(bento4_dir):
+                results.append(f"✅ Bento4目录存在: {bento4_dir}")
+                
+                # 检查mp4decrypt.exe
+                mp4decrypt_path = os.path.join(bento4_dir, 'mp4decrypt.exe')
+                if os.path.exists(mp4decrypt_path):
+                    results.append(f"✅ mp4decrypt.exe存在: {mp4decrypt_path}")
+                else:
+                    results.append(f"❌ mp4decrypt.exe不存在: {mp4decrypt_path}")
+                    
+                # 列出目录内容
+                try:
+                    files = os.listdir(bento4_dir)
+                    results.append(f"目录内容: {', '.join(files) if files else '空目录'}")
+                except Exception as e:
+                    results.append(f"列出目录失败: {str(e)}")
+            else:
+                results.append(f"❌ Bento4目录不存在: {bento4_dir}")
+                
+                # 尝试检查其他可能的路径
+                results.append("\n尝试查找其他路径:")
+                import sys
+                possible_paths = []
+                if hasattr(sys, '_MEIPASS'):
+                    possible_paths.append(os.path.join(sys._MEIPASS, 'bento4'))
+                    possible_paths.append(os.path.join(sys._MEIPASS, 'bento4', 'bin'))
+                    possible_paths.append(os.path.join(sys._MEIPASS, 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
+                possible_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4'))
+                possible_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', 'bin'))
+                possible_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
+                
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        results.append(f"✅ 找到备选路径: {path}")
+                        if os.path.exists(os.path.join(path, 'mp4decrypt.exe')):
+                            results.append(f"   ✅ mp4decrypt.exe在备选路径中存在")
+                        else:
+                            results.append(f"   ❌ mp4decrypt.exe在备选路径中不存在")
+                    else:
+                        results.append(f"❌ 备选路径不存在: {path}")
+        else:
+            results.append("❌ parser未初始化，无法检查Bento4")
+        
+        # 检查其他可能的路径
+        results.append("\n=== 系统路径检查 ===")
+        import sys
+        results.append(f"sys._MEIPASS: {sys._MEIPASS if hasattr(sys, '_MEIPASS') else '不存在'}")
+        results.append(f"当前工作目录: {os.getcwd()}")
+        results.append(f"脚本目录: {os.path.dirname(os.path.abspath(__file__))}")
+        
+        # 检查sys._MEIPASS目录内容
+        if hasattr(sys, '_MEIPASS') and os.path.exists(sys._MEIPASS):
+            results.append("\nsys._MEIPASS目录内容:")
+            try:
+                meipass_files = os.listdir(sys._MEIPASS)
+                for f in sorted(meipass_files)[:30]:
+                    results.append(f"  - {f}")
+                if len(meipass_files) > 30:
+                    results.append(f"  ... (还有 {len(meipass_files) - 30} 个文件)")
+            except Exception as e:
+                results.append(f"  列出目录失败: {str(e)}")
+        
+        # 显示结果
+        print("\n".join(results))
+        
+        # 创建对话框显示结果
+        dialog = QDialog(self)
+        dialog.setWindowTitle("工具文件检查结果")
+        dialog.setGeometry(100, 100, 600, 500)
+        dialog.setMinimumSize(500, 400)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # 创建文本编辑框显示结果
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+        text_edit.setText("\n".join(results))
+        text_edit.setStyleSheet("font-family: 'Consolas', 'Monaco', monospace; font-size: 12px;")
+        layout.addWidget(text_edit)
+        
+        # 关闭按钮
+        close_btn = QPushButton("关闭")
+        close_btn.clicked.connect(dialog.close)
+        layout.addWidget(close_btn)
+        
+        # 显示对话框
+        dialog.exec_()
+    
+    def install_tools(self):
+        """安装工具到系统"""
+        try:
+            from tool_manager import get_tool_manager
+            
+            tool_manager = get_tool_manager()
+            paths = tool_manager.get_tool_paths()
+            
+            # 显示确认对话框
+            confirm_dialog = QMessageBox()
+            confirm_dialog.setWindowTitle("确认安装")
+            confirm_dialog.setText(f"即将将工具安装到:\n{paths['install_dir']}\n\n是否继续?")
+            confirm_dialog.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            confirm_dialog.setDefaultButton(QMessageBox.No)
+            
+            if confirm_dialog.exec_() == QMessageBox.Yes:
+                # 创建进度对话框
+                progress_dialog = QDialog(self)
+                progress_dialog.setWindowTitle("正在安装工具")
+                progress_dialog.setMinimumSize(500, 350)
+                
+                progress_layout = QVBoxLayout(progress_dialog)
+                
+                # 安装路径信息
+                path_info_label = QLabel(f"安装路径:\n{paths['install_dir']}")
+                path_info_label.setAlignment(Qt.AlignCenter)
+                path_info_label.setStyleSheet("font-weight: bold; color: #1890ff;")
+                path_info_label.setWordWrap(True)
+                progress_layout.addWidget(path_info_label)
+                
+                # 添加分隔线
+                line = QFrame()
+                line.setFrameShape(QFrame.HLine)
+                line.setFrameShadow(QFrame.Sunken)
+                progress_layout.addWidget(line)
+                
+                # 进度标签
+                progress_label = QLabel("初始化...")
+                progress_label.setAlignment(Qt.AlignCenter)
+                progress_layout.addWidget(progress_label)
+                
+                # 进度条
+                progress_bar = QProgressBar()
+                progress_bar.setMinimum(0)
+                progress_bar.setMaximum(100)
+                progress_bar.setValue(0)
+                progress_bar.setStyleSheet("""
+                    QProgressBar {
+                        border: 2px solid #e0e0e0;
+                        border-radius: 5px;
+                        text-align: center;
+                        height: 25px;
+                    }
+                    QProgressBar::chunk {
+                        background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                            stop:0 #1890ff, stop:1 #36cfc9);
+                        border-radius: 3px;
+                    }
+                """)
+                progress_layout.addWidget(progress_bar)
+                
+                # 详细日志区域
+                log_label = QLabel("详细日志:")
+                log_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+                progress_layout.addWidget(log_label)
+                
+                log_text = QTextEdit()
+                log_text.setReadOnly(True)
+                log_text.setMaximumHeight(120)
+                log_text.setStyleSheet("font-family: 'Consolas', 'Monaco', monospace; font-size: 11px; background-color: #f5f5f5;")
+                progress_layout.addWidget(log_text)
+                
+                progress_dialog.show()
+                
+                # 存储日志信息
+                log_messages = []
+                
+                # 创建进度更新回调 - 使用信号槽方式确保线程安全
+                class ProgressSignals(QObject):
+                    update = pyqtSignal(int, str)
+                
+                progress_signals = ProgressSignals()
+                
+                def update_ui(progress, message):
+                    """UI更新函数，必须在主线程调用"""
+                    try:
+                        progress_bar.setValue(progress)
+                        progress_label.setText(message)
+                        
+                        # 添加到日志
+                        log_messages.append(f"[{progress}%] {message}")
+                        log_text.setText("\n".join(log_messages))
+                        
+                        # 滚动到底部
+                        scrollbar = log_text.verticalScrollBar()
+                        scrollbar.setValue(scrollbar.maximum())
+                        
+                        # 强制刷新界面
+                        progress_dialog.update()
+                        QApplication.processEvents()
+                    except Exception as e:
+                        logger.error(f"更新UI失败: {str(e)}")
+                
+                # 连接信号
+                progress_signals.update.connect(update_ui)
+                
+                # 创建进度更新回调
+                def progress_callback(progress, message):
+                    """从子线程调用的回调"""
+                    progress_signals.update.emit(progress, message)
+                
+                # 在后台线程中安装
+                def do_install():
+                    try:
+                        result = tool_manager.install_tools(force=False, progress_callback=progress_callback)
+                        
+                        def finish():
+                            self.on_install_finished(result, progress_dialog, tool_manager)
+                        QTimer.singleShot(0, finish)
+                    except Exception as e:
+                        logger.error(f"安装过程出错: {str(e)}")
+                        def error():
+                            progress_dialog.close()
+                            QMessageBox.critical(self, "安装失败", f"安装过程出错: {str(e)}")
+                        QTimer.singleShot(0, error)
+                
+                import threading
+                t = threading.Thread(target=do_install)
+                t.daemon = True
+                t.start()
+                
+        except ImportError:
+            QMessageBox.warning(self, "错误", "工具管理器不可用")
+        except Exception as e:
+            logger.error(f"安装工具失败: {str(e)}")
+            QMessageBox.critical(self, "错误", f"安装工具失败: {str(e)}")
+    
+    def on_install_finished(self, result, progress_dialog, tool_manager):
+        """安装完成的回调"""
+        progress_dialog.close()
+        
+        if result['success']:
+            msg = result['message']
+            if result['ffmpeg_installed'] or result['bento4_installed']:
+                msg += "\n\n是否立即重启应用以使用新安装的工具?"
+                
+                reply = QMessageBox.question(
+                    self, "安装成功", msg,
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                )
+                
+                if reply == QMessageBox.Yes:
+                    import sys
+                    import os
+                    os.execl(sys.executable, sys.executable, *sys.argv)
+            else:
+                QMessageBox.information(self, "安装结果", msg)
+        else:
+            # 检查是否需要管理员权限
+            if result.get('needs_admin', False):
+                # 显示询问对话框，是否以管理员权限重新启动
+                reply = QMessageBox.question(
+                    self, 
+                    "权限不足", 
+                    f"{result['message']}\n\n是否以管理员权限重新启动程序？",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                
+                if reply == QMessageBox.Yes:
+                    # 请求管理员权限
+                    tool_manager.request_admin_permission()
+                else:
+                    QMessageBox.critical(self, "安装失败", result['message'])
+            else:
+                QMessageBox.critical(self, "安装失败", result['message'])
+    
+    def add_to_env(self):
+        """添加工具到环境变量"""
+        try:
+            from tool_manager import get_tool_manager
+            
+            tool_manager = get_tool_manager()
+            paths = tool_manager.get_tool_paths()
+            
+            # 显示确认对话框
+            confirm_dialog = QMessageBox()
+            confirm_dialog.setWindowTitle("确认操作")
+            confirm_dialog.setText(f"即将将以下路径添加到用户环境变量PATH:\n\n{paths['ffmpeg_dir']}\n{paths['bento4_dir']}\n\n是否继续?\n\n注意: 此操作需要重新登录或重启应用才能生效")
+            confirm_dialog.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            confirm_dialog.setDefaultButton(QMessageBox.No)
+            
+            if confirm_dialog.exec_() == QMessageBox.Yes:
+                result = tool_manager.add_to_path(user_only=True)
+                
+                if result['success']:
+                    QMessageBox.information(self, "操作成功", result['message'])
+                else:
+                    QMessageBox.warning(self, "操作失败", result['message'])
+                    
+        except ImportError:
+            QMessageBox.warning(self, "错误", "工具管理器不可用")
+        except Exception as e:
+            logger.error(f"添加环境变量失败: {str(e)}")
+            QMessageBox.critical(self, "错误", f"添加环境变量失败: {str(e)}")
     
     def on_window_closed(self):
         
@@ -7038,16 +7528,21 @@ class BilibiliDownloader(BaseWindow):
         
         logo_label = QLabel()
         try:
-            
-            pixmap = QPixmap("logo.png")
-            if not pixmap.isNull():
-                
-                scaled_pixmap = pixmap.scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                logo_label.setPixmap(scaled_pixmap)
-                logo_label.setFixedSize(24, 24)
-                title_layout.addWidget(logo_label)
+            import sys
+            if hasattr(sys, '_MEIPASS'):
+                # 在EXE模式下
+                logo_path = os.path.join(sys._MEIPASS, "logo.png")
+            else:
+                # 在开发模式下
+                logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
+            if os.path.exists(logo_path):
+                pixmap = QPixmap(logo_path)
+                if not pixmap.isNull():
+                    scaled_pixmap = pixmap.scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    logo_label.setPixmap(scaled_pixmap)
+                    logo_label.setFixedSize(24, 24)
+                    title_layout.addWidget(logo_label)
         except Exception as e:
-            
             pass
         
         
@@ -8595,11 +9090,15 @@ class BilibiliDownloader(BaseWindow):
                     self.start(200)  # 每200毫秒更新一次
                 
                 def update_text(self):
-                    if hasattr(self.label, 'isVisible') and self.label.isVisible():
-                        self.index = (self.index + 1) % len(self.text)
-                        display_text = self.text[self.index:] + ' ' + self.text[:self.index]
-                        self.label.setText(display_text)
-                    else:
+                    try:
+                        if hasattr(self.label, 'isVisible') and self.label.isVisible():
+                            self.index = (self.index + 1) % len(self.text)
+                            display_text = self.text[self.index:] + ' ' + self.text[:self.index]
+                            self.label.setText(display_text)
+                        else:
+                            self.stop()
+                    except RuntimeError:
+                        # 当标签被删除时，停止定时器
                         self.stop()
             
             # 启动跑马灯
@@ -8794,7 +9293,7 @@ class BilibiliDownloader(BaseWindow):
         logger.info(f"标签页切换到索引：{index}")
         
         # 当切换到收藏标签页时，自动刷新收藏夹列表
-        if index == 2:  # 收藏夹标签页的索引
+        if index == 3:  # 收藏夹标签页的索引
             logger.info("切换到收藏夹标签页，开始刷新收藏夹列表")
             self.refresh_folders()
     
@@ -8896,7 +9395,11 @@ class BilibiliDownloader(BaseWindow):
             # 如果选择了多个视频，使用批量解析逻辑
             self.start_batch_parse_with_urls(urls)
     
-    def check_cookie_validity(self):
+    def check_cookie_validity(self, skip_user_info=False):
+        """
+        检查cookie有效性
+        skip_user_info: 如果为True，将跳过获取用户信息的步骤（避免重复请求）
+        """
         
         QTimer.singleShot(0, lambda: self.user_info_label.setText("未登录"))
         QTimer.singleShot(0, lambda: self.vip_label.setText("× 未登录"))
@@ -8914,8 +9417,19 @@ class BilibiliDownloader(BaseWindow):
                             
                             QTimer.singleShot(0, self.hide_cookie_ui)
                             
-                            user_info = self.parser.get_user_info()
-                            QTimer.singleShot(0, lambda: self.update_user_info(user_info))
+                            # 只有在没有跳过的情况下才获取用户信息
+                            if not skip_user_info:
+                                # 在另一个子线程中获取用户信息
+                                def get_user_info_thread():
+                                    try:
+                                        user_info = self.parser.get_user_info()
+                                        QTimer.singleShot(0, lambda: self.update_user_info(user_info))
+                                    except Exception as e:
+                                        logger.error(f"获取用户信息失败：{str(e)}")
+                                
+                                info_thread = threading.Thread(target=get_user_info_thread)
+                                info_thread.daemon = True
+                                info_thread.start()
                         else:
                             
                             QTimer.singleShot(0, self.show_cookie_ui)
@@ -9154,39 +9668,184 @@ class BilibiliDownloader(BaseWindow):
     def on_cookie_verified(self, success, msg):
         print(f"on_cookie_verified方法被调用，success: {success}, msg: {msg}")
         
+        # 先关闭登录对话框（如果存在）
         if hasattr(self, 'login_dialog') and self.login_dialog:
             print("关闭登录对话框...")
             self.login_dialog.accept()
             print("登录对话框已关闭")
-        else:
-            print("未找到登录对话框实例")
         
         if success:
             try:
-                
                 print("显示成功消息...")
                 self.show_success_message(msg)
                 print("成功消息已显示")
-                print("发出load_user_info信号...")
-                self.signal_emitter.load_user_info.emit()
-                print("load_user_info信号已发出")
                 
-                print("检查cookie有效性...")
-                self.check_cookie_validity()
-                print("cookie有效性检查完成")
-                
+                # 显示主窗口
                 self.showMaximized()
+                print("主窗口已显示")
+                
+                # 在子线程中执行后续操作，避免UI卡死
+                import threading
+                def post_login_tasks():
+                    try:
+                        # 只调用一次 get_user_info，避免重复请求
+                        print("获取用户信息...")
+                        user_info = self.parser.get_user_info()
+                        print(f"获取用户信息完成：{user_info}")
+                        
+                        # 更新UI - 使用QTimer，并通过默认参数捕获值
+                        def update_ui(info=user_info):
+                            print("开始更新用户信息...")
+                            # 使用已获取的user_info更新所有UI
+                            self.update_user_info(info)
+                            
+                            # 直接在主界面显示用户信息
+                            if hasattr(self, 'login_info_widget') and hasattr(self, 'login_info_label') and hasattr(self, 'avatar_label'):
+                                if info.get("success"):
+                                    username = info.get("uname", "用户")
+                                    self.login_info_label.setText(username)
+                                    self.login_info_label.setStyleSheet("color: #ffffff; font-size: 12px;")
+                                    
+                                    # 加载头像
+                                    avatar_url = info.get("face", "")
+                                    if avatar_url:
+                                        self.load_avatar(avatar_url)
+                                    
+                                    # 设置点击事件
+                                    self.login_info_widget.setCursor(QCursor(Qt.PointingHandCursor))
+                                    def handle_click(event):
+                                        self.on_user_info_click(event)
+                                    self.login_info_widget.mousePressEvent = handle_click
+                            
+                            # 显示退出登录按钮
+                            self.hide_cookie_ui()
+                            print("所有UI更新完成")
+                        QTimer.singleShot(0, update_ui)
+                        
+                        print("登录后处理完成")
+                    except Exception as e:
+                        logger.error(f"登录后处理失败：{str(e)}")
+                        error_msg = str(e)
+                        def show_error():
+                            self.show_notification(f"登录后处理失败：{error_msg}", "error")
+                        QTimer.singleShot(0, show_error)
+                        print(f"处理成功情况时发生异常：{error_msg}")
+                        import traceback
+                        traceback.print_exc()
+                
+                thread = threading.Thread(target=post_login_tasks)
+                thread.daemon = True
+                thread.start()
+                
             except Exception as e:
                 logger.error(f"保存Cookie失败：{str(e)}")
-                self.show_notification(f"保存Cookie失败：{str(e)}", "error")
-                print(f"处理成功情况时发生异常：{str(e)}")
+                error_msg = str(e)
+                def show_error():
+                    self.show_notification(f"保存Cookie失败：{error_msg}", "error")
+                QTimer.singleShot(0, show_error)
+                print(f"处理成功情况时发生异常：{error_msg}")
         else:
             print("显示验证失败消息...")
             self.show_notification(f"验证失败：{msg}", "error")
             print("验证失败消息已显示")
+            
+            # 显示主窗口
+            self.showMaximized()
         
-        self.showMaximized()
         print("on_cookie_verified方法执行完成")
+    
+    def handle_verification_result(self, success, msg):
+        """处理Cookie验证结果"""
+        print("handle_verification_result函数开始执行")
+        try:
+            if success:
+                try:
+                    print("显示成功消息...")
+                    self.show_success_message(msg)
+                    print("成功消息已显示")
+                    
+                    if hasattr(self, 'login_dialog') and self.login_dialog:
+                        print("隐藏登录对话框...")
+                        self.login_dialog.hide()
+                        print("登录对话框已隐藏")
+                    
+                    # 显示主窗口
+                    self.showMaximized()
+                    print("主窗口已显示")
+                    
+                    # 在子线程中加载用户信息，避免UI卡死
+                    import threading
+                    def load_user_info_in_thread():
+                        try:
+                            print("加载用户信息...")
+                            user_info = self.parser.get_user_info()
+                            print(f"获取到的用户信息：{user_info}")
+                            
+                            # 更新UI - 使用默认参数捕获值
+                            def update_ui(info=user_info):
+                                print("开始更新用户信息...")
+                                # 使用已获取的user_info更新所有UI
+                                self.update_user_info(info)
+                                
+                                # 直接在主界面显示用户信息
+                                if hasattr(self, 'login_info_widget') and hasattr(self, 'login_info_label') and hasattr(self, 'avatar_label'):
+                                    if info.get("success"):
+                                        username = info.get("uname", "用户")
+                                        self.login_info_label.setText(username)
+                                        self.login_info_label.setStyleSheet("color: #ffffff; font-size: 12px;")
+                                        
+                                        # 加载头像
+                                        avatar_url = info.get("face", "")
+                                        if avatar_url:
+                                            self.load_avatar(avatar_url)
+                                        
+                                        # 设置点击事件
+                                        self.login_info_widget.setCursor(QCursor(Qt.PointingHandCursor))
+                                        def handle_click(event):
+                                            self.on_user_info_click(event)
+                                        self.login_info_widget.mousePressEvent = handle_click
+                                
+                                # 显示退出登录按钮
+                                self.hide_cookie_ui()
+                                print("所有UI更新完成")
+                            QTimer.singleShot(0, update_ui)
+                            
+                            print("登录后处理完成")
+                        except Exception as e:
+                            logger.error(f"加载用户信息失败：{str(e)}")
+                            error_msg = str(e)
+                            def show_error():
+                                self.show_notification(f"加载用户信息失败：{error_msg}", "error")
+                            QTimer.singleShot(0, show_error)
+                            print(f"处理成功情况时发生异常：{error_msg}")
+                            import traceback
+                            traceback.print_exc()
+                    
+                    thread = threading.Thread(target=load_user_info_in_thread)
+                    thread.daemon = True
+                    thread.start()
+                    
+                except Exception as e:
+                    logger.error(f"保存Cookie失败：{str(e)}")
+                    error_msg = str(e)
+                    def show_error():
+                        self.show_notification(f"保存Cookie失败：{error_msg}", "error")
+                    QTimer.singleShot(0, show_error)
+                    print(f"处理成功情况时发生异常：{error_msg}")
+                    import traceback
+                    traceback.print_exc()
+            else:
+                print("显示验证失败消息...")
+                self.show_notification(f"验证失败：{msg}", "error")
+                print("验证失败消息已显示")
+                
+                print("登录失败，保持窗口显示")
+            
+            print("验证流程执行完成")
+        except Exception as e:
+            print(f"handle_verification_result函数发生异常：{str(e)}")
+            import traceback
+            traceback.print_exc()
     
     def show_success_message(self, msg):
         self.show_notification(f"Cookie验证通过啦！\n{msg}", "success")
@@ -11126,8 +11785,8 @@ class BilibiliDownloader(BaseWindow):
                 self.vip_label.setStyleSheet("color: #6b7280;")
             
             if hasattr(self, 'login_info_label'):
-                username = user_info.get("msg", "用户")
-                self.login_info_label.setText(f"登录用户：{username}")
+                username = user_info.get("uname", user_info.get("msg", "用户"))
+                self.login_info_label.setText(username)
                 self.login_info_label.setStyleSheet("color: #ffffff; font-size: 12px;")
                 self.login_info_label.setCursor(QCursor(Qt.ArrowCursor))
                 self.login_info_label.mousePressEvent = None
@@ -11286,97 +11945,42 @@ class BilibiliDownloader(BaseWindow):
     def load_avatar(self, avatar_url):
         print(f"开始加载头像，URL：{avatar_url}")
         try:
-            from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest
-            
-            # 创建事件循环，确保网络请求在函数返回前完成
-            loop = QEventLoop()
-            
-            def on_avatar_loaded(reply):
-                try:
-                    print(f"头像加载完成，错误码：{reply.error()}")
-                    if reply.error() == 0:
-                        data = reply.readAll()
-                        print(f"获取到头像数据，大小：{len(data)}字节")
-                        pixmap = QPixmap()
-                        success = pixmap.loadFromData(data)
-                        print(f"加载头像数据成功：{success}")
-                        if success and not pixmap.isNull():
-                            pixmap = pixmap.scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                            
-                            path = QPainterPath()
-                            path.addEllipse(0, 0, 24, 24)
-                            
-                            round_pixmap = QPixmap(24, 24)
-                            round_pixmap.fill(Qt.transparent)
-                            
-                            painter = QPainter(round_pixmap)
-                            painter.setClipPath(path)
-                            painter.drawPixmap(0, 0, 24, 24, pixmap)
-                            painter.end()
-                            
-                            self.avatar_label.setPixmap(round_pixmap)
-                            self.avatar_label.setStyleSheet("border-radius: 12px;")
-                            print("头像显示成功")
-                        else:
-                            print("头像数据无效")
-                    else:
-                        print(f"头像加载失败，错误：{reply.errorString()}")
-                    reply.deleteLater()
-                except Exception as e:
-                    print(f"加载头像失败：{e}")
-                finally:
-                    # 退出事件循环
-                    loop.quit()
-            
-            manager = QNetworkAccessManager()
-            manager.finished.connect(on_avatar_loaded)
-            request = QNetworkRequest(QUrl(avatar_url))
-            # 添加请求头，模拟浏览器请求
-            request.setRawHeader(b"User-Agent", b"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
-            request.setRawHeader(b"Referer", b"https://www.bilibili.com/")
-            print("发送头像请求")
-            manager.get(request)
-            
-            # 等待网络请求完成，最多等待5秒
-            loop.exec_()
+            print("使用requests库下载头像")
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+                "Referer": "https://www.bilibili.com/"
+            }
+            response = requests.get(avatar_url, headers=headers, timeout=5)
+            if response.status_code == 200:
+                print(f"获取到头像数据，大小：{len(response.content)}字节")
+                
+                pixmap = QPixmap()
+                success = pixmap.loadFromData(response.content)
+                if success and not pixmap.isNull():
+                    pixmap = pixmap.scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    
+                    path = QPainterPath()
+                    path.addEllipse(0, 0, 24, 24)
+                    
+                    round_pixmap = QPixmap(24, 24)
+                    round_pixmap.fill(Qt.transparent)
+                    
+                    painter = QPainter(round_pixmap)
+                    painter.setClipPath(path)
+                    painter.drawPixmap(0, 0, 24, 24, pixmap)
+                    painter.end()
+                    
+                    self.avatar_label.setPixmap(round_pixmap)
+                    self.avatar_label.setStyleSheet("border-radius: 12px;")
+                    print("头像显示成功")
+                else:
+                    print("头像数据无效")
+            else:
+                print(f"下载头像失败，状态码：{response.status_code}")
         except Exception as e:
             print(f"加载头像失败：{e}")
-            # 如果网络请求失败，尝试使用requests库下载头像
-            try:
-                print("尝试使用requests库下载头像")
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-                    "Referer": "https://www.bilibili.com/"
-                }
-                response = requests.get(avatar_url, headers=headers, timeout=5)
-                if response.status_code == 200:
-                    print(f"使用requests获取到头像数据，大小：{len(response.content)}字节")
-                    pixmap = QPixmap()
-                    success = pixmap.loadFromData(response.content)
-                    print(f"加载头像数据成功：{success}")
-                    if success and not pixmap.isNull():
-                        pixmap = pixmap.scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                        
-                        path = QPainterPath()
-                        path.addEllipse(0, 0, 24, 24)
-                        
-                        round_pixmap = QPixmap(24, 24)
-                        round_pixmap.fill(Qt.transparent)
-                        
-                        painter = QPainter(round_pixmap)
-                        painter.setClipPath(path)
-                        painter.drawPixmap(0, 0, 24, 24, pixmap)
-                        painter.end()
-                        
-                        self.avatar_label.setPixmap(round_pixmap)
-                        self.avatar_label.setStyleSheet("border-radius: 12px;")
-                        print("头像显示成功")
-                    else:
-                        print("头像数据无效")
-                else:
-                    print(f"requests下载头像失败，状态码：{response.status_code}")
-            except Exception as e2:
-                print(f"使用requests加载头像失败：{e2}")
+            import traceback
+            traceback.print_exc()
     
     def update_hevc_status(self, supported):
         if supported:
@@ -11528,9 +12132,9 @@ class BilibiliDownloader(BaseWindow):
                             folder_path = save_path
                             if os.path.exists(folder_path):
                                 if os.name == 'nt':  # Windows
-                                    subprocess.run(['explorer', folder_path], shell=True)
+                                    run_subprocess(['explorer', folder_path], shell=True)
                                 elif os.name == 'posix':  # macOS/Linux
-                                    subprocess.run(['open' if os.uname().sysname == 'Darwin' else 'xdg-open', folder_path])
+                                    run_subprocess(['open' if os.uname().sysname == 'Darwin' else 'xdg-open', folder_path])
                     except Exception as e:
                         print(f"打开文件夹失败：{str(e)}")
             else:
@@ -11566,9 +12170,9 @@ class BilibiliDownloader(BaseWindow):
                             folder_path = save_path
                             if os.path.exists(folder_path):
                                 if os.name == 'nt':  # Windows
-                                    subprocess.run(['explorer', folder_path], shell=True)
+                                    run_subprocess(['explorer', folder_path], shell=True)
                                 elif os.name == 'posix':  # macOS/Linux
-                                    subprocess.run(['open' if os.uname().sysname == 'Darwin' else 'xdg-open', folder_path])
+                                    run_subprocess(['open' if os.uname().sysname == 'Darwin' else 'xdg-open', folder_path])
                     except Exception as e:
                         print(f"打开文件夹失败：{str(e)}")
             else:
@@ -11751,7 +12355,7 @@ class BilibiliDownloader(BaseWindow):
                 view_btn = QPushButton("查看任务")
                 def on_view_tasks():
                     if hasattr(self, 'task_manager') and hasattr(self, 'parser') and hasattr(self, 'download_manager'):
-                        task_window = TaskManagerWindow(self.task_manager, self.parser, self.download_manager, self.config)
+                        task_window = TaskManagerWindow(self.task_manager, self.parser, self.download_manager, self.config, self)
                         task_window.show()
                         task_window.raise_()
                     dialog.accept()
@@ -11889,7 +12493,7 @@ class BilibiliDownloader(BaseWindow):
 
     def on_view_tasks(self, dialog):
         if hasattr(self, 'task_manager') and self.task_manager and hasattr(self, 'parser') and hasattr(self, 'download_manager'):
-            task_window = TaskManagerWindow(self.task_manager, self.parser, self.download_manager, self.config)
+            task_window = TaskManagerWindow(self.task_manager, self.parser, self.download_manager, self.config, self)
             task_window.show()
             task_window.raise_()  # 确保窗口在最前面
             task_window.activateWindow()  # 激活窗口
@@ -11976,7 +12580,13 @@ class BilibiliDownloader(BaseWindow):
         
         
         try:
-            logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
+            import sys
+            if hasattr(sys, '_MEIPASS'):
+                # 在EXE模式下
+                logo_path = os.path.join(sys._MEIPASS, "logo.ico")
+            else:
+                # 在开发模式下
+                logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
             if os.path.exists(logo_path):
                 icon = QIcon(logo_path)
                 self.tray_icon.setIcon(icon)
@@ -12025,7 +12635,7 @@ class BilibiliDownloader(BaseWindow):
             print("查看任务")
             logger.info("查看任务")
             if hasattr(self, 'task_manager') and self.task_manager and hasattr(self, 'parser') and hasattr(self, 'download_manager'):
-                task_window = TaskManagerWindow(self.task_manager, self.parser, self.download_manager, self.config)
+                task_window = TaskManagerWindow(self.task_manager, self.parser, self.download_manager, self.config, self)
                 task_window.show()
         view_tasks_action.triggered.connect(view_tasks)
         
@@ -12085,7 +12695,7 @@ class BilibiliDownloader(BaseWindow):
 
     def show_task_manager(self):
         if hasattr(self, 'task_manager') and self.task_manager and hasattr(self, 'parser') and hasattr(self, 'download_manager'):
-            task_window = TaskManagerWindow(self.task_manager, self.parser, self.download_manager, self.config)
+            task_window = TaskManagerWindow(self.task_manager, self.parser, self.download_manager, self.config, self)
             task_window.show()
 
     def on_batch_parse(self):
@@ -12096,7 +12706,13 @@ class BilibiliDownloader(BaseWindow):
         
         # 设置窗口图标
         try:
-            logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
+            import sys
+            if hasattr(sys, '_MEIPASS'):
+                # 在EXE模式下
+                logo_path = os.path.join(sys._MEIPASS, "logo.ico")
+            else:
+                # 在开发模式下
+                logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
             if os.path.exists(logo_path):
                 icon = QIcon(logo_path)
                 dialog.setWindowIcon(icon)
@@ -12222,7 +12838,13 @@ class BilibiliDownloader(BaseWindow):
         
         # 设置窗口图标
         try:
-            logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
+            import sys
+            if hasattr(sys, '_MEIPASS'):
+                # 在EXE模式下
+                logo_path = os.path.join(sys._MEIPASS, "logo.ico")
+            else:
+                # 在开发模式下
+                logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
             if os.path.exists(logo_path):
                 icon = QIcon(logo_path)
                 batch_parse_window.setWindowIcon(icon)
@@ -13433,7 +14055,13 @@ class BilibiliDownloader(BaseWindow):
         
         # 设置窗口图标
         try:
-            logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
+            import sys
+            if hasattr(sys, '_MEIPASS'):
+                # 在EXE模式下
+                logo_path = os.path.join(sys._MEIPASS, "logo.ico")
+            else:
+                # 在开发模式下
+                logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
             if os.path.exists(logo_path):
                 icon = QIcon(logo_path)
                 self.login_dialog.setWindowIcon(icon)
@@ -13536,9 +14164,9 @@ class BilibiliDownloader(BaseWindow):
         
         qr_code_label = QLabel()
         qr_code_label.setAlignment(Qt.AlignCenter)
-        qr_code_label.setMinimumSize(200, 200)
-        qr_code_label.setMaximumSize(200, 200)
-        qr_code_label.setStyleSheet("border: 1px solid #e9ecef; border-radius: 8px; background-color: #f8fafc;")
+        qr_code_label.setMinimumSize(240, 240)
+        qr_code_label.setMaximumSize(240, 240)
+        qr_code_label.setStyleSheet("border: none; background-color: #f8fafc; padding: 0; margin: 0;")
         left_layout.addWidget(qr_code_label, alignment=Qt.AlignCenter)
         
         qr_status = QLabel("请使用哔哩哔哩App扫码登录")
@@ -13714,7 +14342,7 @@ class BilibiliDownloader(BaseWindow):
                 success = pixmap.loadFromData(qr_data)
                 
                 if success:
-                    pixmap = pixmap.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    pixmap = pixmap.scaled(240, 240, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
                     qr_code_label.setPixmap(pixmap)
                     
                     qr_status.setText("二维码生成成功，请扫描")
@@ -14536,119 +15164,55 @@ class BilibiliDownloader(BaseWindow):
         
         
         def on_cookie_login():
+            print("="*60)
             print("on_cookie_login函数被调用")
+            print("="*60)
+            
             cookie = cookie_edit.toPlainText().strip()
             print(f"获取到的Cookie长度：{len(cookie)}")
+            
             if not cookie:
                 print("Cookie为空，显示警告")
                 self.show_notification("请输入Cookie", "warning")
                 return
             
-            
-            print("显示开始登录提示")
+            print("开始Cookie登录流程...")
             self.show_notification("开始Cookie登录，请稍候...", "info")
             
-            
-            try:
-                print("显示验证中提示")
-                self.show_notification("正在验证Cookie...", "info")
-                print("开始保存Cookie...")
-                
-                
-                def verify_cookie_in_thread():
-                    print("verify_cookie_in_thread函数开始执行")
-                    try:
-                        
-                        if not hasattr(self, 'parser') or not self.parser:
-                            print("parser不存在")
-                            QTimer.singleShot(0, lambda: self.show_notification("解析器未初始化，请重启应用", "error"))
-                            return
-                        
-                        
-                        print("开始保存Cookie")
-                        save_success = self.parser.save_cookies(cookie)
-                        print(f"Cookie保存结果：{save_success}")
-                        if not save_success:
-                            
-                            QTimer.singleShot(0, lambda: self.show_notification("Cookie格式错误！支持：JSON对象列表、key1=value1;格式", "error"))
-                            print("Cookie格式错误，返回")
-                            return
-                        
-                        
-                        print("开始验证Cookie...")
+            # 在单个子线程中完成所有操作
+            import threading
+            def login_thread():
+                try:
+                    print("开始保存cookie...")
+                    save_success = self.parser.save_cookies(cookie)
+                    print(f"cookie保存结果：{save_success}")
+                    
+                    if save_success:
+                        print("验证cookie有效性...")
                         success, msg = self.parser.verify_cookie()
-                        print(f"Cookie验证结果：{success}, {msg}")
+                        print(f"verify_cookie返回: success={success}, msg={msg}")
                         
-                        
-                        def handle_verification_video_info():
-                            print("handle_verification_video_info函数开始执行")
-                            try:
-                                if success:
-                                    try:
-                                        
-                                        print("显示成功消息...")
-                                        self.show_success_message(msg)
-                                        print("成功消息已显示")
-                                        
-                                        print("加载用户信息...")
-                                        user_info = self.parser.get_user_info()
-                                        print(f"获取到的用户信息：{user_info}")
-                                        self.update_user_info(user_info)
-                                        print("用户信息已更新")
-                                        
-                                        print("检查cookie有效性...")
-                                        self.check_cookie_validity()
-                                        print("cookie有效性检查完成")
-                                        
-                                        if hasattr(self, 'login_dialog') and self.login_dialog:
-                                            print("隐藏登录对话框...")
-                                            self.login_dialog.hide()
-                                            print("登录对话框已隐藏")
-                                        else:
-                                            print("未找到登录对话框实例")
-                                        
-                                        self.showMaximized()
-                                    except Exception as e:
-                                        logger.error(f"保存Cookie失败：{str(e)}")
-                                        self.show_notification(f"保存Cookie失败：{str(e)}", "error")
-                                        print(f"处理成功情况时发生异常：{str(e)}")
-                                        traceback.print_exc()
-                                else:
-                                    print("显示验证失败消息...")
-                                    self.show_notification(f"验证失败：{msg}", "error")
-                                    print("验证失败消息已显示")
-                                    
-                                    print("登录失败，保持窗口显示")
-                                
-                                self.showMaximized()
-                                print("验证流程执行完成")
-                            except Exception as e:
-                                print(f"handle_verification_video_info函数发生异常：{str(e)}")
-                                traceback.print_exc()
-                        
-                        print("准备通过QTimer调用handle_verification_video_info")
-                        # 直接使用QTimer在主线程中执行，避免线程安全问题
-                        QTimer.singleShot(0, handle_verification_video_info)
-                        print("handle_verification_video_info已通过QTimer安排执行")
-                    except Exception as e:
-                        print(f"Cookie处理异常：{str(e)}")
-                        traceback.print_exc()
-                        
-                        QTimer.singleShot(0, lambda: self.show_notification(f"Cookie处理失败：{str(e)}", "error"))
-                
-                
-                import threading
-                print("创建验证线程")
-                thread = threading.Thread(target=verify_cookie_in_thread)
-                thread.daemon = True
-                print("启动验证线程")
-                thread.start()
-                print("验证线程已启动")
-            except Exception as e:
-                logger.error(f"Cookie登录失败：{str(e)}")
-                self.show_notification(f"登录失败：{str(e)}", "error")
-                print(f"处理Cookie登录时发生异常：{str(e)}")
-                traceback.print_exc()
+                        # 无论成功失败，都通过QTimer在主线程调用on_cookie_verified处理
+                        def handle_result(s=success, m=msg):
+                            print(f"handle_result被调用，success={s}, msg={m}")
+                            self.on_cookie_verified(s, m)
+                        QTimer.singleShot(0, handle_result)
+                    else:
+                        print("cookie保存失败")
+                        def on_save_failure():
+                            self.show_notification("Cookie格式错误，请检查格式", "error")
+                        QTimer.singleShot(0, on_save_failure)
+                except Exception as e:
+                    print(f"登录异常：{str(e)}")
+                    error_msg = str(e)
+                    def on_error():
+                        self.show_notification(f"登录异常：{error_msg}", "error")
+                    QTimer.singleShot(0, on_error)
+            
+            thread = threading.Thread(target=login_thread)
+            thread.daemon = True
+            thread.start()
+            print("登录线程已启动")
         
         
         login_btn.clicked.connect(on_password_login)
@@ -14678,7 +15242,13 @@ class BilibiliDownloader(BaseWindow):
         
         # 设置窗口图标
         try:
-            logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
+            import sys
+            if hasattr(sys, '_MEIPASS'):
+                # 在EXE模式下
+                logo_path = os.path.join(sys._MEIPASS, "logo.ico")
+            else:
+                # 在开发模式下
+                logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
             if os.path.exists(logo_path):
                 icon = QIcon(logo_path)
                 dialog.setWindowIcon(icon)
@@ -15259,348 +15829,464 @@ class BilibiliDownloader(BaseWindow):
                 self.show_user_info_window(user_detail)
         except Exception as e:
             print(f"获取用户信息失败：{e}")
+            import traceback
+            traceback.print_exc()
             self.show_notification(f"获取用户信息失败：{str(e)}", "error")
     
     def show_user_info_window(self, user_detail):
-        
-        dialog = QDialog()
-        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowMinimizeButtonHint | Qt.WindowCloseButtonHint)
-        dialog.setWindowTitle("个人中心")
-        dialog.setMinimumSize(800, 600)
-        
-        # 设置窗口图标
         try:
-            logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
-            if os.path.exists(logo_path):
-                icon = QIcon(logo_path)
-                dialog.setWindowIcon(icon)
-        except Exception as e:
-            pass
+            print("开始显示用户信息窗口")
+            dialog = QDialog()
+            dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowMinimizeButtonHint | Qt.WindowCloseButtonHint)
+            dialog.setWindowTitle("个人中心")
+            dialog.setMinimumSize(800, 600)
         
-        # 应用基础样式
-        custom_style = BASE_STYLE + """
-            QDialog {
-                background-color: white;
-                border: 2px solid #409eff;
-                border-radius: 10px;
-            }
-            QLabel#windowTitle {
-                font-size: 13px;
-                font-weight: 600;
-                color: white;
-            }
-            QPushButton#minimizeBtn {
-                background-color: transparent;
-                color: white;
-                font-size: 14px;
-                padding: 4px 8px;
-                border-radius: 4px;
-            }
-            QPushButton#minimizeBtn:hover {
-                background-color: rgba(255, 255, 255, 0.2);
-            }
-            QPushButton#closeBtn {
-                background-color: transparent;
-                color: white;
-                font-size: 14px;
-                padding: 4px 8px;
-                border-radius: 4px;
-            }
-            QPushButton#closeBtn:hover {
-                background-color: rgba(255, 0, 0, 0.3);
-            }
-        """
-        dialog.setStyleSheet(custom_style)
-        
-        main_layout = QVBoxLayout(dialog)
-        main_layout.setContentsMargins(2, 0, 2, 2)
-        main_layout.setSpacing(0)
-        
-        # 添加鼠标事件处理，实现窗口移动
-        dialog.mousePressEvent = lambda event: setattr(dialog, 'mouse_pos', event.globalPos() - dialog.pos())
-        dialog.mouseMoveEvent = lambda event: dialog.move(event.globalPos() - getattr(dialog, 'mouse_pos', QPoint(0, 0)))
-        
-        # 添加标题栏
-        title_bar = QWidget()
-        title_bar.setStyleSheet("background-color: #409eff; color: white; height: 36px; border-top-left-radius: 10px; border-top-right-radius: 10px;")
-        title_layout = QHBoxLayout(title_bar)
-        title_layout.setContentsMargins(12, 0, 8, 0)
-        title_layout.setSpacing(6)
-        
-        # 窗口标题
-        window_title = QLabel("个人中心")
-        window_title.setObjectName("windowTitle")
-        title_layout.addWidget(window_title, stretch=1)
-        
-        # 最小化按钮
-        minimize_btn = QPushButton("_")
-        minimize_btn.setObjectName("minimizeBtn")
-        minimize_btn.clicked.connect(dialog.showMinimized)
-        title_layout.addWidget(minimize_btn)
-        
-        # 关闭按钮
-        close_btn = QPushButton("×")
-        close_btn.setObjectName("closeBtn")
-        close_btn.clicked.connect(dialog.close)
-        title_layout.addWidget(close_btn)
-        
-        main_layout.addWidget(title_bar)
-        
-        # 内容区域
-        content_widget = QWidget()
-        content_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        content_layout = QVBoxLayout(content_widget)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(0)
-        
-        # 创建WebEngineView
-        web_view = QWebEngineView()
-        web_view.setStyleSheet("border: none;")
-        web_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        content_layout.addWidget(web_view)
-        
-        main_layout.addWidget(content_widget, stretch=1)
-        
-        # 构建HTML内容
-        username = user_detail.get("name", "未知用户")
-        mid = user_detail.get("mid", "未知")
-        level = user_detail.get("level", 0)
-        vip = user_detail.get("vip", {})
-        vip_status = vip.get("status", 0)
-        vip_type = vip.get("type", 0)
-        sign = user_detail.get("sign", "无签名")
-        sex = user_detail.get("sex", "保密")
-        coins = user_detail.get("coins", 0)
-        is_senior_member = user_detail.get("is_senior_member", 0)
-        jointime = user_detail.get("jointime", 0)
-        birthday = user_detail.get("birthday", "")
-        
-        # 处理注册时间
-        if jointime > 0:
-            register_time = time.strftime("%Y-%m-%d", time.localtime(jointime))
-        else:
-            register_time = "未知"
-        
-        # 处理生日
-        birthday_text = birthday if birthday else "未设置"
-        
-        # 处理会员类型
-        if vip_status == 1:
-            vip_type_text = "年度会员" if vip_type == 2 else "月度会员"
-        else:
-            vip_type_text = "未开通"
-        
-        # 处理硬核会员
-        senior_text = "是" if is_senior_member == 1 else "否"
-        
-        # 处理会员状态
-        vip_status_text = "大会员" if vip_status == 1 else "普通用户"
-        
-        # 头像URL
-        avatar_url = user_detail.get("face", "https://i2.hdslb.com/bfs/face/member/noface.jpg")
-        
-        # 构建HTML
-        html = '''
-        <!DOCTYPE html>
-        <html lang="zh-CN">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>个人中心</title>
-            <style>
-                * {{ 
-                    margin: 0;
-                    padding: 0;
-                    box-sizing: border-box;
-                }}
-                body {{ 
-                    font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
-                    background-color: #f8f9fa;
-                    color: #333;
-                    line-height: 1.5;
-                }}
-                .container {{ 
-                    padding: 20px;
-                }}
-                .profile-header {{ 
-                    background-color: #00a1d6;
-                    border-radius: 8px;
-                    padding: 20px;
-                    margin-bottom: 16px;
-                    color: white;
-                    display: flex;
-                    align-items: center;
-                    gap: 20px;
-                }}
-                .avatar {{ 
-                    width: 80px;
-                    height: 80px;
-                    border-radius: 50%;
+            # 设置窗口图标
+            try:
+                import sys
+                if hasattr(sys, '_MEIPASS'):
+                    logo_path = os.path.join(sys._MEIPASS, "logo.ico")
+                else:
+                    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
+                if os.path.exists(logo_path):
+                    icon = QIcon(logo_path)
+                    dialog.setWindowIcon(icon)
+            except Exception as e:
+                pass
+            
+            # 应用基础样式
+            custom_style = BASE_STYLE + """
+                QDialog {
                     background-color: white;
-                    overflow: hidden;
-                    border: 2px solid rgba(255, 255, 255, 0.3);
-                }}
-                .avatar img {{ 
-                    width: 100%;
-                    height: 100%;
-                    object-fit: cover;
-                }}
-                .basic-info {{ 
-                    flex: 1;
-                }}
-                .username {{ 
-                    font-size: 18px;
-                    font-weight: bold;
-                    margin-bottom: 4px;
-                }}
-                .uid {{ 
-                    font-size: 12px;
-                    opacity: 0.9;
-                    margin-bottom: 8px;
-                }}
-                .level {{ 
-                    display: inline-block;
-                    background-color: rgba(255, 255, 255, 0.2);
-                    padding: 2px 8px;
+                    border: 2px solid #409eff;
                     border-radius: 10px;
-                    font-size: 11px;
-                    font-weight: 500;
-                    margin-bottom: 4px;
-                }}
-                .vip-status {{ 
-                    font-size: 11px;
+                }
+                QLabel#windowTitle {
+                    font-size: 13px;
                     font-weight: 600;
-                    color: #ffd700;
-                }}
-                .info-section {{ 
-                    background-color: white;
-                    border-radius: 8px;
-                    padding: 20px;
-                    border: 1px solid #e0e0e0;
-                }}
-                .sign {{ 
-                    background-color: #f5f5f5;
-                    border-left: 3px solid #00a1d6;
-                    padding: 12px;
+                    color: white;
+                }
+                QPushButton#minimizeBtn {
+                    background-color: transparent;
+                    color: white;
+                    font-size: 14px;
+                    padding: 4px 8px;
                     border-radius: 4px;
-                    margin-bottom: 16px;
-                    font-size: 13px;
-                    color: #555;
-                    line-height: 1.5;
-                }}
-                .section-title {{ 
-                    font-size: 16px;
-                    font-weight: 600;
-                    color: #333;
-                    margin-bottom: 16px;
-                    padding-bottom: 8px;
-                    border-bottom: 1px solid #e0e0e0;
-                }}
-                .detail-grid {{ 
-                    display: grid;
-                    grid-template-columns: repeat(3, 1fr);
-                    gap: 16px;
-                }}
-                .info-item {{ 
-                    display: flex;
-                    flex-direction: column;
-                    gap: 3px;
-                }}
-                .info-label {{ 
-                    font-size: 12px;
-                    color: #888;
-                    font-weight: 500;
-                }}
-                .info-value {{ 
-                    font-size: 13px;
-                    color: #333;
-                    font-weight: 500;
-                }}
-                @media (max-width: 768px) {{ 
-                    .detail-grid {{ 
-                        grid-template-columns: repeat(2, 1fr);
+                }
+                QPushButton#minimizeBtn:hover {
+                    background-color: rgba(255, 255, 255, 0.2);
+                }
+                QPushButton#closeBtn {
+                    background-color: transparent;
+                    color: white;
+                    font-size: 14px;
+                    padding: 4px 8px;
+                    border-radius: 4px;
+                }
+                QPushButton#closeBtn:hover {
+                    background-color: rgba(255, 0, 0, 0.3);
+                }
+            """
+            dialog.setStyleSheet(custom_style)
+            
+            main_layout = QVBoxLayout(dialog)
+            main_layout.setContentsMargins(2, 0, 2, 2)
+            main_layout.setSpacing(0)
+            
+            # 添加鼠标事件处理，实现窗口移动
+            dialog.mousePressEvent = lambda event: setattr(dialog, 'mouse_pos', event.globalPos() - dialog.pos())
+            dialog.mouseMoveEvent = lambda event: dialog.move(event.globalPos() - getattr(dialog, 'mouse_pos', QPoint(0, 0)))
+            
+            # 添加标题栏
+            title_bar = QWidget()
+            title_bar.setStyleSheet("background-color: #409eff; color: white; height: 36px; border-top-left-radius: 10px; border-top-right-radius: 10px;")
+            title_layout = QHBoxLayout(title_bar)
+            title_layout.setContentsMargins(12, 0, 8, 0)
+            title_layout.setSpacing(6)
+            
+            # 窗口标题
+            window_title = QLabel("个人中心")
+            window_title.setObjectName("windowTitle")
+            title_layout.addWidget(window_title, stretch=1)
+            
+            # 最小化按钮
+            minimize_btn = QPushButton("_")
+            minimize_btn.setObjectName("minimizeBtn")
+            minimize_btn.clicked.connect(dialog.showMinimized)
+            title_layout.addWidget(minimize_btn)
+            
+            # 关闭按钮
+            close_btn = QPushButton("×")
+            close_btn.setObjectName("closeBtn")
+            close_btn.clicked.connect(dialog.close)
+            title_layout.addWidget(close_btn)
+            
+            main_layout.addWidget(title_bar)
+            
+            # 内容区域
+            content_widget = QWidget()
+            content_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            content_layout = QVBoxLayout(content_widget)
+            content_layout.setContentsMargins(0, 0, 0, 0)
+            content_layout.setSpacing(0)
+            
+            # 创建WebEngineView
+            web_view = QWebEngineView()
+            web_view.setStyleSheet("border: none;")
+            web_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            content_layout.addWidget(web_view)
+            
+            main_layout.addWidget(content_widget, stretch=1)
+            
+            # 构建HTML内容
+            username = user_detail.get("name", "未知用户")
+            mid = user_detail.get("mid", "未知")
+            level = user_detail.get("level", 0)
+            vip = user_detail.get("vip", {})
+            vip_status = vip.get("status", 0)
+            vip_type = vip.get("type", 0)
+            sign = user_detail.get("sign", "无签名")
+            sex = user_detail.get("sex", "保密")
+            coins = user_detail.get("coins", 0)
+            is_senior_member = user_detail.get("is_senior_member", 0)
+            jointime = user_detail.get("jointime", 0)
+            birthday = user_detail.get("birthday", "")
+            
+            # 处理注册时间
+            if jointime > 0:
+                register_time = time.strftime("%Y-%m-%d", time.localtime(jointime))
+            else:
+                register_time = "未知"
+            
+            # 处理生日
+            birthday_text = birthday if birthday else "未设置"
+            
+            # 处理会员类型
+            if vip_status == 1:
+                vip_type_text = "年度会员" if vip_type == 2 else "月度会员"
+            else:
+                vip_type_text = "未开通"
+            
+            # 处理硬核会员
+            senior_text = "是" if is_senior_member == 1 else "否"
+            
+            # 处理会员状态
+            vip_status_text = "大会员" if vip_status == 1 else "普通用户"
+            
+            # 头像URL
+            avatar_url = user_detail.get("face", "https://i2.hdslb.com/bfs/face/member/noface.jpg")
+            
+            # 构建HTML
+            html = '''
+            <!DOCTYPE html>
+            <html lang="zh-CN">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>个人中心</title>
+                <style>
+                    * {{ 
+                        margin: 0;
+                        padding: 0;
+                        box-sizing: border-box;
+                    }}
+                    body {{ 
+                        font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+                        background-color: #f8f9fa;
+                        color: #333;
+                        line-height: 1.5;
+                    }}
+                    .container {{ 
+                        padding: 20px;
                     }}
                     .profile-header {{ 
-                        flex-direction: column;
-                        text-align: center;
-                        gap: 15px;
+                        background-color: #00a1d6;
+                        border-radius: 8px;
+                        padding: 20px;
+                        margin-bottom: 16px;
+                        color: white;
+                        display: flex;
+                        align-items: center;
+                        gap: 20px;
                     }}
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="profile-header">
-                    <div class="avatar">
-                        <img src="{avatar_url}" alt="头像">
+                    .avatar {{ 
+                        width: 80px;
+                        height: 80px;
+                        border-radius: 50%;
+                        background-color: white;
+                        overflow: hidden;
+                        border: 2px solid rgba(255, 255, 255, 0.3);
+                    }}
+                    .avatar img {{
+                        width: 100%;
+                        height: 100%;
+                        object-fit: cover;
+                    }}
+                    .basic-info {{
+                        display: flex;
+                        flex-direction: column;
+                        gap: 5px;
+                    }}
+                    .username {{
+                        font-size: 24px;
+                        font-weight: 600;
+                    }}
+                    .uid, .level, .vip-status {{
+                        font-size: 14px;
+                        opacity: 0.9;
+                    }}
+                    .info-section {{ 
+                        background-color: white;
+                        border-radius: 8px;
+                        padding: 20px;
+                        border: 1px solid #e0e0e0;
+                    }}
+                    .sign {{ 
+                        background-color: #f5f5f5;
+                        border-left: 3px solid #00a1d6;
+                        padding: 12px;
+                        border-radius: 4px;
+                        margin-bottom: 16px;
+                        font-size: 13px;
+                        color: #555;
+                        line-height: 1.5;
+                    }}
+                    .section-title {{ 
+                        font-size: 16px;
+                        font-weight: 600;
+                        color: #333;
+                        margin-bottom: 16px;
+                        padding-bottom: 8px;
+                        border-bottom: 1px solid #e0e0e0;
+                    }}
+                    .detail-grid {{ 
+                        display: grid;
+                        grid-template-columns: repeat(3, 1fr);
+                        gap: 16px;
+                    }}
+                    .info-item {{
+                        display: flex;
+                        flex-direction: column;
+                        gap: 3px;
+                    }}
+                    .info-label {{
+                        font-size: 12px;
+                        color: #888;
+                        font-weight: 500;
+                    }}
+                    .info-value {{ 
+                        font-size: 13px;
+                        color: #333;
+                        font-weight: 500;
+                    }}
+                    @media (max-width: 768px) {{ 
+                        .detail-grid {{ 
+                            grid-template-columns: repeat(2, 1fr);
+                        }}
+                        .profile-header {{ 
+                            flex-direction: column;
+                            text-align: center;
+                            gap: 15px;
+                        }}
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="profile-header">
+                        <div class="avatar">
+                            <img src="{avatar_url}" alt="头像">
+                        </div>
+                        <div class="basic-info">
+                            <div class="username">{username}</div>
+                            <div class="uid">UID：{mid}</div>
+                            <div class="level">Lv.{level}</div>
+                            <div class="vip-status">{vip_status_text}</div>
+                        </div>
                     </div>
-                    <div class="basic-info">
-                        <div class="username">{username}</div>
-                        <div class="uid">UID：{mid}</div>
-                        <div class="level">Lv.{level}</div>
-                        <div class="vip-status">{vip_status_text}</div>
-                    </div>
-                </div>
-                
-                <div class="info-section">
-                    <div class="sign">{sign}</div>
                     
-                    <div class="section-title">详细信息</div>
-                    <div class="detail-grid">
-                        <div class="info-item">
-                            <div class="info-label">性别</div>
-                            <div class="info-value">{sex}</div>
-                        </div>
-                        <div class="info-item">
-                            <div class="info-label">硬币</div>
-                            <div class="info-value">{coins}</div>
-                        </div>
-                        <div class="info-item">
-                            <div class="info-label">硬核会员</div>
-                            <div class="info-value">{senior_text}</div>
-                        </div>
-                        <div class="info-item">
-                            <div class="info-label">注册时间</div>
-                            <div class="info-value">{register_time}</div>
-                        </div>
-                        <div class="info-item">
-                            <div class="info-label">会员类型</div>
-                            <div class="info-value">{vip_type_text}</div>
-                        </div>
-                        <div class="info-item">
-                            <div class="info-label">生日</div>
-                            <div class="info-value">{birthday_text}</div>
+                    <div class="info-section">
+                        <div class="sign">{sign}</div>
+                        
+                        <div class="section-title">详细信息</div>
+                        <div class="detail-grid">
+                            <div class="info-item">
+                                <div class="info-label">性别</div>
+                                <div class="info-value">{sex}</div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">硬币</div>
+                                <div class="info-value">{coins}</div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">硬核会员</div>
+                                <div class="info-value">{senior_text}</div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">注册时间</div>
+                                <div class="info-value">{register_time}</div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">会员类型</div>
+                                <div class="info-value">{vip_type_text}</div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">生日</div>
+                                <div class="info-value">{birthday_text}</div>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </body>
-        </html>
-        '''
+            </body>
+            </html>
+            '''
+            
+            # 替换变量
+            html = html.format(
+                avatar_url=avatar_url,
+                username=username,
+                mid=mid,
+                level=level,
+                vip_status_text=vip_status_text,
+                sign=sign,
+                sex=sex,
+                coins=coins,
+                senior_text=senior_text,
+                register_time=register_time,
+                vip_type_text=vip_type_text,
+                birthday_text=birthday_text
+            )
+            
+            # 加载HTML
+            web_view.setHtml(html)
+            
+            # 显示对话框
+            dialog.show()
+            dialog.raise_()
+            dialog.activateWindow()
+        except Exception as e:
+            print(f"显示用户信息窗口失败：{e}")
+            import traceback
+            traceback.print_exc()
+            self.show_notification(f"打开个人中心失败：{str(e)}", "error")
+
+
+class CookieTestDialog(QDialog):
+    def __init__(self, parser, parent=None):
+        super().__init__(parent)
+        self.parser = parser
+        self.setWindowTitle("Cookie测试")
+        self.setMinimumSize(700, 500)
         
-        # 替换变量
-        html = html.format(
-            avatar_url=avatar_url,
-            username=username,
-            mid=mid,
-            level=level,
-            vip_status_text=vip_status_text,
-            sign=sign,
-            sex=sex,
-            coins=coins,
-            senior_text=senior_text,
-            register_time=register_time,
-            vip_type_text=vip_type_text,
-            birthday_text=birthday_text
-        )
+        self.setWindowFlags(Qt.Window | Qt.WindowMinimizeButtonHint | Qt.WindowCloseButtonHint)
         
-        # 加载HTML
-        web_view.setHtml(html)
+        layout = QVBoxLayout()
         
-        # 显示对话框
-        dialog.show()
-        dialog.raise_()
-        dialog.activateWindow()
+        # 测试按钮
+        self.test_btn = QPushButton("测试Cookie验证")
+        self.test_btn.clicked.connect(self.test_cookie)
+        layout.addWidget(self.test_btn)
+        
+        # 进度标签
+        self.progress_label = QLabel("等待测试...")
+        layout.addWidget(self.progress_label)
+        
+        # 结果文本框
+        self.result_text = QTextEdit()
+        self.result_text.setReadOnly(True)
+        layout.addWidget(self.result_text)
+        
+        # Cookie信息
+        self.cookie_info_label = QLabel("Cookie状态: 未检查")
+        layout.addWidget(self.cookie_info_label)
+        
+        # 关闭按钮
+        self.close_btn = QPushButton("关闭")
+        self.close_btn.clicked.connect(self.close)
+        layout.addWidget(self.close_btn)
+        
+        self.setLayout(layout)
+    
+    def test_cookie(self):
+        self.result_text.clear()
+        self.progress_label.setText("开始测试...")
+        self.result_text.append("="*60)
+        self.result_text.append("开始Cookie测试")
+        self.result_text.append("="*60)
+        
+        try:
+            # 步骤1：检查parser
+            self.result_text.append("\n【步骤1】检查parser是否存在...")
+            QApplication.processEvents()  # 刷新UI
+            if self.parser:
+                self.result_text.append("   ✓ parser存在")
+            else:
+                self.result_text.append("   ✗ parser不存在！")
+                self.progress_label.setText("测试失败：parser不存在")
+                return
+            
+            # 步骤2：检查cookies
+            self.result_text.append("\n【步骤2】检查cookies是否存在...")
+            QApplication.processEvents()
+            if hasattr(self.parser, 'cookies') and self.parser.cookies:
+                self.result_text.append(f"   ✓ cookies存在，共 {len(self.parser.cookies)} 个cookie")
+                self.result_text.append(f"   主要cookie: {list(self.parser.cookies.keys())[:5]}...")
+            else:
+                self.result_text.append("   ✗ cookies不存在！")
+                self.cookie_info_label.setText("Cookie状态: 不存在")
+                self.progress_label.setText("测试失败：cookie不存在")
+                return
+            
+            # 步骤3：检查SESSDATA
+            self.result_text.append("\n【步骤3】检查关键Cookie (SESSDATA)...")
+            QApplication.processEvents()
+            if 'SESSDATA' in self.parser.cookies:
+                sessdata = self.parser.cookies['SESSDATA']
+                self.result_text.append(f"   ✓ SESSDATA存在，长度: {len(sessdata)}")
+                self.result_text.append(f"   SESSDATA前20字符: {sessdata[:20]}...")
+            else:
+                self.result_text.append("   ✗ SESSDATA不存在！")
+                self.result_text.append(f"   存在的cookie: {list(self.parser.cookies.keys())}")
+                self.cookie_info_label.setText("Cookie状态: 缺少SESSDATA")
+                self.progress_label.setText("测试失败：缺少SESSDATA")
+                return
+            
+            # 步骤4：调用verify_cookie
+            self.result_text.append("\n【步骤4】调用verify_cookie方法...")
+            self.result_text.append("   正在验证，请稍候...")
+            QApplication.processEvents()
+            
+            success, msg = self.parser.verify_cookie()
+            
+            self.result_text.append(f"   verify_cookie返回: success={success}, msg={msg}")
+            
+            if success:
+                self.result_text.append("\n【结果】✓ Cookie验证成功！")
+                self.progress_label.setText("测试成功！")
+                self.cookie_info_label.setText("Cookie状态: 有效")
+                
+                # 步骤5：获取用户信息
+                self.result_text.append("\n【步骤5】获取用户信息...")
+                QApplication.processEvents()
+                user_info = self.parser.get_user_info()
+                if user_info.get("success"):
+                    self.result_text.append(f"   ✓ 用户名: {user_info.get('uname', '未知')}")
+                    self.result_text.append(f"   ✓ 用户ID: {user_info.get('uid', user_info.get('mid', '未知'))}")
+                    self.result_text.append(f"   ✓ 头像URL: {user_info.get('face', '无')[:50]}...")
+                else:
+                    self.result_text.append(f"   ✗ 获取用户信息失败: {user_info.get('msg', '未知错误')}")
+            else:
+                self.result_text.append(f"\n【结果】✗ Cookie验证失败!")
+                self.result_text.append(f"   失败原因: {msg}")
+                self.progress_label.setText(f"测试失败: {msg}")
+                self.cookie_info_label.setText(f"Cookie状态: 无效 - {msg}")
+        except Exception as e:
+            import traceback
+            self.result_text.append(f"\n【错误】发生异常: {str(e)}")
+            self.result_text.append(traceback.format_exc())
+            self.progress_label.setText(f"测试出错: {str(e)}")
+            self.cookie_info_label.setText("Cookie状态: 错误")
+
 
 if __name__ == "__main__":
     from config import ConfigLoader

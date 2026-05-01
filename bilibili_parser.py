@@ -20,6 +20,38 @@ from api_request import ApiRequest
 from video_parser import VideoParser
 import requests
 
+
+def run_subprocess(cmd, capture_output=True, text=True, timeout=30, **kwargs):
+    """静默运行子进程，不显示命令行窗口"""
+    if os.name == 'nt':
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+        creationflags = subprocess.CREATE_NO_WINDOW
+        kwargs['startupinfo'] = startupinfo
+        kwargs['creationflags'] = creationflags
+    return subprocess.run(
+        cmd, capture_output=capture_output, text=text, timeout=timeout, **kwargs
+    )
+
+
+def popen_subprocess(cmd, **kwargs):
+    """静默启动子进程，不显示命令行窗口"""
+    if os.name == 'nt':
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+        creationflags = subprocess.CREATE_NO_WINDOW
+        kwargs['startupinfo'] = startupinfo
+        kwargs['creationflags'] = creationflags
+    return subprocess.Popen(cmd, **kwargs)
+
+# 导入工具管理器
+try:
+    from tool_manager import get_tool_manager
+except ImportError:
+    get_tool_manager = None
+
 logger = logging.getLogger(__name__)
 
 # 条件导入：优先使用orjson进行字符串解析，始终使用标准json进行文件操作
@@ -193,7 +225,6 @@ requests.packages.urllib3.disable_warnings()
 class BilibiliParser:
     def __init__(self, config, cookie_path="cookie.txt"):
         self.config = config
-        self.cookie_path = cookie_path
         self.cookies = {}
         self.csrf_token = ""
         self.session = requests.Session()
@@ -210,8 +241,124 @@ class BilibiliParser:
             self.current_dir = sys._MEIPASS
         else:
             self.current_dir = os.path.dirname(os.path.abspath(__file__))
-        self.ffmpeg_local = os.path.join(self.current_dir, 'ffmpeg', 'bin', 'ffmpeg.exe')
+        
+        # 设置cookie路径
+        if hasattr(sys, '_MEIPASS'):
+            self.cookie_path = os.path.join(os.getcwd(), cookie_path)
+        else:
+            self.cookie_path = os.path.join(self.current_dir, cookie_path)
+        
+        # 尝试使用工具管理器
+        self.tool_manager = None
+        self.using_system_tools = False
+        if get_tool_manager is not None:
+            try:
+                self.tool_manager = get_tool_manager()
+                # 检查工具是否已安装
+                tool_status = self.tool_manager.check_tools_installed()
+                if tool_status['ffmpeg_exists'] and tool_status['bento4_exists']:
+                    # 使用已安装的工具
+                    self.ffmpeg_local = tool_status['ffmpeg_path']
+                    self.bento4_dir = tool_status['bento4_path'].replace(os.sep + 'mp4decrypt.exe', '')
+                    self.using_system_tools = True
+                    logger.info(f"使用已安装的工具: FFmpeg={self.ffmpeg_local}, Bento4={self.bento4_dir}")
+                else:
+                    # 工具未安装，使用旧逻辑
+                    self._setup_old_paths()
+            except Exception as e:
+                logger.warning(f"工具管理器初始化失败: {str(e)}, 使用旧逻辑")
+                self._setup_old_paths()
+        else:
+            # 工具管理器不可用，使用旧逻辑
+            self._setup_old_paths()
+        
         self._init_session()
+    
+    def _setup_old_paths(self):
+        """使用旧的路径设置逻辑"""
+        import sys
+        if hasattr(sys, '_MEIPASS'):
+            self.bento4_dir = os.path.join(self.current_dir, 'bento4', 'bin')
+        else:
+            self.bento4_dir = os.path.join(self.current_dir, 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin')
+        
+        self.ffmpeg_local = os.path.join(self.current_dir, 'ffmpeg', 'bin', 'ffmpeg.exe')
+        
+        # 检查工具是否存在，并尝试多个可能的路径
+        self._check_and_fix_paths()
+    
+    def _check_and_fix_paths(self):
+        """检查必要工具是否存在，尝试多个可能的路径"""
+        import sys
+        
+        # 可能的bento4路径列表
+        possible_bento4_paths = []
+        if hasattr(sys, '_MEIPASS'):
+            possible_bento4_paths.append(os.path.join(sys._MEIPASS, 'bento4', 'bin'))
+            possible_bento4_paths.append(os.path.join(sys._MEIPASS, 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
+            possible_bento4_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', 'bin'))
+            possible_bento4_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
+            possible_bento4_paths.append(os.path.join(os.getcwd(), 'bento4', 'bin'))
+            possible_bento4_paths.append(os.path.join(os.getcwd(), 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
+        else:
+            possible_bento4_paths.append(self.bento4_dir)
+            possible_bento4_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', 'bin'))
+            possible_bento4_paths.append(os.path.join(os.getcwd(), 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
+            possible_bento4_paths.append(os.path.join(os.getcwd(), 'bento4', 'bin'))
+        
+        # 寻找包含mp4decrypt.exe的路径
+        found_bento4 = False
+        for path in possible_bento4_paths:
+            test_path = os.path.join(path, 'mp4decrypt.exe')
+            if os.path.exists(test_path):
+                self.bento4_dir = path
+                found_bento4 = True
+                logger.info(f"找到Bento4工具：{path}")
+                break
+        
+        if not found_bento4:
+            logger.warning("未找到Bento4工具，解密功能可能无法正常工作")
+        
+        # 可能的ffmpeg路径列表
+        possible_ffmpeg_paths = []
+        if hasattr(sys, '_MEIPASS'):
+            possible_ffmpeg_paths.append(os.path.join(sys._MEIPASS, 'ffmpeg', 'bin', 'ffmpeg.exe'))
+            possible_ffmpeg_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ffmpeg', 'bin', 'ffmpeg.exe'))
+            possible_ffmpeg_paths.append(os.path.join(os.getcwd(), 'ffmpeg', 'bin', 'ffmpeg.exe'))
+        else:
+            possible_ffmpeg_paths.append(self.ffmpeg_local)
+            possible_ffmpeg_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ffmpeg', 'bin', 'ffmpeg.exe'))
+            possible_ffmpeg_paths.append(os.path.join(os.getcwd(), 'ffmpeg', 'bin', 'ffmpeg.exe'))
+        
+        # 寻找ffmpeg.exe
+        found_ffmpeg = False
+        for path in possible_ffmpeg_paths:
+            if os.path.exists(path):
+                self.ffmpeg_local = path
+                found_ffmpeg = True
+                logger.info(f"找到FFmpeg工具：{path}")
+                break
+        
+        if not found_ffmpeg:
+            logger.warning("未找到FFmpeg工具，视频处理功能可能无法正常工作")
+    
+    def check_tools_exist(self):
+        """检查所有必要工具是否存在，返回状态字典"""
+        status = {
+            'ffmpeg': {
+                'exists': os.path.exists(self.ffmpeg_local),
+                'path': self.ffmpeg_local
+            },
+            'mp4decrypt': {
+                'exists': os.path.exists(os.path.join(self.bento4_dir, 'mp4decrypt.exe')),
+                'path': os.path.join(self.bento4_dir, 'mp4decrypt.exe')
+            },
+            'bento4_dir': {
+                'exists': os.path.exists(self.bento4_dir),
+                'path': self.bento4_dir
+            }
+        }
+        return status
 
     def _init_session(self):
         import threading
@@ -1685,7 +1832,7 @@ class BilibiliParser:
                 return False
 
             cmd = [ffmpeg_exec, '-codecs']
-            result = subprocess.run(cmd, capture_output=True, text=False, timeout=10)
+            result = run_subprocess(cmd, capture_output=True, text=False, timeout=10)
             output = result.stdout.decode('utf-8', errors='replace')
             self.hevc_supported = 'hevc' in output.lower() and 'decoder' in output.lower()
             return self.hevc_supported
@@ -1713,7 +1860,7 @@ class BilibiliParser:
             progress_callback(10)
 
             try:
-                result = subprocess.run(
+                result = run_subprocess(
                     ["powershell", "-Command", f"Add-AppxPackage -Path '{hevc_appx}'"],
                     capture_output=True,
                     text=True,
@@ -1751,7 +1898,7 @@ class BilibiliParser:
                 return {"compatible": True, "codec": "unknown", "reason": "无法检测编码"}
 
             cmd = [ffprobe_path, '-v', 'quiet', '-print_format', 'json', '-show_streams', video_path]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = run_subprocess(cmd, capture_output=True, text=True, timeout=30)
 
             if result.returncode != 0:
                 return {"compatible": True, "codec": "unknown", "reason": "检测失败"}
@@ -1804,7 +1951,7 @@ class BilibiliParser:
                 output_path
             ]
 
-            process = subprocess.Popen(
+            process = popen_subprocess(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -3376,53 +3523,29 @@ class BilibiliParser:
             # 使用B站API文档指定的URL
             url = "https://api.bilibili.com/x/v3/fav/resource/list"
             
-            # 直接使用requests库发送请求
-            import requests
-            session = requests.Session()
-            session.headers.update({
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
-                'Referer': 'https://www.bilibili.com',
-                'Accept': 'application/json, text/plain, */*'
-            })
+            # 先尝试使用WBI签名
+            logger.info("尝试使用WBI签名获取收藏夹内容")
+            success, api_data = self._api_request(url, timeout=15, use_wbi=True, params=base_params)
             
-            # 构建cookies字典
-            cookies = {}
-            for cookie in self.cookies:
-                if isinstance(cookie, dict):
-                    cookies[cookie.get('name')] = cookie.get('value')
-                elif '=' in cookie:
-                    name, value = cookie.split('=', 1)
-                    cookies[name.strip()] = value.strip()
+            if not success:
+                # 如果失败，尝试不使用WBI签名
+                logger.info("尝试不使用WBI签名获取收藏夹内容")
+                success, api_data = self._api_request(url, timeout=15, use_wbi=False, params=base_params)
+                if not success:
+                    error_msg = api_data['error']
+                    logger.error(f"API请求失败：{error_msg}")
+                    raise Exception(f"获取收藏夹内容失败：{error_msg}")
             
-            logger.info(f"发送请求到：{url}")
-            logger.info(f"请求参数：{base_params}")
-            logger.info(f"Cookies数量：{len(cookies)}")
-            
-            # 发送请求
-            resp = session.get(url, params=base_params, cookies=cookies, timeout=15, proxies={}, allow_redirects=True)
-            
-            logger.info(f"响应状态码：{resp.status_code}")
-            logger.info(f"响应内容：{resp.text[:500]}...")  # 限制日志长度
-            
-            if resp.status_code != 200:
-                raise Exception(f"获取收藏夹内容失败：HTTP {resp.status_code}")
-            
-            # 解析响应
-            import json
-            try:
-                data = json.loads(resp.text)
-                logger.info(f"解析后的响应数据：{data}")
-            except json.JSONDecodeError as e:
-                raise Exception(f"获取收藏夹内容失败：JSON解析错误：{str(e)}")
+            logger.info(f"解析后的响应数据：{api_data}")
             
             # 检查响应码
-            code = data.get('code', 0)
+            code = api_data.get('code', 0)
             if code != 0:
-                error_msg = data.get('message', '未知错误')
+                error_msg = api_data.get('message', '未知错误')
                 raise Exception(f"获取收藏夹内容失败：{error_msg}（code={code}）")
             
             # 处理数据
-            result_data = data.get('data', {})
+            result_data = api_data.get('data', {})
             medias = result_data.get('medias', [])
             has_more = result_data.get('has_more', False)
             
@@ -3464,12 +3587,16 @@ class BilibiliParser:
                     }
                     
                     logger.info(f"获取第{current_page}页收藏内容")
-                    resp = session.get(url, params=params, cookies=cookies, timeout=15, proxies={}, allow_redirects=True)
+                    # 使用_api_request方法
+                    success, data = self._api_request(url, timeout=15, use_wbi=True, params=params)
                     
-                    if resp.status_code != 200:
-                        raise Exception(f"获取收藏夹内容失败：HTTP {resp.status_code}")
+                    if not success:
+                        # 尝试不使用WBI签名
+                        success, data = self._api_request(url, timeout=15, use_wbi=False, params=params)
+                        if not success:
+                            error_msg = data['error']
+                            raise Exception(f"获取收藏夹内容失败：{error_msg}")
                     
-                    data = json.loads(resp.text)
                     if data.get('code') != 0:
                         error_msg = data.get('message', '未知错误')
                         raise Exception(f"获取收藏夹内容失败：{error_msg}（code={data.get('code')}）")
@@ -4169,8 +4296,18 @@ class BilibiliParser:
                 accept_quality = data_source.get('accept_quality', [current_qn])
                 
                 if data_source['durl']:
-                    video_url = data_source['durl'][0]['url']
-                    logger.debug(f"获取视频链接：{video_url[:50]}...")
+                    # 检查是否有多个分段
+                    if len(data_source['durl']) > 1:
+                        # 多分段下载
+                        video_urls_list = []
+                        for durl_item in data_source['durl']:
+                            video_urls_list.append(durl_item['url'])
+                        video_url = video_urls_list
+                        logger.debug(f"获取多分段视频链接，共{len(video_urls_list)}个分段")
+                    else:
+                        # 单分段下载
+                        video_url = data_source['durl'][0]['url']
+                        logger.debug(f"获取视频链接：{video_url[:50]}...")
                     
                     # 提取KID（DURL格式）
                     if not kid:
@@ -4187,8 +4324,9 @@ class BilibiliParser:
                                 del KID_CACHE[cache_key]
                         
                         if not kid:
-                            # 从DURL链接中提取KID
-                            kid_match = KID_REGEX['url_param'].search(video_url)
+                            # 从DURL链接中提取KID（使用第一个分段的URL）
+                            first_url = video_url[0] if isinstance(video_url, list) else video_url
+                            kid_match = KID_REGEX['url_param'].search(first_url)
                             if kid_match:
                                 kid = kid_match.group(1)
                                 logger.info(f"从DURL链接中提取到KID：{kid}")
@@ -5343,19 +5481,6 @@ class BilibiliParser:
                 'Sec-Fetch-Site': 'same-site'
             }
             
-            
-            if os.path.exists(temp_path):
-                downloaded_size = os.path.getsize(temp_path)
-                logger.info(f"续传：已下载{downloaded_size}字节")
-                headers['Range'] = f'bytes={downloaded_size}-'
-                mode = 'ab'
-            else:
-                downloaded_size = 0
-                mode = 'wb'
-            
-            logger.debug(f"请求头：{headers}")
-
-            
             session = requests.Session()
             session.headers.update(headers)
             session.cookies.update(self.session.cookies)
@@ -5363,31 +5488,133 @@ class BilibiliParser:
             session.proxies = {}
             session.timeout = (15, 30)  
 
-            
-            logger.info(f"发送请求，URL：{url[:100]}...")
-            max_retries = 3
-            retry_count = 0
-            response = None
-            while retry_count < max_retries:
-                try:
-                    response = session.get(url, stream=True, headers=headers, timeout=(15, 30))
-                    logger.info(f"响应状态码：{response.status_code}")
+            # 检查是否是多分段下载
+            if isinstance(url, list):
+                logger.info(f"开始多分段下载，共{len(url)}个分段")
+                total_segments = len(url)
+                segment_size = 100 / total_segments
+                cumulative_size = 0
+                
+                # 为每个分段创建临时文件
+                segment_files = []
+                
+                for i, segment_url in enumerate(url):
+                    if is_running is not None and not is_running():
+                        logger.info("下载已被取消")
+                        raise Exception("下载已被取消")
                     
+                    segment_filename = f"temp_{file_type}_segment_{i}_{uuid.uuid4().hex}_{int(time.time())}.m4s"
+                    segment_filename = re.sub(r'[\x00-\x1f\x7f:/\\*?"<>|]', '', segment_filename)
+                    segment_path = os.path.join(temp_dir, segment_filename)
+                    segment_files.append(segment_path)
                     
-                    if response.status_code == 416:
-                        logger.info("文件已下载完成")
-                        if progress_callback:
-                            progress_callback(100, downloaded_size)
-                        return temp_path
+                    logger.info(f"下载分段 {i+1}/{total_segments}：{segment_url[:100]}...")
                     
-                    response.raise_for_status()
-                    break
-                except requests.exceptions.RequestException as e:
-                    retry_count += 1
-                    if retry_count >= max_retries:
-                        raise
-                    logger.warning(f"请求失败，{retry_count}秒后重试：{str(e)}")
-                    time.sleep(retry_count)
+                    # 下载单个分段
+                    segment_size_downloaded = 0
+                    max_retries = 3
+                    retry_count = 0
+                    segment_response = None
+                    
+                    while retry_count < max_retries:
+                        try:
+                            segment_response = session.get(segment_url, stream=True, headers=headers, timeout=(15, 30))
+                            logger.info(f"分段 {i+1} 响应状态码：{segment_response.status_code}")
+                            segment_response.raise_for_status()
+                            break
+                        except requests.exceptions.RequestException as e:
+                            retry_count += 1
+                            if retry_count >= max_retries:
+                                raise
+                            logger.warning(f"分段 {i+1} 请求失败，{retry_count}秒后重试：{str(e)}")
+                            time.sleep(retry_count)
+                    
+                    segment_total_size = int(segment_response.headers.get('content-length', 0))
+                    logger.info(f"分段 {i+1} 大小：{segment_total_size}字节")
+                    
+                    # 写入分段文件
+                    with open(segment_path, 'wb') as f:
+                        chunk_size = 65536  # 64KB
+                        chunk_count = 0
+                        start_time = time.time()
+                        
+                        for chunk in segment_response.iter_content(chunk_size=chunk_size):
+                            if is_running is not None and not is_running():
+                                logger.info("下载已被取消")
+                                raise Exception("下载已取消")
+                            
+                            if chunk:
+                                f.write(chunk)
+                                chunk_len = len(chunk)
+                                segment_size_downloaded += chunk_len
+                                cumulative_size += chunk_len
+                                
+                                # 计算总进度
+                                segment_progress = min(100, int((segment_size_downloaded / segment_total_size) * 100))
+                                total_progress = min(99, int((i * segment_size) + (segment_progress * segment_size / 100)))
+                                
+                                if progress_callback and total_progress % 5 == 0:
+                                    progress_callback(total_progress, cumulative_size)
+                    
+                    # 关闭分段响应
+                    if segment_response:
+                        segment_response.close()
+                    
+                    logger.info(f"分段 {i+1} 下载完成，大小：{segment_size_downloaded/1024/1024:.2f}MB")
+                
+                # 合并所有分段
+                logger.info(f"开始合并{len(segment_files)}个分段")
+                with open(temp_path, 'wb') as outfile:
+                    for segment_file in segment_files:
+                        with open(segment_file, 'rb') as infile:
+                            outfile.write(infile.read())
+                        # 删除已合并的分段文件
+                        try:
+                            os.remove(segment_file)
+                            logger.debug(f"删除已合并的分段文件：{segment_file}")
+                        except Exception as e:
+                            logger.warning(f"删除分段文件失败：{str(e)}")
+                
+                downloaded_size = cumulative_size
+                logger.info(f"分段合并完成，总大小：{downloaded_size/1024/1024:.2f}MB")
+            else:
+                # 单个URL下载（原有逻辑）
+                if os.path.exists(temp_path):
+                    downloaded_size = os.path.getsize(temp_path)
+                    logger.info(f"续传：已下载{downloaded_size}字节")
+                    headers['Range'] = f'bytes={downloaded_size}-'
+                    mode = 'ab'
+                else:
+                    downloaded_size = 0
+                    mode = 'wb'
+                
+                logger.debug(f"请求头：{headers}")
+
+                
+                logger.info(f"发送请求，URL：{url[:100]}...")
+                max_retries = 3
+                retry_count = 0
+                response = None
+                while retry_count < max_retries:
+                    try:
+                        response = session.get(url, stream=True, headers=headers, timeout=(15, 30))
+                        logger.info(f"响应状态码：{response.status_code}")
+                        
+                        
+                        if response.status_code == 416:
+                            logger.info("文件已下载完成")
+                            if progress_callback:
+                                progress_callback(100, downloaded_size)
+                            return temp_path
+                        
+                        response.raise_for_status()
+                        break
+                    except requests.exceptions.RequestException as e:
+                        retry_count += 1
+                        if retry_count >= max_retries:
+                            raise
+                        logger.warning(f"请求失败，{retry_count}秒后重试：{str(e)}")
+                        time.sleep(retry_count)
 
             
             total_size = int(response.headers.get('content-length', 0))
@@ -5655,7 +5882,7 @@ class BilibiliParser:
                         logger.error(f"文件仍然被占用，尝试{max_attempts}次后失败")
                         return None
             
-            bento4_path = os.path.join(self.current_dir, 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin', 'mp4dump.exe')
+            bento4_path = os.path.join(self.bento4_dir, 'mp4dump.exe')
             if os.path.exists(bento4_path):
                 try:
                     absolute_path = os.path.abspath(m4s_path)
@@ -5665,7 +5892,7 @@ class BilibiliParser:
                     logger.info(f"执行命令：{' '.join(cmd)}")
                     
                     import subprocess
-                    result = subprocess.run(cmd, capture_output=True, text=False, timeout=30)
+                    result = run_subprocess(cmd, capture_output=True, text=False, timeout=30)
                     
                     if result.returncode == 0:
                         output = result.stdout.decode('utf-8', errors='replace')
@@ -5720,7 +5947,7 @@ class BilibiliParser:
             except Exception as e:
                 logger.error(f"直接读取文件时出错：{str(e)}")
             
-            mp4info_path = os.path.join(self.current_dir, 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin', 'mp4info.exe')
+            mp4info_path = os.path.join(self.bento4_dir, 'mp4info.exe')
             if os.path.exists(mp4info_path):
                 try:
                     absolute_path = os.path.abspath(m4s_path)
@@ -5728,7 +5955,7 @@ class BilibiliParser:
                     logger.info(f"执行命令：{' '.join(cmd)}")
                     
                     import subprocess
-                    result = subprocess.run(cmd, capture_output=True, text=False, timeout=30)
+                    result = run_subprocess(cmd, capture_output=True, text=False, timeout=30)
                     
                     if result.returncode == 0:
                         output = result.stdout.decode('utf-8', errors='replace')
@@ -5852,7 +6079,7 @@ class BilibiliParser:
             except Exception as ffmpeg_e:
                 logger.warning(f"ffmpeg解密失败，尝试使用Bento4：{str(ffmpeg_e)}")
                 
-                bento4_path = os.path.join(self.current_dir, 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin', 'mp4decrypt.exe')
+                bento4_path = os.path.join(self.bento4_dir, 'mp4decrypt.exe')
                 if not os.path.exists(bento4_path):
                     raise Exception(f"Bento4 mp4decrypt工具不存在：{bento4_path}")
                 
@@ -5960,7 +6187,7 @@ class BilibiliParser:
                 if ffprobe_exec and os.path.exists(ffprobe_exec):
                     cmd = [ffprobe_exec, '-i', video_path, '-v', 'error', '-print_format', 'json', '-show_format', '-show_streams']
                     logger.info(f"加密检测：使用ffprobe检测文件类型，命令={cmd}")
-                    result = subprocess.run(cmd, capture_output=True, text=False, timeout=30)
+                    result = run_subprocess(cmd, capture_output=True, text=False, timeout=30)
                     stdout = result.stdout.decode('utf-8', errors='replace')
                     stderr = result.stderr.decode('utf-8', errors='replace')
                     logger.info(f"加密检测：ffprobe返回码={result.returncode}")
@@ -6630,7 +6857,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 '-show_streams',
                 video_path
             ]
-            result = subprocess.run(
+            result = run_subprocess(
                 cmd,
                 check=True,
                 stdout=subprocess.PIPE,
@@ -6793,7 +7020,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             
             try:
                 # 使用bytes模式而不是text模式，避免编码错误
-                result = subprocess.run(
+                result = run_subprocess(
                     cmd,
                     check=True,
                     stdout=subprocess.PIPE,
@@ -6826,7 +7053,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     cmd_str = ' '.join(cmd)
                     logger.debug(f"执行命令：{cmd_str}")
                     # 使用bytes模式而不是text模式，避免编码错误
-                    result = subprocess.run(
+                    result = run_subprocess(
                         cmd_str,
                         check=True,
                         stdout=subprocess.PIPE,
