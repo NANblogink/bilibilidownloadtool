@@ -1,0 +1,14 @@
+[
+  {
+    "name": "SESSDATA",
+    "value": "test_value"
+  },
+  {
+    "name": "bili_jct",
+    "value": "test_csrf"
+  },
+  {
+    "name": "DedeUserID",
+    "value": "12345"
+  }
+]
