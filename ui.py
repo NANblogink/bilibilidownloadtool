@@ -9652,93 +9652,53 @@ class BilibiliDownloader(BaseWindow):
 
 
     def on_cookie_verified(self, success, msg):
-        print(f"on_cookie_verified方法被调用，success: {success}, msg: {msg}")
-        
-        # 先关闭登录对话框（如果存在）
-        if hasattr(self, 'login_dialog') and self.login_dialog:
-            print("关闭登录对话框...")
-            self.login_dialog.accept()
-            print("登录对话框已关闭")
-        
         if success:
-            try:
-                print("显示成功消息...")
-                self.show_success_message(msg)
-                print("成功消息已显示")
-                
-                # 显示主窗口
-                self.showMaximized()
-                print("主窗口已显示")
-                
-                # 在子线程中执行后续操作，避免UI卡死
-                import threading
-                def post_login_tasks():
-                    try:
-                        # 只调用一次 get_user_info，避免重复请求
-                        print("获取用户信息...")
-                        user_info = self.parser.get_user_info()
-                        print(f"获取用户信息完成：{user_info}")
-                        
-                        # 更新UI - 使用QTimer，并通过默认参数捕获值
-                        def update_ui(info=user_info):
-                            print("开始更新用户信息...")
-                            # 使用已获取的user_info更新所有UI
-                            self.update_user_info(info)
-                            
-                            # 直接在主界面显示用户信息
-                            if hasattr(self, 'login_info_widget') and hasattr(self, 'login_info_label') and hasattr(self, 'avatar_label'):
-                                if info.get("success"):
-                                    username = info.get("uname", "用户")
-                                    self.login_info_label.setText(username)
-                                    self.login_info_label.setStyleSheet("color: #ffffff; font-size: 12px;")
-                                    
-                                    # 加载头像
-                                    avatar_url = info.get("face", "")
-                                    if avatar_url:
-                                        self.load_avatar(avatar_url)
-                                    
-                                    # 设置点击事件
-                                    self.login_info_widget.setCursor(QCursor(Qt.PointingHandCursor))
-                                    def handle_click(event):
-                                        self.on_user_info_click(event)
-                                    self.login_info_widget.mousePressEvent = handle_click
-                            
-                            # 显示退出登录按钮
-                            self.hide_cookie_ui()
-                            print("所有UI更新完成")
-                        QTimer.singleShot(0, update_ui)
-                        
-                        print("登录后处理完成")
-                    except Exception as e:
-                        logger.error(f"登录后处理失败：{str(e)}")
-                        error_msg = str(e)
-                        def show_error():
-                            self.show_notification(f"登录后处理失败：{error_msg}", "error")
-                        QTimer.singleShot(0, show_error)
-                        print(f"处理成功情况时发生异常：{error_msg}")
-                        import traceback
-                        traceback.print_exc()
-                
-                thread = threading.Thread(target=post_login_tasks)
-                thread.daemon = True
-                thread.start()
-                
-            except Exception as e:
-                logger.error(f"保存Cookie失败：{str(e)}")
-                error_msg = str(e)
-                def show_error():
-                    self.show_notification(f"保存Cookie失败：{error_msg}", "error")
-                QTimer.singleShot(0, show_error)
-                print(f"处理成功情况时发生异常：{error_msg}")
-        else:
-            print("显示验证失败消息...")
-            self.show_notification(f"验证失败：{msg}", "error")
-            print("验证失败消息已显示")
+            if hasattr(self, 'login_dialog') and self.login_dialog:
+                self.login_dialog.accept()
+                self.login_dialog = None
             
-            # 显示主窗口
+            self.show_notification(f"Cookie验证通过！{msg}", "success")
             self.showMaximized()
-        
-        print("on_cookie_verified方法执行完成")
+            
+            import threading
+            def post_login_tasks():
+                try:
+                    user_info = self.parser.get_user_info()
+                    
+                    def update_ui(info=user_info):
+                        self.update_user_info(info)
+                        
+                        if hasattr(self, 'login_info_widget') and hasattr(self, 'login_info_label') and hasattr(self, 'avatar_label'):
+                            if info.get("success"):
+                                username = info.get("uname", "用户")
+                                self.login_info_label.setText(username)
+                                self.login_info_label.setStyleSheet("color: #ffffff; font-size: 12px;")
+                                
+                                avatar_url = info.get("face", "")
+                                if avatar_url:
+                                    self.load_avatar(avatar_url)
+                                
+                                self.login_info_widget.setCursor(QCursor(Qt.PointingHandCursor))
+                                def handle_click(event):
+                                    self.on_user_info_click(event)
+                                self.login_info_widget.mousePressEvent = handle_click
+                        
+                        self.hide_cookie_ui()
+                    QTimer.singleShot(0, update_ui)
+                except Exception as e:
+                    logger.error(f"登录后处理失败：{str(e)}")
+                    def show_error():
+                        self.show_notification(f"获取用户信息失败：{str(e)}", "error")
+                        self.hide_cookie_ui()
+                    QTimer.singleShot(0, show_error)
+            
+            thread = threading.Thread(target=post_login_tasks)
+            thread.daemon = True
+            thread.start()
+        else:
+            self.show_notification(f"Cookie验证失败：{msg}", "error")
+            if hasattr(self, 'login_dialog') and self.login_dialog:
+                self.login_dialog.raise_()
     
     def handle_verification_result(self, success, msg):
         """处理Cookie验证结果"""
@@ -15150,55 +15110,50 @@ class BilibiliDownloader(BaseWindow):
         
         
         def on_cookie_login():
-            print("="*60)
-            print("on_cookie_login函数被调用")
-            print("="*60)
-            
             cookie = cookie_edit.toPlainText().strip()
-            print(f"获取到的Cookie长度：{len(cookie)}")
             
             if not cookie:
-                print("Cookie为空，显示警告")
                 self.show_notification("请输入Cookie", "warning")
                 return
             
-            print("开始Cookie登录流程...")
-            self.show_notification("开始Cookie登录，请稍候...", "info")
+            if not hasattr(self, 'parser') or not self.parser:
+                self.show_notification("解析器未初始化，请重启应用", "error")
+                return
             
-            # 在单个子线程中完成所有操作
+            cookie_login_btn.setEnabled(False)
+            cookie_login_btn.setText("登录中...")
+            self.show_notification("正在验证Cookie，请稍候...", "info")
+            
             import threading
             def login_thread():
                 try:
-                    print("开始保存cookie...")
                     save_success = self.parser.save_cookies(cookie)
-                    print(f"cookie保存结果：{save_success}")
                     
                     if save_success:
-                        print("验证cookie有效性...")
                         success, msg = self.parser.verify_cookie()
-                        print(f"verify_cookie返回: success={success}, msg={msg}")
                         
-                        # 无论成功失败，都通过QTimer在主线程调用on_cookie_verified处理
                         def handle_result(s=success, m=msg):
-                            print(f"handle_result被调用，success={s}, msg={m}")
+                            cookie_login_btn.setEnabled(True)
+                            cookie_login_btn.setText("登录")
                             self.on_cookie_verified(s, m)
                         QTimer.singleShot(0, handle_result)
                     else:
-                        print("cookie保存失败")
                         def on_save_failure():
+                            cookie_login_btn.setEnabled(True)
+                            cookie_login_btn.setText("登录")
                             self.show_notification("Cookie格式错误，请检查格式", "error")
                         QTimer.singleShot(0, on_save_failure)
                 except Exception as e:
-                    print(f"登录异常：{str(e)}")
                     error_msg = str(e)
                     def on_error():
+                        cookie_login_btn.setEnabled(True)
+                        cookie_login_btn.setText("登录")
                         self.show_notification(f"登录异常：{error_msg}", "error")
                     QTimer.singleShot(0, on_error)
             
             thread = threading.Thread(target=login_thread)
             thread.daemon = True
             thread.start()
-            print("登录线程已启动")
         
         
         login_btn.clicked.connect(on_password_login)
