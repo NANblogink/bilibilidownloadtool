@@ -45,7 +45,8 @@ class ConfigLoader:
                 "last_save_path": "",
                 "max_threads": 2,
                 "auto_convert_incompatible": False,
-                "hevc_not_supported_ask": True
+                "hevc_not_supported_ask": True,
+                "add_episode_to_filename": True
             }
         }
     def _load_config(self):
