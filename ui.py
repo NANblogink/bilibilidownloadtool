@@ -15417,7 +15417,7 @@ class BilibiliDownloader(BaseWindow):
         quality_layout.addWidget(quality_combo, stretch=1)
         download_layout.addLayout(quality_layout)
         
-        # 复选框布局（两行两列）
+        # 复选框布局（三行两列）
         checkbox_layout = QGridLayout()
         checkbox_layout.setSpacing(8)
         
@@ -15444,6 +15444,12 @@ class BilibiliDownloader(BaseWindow):
         play_sound_checkbox.setMinimumHeight(22)
         play_sound_checkbox.setChecked(self.config.get_app_setting("play_sound_on_complete", True))
         checkbox_layout.addWidget(play_sound_checkbox, 1, 1)
+        
+        # 文件名添加集数前缀
+        add_episode_prefix_checkbox = QCheckBox("文件名添加集数前缀（如：第1集 - 标题）")
+        add_episode_prefix_checkbox.setMinimumHeight(22)
+        add_episode_prefix_checkbox.setChecked(self.config.get_app_setting("add_episode_to_filename", True))
+        checkbox_layout.addWidget(add_episode_prefix_checkbox, 2, 0, 1, 2)
         
         download_layout.addLayout(checkbox_layout)
         
@@ -15723,6 +15729,7 @@ class BilibiliDownloader(BaseWindow):
             self.config.set_app_setting("auto_download_danmaku", auto_danmaku_checkbox.isChecked())
             self.config.set_app_setting("auto_open_folder", auto_open_folder_checkbox.isChecked())
             self.config.set_app_setting("play_sound_on_complete", play_sound_checkbox.isChecked())
+            self.config.set_app_setting("add_episode_to_filename", add_episode_prefix_checkbox.isChecked())
             self.config.set_app_setting("video_output_format", video_format_combo.currentData())
             self.config.set_app_setting("audio_quality", audio_quality_combo.currentData())
             self.config.set_app_setting("danmaku_output_format", danmaku_format_combo.currentData())

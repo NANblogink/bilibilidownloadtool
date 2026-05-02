@@ -426,7 +426,11 @@ class EpisodeDownloadThread(QThread):
         if not self.save_path or not os.path.exists(self.save_path):
             raise Exception("保存路径不存在")
         
-        output_path = os.path.join(self.save_path, f"{self.ep_title}.mp4")
+        add_episode_prefix = self.config.get_app_setting("add_episode_to_filename", True) if self.config else True
+        if add_episode_prefix:
+            output_path = os.path.join(self.save_path, f"第{self.ep_index+1}集 - {self.ep_title}.mp4")
+        else:
+            output_path = os.path.join(self.save_path, f"{self.ep_title}.mp4")
         output_path = get_unique_filename(output_path)
         self.progress_updated.emit(self.ep_index, 90, "合并音视频...")
         self.merge_started.emit(self.ep_index)
