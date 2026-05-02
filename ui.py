@@ -2315,7 +2315,7 @@ class SignalEmitter(QObject):
     show_notification = pyqtSignal(str, str)
     show_debug_window = pyqtSignal(str, str, str)
     same_task_exists = pyqtSignal(dict)  # 信号：相同任务已存在
-    show_space_videos = pyqtSignal(dict, list)  # 新信号：显示UP主作品列表
+    show_space_videos = pyqtSignal(dict, list, int, str)
 
 
 class NotificationWidget(QWidget):
@@ -9874,8 +9874,7 @@ class BilibiliDownloader(BaseWindow):
                             return
                         
                         progress_callback(80, "整理作品信息...")
-                        # 发送信号，在主线程中显示作品列表窗口
-                        self.signal_emitter.show_space_videos.emit(space_info, videos_info['videos'])
+                        self.signal_emitter.show_space_videos.emit(space_info, videos_info['videos'], videos_info.get('total', 0), str(media_id))
                         return
                     else:
                         # 处理其他类型
@@ -9968,7 +9967,7 @@ class BilibiliDownloader(BaseWindow):
             # 确保在主线程中显示通知
             QTimer.singleShot(0, lambda: self.show_notification(f"解析失败：{str(e)}", "error"))
     
-    def on_show_space_videos(self, space_info, videos):
+    def on_show_space_videos(self, space_info, videos, total=0, mid=''):
         try:
             # 关闭解析进度窗口
             if hasattr(self, 'parse_progress_window') and self.parse_progress_window:
@@ -10003,14 +10002,20 @@ class BilibiliDownloader(BaseWindow):
                         pass
             
             class SpaceVideosDialog(QDialog):
-                def __init__(self, parent, space_info, videos):
+                def __init__(self, parent, space_info, videos, total=0, mid=''):
                     super().__init__(parent)
                     self.setWindowTitle(f"{space_info['name']} 的作品列表")
                     self.setGeometry(200, 200, 800, 600)
                     self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowMinimizeButtonHint | Qt.WindowCloseButtonHint)
-                    self.videos = videos  # 保存视频列表
-                    self.loaders = []  # 保存所有加载线程
-                    self.drag_position = None  # 用于窗口拖动
+                    self.videos = videos
+                    self.all_videos = list(videos)
+                    self.total = total
+                    self.mid = mid
+                    self.current_page = 1
+                    self.ps = 30
+                    self.loaders = []
+                    self.drag_position = None
+                    self.parent_widget = parent
                     
                     # 标题栏
                     title_bar = QWidget()
@@ -10073,9 +10078,9 @@ class BilibiliDownloader(BaseWindow):
                     content_layout.addWidget(info_widget)
                     
                     # 作品列表
-                    videos_label = QLabel(f"共 {len(videos)} 个作品")
-                    videos_label.setStyleSheet("font-size: 16px; font-weight: 500; color: #1e293b;")
-                    content_layout.addWidget(videos_label)
+                    self.videos_label = QLabel(f"已加载 {len(videos)} / {total} 个作品")
+                    self.videos_label.setStyleSheet("font-size: 16px; font-weight: 500; color: #1e293b;")
+                    content_layout.addWidget(self.videos_label)
                     
                     self.videos_list = QListWidget()
                     self.videos_list.setSelectionMode(QListWidget.MultiSelection)
@@ -10236,6 +10241,13 @@ class BilibiliDownloader(BaseWindow):
                     btn_layout = QHBoxLayout()
                     btn_layout.setSpacing(12)
                     
+                    self.load_more_btn = QPushButton("加载更多")
+                    self.load_more_btn.setMinimumHeight(36)
+                    self.load_more_btn.setStyleSheet("padding: 0 24px; border: 1px solid #67c23a; border-radius: 6px; font-size: 14px; background-color: white; color: #67c23a;")
+                    self.load_more_btn.clicked.connect(self.load_more_videos)
+                    if len(videos) >= total:
+                        self.load_more_btn.setVisible(False)
+                    
                     select_all_btn = QPushButton("全选")
                     select_all_btn.setMinimumHeight(36)
                     select_all_btn.setStyleSheet("padding: 0 24px; border: 1px solid #409eff; border-radius: 6px; font-size: 14px; background-color: white; color: #409eff;")
@@ -10254,6 +10266,7 @@ class BilibiliDownloader(BaseWindow):
                     # 连接选择变化信号
                     self.videos_list.itemSelectionChanged.connect(self.update_confirm_button)
                     
+                    btn_layout.addWidget(self.load_more_btn)
                     btn_layout.addWidget(select_all_btn)
                     btn_layout.addStretch(1)
                     btn_layout.addWidget(cancel_btn)
@@ -10346,6 +10359,100 @@ class BilibiliDownloader(BaseWindow):
                     self.drag_position = None
                     event.accept()
                 
+                def load_more_videos(self):
+                    if len(self.all_videos) >= self.total:
+                        self.load_more_btn.setVisible(False)
+                        return
+                    
+                    self.load_more_btn.setEnabled(False)
+                    self.load_more_btn.setText("加载中...")
+                    
+                    import threading
+                    def load_thread():
+                        try:
+                            self.current_page += 1
+                            result = self.parent_widget.parser.get_space_videos(self.mid, page=self.current_page, ps=self.ps)
+                            
+                            if result.get("success"):
+                                new_videos = result.get("videos", [])
+                                
+                                def add_videos(videos=new_videos):
+                                    for video in videos:
+                                        self.videos.append(video)
+                                        self.all_videos.append(video)
+                                        
+                                        item = QListWidgetItem()
+                                        widget = QWidget()
+                                        layout = QHBoxLayout(widget)
+                                        layout.setContentsMargins(12, 12, 12, 12)
+                                        layout.setSpacing(12)
+                                        
+                                        cover_label = QLabel()
+                                        cover_label.setText("加载中...")
+                                        cover_label.setFixedSize(120, 68)
+                                        cover_label.setStyleSheet("background-color: #e2e8f0; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #64748b;")
+                                        
+                                        info_widget = QWidget()
+                                        info_layout = QVBoxLayout(info_widget)
+                                        info_layout.setContentsMargins(0, 0, 0, 0)
+                                        info_layout.setSpacing(5)
+                                        
+                                        title_label = QLabel(video['title'])
+                                        title_label.setStyleSheet("font-size: 14px; font-weight: 500; color: #1e293b;")
+                                        title_label.setWordWrap(True)
+                                        
+                                        stats_label = QLabel(f"播放: {video['play']} | 弹幕: {video['video_review']} | 收藏: {video['favorites']}")
+                                        stats_label.setStyleSheet("font-size: 12px; color: #94a3b8;")
+                                        
+                                        time_label = QLabel(f"时长: {video['length']}")
+                                        time_label.setStyleSheet("font-size: 12px; color: #94a3b8;")
+                                        
+                                        info_layout.addWidget(title_label)
+                                        info_layout.addWidget(stats_label)
+                                        info_layout.addWidget(time_label)
+                                        
+                                        layout.addWidget(cover_label)
+                                        layout.addWidget(info_widget, stretch=1)
+                                        
+                                        item.setSizeHint(widget.sizeHint())
+                                        self.videos_list.addItem(item)
+                                        self.videos_list.setItemWidget(item, widget)
+                                        
+                                        if video.get('pic'):
+                                            loader = ImageLoader(video['pic'], cover_label)
+                                            loader.finished.connect(self.on_image_loaded)
+                                            self.loaders.append(loader)
+                                            loader.start()
+                                    
+                                    self.videos_label.setText(f"已加载 {len(self.all_videos)} / {self.total} 个作品")
+                                    
+                                    if len(self.all_videos) >= self.total:
+                                        self.load_more_btn.setVisible(False)
+                                    else:
+                                        self.load_more_btn.setEnabled(True)
+                                        self.load_more_btn.setText("加载更多")
+                                    
+                                    self.update_confirm_button()
+                                
+                                QTimer.singleShot(0, add_videos)
+                            else:
+                                def on_error():
+                                    self.load_more_btn.setEnabled(True)
+                                    self.load_more_btn.setText("加载更多")
+                                    self.current_page -= 1
+                                    self.parent_widget.show_notification("加载更多视频失败", "error")
+                                QTimer.singleShot(0, on_error)
+                        except Exception as e:
+                            def on_error():
+                                self.load_more_btn.setEnabled(True)
+                                self.load_more_btn.setText("加载更多")
+                                self.current_page -= 1
+                            QTimer.singleShot(0, on_error)
+                    
+                    thread = threading.Thread(target=load_thread)
+                    thread.daemon = True
+                    thread.start()
+                
                 def on_full_mode_changed(self, state):
                     if state == Qt.Checked:
                         # 勾选完全模式时，自动全选所有视频
@@ -10368,7 +10475,7 @@ class BilibiliDownloader(BaseWindow):
                     return self.full_mode_checkbox.isChecked()
                 
                 def get_all_videos(self):
-                    return self.videos
+                    return self.all_videos
                 
                 def get_selected_quality(self):
                     return self.full_mode_quality_combo.currentData()
@@ -10376,7 +10483,7 @@ class BilibiliDownloader(BaseWindow):
                 def get_selected_audio_quality(self):
                     return self.full_mode_audio_combo.currentData()
             
-            dialog = SpaceVideosDialog(self, space_info, videos)
+            dialog = SpaceVideosDialog(self, space_info, videos, total, mid)
             if dialog.exec_() == QDialog.Accepted:
                 # 检查是否启用了完全模式
                 if dialog.is_full_mode():

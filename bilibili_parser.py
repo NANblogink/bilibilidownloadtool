@@ -1418,7 +1418,7 @@ class BilibiliParser:
                 "official": {}
             }
     
-    def get_space_videos(self, mid, page=1, ps=25):
+    def get_space_videos(self, mid, page=1, ps=30):
         try:
             url = f"https://api.bilibili.com/x/space/wbi/arc/search"
             params = {
@@ -1436,8 +1436,7 @@ class BilibiliParser:
                 "dm_img_inter": "{\"ds\":[],\"wh\":[3254,2663,106],\"of\":[154,308,154]}"
             }
             
-            # 直接使用当前会话的 API 请求方法，确保包含正确的 WBI 签名
-            logger.info(f"尝试使用 WBI API 获取作品列表，mid: {mid}")
+            logger.info(f"尝试使用 WBI API 获取作品列表，mid: {mid}, page: {page}")
             success, data = self._api_request(url, use_wbi=True, params=params)
             
             if success:
@@ -1463,13 +1462,14 @@ class BilibiliParser:
                             "mid": item.get('mid', '')
                         })
                     
-                    logger.info(f"获取作品列表成功，共 {len(videos)} 个视频")
+                    total = video_data.get('page', {}).get('count', 0)
+                    logger.info(f"获取作品列表成功，第{page}页共 {len(videos)} 个视频，总计 {total} 个")
                     return {
                         "success": True,
                         "videos": videos,
                         "page": page,
                         "ps": ps,
-                        "total": video_data.get('page', {}).get('count', 0)
+                        "total": total
                     }
             
             logger.info("尝试使用备用 API 端点")
