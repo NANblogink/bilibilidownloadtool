@@ -1648,7 +1648,10 @@ class FloatingBall(QWidget):
         # 获取选中的视频
         selected_items = self.video_list.selectedItems()
         if not selected_items:
-            if download_video:
+            # 如果只有一个视频，自动选择它
+            if self.video_list.count() == 1:
+                selected_items = [self.video_list.item(0)]
+            elif download_video:
                 if self.parent and hasattr(self.parent, 'show_notification'):
                     self.parent.show_notification("请选择要下载的视频", "warning")
                 return
