@@ -15,3 +15,16 @@ __pycache__/
 # 排除系统文件
 .DS_Store
 Thumbs.db
+
+# 排除运行时生成的文件
+wbi_cache.json
+cookie.txt
+app_config.json
+dismissed_announcements.json
+runs/
+temp/
+verify.py
+check_all.py
+test_*.py
+build_main_console.py
+yolov8n.pt

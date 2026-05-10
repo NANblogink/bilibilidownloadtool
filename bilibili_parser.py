@@ -10,6 +10,8 @@ import base64
 import asyncio
 import hashlib
 import hmac
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from Crypto.Cipher import AES
 from Crypto.PublicKey import RSA
 import logging
@@ -591,6 +593,7 @@ class BilibiliParser:
                 self.session.headers.update({'X-CSRF-Token': self.csrf_token})
 
             self.user_info = None
+            self._api_cache.clear()
             return True
         except Exception as e:
             print(f"Cookie保存失败：{str(e)}")
@@ -609,7 +612,8 @@ class BilibiliParser:
 
     # API请求缓存
     _api_cache = {}
-    _cache_expiry = 300  # 缓存有效期（秒）
+    _cache_expiry = 300
+    _cache_max_size = 100
     
     def _api_request(self, url, timeout=15, max_retries=3, use_wbi=False, params=None, use_cache=True):
         try:
@@ -753,12 +757,15 @@ class BilibiliParser:
         return None
     
     def _cache_api_response(self, cache_key, data):
+        if len(self._api_cache) >= self._cache_max_size:
+            self._clean_expired_cache()
+            if len(self._api_cache) >= self._cache_max_size:
+                oldest_key = min(self._api_cache, key=lambda k: self._api_cache[k]['timestamp'])
+                del self._api_cache[oldest_key]
         self._api_cache[cache_key] = {
             'data': data,
             'timestamp': time.time()
         }
-        # 清理过期缓存
-        self._clean_expired_cache()
     
     def _clean_expired_cache(self):
         current_time = time.time()
@@ -783,7 +790,7 @@ class BilibiliParser:
             return False, "配置错误：未找到用户信息API地址"
 
         # 调用_api_request时禁用缓存，确保每次都是最新的验证
-        success, result = self._api_request(api_url, timeout=10, max_retries=1, use_cache=False)
+        success, result = self._api_request(api_url, timeout=10, max_retries=3, use_cache=False)
         if not success:
             return False, f"API请求失败：{result['error']}"
 
@@ -1179,15 +1186,15 @@ class BilibiliParser:
                 "error": str(e)
             }
 
-    def get_user_info(self):
-        if self.user_info and self.user_info['success']:
+    def get_user_info(self, force_refresh=False):
+        if not force_refresh and self.user_info and self.user_info['success']:
             return self.user_info
 
         api_url = self.config.get_api_url("login_status_api")
         if not api_url:
             return {"success": False, "msg": "配置错误：未找到用户信息API地址", "is_vip": False}
 
-        success, result = self._api_request(api_url)
+        success, result = self._api_request(api_url, use_cache=not force_refresh)
         if not success:
             return {"success": False, "msg": f"获取用户信息失败：{result['error']}", "is_vip": False}
 
@@ -1418,7 +1425,7 @@ class BilibiliParser:
                 "official": {}
             }
     
-    def get_space_videos(self, mid, page=1, ps=30):
+    def get_space_videos(self, mid, page=1, ps=30, progress_callback=None):
         try:
             url = f"https://api.bilibili.com/x/space/wbi/arc/search"
             params = {
@@ -1443,10 +1450,11 @@ class BilibiliParser:
                 video_data = data.get('data', {})
                 if video_data:
                     items = video_data.get('list', {}).get('vlist', [])
-                    videos = []
+                    total = video_data.get('page', {}).get('count', 0)
                     
+                    all_videos = []
                     for item in items:
-                        videos.append({
+                        all_videos.append({
                             "aid": item.get('aid', ''),
                             "bvid": item.get('bvid', ''),
                             "title": item.get('title', ''),
@@ -1462,11 +1470,49 @@ class BilibiliParser:
                             "mid": item.get('mid', '')
                         })
                     
-                    total = video_data.get('page', {}).get('count', 0)
-                    logger.info(f"获取作品列表成功，第{page}页共 {len(videos)} 个视频，总计 {total} 个")
+                    if total > ps and page == 1:
+                        import math
+                        total_pages = math.ceil(total / ps)
+                        logger.info(f"总计 {total} 个视频，共 {total_pages} 页，开始加载剩余页面...")
+                        if progress_callback:
+                            progress_callback(f"共找到 {total} 个视频，开始加载...")
+                        for p in range(2, total_pages + 1):
+                            try:
+                                params["pn"] = p
+                                if progress_callback:
+                                    progress_callback(f"正在加载第 {p}/{total_pages} 页 ({len(all_videos)}/{total} 个视频)...")
+                                p_success, p_data = self._api_request(url, use_wbi=True, params=params)
+                                if p_success:
+                                    p_items = p_data.get('data', {}).get('list', {}).get('vlist', [])
+                                    for item in p_items:
+                                        all_videos.append({
+                                            "aid": item.get('aid', ''),
+                                            "bvid": item.get('bvid', ''),
+                                            "title": item.get('title', ''),
+                                            "pic": item.get('pic', ''),
+                                            "description": item.get('description', ''),
+                                            "created": item.get('created', 0),
+                                            "length": item.get('length', ''),
+                                            "play": item.get('play', 0),
+                                            "video_review": item.get('video_review', 0),
+                                            "review": item.get('review', 0),
+                                            "favorites": item.get('favorites', 0),
+                                            "author": item.get('author', ''),
+                                            "mid": item.get('mid', '')
+                                        })
+                                    logger.info(f"已加载第 {p}/{total_pages} 页，累计 {len(all_videos)} 个视频")
+                                else:
+                                    logger.warning(f"加载第 {p} 页失败，跳过")
+                            except Exception as e:
+                                logger.warning(f"加载第 {p} 页异常：{str(e)}，跳过")
+                        
+                        if progress_callback:
+                            progress_callback(f"加载完成！共 {len(all_videos)} 个视频")
+                    
+                    logger.info(f"获取作品列表完成，共 {len(all_videos)} 个视频")
                     return {
                         "success": True,
-                        "videos": videos,
+                        "videos": all_videos,
                         "page": page,
                         "ps": ps,
                         "total": total
@@ -3847,91 +3893,6 @@ class BilibiliParser:
         except Exception as e:
             raise Exception(f"视频主信息获取失败：{str(e)}（bvid={bvid}）")
 
-    def _get_subtitle_info(self, bvid):
-        try:
-            url = self.config.get_api_url("video_info_api").format(bvid=bvid)
-            
-            import urllib.parse
-            url_parts = list(urllib.parse.urlparse(url))
-            query = dict(urllib.parse.parse_qsl(url_parts[4]))
-            success, data = self._api_request(url, timeout=10, use_wbi=True, params=query)
-            if not success:
-                return {}
-            if data.get('code') != 0:
-                return {}
-            
-            if 'data' in data:
-                video_data = data['data']
-            elif 'result' in data:
-                video_data = data['result']
-            else:
-                return {}
-            
-            if 'View' in video_data:
-                view_data = video_data['View']
-                video_data.update(view_data)
-            
-            subtitle_info = video_data.get('subtitle', {})
-            logger.info(f"字幕信息完整数据：{subtitle_info}")
-            
-            if subtitle_info:
-                subtitle_list = subtitle_info.get('list', [])
-                logger.info(f"字幕列表完整数据：{subtitle_list}")
-                if subtitle_list:
-                    # 使用第一个字幕的id
-                    first_subtitle = subtitle_list[0]
-                    logger.info(f"第一个字幕完整数据：{first_subtitle}")
-                    logger.info(f"第一个字幕所有字段：{list(first_subtitle.keys())}")
-                    
-                    # 检查字幕对象中是否有ai_subtitle字段或者其他字段包含完整的字幕ID
-                    # 根据字幕api.txt，字幕ID应该是一个长十六进制字符串
-                    subtitle_id = None
-                    subtitle_url_from_list = None
-                    
-                    # 先检查是否有直接的subtitle_url字段
-                    if 'subtitle_url' in first_subtitle and first_subtitle.get('subtitle_url'):
-                        subtitle_url_from_list = first_subtitle.get('subtitle_url')
-                        logger.info(f"找到字幕URL字段：{subtitle_url_from_list}")
-                    
-                    # 尝试查找可能包含字幕ID的字段
-                    if 'ai_subtitle' in first_subtitle:
-                        subtitle_id = first_subtitle.get('ai_subtitle')
-                    elif 'id_str' in first_subtitle:
-                        subtitle_id = first_subtitle.get('id_str')
-                    elif 'oid' in first_subtitle:
-                        subtitle_id = first_subtitle.get('oid')
-                    elif 'id' in first_subtitle:
-                        # 尝试使用id字段，但可能需要进一步处理
-                        subtitle_id_num = first_subtitle.get('id')
-                        if subtitle_id_num:
-                            # 先尝试直接使用id的字符串形式
-                            subtitle_id = str(subtitle_id_num)
-                    
-                    # 如果有直接的字幕URL，尝试从中提取字幕ID
-                    if subtitle_url_from_list:
-                        # 从URL中提取字幕ID
-                        import re
-                        match = re.search(r'/bfs/ai_subtitle/prod/([^/?]+)', subtitle_url_from_list)
-                        if match:
-                            subtitle_id = match.group(1)
-                            logger.info(f"从URL中提取到字幕ID：{subtitle_id}")
-                    
-                    if subtitle_id:
-                        logger.info(f"找到字幕ID：{subtitle_id}")
-                        subtitle_url = f"https://aisubtitle.hdslb.com/bfs/ai_subtitle/prod/{subtitle_id}"
-                        logger.info(f"字幕URL：{subtitle_url}")
-                        return {
-                            "subtitle_id": subtitle_id,
-                            "subtitle_url": subtitle_url
-                        }
-            
-            return {}
-        except Exception as e:
-            logger.error(f"获取字幕信息失败：{str(e)}（bvid={bvid}）")
-            import traceback
-            traceback.print_exc()
-            return {}
-            
     def _get_interact_video_info(self, bvid, graph_version, edge_id=0):
         try:
             url = f"https://api.bilibili.com/x/stein/edgeinfo_v2?bvid={bvid}&graph_version={graph_version}&edge_id={edge_id}"
@@ -5400,7 +5361,80 @@ class BilibiliParser:
             logger.error(f"文件解密失败：{str(e)}")
             return False
 
-    async def download_file(self, url, save_path, progress_callback, file_type="video", bvid=None, is_running=None, kid=None):
+    _download_session = None
+
+    def _get_download_session(self, headers=None):
+        if self._download_session is None:
+            self._download_session = requests.Session()
+            self._download_session.verify = False
+            self._download_session.proxies = {}
+            self._download_session.cookies.update(self.session.cookies)
+        if headers:
+            self._download_session.headers.update(headers)
+        return self._download_session
+
+    def _download_segment(self, segment_url, segment_path, headers, segment_index, total_segments, progress_lock, progress_state, is_running=None):
+        seg_session = requests.Session()
+        seg_session.headers.update(headers)
+        seg_session.cookies.update(self.session.cookies)
+        seg_session.verify = False
+        seg_session.proxies = {}
+        seg_session.timeout = (15, 30)
+
+        max_retries = 3
+        retry_count = 0
+        segment_response = None
+
+        while retry_count < max_retries:
+            if is_running is not None and not is_running():
+                raise Exception("下载已取消")
+            try:
+                segment_response = seg_session.get(segment_url, stream=True, headers=headers, timeout=(15, 30))
+                logger.info(f"分段 {segment_index+1} 响应状态码：{segment_response.status_code}")
+                segment_response.raise_for_status()
+                break
+            except requests.exceptions.RequestException as e:
+                retry_count += 1
+                if retry_count >= max_retries:
+                    raise
+                logger.warning(f"分段 {segment_index+1} 请求失败，{retry_count}秒后重试：{str(e)}")
+                time.sleep(retry_count)
+
+        segment_total_size = int(segment_response.headers.get('content-length', 0))
+        logger.info(f"分段 {segment_index+1} 大小：{segment_total_size}字节")
+
+        segment_size_downloaded = 0
+        segment_size_pct = 100 / total_segments
+
+        with open(segment_path, 'wb') as f:
+            chunk_size = 65536
+            for chunk in segment_response.iter_content(chunk_size=chunk_size):
+                if is_running is not None and not is_running():
+                    segment_response.close()
+                    seg_session.close()
+                    raise Exception("下载已取消")
+
+                if chunk:
+                    f.write(chunk)
+                    chunk_len = len(chunk)
+                    segment_size_downloaded += chunk_len
+
+                    with progress_lock:
+                        progress_state['cumulative_size'] += chunk_len
+                        segment_progress = min(100, int((segment_size_downloaded / segment_total_size) * 100)) if segment_total_size > 0 else 0
+                        total_progress = min(99, int((segment_index * segment_size_pct) + (segment_progress * segment_size_pct / 100)))
+                        cb = progress_state.get('callback')
+                        if cb and total_progress % 5 == 0:
+                            cb(total_progress, progress_state['cumulative_size'])
+
+        if segment_response:
+            segment_response.close()
+        seg_session.close()
+
+        logger.info(f"分段 {segment_index+1} 下载完成，大小：{segment_size_downloaded/1024/1024:.2f}MB")
+        return segment_path, segment_size_downloaded
+
+    def download_file(self, url, save_path, progress_callback, file_type="video", bvid=None, is_running=None, kid=None):
         logger.info(f"开始下载{file_type}：{url[:100]}...")
         if is_running is not None and not is_running():
             logger.info("下载已被取消")
@@ -5459,97 +5493,63 @@ class BilibiliParser:
                 'Sec-Fetch-Site': 'same-site'
             }
             
-            session = requests.Session()
-            session.headers.update(headers)
-            session.cookies.update(self.session.cookies)
-            session.verify = False
-            session.proxies = {}
-            session.timeout = (15, 30)  
+            session = self._get_download_session(headers)
 
             # 检查是否是多分段下载
             if isinstance(url, list):
-                logger.info(f"开始多分段下载，共{len(url)}个分段")
+                logger.info(f"开始多分段并发下载，共{len(url)}个分段")
                 total_segments = len(url)
-                segment_size = 100 / total_segments
-                cumulative_size = 0
                 
-                # 为每个分段创建临时文件
-                segment_files = []
-                
+                segment_paths = []
                 for i, segment_url in enumerate(url):
-                    if is_running is not None and not is_running():
-                        logger.info("下载已被取消")
-                        raise Exception("下载已被取消")
-                    
                     segment_filename = f"temp_{file_type}_segment_{i}_{uuid.uuid4().hex}_{int(time.time())}.m4s"
                     segment_filename = re.sub(r'[\x00-\x1f\x7f:/\\*?"<>|]', '', segment_filename)
                     segment_path = os.path.join(temp_dir, segment_filename)
-                    segment_files.append(segment_path)
-                    
-                    logger.info(f"下载分段 {i+1}/{total_segments}：{segment_url[:100]}...")
-                    
-                    # 下载单个分段
-                    segment_size_downloaded = 0
-                    max_retries = 3
-                    retry_count = 0
-                    segment_response = None
-                    
-                    while retry_count < max_retries:
-                        try:
-                            segment_response = session.get(segment_url, stream=True, headers=headers, timeout=(15, 30))
-                            logger.info(f"分段 {i+1} 响应状态码：{segment_response.status_code}")
-                            segment_response.raise_for_status()
-                            break
-                        except requests.exceptions.RequestException as e:
-                            retry_count += 1
-                            if retry_count >= max_retries:
-                                raise
-                            logger.warning(f"分段 {i+1} 请求失败，{retry_count}秒后重试：{str(e)}")
-                            time.sleep(retry_count)
-                    
-                    segment_total_size = int(segment_response.headers.get('content-length', 0))
-                    logger.info(f"分段 {i+1} 大小：{segment_total_size}字节")
-                    
-                    # 写入分段文件
-                    with open(segment_path, 'wb') as f:
-                        chunk_size = 65536  # 64KB
-                        chunk_count = 0
-                        start_time = time.time()
-                        
-                        for chunk in segment_response.iter_content(chunk_size=chunk_size):
-                            if is_running is not None and not is_running():
-                                logger.info("下载已被取消")
-                                raise Exception("下载已取消")
-                            
-                            if chunk:
-                                f.write(chunk)
-                                chunk_len = len(chunk)
-                                segment_size_downloaded += chunk_len
-                                cumulative_size += chunk_len
-                                
-                                # 计算总进度
-                                segment_progress = min(100, int((segment_size_downloaded / segment_total_size) * 100))
-                                total_progress = min(99, int((i * segment_size) + (segment_progress * segment_size / 100)))
-                                
-                                if progress_callback and total_progress % 5 == 0:
-                                    progress_callback(total_progress, cumulative_size)
-                    
-                    # 关闭分段响应
-                    if segment_response:
-                        segment_response.close()
-                    
-                    logger.info(f"分段 {i+1} 下载完成，大小：{segment_size_downloaded/1024/1024:.2f}MB")
+                    segment_paths.append(segment_path)
+                    logger.info(f"准备下载分段 {i+1}/{total_segments}：{segment_url[:100]}...")
                 
-                # 合并所有分段
-                logger.info(f"开始合并{len(segment_files)}个分段")
-                with open(temp_path, 'wb') as outfile:
-                    for segment_file in segment_files:
-                        with open(segment_file, 'rb') as infile:
-                            outfile.write(infile.read())
-                        # 删除已合并的分段文件
+                progress_lock = threading.Lock()
+                progress_state = {
+                    'cumulative_size': 0,
+                    'callback': progress_callback
+                }
+                
+                max_workers = min(total_segments, 4)
+                segment_results = [None] * total_segments
+                
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {}
+                    for i, segment_url in enumerate(url):
+                        future = executor.submit(
+                            self._download_segment,
+                            segment_url, segment_paths[i], headers,
+                            i, total_segments,
+                            progress_lock, progress_state,
+                            is_running
+                        )
+                        futures[future] = i
+                    
+                    for future in as_completed(futures):
+                        idx = futures[future]
                         try:
-                            os.remove(segment_file)
-                            logger.debug(f"删除已合并的分段文件：{segment_file}")
+                            seg_path, seg_size = future.result()
+                            segment_results[idx] = (seg_path, seg_size)
+                        except Exception as e:
+                            logger.error(f"分段 {idx+1} 下载失败：{str(e)}")
+                            executor.shutdown(wait=False, cancel_futures=True)
+                            raise
+                
+                cumulative_size = progress_state['cumulative_size']
+                
+                # 合并所有分段（按顺序）
+                logger.info(f"开始合并{total_segments}个分段")
+                with open(temp_path, 'wb') as outfile:
+                    for seg_path, _ in segment_results:
+                        with open(seg_path, 'rb') as infile:
+                            outfile.write(infile.read())
+                        try:
+                            os.remove(seg_path)
+                            logger.debug(f"删除已合并的分段文件：{seg_path}")
                         except Exception as e:
                             logger.warning(f"删除分段文件失败：{str(e)}")
                 
@@ -5706,12 +5706,6 @@ class BilibiliParser:
             if progress_callback:
                 progress_callback(100, downloaded_size)
             
-            import gc
-            gc.collect()
-            
-            logger.info("等待文件完全释放...")
-            time.sleep(2)
-            
             if file_type in ["video", "audio"]:
                 is_encrypted, encryption_type = self._check_encryption(temp_path)
                 if is_encrypted:
@@ -5733,7 +5727,7 @@ class BilibiliParser:
                                     raise Exception("文件被占用，无法解密")
                         
                         decrypted_path = temp_path + ".decrypted"
-                        decrypted_path = await self._decrypt_with_bento4(temp_path, decrypted_path, kid)
+                        decrypted_path = asyncio.run(self._decrypt_with_bento4(temp_path, decrypted_path, kid))
                         # 等待文件系统稳定
                         import time
                         time.sleep(1)
@@ -5818,6 +5812,9 @@ class BilibiliParser:
             logger.error(f"网络请求失败：{str(e)}")
             raise Exception(f"网络请求失败：{str(e)}")
         except Exception as e:
+            if "取消" in str(e) or "TASK_PAUSED" in str(e):
+                logger.info(f"下载中断：{str(e)}")
+                raise
             logger.error(f"下载错误：{str(e)}")
             if os.path.exists(temp_path):
                 try:
@@ -6433,80 +6430,6 @@ class BilibiliParser:
             traceback.print_exc()
             return {"data": {}, "error": str(e)}
             
-    def get_subtitle(self, subtitle_id):
-        import logging
-        import json
-        import requests
-        import time
-        import random
-        import string
-        logger = logging.getLogger(__name__)
-        
-        try:
-            logger.info(f"开始获取字幕，subtitle_id: {subtitle_id}")
-            
-            # 生成auth_key
-            timestamp = int(time.time())
-            random_str1 = ''.join(random.choices(string.ascii_lowercase + string.digits, k=32))
-            random_str2 = ''.join(random.choices(string.ascii_lowercase + string.digits, k=32))
-            auth_key = f"{timestamp}-{random_str1}-0-{random_str2}"
-            
-            subtitle_url = f"https://aisubtitle.hdslb.com/bfs/ai_subtitle/prod/{subtitle_id}?auth_key={auth_key}"
-            
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
-                'Referer': 'https://www.bilibili.com',
-                'Origin': 'https://www.bilibili.com',
-                'Accept': '*/*',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-            }
-            
-            logger.info(f"字幕API请求URL：{subtitle_url}")
-            logger.info(f"字幕API请求头：{headers}")
-            
-            # 使用self.session来保持cookies（登录态）
-            response = self.session.get(subtitle_url, headers=headers, timeout=15)
-            logger.info(f"字幕API响应状态码：{response.status_code}")
-            
-            if response.status_code != 200:
-                logger.error(f"获取字幕失败，状态码：{response.status_code}")
-                return {"data": {}, "error": f"HTTP {response.status_code}"}
-            
-            content = response.text.strip()
-            logger.info(f"字幕API响应内容长度：{len(content)}")
-            
-            try:
-                data = json.loads(content)
-                
-                subtitle_info = {
-                    "font_size": data.get("font_size", 0.4),
-                    "font_color": data.get("font_color", "#FFFFFF"),
-                    "background_alpha": data.get("background_alpha", 0.5),
-                    "background_color": data.get("background_color", "#9C27B0"),
-                    "stroke": data.get("Stroke", "none"),
-                    "lang": data.get("lang", "zh"),
-                    "type": data.get("type", "AIsubtitle"),
-                    "version": data.get("version", "v1.7.0.4"),
-                    "body": data.get("body", [])
-                }
-                
-                logger.info(f"字幕获取成功，共 {len(subtitle_info['body'])} 条")
-                return {"data": subtitle_info, "error": ""}
-                
-            except json.JSONDecodeError as e:
-                logger.error(f"解析字幕JSON失败：{str(e)}")
-                return {"data": {}, "error": f"JSON解析失败：{str(e)}"}
-                
-        except requests.exceptions.Timeout:
-            logger.error("获取字幕请求超时")
-            return {"data": {}, "error": "请求超时"}
-        except Exception as e:
-            logger.error(f"获取字幕失败：{str(e)}")
-            import traceback
-            traceback.print_exc()
-            return {"data": {}, "error": str(e)}
-            
     def _get_danmaku_info(self, cid, aid=None):
         import logging
         import json
@@ -6857,7 +6780,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             logger.warning(f"获取视频编码失败：{str(e)}")
             return 'unknown'
     
-    async def merge_media(self, video_path, audio_path, output_path, kid=None):
+    def merge_media(self, video_path, audio_path, output_path, kid=None):
         import os
         try:
             logger.debug(f"开始合并音视频：视频={video_path}, 音频={audio_path}, 输出={output_path}")
@@ -6869,7 +6792,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if is_encrypted:
                 logger.info(f"检测到视频被{encryption_type}加密，尝试解密")
                 decrypted_video_path = video_path + '.decrypted'
-                await self._decrypt_with_bento4(video_path, decrypted_video_path, kid)
+                asyncio.run(self._decrypt_with_bento4(video_path, decrypted_video_path, kid))
                 if not os.path.exists(decrypted_video_path):
                     return False, "视频解密后文件不存在"
                 decrypted_size = os.path.getsize(decrypted_video_path)
@@ -6884,7 +6807,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 if is_audio_encrypted:
                     logger.info(f"检测到音频被{audio_encryption_type}加密，尝试解密")
                     decrypted_audio_path = audio_path + '.decrypted'
-                    await self._decrypt_with_bento4(audio_path, decrypted_audio_path, kid)
+                    asyncio.run(self._decrypt_with_bento4(audio_path, decrypted_audio_path, kid))
                     if not os.path.exists(decrypted_audio_path):
                         return False, "音频解密后文件不存在"
                     decrypted_size = os.path.getsize(decrypted_audio_path)

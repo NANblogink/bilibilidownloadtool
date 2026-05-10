@@ -383,8 +383,7 @@ class EpisodeDownloadThread(QThread):
             return self.is_running
 
         try:
-            import asyncio
-            file_path = asyncio.run(self.parser.download_file(
+            file_path = self.parser.download_file(
                 url=url,
                 save_path=self.save_path,
                 progress_callback=progress_cb,
@@ -392,7 +391,7 @@ class EpisodeDownloadThread(QThread):
                 bvid=bvid,
                 is_running=is_running,
                 kid=kid
-            ))
+            )
             if file_path and os.path.exists(file_path):
                 self.temp_files.append(file_path)
                 return file_path
@@ -437,8 +436,7 @@ class EpisodeDownloadThread(QThread):
 
         try:
             if audio_path:
-                import asyncio
-                merge_success = asyncio.run(self.parser.merge_media(video_path, audio_path, output_path, kid))
+                merge_success = self.parser.merge_media(video_path, audio_path, output_path, kid)
                 if not merge_success:
                     raise Exception("合并失败")
             else:
@@ -511,6 +509,7 @@ class DownloadManager(QObject):
         self.task_queue = []
         self._mutex = QMutex()
         self._task_condition = QWaitCondition()
+        self._shutting_down = False
         logger.info(f"下载管理器初始化，并发数：{self.max_threads}，最大并发任务数：{self.max_concurrent_tasks}")
         
 
@@ -523,17 +522,24 @@ class DownloadManager(QObject):
             logger.info(f"线程数已修改为：{self.max_threads}")
 
     def _schedule_tasks(self):
-        while True:
+        while not self._shutting_down:
             try:
                 self._mutex.lock()
 
                 while len(self.active_tasks) >= self.max_concurrent_tasks and len(self.task_queue) > 0:
+                    if self._shutting_down:
+                        self._mutex.unlock()
+                        return
                     try:
-                        self._task_condition.wait(self._mutex)
+                        self._task_condition.wait(self._mutex, 1000)
                     except Exception as e:
                         logger.error(f"调度线程等待时发生异常：{str(e)}")
                         break
                 
+                if self._shutting_down:
+                    self._mutex.unlock()
+                    return
+
                 if len(self.task_queue) > 0 and len(self.active_tasks) < self.max_concurrent_tasks:
                     download_params = self.task_queue.pop(0)
                     task_id = download_params.get('task_id', 'unknown')
@@ -676,6 +682,7 @@ class DownloadManager(QObject):
             "completed_episodes": 0,
             "failed_episodes": 0,
             "is_cancelled": False,
+            "is_paused": False,
             "task_start_time": time.time(),
             "downloaded_episodes": [],
             "parser": task_parser,
@@ -860,7 +867,15 @@ class DownloadManager(QObject):
     def _download_episode(self, task_id, ep_index, ep_info):
         self._mutex.lock()
         task_info = self.active_tasks.get(task_id)
-        if not task_info or task_info['is_cancelled']:
+        if not task_info:
+            task_info = self.paused_tasks.get(task_id)
+        if not task_info:
+            self._mutex.unlock()
+            return False, "任务已取消"
+        if task_info.get('is_paused'):
+            self._mutex.unlock()
+            return False, "TASK_PAUSED"
+        if task_info['is_cancelled']:
             self._mutex.unlock()
             return False, "任务已取消"
         self._mutex.unlock()
@@ -936,7 +951,15 @@ class DownloadManager(QObject):
 
             self._mutex.lock()
             task_info = self.active_tasks.get(task_id)
-            if not task_info or task_info['is_cancelled']:
+            if not task_info:
+                task_info = self.paused_tasks.get(task_id)
+            if not task_info:
+                self._mutex.unlock()
+                return False, "任务已取消"
+            if task_info.get('is_paused'):
+                self._mutex.unlock()
+                return False, "TASK_PAUSED"
+            if task_info['is_cancelled']:
                 self._mutex.unlock()
                 return False, "任务已取消"
             self._mutex.unlock()
@@ -964,6 +987,15 @@ class DownloadManager(QObject):
 
                 video_path = self._download_media_with_retry(task_id, video_url, "video", bvid, ep_index, kid)
                 if not video_path:
+                    self._mutex.lock()
+                    task_info_check = self.active_tasks.get(task_id)
+                    if not task_info_check:
+                        task_info_check = self.paused_tasks.get(task_id)
+                    is_paused = (task_id in self.paused_tasks) or (task_info_check is not None and task_info_check.get('is_paused'))
+                    in_active = task_id in self.active_tasks
+                    self._mutex.unlock()
+                    if is_paused or not in_active:
+                        return False, "TASK_PAUSED"
                     return False, "视频下载失败"
                 temp_files.append(video_path)
 
@@ -971,6 +1003,15 @@ class DownloadManager(QObject):
                 if audio_url:
                     audio_path = self._download_media_with_retry(task_id, audio_url, "audio", bvid, ep_index, kid)
                     if not audio_path:
+                        self._mutex.lock()
+                        task_info_check = self.active_tasks.get(task_id)
+                        if not task_info_check:
+                            task_info_check = self.paused_tasks.get(task_id)
+                        is_paused = (task_id in self.paused_tasks) or (task_info_check is not None and task_info_check.get('is_paused'))
+                        in_active = task_id in self.active_tasks
+                        self._mutex.unlock()
+                        if is_paused or not in_active:
+                            return False, "TASK_PAUSED"
                         return False, "音频下载失败"
                     temp_files.append(audio_path)
 
@@ -982,8 +1023,7 @@ class DownloadManager(QObject):
 
                 try:
                     if audio_path:
-                        import asyncio
-                        merge_success = asyncio.run(task_info['parser'].merge_media(video_path, audio_path, output_path, kid))
+                        merge_success = task_info['parser'].merge_media(video_path, audio_path, output_path, kid)
                         if not merge_success:
                             raise Exception("合并失败")
                     else:
@@ -1069,6 +1109,8 @@ class DownloadManager(QObject):
                 return False, "未完成任何下载"
 
         except Exception as e:
+            if str(e) == "TASK_PAUSED":
+                return False, "TASK_PAUSED"
             end_time = time.time()
             duration = end_time - start_time
             duration_str = f"{duration:.2f}秒"
@@ -1286,7 +1328,13 @@ class DownloadManager(QObject):
     def _download_media_with_retry(self, task_id, url, media_type, bvid, ep_index, kid=None):
         self._mutex.lock()
         task_info = self.active_tasks.get(task_id)
-        if not task_info or task_info['is_cancelled']:
+        if not task_info:
+            self._mutex.unlock()
+            raise Exception("TASK_PAUSED")
+        if task_info.get('is_paused'):
+            self._mutex.unlock()
+            raise Exception("TASK_PAUSED")
+        if task_info['is_cancelled']:
             self._mutex.unlock()
             return None
         self._mutex.unlock()
@@ -1297,9 +1345,16 @@ class DownloadManager(QObject):
                 logger.info(f"任务{task_id}：开始下载{media_type}流")
                 return self._download_media(task_id, url, media_type, bvid, ep_index, kid)
             except Exception as e:
+                if str(e) == "TASK_PAUSED":
+                    raise
                 self._mutex.lock()
                 task_info = self.active_tasks.get(task_id)
-                if not task_info or task_info['is_cancelled']:
+                if not task_info:
+                    task_info = self.paused_tasks.get(task_id)
+                if not task_info or task_info.get('is_paused'):
+                    self._mutex.unlock()
+                    raise Exception("TASK_PAUSED")
+                if task_info['is_cancelled']:
                     self._mutex.unlock()
                     return None
                 self._mutex.unlock()
@@ -1332,8 +1387,15 @@ class DownloadManager(QObject):
         self._mutex.lock()
         task_info = self.active_tasks.get(task_id)
         if not task_info:
+            task_info = self.paused_tasks.get(task_id)
+        if not task_info:
             self._mutex.unlock()
-            logger.error(f"任务{task_id}：任务不存在")
+            raise Exception("TASK_PAUSED")
+        if task_info.get('is_paused'):
+            self._mutex.unlock()
+            raise Exception("TASK_PAUSED")
+        if task_info['is_cancelled']:
+            self._mutex.unlock()
             return None
         self._mutex.unlock()
 
@@ -1392,7 +1454,13 @@ class DownloadManager(QObject):
 
                 self._mutex.lock()
                 task_info = self.active_tasks.get(task_id)
-                if not task_info or task_info['is_cancelled']:
+                if not task_info:
+                    self._mutex.unlock()
+                    raise Exception("TASK_PAUSED")
+                if task_info.get('is_paused'):
+                    self._mutex.unlock()
+                    raise Exception("TASK_PAUSED")
+                if task_info['is_cancelled']:
                     self._mutex.unlock()
                     raise Exception("任务已取消")
                 self._mutex.unlock()
@@ -1400,14 +1468,15 @@ class DownloadManager(QObject):
         def is_running():
             self._mutex.lock()
             task_info = self.active_tasks.get(task_id)
-            running = task_info and not task_info.get('is_cancelled', False)
+            if not task_info:
+                task_info = self.paused_tasks.get(task_id)
+            running = task_info and not task_info.get('is_cancelled', False) and not task_info.get('is_paused', False)
             self._mutex.unlock()
             return running
 
         try:
             logger.info(f"任务{task_id}：开始下载{media_type}流，线程：{threading.current_thread().name}")
-            import asyncio
-            file_path = asyncio.run(task_info['parser'].download_file(
+            file_path = task_info['parser'].download_file(
                 url=url,
                 save_path=task_info['save_path'],
                 progress_callback=progress_cb,
@@ -1415,15 +1484,26 @@ class DownloadManager(QObject):
                 bvid=bvid,
                 is_running=is_running,
                 kid=kid
-            ))
+            )
             if file_path and os.path.exists(file_path):
                 logger.info(f"任务{task_id}：{media_type}流下载完成")
                 return file_path
             logger.warning(f"任务{task_id}：{media_type}流下载返回空文件路径")
             return None
         except Exception as e:
-            if "任务已取消" in str(e):
+            if str(e) == "TASK_PAUSED":
+                logger.info(f"任务{task_id}：{media_type}流下载暂停")
+                raise
+            if "任务已取消" in str(e) or "下载已取消" in str(e):
                 logger.info(f"任务{task_id}：{media_type}流下载被取消")
+                self._mutex.lock()
+                task_info = self.active_tasks.get(task_id)
+                if not task_info:
+                    task_info = self.paused_tasks.get(task_id)
+                is_paused = (task_id in self.paused_tasks) or (task_info is not None and task_info.get('is_paused'))
+                self._mutex.unlock()
+                if is_paused:
+                    raise Exception("TASK_PAUSED")
                 return None
             logger.error(f"任务{task_id}：{media_type}流下载失败：{str(e)}")
             raise
@@ -1459,7 +1539,7 @@ class DownloadManager(QObject):
                 for future in as_completed(task_info['futures']):
                     self._mutex.lock()
                     task_info = self.active_tasks.get(task_id)
-                    if not task_info or task_info['is_cancelled']:
+                    if not task_info or task_info['is_cancelled'] or task_info.get('is_paused'):
                         self._mutex.unlock()
                         break
                     self._mutex.unlock()
@@ -1467,6 +1547,9 @@ class DownloadManager(QObject):
                     try:
                         success, message = future.result()
                         ep_index = future_to_index.get(future, 0)
+                        
+                        if message == "TASK_PAUSED":
+                            continue
                         
                         self._mutex.lock()
                         task_info = self.active_tasks.get(task_id)
@@ -1511,6 +1594,9 @@ class DownloadManager(QObject):
                                     return
                         self._mutex.unlock()
                     except Exception as e:
+                        if "CancelledError" in type(e).__name__:
+                            logger.info(f"任务{task_id}：future被取消（暂停或取消）")
+                            continue
                         logger.error(f"任务{task_id}：处理任务结果失败：{str(e)}")
                         self._mutex.lock()
                         task_info = self.active_tasks.get(task_id)
@@ -1521,6 +1607,7 @@ class DownloadManager(QObject):
 
                 self._mutex.lock()
                 task_info = self.active_tasks.get(task_id)
+                was_paused = task_id in self.paused_tasks
                 if task_info and not task_info['is_cancelled'] and completed_tasks == total_tasks:
                     task_end_time = time.time()
                     total_duration = task_end_time - task_info['task_start_time']
@@ -1559,7 +1646,10 @@ class DownloadManager(QObject):
                         logger.warning("DownloadManager对象已被删除，无法发送信号")
                 self._mutex.unlock()
                 
-                self._cleanup_task(task_id)
+                if not was_paused:
+                    self._cleanup_task(task_id)
+                else:
+                    logger.info(f"任务{task_id}：暂停中，跳过清理")
             except Exception as e:
                 logger.error(f"任务{task_id}：监控任务失败：{str(e)}")
                 try:
@@ -1571,7 +1661,7 @@ class DownloadManager(QObject):
                 except Exception as cleanup_e:
                     logger.error(f"任务{task_id}：清理任务失败：{str(cleanup_e)}")
         
-        monitor_thread = threading.Thread(target=monitor, daemon=False)
+        monitor_thread = threading.Thread(target=monitor, daemon=True)
         monitor_thread.start()
 
     def _cleanup_task(self, task_id):
@@ -1629,18 +1719,13 @@ class DownloadManager(QObject):
         if task_info:
 
             task_info['is_paused'] = True
-            task_info['is_cancelled'] = True  
-            
 
             task_info['paused_progress'] = task_info.get('progress', 0)
-            
 
             task_info['downloaded_episodes'] = task_info.get('downloaded_episodes', [])
-            
 
             if not 'episode_progress' in task_info:
                 task_info['episode_progress'] = {}
-            
 
             if task_info.get('executor'):
                 try:
@@ -1680,6 +1765,11 @@ class DownloadManager(QObject):
                 del task_info['paused_progress']
             
 
+            downloaded_episodes = task_info.get('downloaded_episodes', [])
+            task_info['completed_episodes'] = len(downloaded_episodes)
+            task_info['failed_episodes'] = 0
+            
+
             self.active_tasks[task_id] = task_info
             
 
@@ -1699,25 +1789,63 @@ class DownloadManager(QObject):
                 task_info['futures'] = []
                 
 
-                downloaded_episode_ids = []
-                for ep in task_info.get('downloaded_episodes', []):
-                    if 'ep_index' in ep:
-                        downloaded_episode_ids.append(ep['ep_index'])
-                    elif 'page' in ep:
-                        downloaded_episode_ids.append(ep['page'])
+                downloaded_episode_ids = set()
+                for ep in downloaded_episodes:
+                    ep_id = ep.get('ep_index') or ep.get('page') or ep.get('cid')
+                    if ep_id is not None:
+                        downloaded_episode_ids.add(str(ep_id))
                 
 
                 episode_progress = task_info.get('episode_progress', {})
                 
                 for idx, ep in enumerate(task_info['episodes']):
 
-                    ep_id = ep.get('ep_index') or ep.get('page')
-                    if ep_id in downloaded_episode_ids:
+                    ep_id = ep.get('ep_index') or ep.get('page') or ep.get('cid')
+                    if ep_id is not None and str(ep_id) in downloaded_episode_ids:
 
                         self.episode_progress_updated.emit(task_id, idx, 100, "已完成")
                         continue
-                    
+    
 
+                    output_exists = False
+                    if task_info.get('save_path'):
+                        try:
+                            is_bangumi = task_info.get('video_info', {}).get('is_bangumi', False)
+                            bangumi_info = task_info.get('video_info', {}).get('bangumi_info', {})
+                            if is_bangumi and bangumi_info:
+                                season = bangumi_info.get('season_title', '未知季度')
+                                ep_idx = ep.get('ep_index', '未知集')
+                                title_candidates = [ep.get('ep_title', ''), ep.get('title', ''), ep.get('name', '')]
+                                actual_title = next((t for t in title_candidates if t), '')
+                                if actual_title:
+                                    check_title = f"{season}_{ep_idx}_{actual_title}"
+                                else:
+                                    check_title = f"{season}_{ep_idx}"
+                            else:
+                                title_candidates = [ep.get('ep_title', ''), ep.get('title', ''), ep.get('name', '')]
+                                actual_title = next((t for t in title_candidates if t), '')
+                                check_title = actual_title if actual_title else f"第{idx+1}集"
+                            for c in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
+                                check_title = check_title.replace(c, '_')
+                            check_title = check_title[:30]
+                            check_title = check_title.replace("正片_", "")
+                            video_format = task_info.get('video_format', 'mp4')
+                            output_path = os.path.join(task_info['save_path'], f"{check_title}.{video_format}")
+                            if os.path.exists(output_path):
+                                output_exists = True
+                                logger.info(f"任务{task_id}：第{idx+1}集文件已存在，跳过")
+                        except Exception:
+                            pass
+                    
+                    if output_exists:
+                        self.episode_progress_updated.emit(task_id, idx, 100, "已完成")
+                        current_downloaded = task_info.get("downloaded_episodes", [])
+                        if ep not in current_downloaded:
+                            current_downloaded.append(ep)
+                            task_info["downloaded_episodes"] = current_downloaded
+                            task_info['completed_episodes'] = len(current_downloaded)
+                        continue
+                    
                     ep_progress = episode_progress.get(str(idx), 0)
                     
 
@@ -1775,49 +1903,51 @@ class DownloadManager(QObject):
 
     def cancel_all(self):
         logger.info("开始取消所有下载任务")
+        self._shutting_down = True
         self._mutex.lock()
         task_ids = list(self.active_tasks.keys())
         for task_id in task_ids:
             self.active_tasks[task_id]['is_cancelled'] = True
 
+        paused_ids = list(self.paused_tasks.keys())
+        for task_id in paused_ids:
+            self.paused_tasks[task_id]['is_cancelled'] = True
+
         self.task_queue.clear()
         self._mutex.unlock()
+
+        self._task_condition.wakeAll()
 
         try:
             self.global_progress_updated.emit(0, "正在取消所有下载...")
         except RuntimeError:
-            
             logger.warning("DownloadManager对象已被删除，无法发送信号")
-            return
 
-        def _wait_for_tasks():
-            for task_id in task_ids:
-                try:
-                    self._mutex.lock()
-                    task_info = self.active_tasks.get(task_id)
-                    if task_info and task_info.get('executor'):
-                        executor = task_info['executor']
-                        self._mutex.unlock()
-                        try:
-        
-                            executor.shutdown(wait=True, cancel_futures=True)
-                        except TypeError:
-        
-                            executor.shutdown(wait=True)
-                        logger.info(f"任务{task_id}：线程池已关闭")
-                    else:
-                        self._mutex.unlock()
-                except Exception as e:
-                    logger.error(f"任务{task_id}：关闭线程池失败：{str(e)}")
-
-            logger.info("所有下载已取消")
+        for task_id in task_ids:
             try:
-                self.global_progress_updated.emit(0, "所有下载已取消")
-                self.all_finished.emit()
-            except RuntimeError:
+                self._mutex.lock()
+                task_info = self.active_tasks.get(task_id)
+                if task_info and task_info.get('executor'):
+                    executor = task_info['executor']
+                    self._mutex.unlock()
+                    try:
+                        executor.shutdown(wait=False, cancel_futures=True)
+                    except TypeError:
+                        executor.shutdown(wait=False)
+                    logger.info(f"任务{task_id}：线程池已关闭")
+                else:
+                    self._mutex.unlock()
+            except Exception as e:
+                logger.error(f"任务{task_id}：关闭线程池失败：{str(e)}")
 
-                logger.warning("DownloadManager对象已被删除，无法发送信号")
+        self._mutex.lock()
+        self.active_tasks.clear()
+        self.paused_tasks.clear()
+        self._mutex.unlock()
 
-        import threading
-        wait_thread = threading.Thread(target=_wait_for_tasks, daemon=True)
-        wait_thread.start()
+        logger.info("所有下载已取消")
+        try:
+            self.global_progress_updated.emit(0, "所有下载已取消")
+            self.all_finished.emit()
+        except RuntimeError:
+            logger.warning("DownloadManager对象已被删除，无法发送信号")

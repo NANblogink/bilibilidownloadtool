@@ -1,7 +1,7 @@
-#!/usr/bin/env python
+﻿#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-B站视频解析工具 V1.9 正式安装程序
+B站视频解析工具 V2.0 正式安装程序
 """
 
 import os
@@ -11,7 +11,6 @@ import traceback
 import webbrowser
 import zipfile
 
-import py7zr
 import winreg
 from PyQt5.QtWidgets import (
     QApplication, QWizard, QWizardPage, QWidget, QVBoxLayout, QHBoxLayout,
@@ -66,17 +65,16 @@ def markdown_to_html(text):
 
 
 class InstallerThread(QThread):
-    """安装工作线程"""
     log_signal = pyqtSignal(str)
-    progress_signal = pyqtSignal(int, int)  # 当前, 总
+    progress_signal = pyqtSignal(int, int)
     finished_signal = pyqtSignal(bool, str)
 
-    def __init__(self, install_path, create_desktop, create_startmenu, local_package=None):
+    def __init__(self, install_path, create_desktop, create_startmenu, package_path=None):
         super().__init__()
         self.install_path = install_path
         self.create_desktop = create_desktop
         self.create_startmenu = create_startmenu
-        self.local_package = local_package
+        self.package_path = package_path
         self.is_running = True
 
     def run(self):
@@ -84,13 +82,12 @@ class InstallerThread(QThread):
             self.log_signal.emit("正在准备安装...")
             self.progress_signal.emit(0, 100)
 
-            # 优先使用本地安装包
-            if self.local_package and os.path.exists(self.local_package):
-                self.log_signal.emit(f"使用本地安装包: {self.local_package}")
-                self.extract_package(self.local_package)
+            if self.package_path and os.path.exists(self.package_path):
+                self.log_signal.emit(f"使用安装包: {self.package_path}")
+                self.extract_package(self.package_path)
             else:
-                self.log_signal.emit("错误：未找到本地安装包！")
-                self.finished_signal.emit(False, "未找到本地安装包")
+                self.log_signal.emit("错误：未找到安装包！")
+                self.finished_signal.emit(False, "未找到安装包")
                 return
                 
         except Exception as e:
@@ -99,39 +96,25 @@ class InstallerThread(QThread):
             self.finished_signal.emit(False, str(e))
 
     def extract_package(self, package_path):
-        """解压安装包"""
         try:
             self.log_signal.emit("正在解压安装包...")
             self.progress_signal.emit(10, 100)
-            
+
             if not os.path.exists(self.install_path):
                 os.makedirs(self.install_path)
-            
+
             file_size = os.path.getsize(package_path)
             self.log_signal.emit(f"安装包大小: {file_size / 1024 / 1024:.2f} MB")
-            
-            # 根据文件扩展名选择解压方式
-            if package_path.endswith('.zip'):
-                with zipfile.ZipFile(package_path, 'r') as z:
-                    total_files = len(z.namelist())
-                    for i, name in enumerate(z.namelist()):
-                        z.extract(name, self.install_path)
-                        if i % 100 == 0:
-                            progress = 10 + int((i / total_files) * 40)
-                            self.progress_signal.emit(progress, 100)
-                            self.log_signal.emit(f"解压进度: {int((i / total_files) * 100)}%")
-            elif package_path.endswith('.7z'):
-                with py7zr.SevenZipFile(package_path, mode='r') as z:
-                    total_files = len(z.getnames())
-                    for i, name in enumerate(z.getnames()):
-                        if i % 100 == 0:
-                            progress = 10 + int((i / total_files) * 40)
-                            self.progress_signal.emit(progress, 100)
-                            self.log_signal.emit(f"解压进度: {int((i / total_files) * 100)}%")
-                    z.extractall(self.install_path)
-            else:
-                raise Exception(f"不支持的压缩包格式: {package_path}")
-            
+
+            with zipfile.ZipFile(package_path, 'r') as z:
+                total_files = len(z.namelist())
+                for i, name in enumerate(z.namelist()):
+                    z.extract(name, self.install_path)
+                    if i % 100 == 0:
+                        progress = 10 + int((i / total_files) * 40)
+                        self.progress_signal.emit(progress, 100)
+                        self.log_signal.emit(f"解压进度: {int((i / total_files) * 100)}%")
+
             self.log_signal.emit("解压完成！")
             self.progress_signal.emit(50, 100)
             
@@ -142,7 +125,7 @@ class InstallerThread(QThread):
             # 步骤4：查找主程序
             exe_path = self.find_main_exe()
             if not exe_path:
-                self.log_signal.emit("警告：未找到V1.9_main.exe，使用目录下第一个exe文件")
+                self.log_signal.emit("警告：未找到V2.0.0_main.exe，使用目录下第一个exe文件")
                 exe_files = [f for f in os.listdir(self.install_path) if f.endswith('.exe')]
                 if exe_files:
                     exe_path = os.path.join(self.install_path, exe_files[0])
@@ -151,16 +134,22 @@ class InstallerThread(QThread):
             
             self.log_signal.emit(f"主程序：{exe_path}")
             self.progress_signal.emit(70, 100)
-            
-            # 步骤5：创建快捷方式
+
+            icon_path = self.find_icon(exe_path)
+
             if self.create_desktop:
-                self.create_shortcut(exe_path, "Desktop", "B站视频解析工具V1.9")
+                self.create_shortcut(exe_path, "Desktop", "B站视频解析工具V2.0", icon_path=icon_path, description="B站视频解析下载工具")
                 self.log_signal.emit("桌面快捷方式已创建")
-            
+
             if self.create_startmenu:
-                self.create_shortcut(exe_path, "StartMenu", "B站视频解析工具V1.9")
+                self.create_shortcut(exe_path, "StartMenu", "B站视频解析工具V2.0", icon_path=icon_path, description="B站视频解析下载工具")
                 self.log_signal.emit("开始菜单快捷方式已创建")
-            
+
+                uninstaller_path = self.find_uninstaller_exe()
+                if uninstaller_path:
+                    self.create_shortcut(uninstaller_path, "StartMenu", "卸载B站视频解析工具V2.0", description="卸载B站视频解析工具V2.0")
+                    self.log_signal.emit("开始菜单卸载快捷方式已创建")
+
             self.progress_signal.emit(85, 100)
             # 步骤6：添加环境变量
             self.add_env_paths(exe_path)
@@ -175,10 +164,23 @@ class InstallerThread(QThread):
             self.finished_signal.emit(False, str(e))
 
     def find_main_exe(self):
-        """查找V1.9_main.exe"""
         for root, dirs, files in os.walk(self.install_path):
-            if "V1.9_main.exe" in files:
-                return os.path.join(root, "V1.9_main.exe")
+            if "V2.0.0_main.exe" in files:
+                return os.path.join(root, "V2.0.0_main.exe")
+        return None
+
+    def find_uninstaller_exe(self):
+        for root, dirs, files in os.walk(self.install_path):
+            if "V2.0_uninstaller.exe" in files:
+                return os.path.join(root, "V2.0_uninstaller.exe")
+        return None
+
+    def find_icon(self, exe_path):
+        exe_dir = os.path.dirname(exe_path)
+        for icon_name in ['logo.ico', 'logo.png']:
+            icon_file = os.path.join(exe_dir, icon_name)
+            if os.path.exists(icon_file):
+                return icon_file
         return None
 
     def save_install_path(self):
@@ -191,24 +193,28 @@ class InstallerThread(QThread):
         except Exception as e:
             self.log_signal.emit(f"记录安装路径失败：{str(e)}")
 
-    def create_shortcut(self, target_path, location, name):
-        """创建快捷方式"""
+    def create_shortcut(self, target_path, location, name, icon_path=None, description=None):
         try:
             import pythoncom
             from win32com.shell import shell, shellcon
 
             if location == "Desktop":
-                desktop_path = os.path.join(os.path.expanduser('~'), 'Desktop')
-            else:  # StartMenu
-                start_menu_path = os.path.join(
+                shortcut_dir = os.path.join(os.path.expanduser('~'), 'Desktop')
+            elif location == "StartMenu":
+                program_group = os.path.join(
                     os.path.expanduser('~'),
-                    'AppData', 'Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs'
+                    'AppData', 'Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs',
+                    'B站视频解析工具V2.0'
                 )
-                if not os.path.exists(start_menu_path):
-                    os.makedirs(start_menu_path)
-                desktop_path = start_menu_path
+                if not os.path.exists(program_group):
+                    os.makedirs(program_group)
+                shortcut_dir = program_group
+            else:
+                shortcut_dir = location
+                if not os.path.exists(shortcut_dir):
+                    os.makedirs(shortcut_dir)
 
-            shortcut_path = os.path.join(desktop_path, f"{name}.lnk")
+            shortcut_path = os.path.join(shortcut_dir, f"{name}.lnk")
 
             shell_obj = pythoncom.CoCreateInstance(
                 shell.CLSID_ShellLink,
@@ -218,6 +224,10 @@ class InstallerThread(QThread):
             )
             shell_obj.SetPath(target_path)
             shell_obj.SetWorkingDirectory(os.path.dirname(target_path))
+            if icon_path and os.path.exists(icon_path):
+                shell_obj.SetIconLocation(icon_path, 0)
+            if description:
+                shell_obj.SetDescription(description)
 
             persistant_file = shell_obj.QueryInterface(pythoncom.IID_IPersistFile)
             persistant_file.Save(shortcut_path, 0)
@@ -289,7 +299,7 @@ class LicensePage(QWizardPage):
 
 ## 版权声明
 
-本软件（B站视频解析工具V1.9）版权归原作者所有。
+本软件（B站视频解析工具V2.0）版权归原作者所有。
 
 ## 使用许可
 
@@ -428,7 +438,7 @@ class InstallPage(QWizardPage):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setTitle("正在安装")
-        self.setSubTitle("正在安装B站视频解析工具V1.9，请稍候...")
+        self.setSubTitle("正在安装B站视频解析工具V2.0，请稍候...")
 
         self.install_thread = None
         self.is_installing = False
@@ -496,54 +506,40 @@ class InstallPage(QWizardPage):
                 wizard.reject()
                 return
 
-        # 获取本地安装包路径
-        local_package = self.get_local_package()
-        if not local_package:
-            QMessageBox.critical(self, "错误", "未找到本地安装包！请确保1.9.zip文件与安装程序在同一目录下。")
+        package_path = self.get_embedded_package()
+        if not package_path:
+            QMessageBox.critical(self, "错误", "未找到内嵌安装包！")
             wizard.button(QWizard.CancelButton).setEnabled(True)
             return
 
-        # 启动线程
         self.install_thread = InstallerThread(
             install_path,
             create_desktop,
             create_startmenu,
-            local_package
+            package_path
         )
         self.install_thread.log_signal.connect(self.append_log)
         self.install_thread.progress_signal.connect(self.update_progress)
         self.install_thread.finished_signal.connect(self.install_finished)
         self.install_thread.start()
     
-    def get_local_package(self):
-        """获取本地安装包路径"""
-        # 获取安装程序所在目录
-        if getattr(sys, 'frozen', False):
-            # 打包后的环境 - 从临时目录获取资源
-            if hasattr(sys, '_MEIPASS'):
-                temp_dir = sys._MEIPASS
-                zip_path = os.path.join(temp_dir, "1.9.zip")
-                if os.path.exists(zip_path):
-                    # 复制到临时目录
-                    import shutil
-                    temp_package = os.path.join(tempfile.gettempdir(), "1.9.zip")
-                    if not os.path.exists(temp_package) or os.path.getsize(temp_package) < 100 * 1024 * 1024:
-                        shutil.copy(zip_path, temp_package)
-                    return temp_package
-            app_dir = os.path.dirname(sys.executable)
+    def get_embedded_package(self):
+        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+            temp_dir = sys._MEIPASS
+            zip_path = os.path.join(temp_dir, "V2.0.0_main.zip")
+            if os.path.exists(zip_path):
+                import shutil
+                temp_package = os.path.join(tempfile.gettempdir(), "V2.0.0_main_install.zip")
+                shutil.copy2(zip_path, temp_package)
+                return temp_package
         else:
-            app_dir = os.path.dirname(os.path.abspath(__file__))
-        
-        # 查找1.9.zip
-        zip_path = os.path.join(app_dir, "1.9.zip")
-        if os.path.exists(zip_path):
-            return zip_path
-        
-        # 查找其他可能的压缩包
-        for f in os.listdir(app_dir):
-            if f.endswith('.zip') or f.endswith('.7z'):
-                return os.path.join(app_dir, f)
-        
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            zip_path = os.path.join(script_dir, "dist", "V2.0.0_main", "V2.0.0_main.zip")
+            if os.path.exists(zip_path):
+                return zip_path
+            zip_path = os.path.join(script_dir, "V2.0.0_main.zip")
+            if os.path.exists(zip_path):
+                return zip_path
         return None
     
     def is_already_installed(self):
@@ -587,7 +583,7 @@ class FinishPage(QWizardPage):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setTitle("安装完成")
-        self.setSubTitle("已成功安装B站视频解析工具V1.9！")
+        self.setSubTitle("已成功安装B站视频解析工具V2.0！")
 
         layout = QVBoxLayout()
 
@@ -608,7 +604,7 @@ class FinishPage(QWizardPage):
         self.visit_repo_check.setChecked(False)
         layout.addWidget(self.visit_repo_check)
 
-        self.launch_check = QCheckBox("启动 B站视频解析工具V1.9")
+        self.launch_check = QCheckBox("启动 B站视频解析工具V2.0")
         self.launch_check.setChecked(True)
         layout.addWidget(self.launch_check)
 
@@ -622,7 +618,7 @@ class InstallerWizard(QWizard):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("B站视频解析工具 V1.9 安装程序")
+        self.setWindowTitle("B站视频解析工具 V2.0 安装程序")
         self.setMinimumSize(800, 600)
         self.resize(800, 600)
         self.setWizardStyle(QWizard.ModernStyle)
@@ -785,10 +781,10 @@ class InstallerWizard(QWizard):
         install_path = self.path_page.path_edit.text()
         exe_path = None
         
-        # 查找V1.9_main.exe
+        # 查找V2.0.0_main.exe
         for root, dirs, files in os.walk(install_path):
-            if "V1.9_main.exe" in files:
-                exe_path = os.path.join(root, "V1.9_main.exe")
+            if "V2.0.0_main.exe" in files:
+                exe_path = os.path.join(root, "V2.0.0_main.exe")
                 break
         
         if not exe_path:

@@ -1,7 +1,9 @@
 import sys
+import os
 import requests
 import time
 import json
+import traceback
 from PyQt5.QtWidgets import QApplication, QSplashScreen, QLabel, QVBoxLayout, QWidget, QProgressBar
 from PyQt5.QtGui import QFont, QColor, QPalette
 from PyQt5.QtCore import Qt, QTimer
@@ -12,6 +14,51 @@ from config import ConfigLoader
 from task_manager import TaskManager
 from utils import get_unique_filename
 from env_checker import check_environment
+
+class SafeQApplication(QApplication):
+    def notify(self, receiver, event):
+        try:
+            return super().notify(receiver, event)
+        except TypeError as e:
+            if 'sipBadCatcherResult' in str(e):
+                try:
+                    receiver_name = ''
+                    event_type = ''
+                    if receiver:
+                        try:
+                            receiver_name = receiver.metaObject().className()
+                        except Exception:
+                            receiver_name = str(type(receiver))
+                    if event:
+                        try:
+                            event_type = str(event.type())
+                        except Exception:
+                            event_type = str(type(event))
+                    print(f"[SafeQApplication] sipBadCatcherResult 抑制: receiver={receiver_name}, event={event_type}")
+                except Exception:
+                    pass
+                return True
+            try:
+                print(f"[SafeQApplication] 未处理TypeError: {str(e)}")
+                traceback.print_exc()
+            except Exception:
+                pass
+            return True
+        except Exception as e:
+            try:
+                print(f"[SafeQApplication] 未处理异常: {type(e).__name__}: {str(e)}")
+            except Exception:
+                pass
+            return True
+
+def _global_exception_hook(exc_type, exc_value, exc_tb):
+    try:
+        print(f"[全局异常钩子] {exc_type.__name__}: {exc_value}")
+        traceback.print_exception(exc_type, exc_value, exc_tb)
+    except Exception:
+        pass
+
+sys.excepthook = _global_exception_hook
 def load_version_info():
     try:
         import os
@@ -106,21 +153,11 @@ class SplashScreen(QWidget):
         fade_out()
 if __name__ == "__main__":
     try:
-        print("正在检查环境...")
-        from env_checker import check_environment
-        env_result = check_environment()
-        print("环境检查结果:")
-        print(f'Python版本: {env_result["python"]["version"]} - {"OK" if env_result["python"]["ok"] else "需要Python 3.6+"}')
-        print(f'FFmpeg: {env_result["ffmpeg"]["path"] if env_result["ffmpeg"]["path"] else "未找到"} - {"OK" if env_result["ffmpeg"]["ok"] else "需要修复"}')
-        print(f'依赖包: {"全部安装" if env_result["dependencies"]["ok"] else "缺失: " + str(env_result["dependencies"]["missing"])}')
-        print(f'网络连接: {"OK" if env_result["network"]["ok"] else "需要检查网络"}')
-        print(f'写入权限: {"OK" if env_result["write_permission"]["ok"] else "需要检查权限"}')
-        print(f'整体状态: {"就绪" if env_result["all_ok"] else "需要修复"}')
-        
         import time
         start_time = time.time()
         stage_times = {}
         from PyQt5.QtCore import Qt, qInstallMessageHandler
+        os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '1'
         QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
         QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
         QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
@@ -129,8 +166,8 @@ if __name__ == "__main__":
                 print(f"{message}")
         qInstallMessageHandler(message_handler)
         requests.packages.urllib3.disable_warnings()
-        app = QApplication(sys.argv)
-        font = QFont("SimHei", 9)
+        app = SafeQApplication(sys.argv)
+        font = QFont("Microsoft YaHei", 9)
         app.setFont(font)
         app.setStyle('Fusion')
         stage_times['app_init'] = time.time() - start_time
@@ -142,50 +179,52 @@ if __name__ == "__main__":
         config = ConfigLoader()
         app.processEvents()
         stage_times['config_init'] = time.time() - start_time
-        splash.update_progress(30, "检查依赖库...")
         import threading
-        def check_dependencies():
+        env_check_done = threading.Event()
+        env_result_holder = [None]
+        def run_env_check():
             try:
                 from env_checker import check_environment
-                env_result = check_environment()
+                result = check_environment()
+                env_result_holder[0] = result
+                print("环境检查结果:")
+                print(f'Python版本: {result["python"]["version"]} - {"OK" if result["python"]["ok"] else "需要Python 3.6+"}')
+                print(f'FFmpeg: {result["ffmpeg"]["path"] if result["ffmpeg"]["path"] else "未找到"} - {"OK" if result["ffmpeg"]["ok"] else "需要修复"}')
+                print(f'依赖包: {"全部安装" if result["dependencies"]["ok"] else "缺失: " + str(result["dependencies"]["missing"])}')
+                print(f'网络连接: {"OK" if result["network"]["ok"] else "需要检查网络"}')
+                print(f'写入权限: {"OK" if result["write_permission"]["ok"] else "需要检查权限"}')
+                print(f'整体状态: {"就绪" if result["all_ok"] else "需要修复"}')
             except Exception as e:
-                print(f"检查环境时出错：{str(e)}")
-        dependency_thread = threading.Thread(target=check_dependencies)
-        dependency_thread.start()
-        # 等待环境检测完成
-        dependency_thread.join(timeout=30)
+                print(f"环境检查出错：{str(e)}")
+            finally:
+                env_check_done.set()
+        env_thread = threading.Thread(target=run_env_check, daemon=True)
+        env_thread.start()
+        splash.update_progress(20, "检查环境...")
         app.processEvents()
-        splash.update_progress(50, "初始化组件...")
+        splash.update_progress(30, "初始化组件...")
         app.processEvents()
-        
-        # 检查工具状态
         tool_missing = False
         try:
-            splash.update_progress(55, "检查工具文件...")
+            splash.update_progress(35, "检查工具文件...")
             app.processEvents()
             from tool_manager import get_tool_manager
             tool_manager = get_tool_manager()
-            
-            # 检查工具是否已安装
             tool_status = tool_manager.check_tools_installed()
             print(f"工具检查结果: {tool_status}")
-            
             if not (tool_status['ffmpeg_exists'] and tool_status['bento4_exists']):
                 tool_missing = True
                 print("工具未完全安装")
             else:
                 print("工具已安装")
-            
-            splash.update_progress(65, "工具检查完成")
+            splash.update_progress(45, "工具检查完成")
             app.processEvents()
         except Exception as e:
             print(f"工具检查失败: {str(e)}")
             import traceback
             traceback.print_exc()
-            splash.update_progress(65, "工具检查跳过")
+            splash.update_progress(45, "工具检查跳过")
             app.processEvents()
-        
-        import threading
         parser = [None]
         task_manager = [None]
         download_manager = [None]
@@ -197,12 +236,10 @@ if __name__ == "__main__":
                 print("正在初始化TaskManager...")
                 task_manager[0] = TaskManager()
                 print("TaskManager初始化成功")
-                
                 from bilibili_parser import BilibiliParser
                 print("正在初始化BilibiliParser...")
                 parser[0] = BilibiliParser(config=config)
                 print(f"BilibiliParser初始化成功，parser[0] = {parser[0]}")
-                
                 from downloader import DownloadManager
                 print("正在初始化DownloadManager...")
                 max_threads = config.get_app_setting("max_threads", 2)
@@ -220,22 +257,23 @@ if __name__ == "__main__":
             finally:
                 print("组件初始化完成，设置components_ready事件")
                 components_ready.set()
-        component_thread = threading.Thread(target=init_components)
-        component_thread.daemon = True
+        component_thread = threading.Thread(target=init_components, daemon=True)
         component_thread.start()
-        import time
-        start_time = time.time()
-        max_wait_time = 10
-        wait_start = time.time()
-        while not components_ready.is_set() and time.time() - wait_start < max_wait_time:
-            app.processEvents()
-            time.sleep(0.01)
-            progress = 65 + min(int((time.time() - wait_start) / max_wait_time * 35), 35)
+        progress_timer_start = time.time()
+        def poll_component_progress():
+            if components_ready.is_set():
+                splash.update_progress(80, "组件初始化完成")
+                app.processEvents()
+                QTimer.singleShot(50, create_main_window)
+                return
+            elapsed = time.time() - progress_timer_start
+            progress = 45 + min(int(elapsed / 8 * 35), 35)
             splash.update_progress(progress, "初始化组件...")
-        app.processEvents()
-        from PyQt5.QtCore import QTimer
+            app.processEvents()
+            QTimer.singleShot(100, poll_component_progress)
+        QTimer.singleShot(100, poll_component_progress)
         window = None
-        def init_ui():
+        def create_main_window():
             global window
             window = BilibiliDownloader(
                 config=config,
@@ -244,7 +282,7 @@ if __name__ == "__main__":
             )
             window.parser = parser[0]
             app.processEvents()
-            splash.update_progress(100, "加载完成...")
+            splash.update_progress(95, "加载完成...")
             app.processEvents()
             splash.close_with_animation()
             window.showMaximized()
@@ -252,19 +290,16 @@ if __name__ == "__main__":
             window.activateWindow()
             app.processEvents()
             QTimer.singleShot(100, init_after_ui)
-        QTimer.singleShot(100, init_ui)
-        import threading
         def ensure_splash_closed():
             import time
             start_time = time.time()
-            while splash.isVisible() and time.time() - start_time < 3:
+            while time.time() - start_time < 3:
                 time.sleep(0.01)
             try:
-                splash.hide()
+                QTimer.singleShot(0, splash.hide)
             except Exception:
                 pass
-        thread = threading.Thread(target=ensure_splash_closed)
-        thread.daemon = True
+        thread = threading.Thread(target=ensure_splash_closed, daemon=True)
         thread.start()
         def init_after_ui():
             print("=== init_after_ui开始执行 ===")
@@ -277,26 +312,18 @@ if __name__ == "__main__":
                 print("window未准备好，退出init_after_ui")
                 return
             print("window已准备好，继续执行init_after_ui")
-            
-            # 检查工具是否缺失，如果缺失则弹窗提示
             if tool_missing:
                 def show_tool_missing_dialog():
                     from PyQt5.QtWidgets import QMessageBox, QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout
                     from PyQt5.QtCore import Qt
-                    
                     dialog = QDialog(window)
                     dialog.setWindowTitle("工具缺失提示")
                     dialog.setMinimumSize(450, 250)
-                    
                     layout = QVBoxLayout(dialog)
-                    
-                    # 标题
                     title_label = QLabel("工具缺失提示")
                     title_label.setAlignment(Qt.AlignCenter)
                     title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #d4380d; margin: 15px 10px 5px 10px;")
                     layout.addWidget(title_label)
-                    
-                    # 提示文字
                     info_label = QLabel(
                         "检测到 FFmpeg 和 Bento4 工具未完整安装！\n\n"
                         "这些工具对于视频下载和处理非常重要。\n"
@@ -306,10 +333,7 @@ if __name__ == "__main__":
                     info_label.setWordWrap(True)
                     info_label.setStyleSheet("font-size: 14px; margin: 10px; color: #333;")
                     layout.addWidget(info_label)
-                    
-                    # 按钮
                     button_layout = QHBoxLayout()
-                    
                     install_button = QPushButton("立即安装")
                     install_button.setMinimumHeight(40)
                     install_button.setStyleSheet("""
@@ -327,7 +351,6 @@ if __name__ == "__main__":
                     """)
                     install_button.clicked.connect(dialog.accept)
                     button_layout.addWidget(install_button)
-                    
                     later_button = QPushButton("稍后安装")
                     later_button.setMinimumHeight(40)
                     later_button.setStyleSheet("""
@@ -344,18 +367,11 @@ if __name__ == "__main__":
                     """)
                     later_button.clicked.connect(dialog.reject)
                     button_layout.addWidget(later_button)
-                    
                     layout.addLayout(button_layout)
-                    
-                    # 显示对话框
                     result = dialog.exec_()
-                    
-                    # 如果用户选择安装
                     if result == QDialog.Accepted:
                         QTimer.singleShot(100, lambda: window.install_tools())
-                
                 QTimer.singleShot(500, show_tool_missing_dialog)
-            
             def init_tasks():
                 def check_hevc():
                     hevc_supported = parser[0].check_hevc_support()
@@ -376,8 +392,7 @@ if __name__ == "__main__":
                         load_user_info()
                     except Exception as e:
                         print(f"初始化任务执行失败：{str(e)}")
-                thread = threading.Thread(target=run_init_tasks)
-                thread.daemon = True
+                thread = threading.Thread(target=run_init_tasks, daemon=True)
                 thread.start()
             def handle_cookie_verification(cookie_input):
                 print(f"收到Cookie验证请求，Cookie长度：{len(cookie_input)}")
@@ -388,49 +403,30 @@ if __name__ == "__main__":
                         print(f"Cookie保存结果：{save_success}")
                         if not save_success:
                             print("Cookie格式错误")
-                            QTimer.singleShot(0, lambda: window.on_cookie_verified(False, "Cookie格式错误！支持：JSON对象列表、key1=value1;格式"))
+                            window.signal_emitter.cookie_verified.emit(False, "Cookie格式错误！支持：JSON对象列表、key1=value1;格式")
                             return
                         print("开始验证Cookie...")
                         success, msg = parser[0].verify_cookie()
                         print(f"Cookie验证结果：{success}, {msg}")
-                        print("准备调用on_cookie_verified方法...")
-                        def call_on_cookie_verified():
-                            try:
-                                window.on_cookie_verified(success, msg)
-                                print("on_cookie_verified方法调用成功")
-                            except Exception as e:
-                                print(f"调用on_cookie_verified方法失败：{str(e)}")
-                                import traceback
-                                traceback.print_exc()
-                        QTimer.singleShot(0, call_on_cookie_verified)
+                        window.signal_emitter.cookie_verified.emit(success, msg)
                     except Exception as e:
                         print(f"Cookie处理异常：{str(e)}")
                         import traceback
                         traceback.print_exc()
-                        def call_on_cookie_verified_error():
-                            try:
-                                window.on_cookie_verified(False, f"Cookie处理失败：{str(e)}")
-                                print("on_cookie_verified方法调用成功（错误情况）")
-                            except Exception as e2:
-                                print(f"调用on_cookie_verified方法失败（错误情况）：{str(e2)}")
-                                import traceback
-                                traceback.print_exc()
-                        QTimer.singleShot(0, call_on_cookie_verified_error)
-                thread = threading.Thread(target=verify_in_thread)
-                thread.daemon = True
+                        window.signal_emitter.cookie_verified.emit(False, f"Cookie处理失败：{str(e)}")
+                thread = threading.Thread(target=verify_in_thread, daemon=True)
                 thread.start()
             window.signal_emitter.verify_cookie.connect(handle_cookie_verification)
             def handle_load_user_info():
                 def load_in_thread():
                     try:
-                        user_info = parser[0].get_user_info()
-                        QTimer.singleShot(0, lambda: window.update_user_info(user_info))
+                        user_info = parser[0].get_user_info(force_refresh=True)
+                        window.signal_emitter.user_info_updated.emit(user_info)
                     except Exception as e:
                         print(f"加载用户信息异常：{str(e)}")
                         import traceback
                         traceback.print_exc()
-                thread = threading.Thread(target=load_in_thread)
-                thread.daemon = True
+                thread = threading.Thread(target=load_in_thread, daemon=True)
                 thread.start()
             window.signal_emitter.load_user_info.connect(handle_load_user_info)
             def handle_check_hevc():
@@ -442,8 +438,7 @@ if __name__ == "__main__":
                         print(f"检查HEVC支持异常：{str(e)}")
                         import traceback
                         traceback.print_exc()
-                thread = threading.Thread(target=check_in_thread)
-                thread.daemon = True
+                thread = threading.Thread(target=check_in_thread, daemon=True)
                 thread.start()
             window.signal_emitter.check_hevc.connect(handle_check_hevc)
             def handle_install_hevc():
@@ -455,20 +450,22 @@ if __name__ == "__main__":
                         QTimer.singleShot(0, lambda: window.on_hevc_install_finish(success, msg))
                     except Exception as e:
                         QTimer.singleShot(0, lambda: window.on_hevc_install_finish(False, f"安装失败：{str(e)}"))
-                thread = threading.Thread(target=install_in_thread)
-                thread.daemon = True
+                thread = threading.Thread(target=install_in_thread, daemon=True)
                 thread.start()
             window.signal_emitter.install_hevc.connect(handle_install_hevc)
             def start_cookie_polling():
                 def poll_cookie_status():
-                    try:
-                        if parser[0] and parser[0].cookies:
-                            success, msg = parser[0].verify_cookie()
-                            if not success:
-                                QTimer.singleShot(0, lambda: window.update_user_info({"success": False}))
-                    except Exception as e:
-                        print(f"Cookie轮询异常：{str(e)}")
-                    QTimer.singleShot(5 * 60 * 1000, poll_cookie_status)
+                    def poll_in_thread():
+                        try:
+                            if parser[0] and parser[0].cookies:
+                                success, msg = parser[0].verify_cookie()
+                                if not success:
+                                    QTimer.singleShot(0, lambda: window.update_user_info({"success": False}))
+                        except Exception as e:
+                            print(f"Cookie轮询异常：{str(e)}")
+                        QTimer.singleShot(5 * 60 * 1000, poll_cookie_status)
+                    thread = threading.Thread(target=poll_in_thread, daemon=True)
+                    thread.start()
                 poll_cookie_status()
             start_cookie_polling()
             def handle_parse_media(url, is_tv_mode):
@@ -514,8 +511,7 @@ if __name__ == "__main__":
                         traceback.print_exc()
                         window.signal_emitter.parse_finished.emit({"success": False, "error": f"解析失败：{str(e)}"})
                 print("启动解析线程")
-                thread = threading.Thread(target=parse_in_thread)
-                thread.daemon = True
+                thread = threading.Thread(target=parse_in_thread, daemon=True)
                 thread.start()
             print("=== 连接parse_start信号 ===")
             window.signal_emitter.parse_start.connect(handle_parse_media)
@@ -523,9 +519,8 @@ if __name__ == "__main__":
             window.signal_emitter.start_download.connect(download_manager[0].start_download)
             def handle_same_task_exists(download_params):
                 print("检测到相同任务已存在，打开下载窗口")
-                if hasattr(window, 'show_notification'):
-                    window.show_notification("相同的下载任务已存在！", "info")
                 from PyQt5.QtCore import QTimer
+                QTimer.singleShot(0, lambda: window.show_notification("相同的下载任务已存在！", "info") if hasattr(window, 'show_notification') else None)
                 def switch_to_download():
                     if hasattr(window, 'batch_windows'):
                         existing_window = None
@@ -551,10 +546,10 @@ if __name__ == "__main__":
                 QTimer.singleShot(0, switch_to_download)
             download_manager[0].same_task_exists.connect(handle_same_task_exists)
             window.signal_emitter.same_task_exists.connect(handle_same_task_exists)
-            
             def handle_cancel_download():
                 download_manager[0].cancel_all()
-                window.status_label.setText("下载已取消")
+                from PyQt5.QtCore import QTimer
+                QTimer.singleShot(0, lambda: window.status_label.setText("下载已取消"))
             window.signal_emitter.cancel_download.connect(handle_cancel_download)
             download_manager[0].global_progress_updated.connect(window.update_download_progress)
             download_manager[0].episode_progress_updated.connect(window.update_episode_progress)
@@ -579,44 +574,51 @@ if __name__ == "__main__":
         print(f"总启动时间: {stage_times['startup_complete']:.3f}s")
         print("====================")
         def excepthook(exc_type, exc_value, exc_traceback):
-            import traceback
-            import os
-            error_msg = ''.join(traceback.format_exception(exc_type, exc_value, exc_traceback))
-            
-            file_path = "未知文件"
-            line_number = 0
-            if exc_traceback:
-                frame = exc_traceback.tb_frame
-                file_path = frame.f_code.co_filename
-                line_number = exc_traceback.tb_lineno
-            
-            code_context = ""
-            if os.path.exists(file_path):
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        lines = f.readlines()
-                    start_line = max(0, line_number - 5)
-                    end_line = min(len(lines), line_number + 4)
-                    code_lines = []
-                    for i in range(start_line, end_line):
-                        line_num = i + 1
-                        line_content = lines[i].rstrip()
-                        if line_num == line_number:
-                            code_lines.append(f"<span style='color: red; font-weight: bold;'>{line_num:4d} | {line_content}</span>")
-                        else:
-                            code_lines.append(f"{line_num:4d} | {line_content}")
-                    code_context = '<br>'.join(code_lines)
-                except Exception:
-                    code_context = "无法读取文件内容"
-            
-            if window:
-                window.signal_emitter.show_debug_window.emit(error_msg, code_context, file_path)
-            else:
-                print(f"应用程序运行时错误：{error_msg}")
-                input("按回车键退出...")
-        
+            try:
+                if 'sipBadCatcherResult' in str(exc_value):
+                    try:
+                        import traceback as _tb
+                        _tb.print_exception(exc_type, exc_value, exc_traceback)
+                    except Exception:
+                        pass
+                    return
+                import traceback
+                import os
+                error_msg = ''.join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+                file_path = "未知文件"
+                line_number = 0
+                if exc_traceback:
+                    frame = exc_traceback.tb_frame
+                    file_path = frame.f_code.co_filename
+                    line_number = exc_traceback.tb_lineno
+                code_context = ""
+                if os.path.exists(file_path):
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            lines = f.readlines()
+                        start_line = max(0, line_number - 5)
+                        end_line = min(len(lines), line_number + 4)
+                        code_lines = []
+                        for i in range(start_line, end_line):
+                            line_num = i + 1
+                            line_content = lines[i].rstrip()
+                            if line_num == line_number:
+                                code_lines.append(f"<span style='color: red; font-weight: bold;'>{line_num:4d} | {line_content}</span>")
+                            else:
+                                code_lines.append(f"{line_num:4d} | {line_content}")
+                        code_context = '<br>'.join(code_lines)
+                    except Exception:
+                        code_context = "无法读取文件内容"
+                if window:
+                    try:
+                        window.signal_emitter.show_debug_window.emit(error_msg, code_context, file_path)
+                    except Exception:
+                        print(f"应用程序运行时错误：{error_msg}")
+                else:
+                    print(f"应用程序运行时错误：{error_msg}")
+            except Exception:
+                pass
         sys.excepthook = excepthook
-        
         try:
             app.exec_()
         except Exception as e:

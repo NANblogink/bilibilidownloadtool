@@ -1,7 +1,7 @@
-#!/usr/bin/env python
+﻿#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-B站视频解析工具 V1.9 卸载程序
+B站视频解析工具 V2.0 卸载程序
 """
 
 import os
@@ -73,8 +73,8 @@ class UninstallerThread(QThread):
             # 步骤1：删除快捷方式
             if self.remove_shortcuts:
                 self.log_signal.emit("正在删除快捷方式...")
-                self.remove_shortcut("Desktop", "B站视频解析工具V1.9")
-                self.remove_shortcut("StartMenu", "B站视频解析工具V1.9")
+                self.remove_shortcut("Desktop", "B站视频解析工具V2.0")
+                self.remove_shortcut("StartMenu", "B站视频解析工具V2.0")
                 self.log_signal.emit("快捷方式已删除")
             self.progress_signal.emit(30, 100)
 
@@ -148,7 +148,7 @@ class ConfirmPage(QWizardPage):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setTitle("确认卸载")
-        self.setSubTitle("请确认您要卸载B站视频解析工具V1.9")
+        self.setSubTitle("请确认您要卸载B站视频解析工具V2.0")
 
         layout = QVBoxLayout()
 
@@ -205,7 +205,7 @@ class UninstallPage(QWizardPage):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setTitle("正在卸载")
-        self.setSubTitle("正在卸载B站视频解析工具V1.9，请稍候...")
+        self.setSubTitle("正在卸载B站视频解析工具V2.0，请稍候...")
 
         self.uninstall_thread = None
         self.is_uninstalling = False
@@ -295,7 +295,7 @@ class FinishPage(QWizardPage):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setTitle("卸载完成")
-        self.setSubTitle("已成功卸载B站视频解析工具V1.9")
+        self.setSubTitle("已成功卸载B站视频解析工具V2.0")
 
         layout = QVBoxLayout()
 
@@ -327,7 +327,7 @@ class UninstallerWizard(QWizard):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("B站视频解析工具 V1.9 卸载程序")
+        self.setWindowTitle("B站视频解析工具 V2.0 卸载程序")
         self.setMinimumSize(600, 450)
         self.resize(650, 500)
         self.setWizardStyle(QWizard.ModernStyle)
@@ -370,7 +370,7 @@ def main():
     # 检查是否已安装
     installed, install_path = is_installed()
     if not installed:
-        QMessageBox.warning(None, "未安装", "未检测到B站视频解析工具V1.9已安装！", QMessageBox.Ok)
+        QMessageBox.warning(None, "未安装", "未检测到B站视频解析工具V2.0已安装！", QMessageBox.Ok)
         sys.exit(0)
 
     wizard = UninstallerWizard()
