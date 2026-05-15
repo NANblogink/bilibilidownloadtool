@@ -16,7 +16,7 @@ if __name__ == '__main__':
     import shutil
 
     PROJECT_DIR = r"c:\Users\22739\Desktop\B站视频解析工具V1.8\bilibilidownloadtool-master"
-    EXE_NAME = "V2.0.0_uninstaller"
+    EXE_NAME = "V2.0.1_uninstaller"
 
     os.chdir(PROJECT_DIR)
 
@@ -37,7 +37,7 @@ if __name__ == '__main__':
     ]
 
     print("=" * 50)
-    print("  B站视频解析工具 V2.0.0 卸载程序构建")
+    print("  B站视频解析工具 V2.0.1 卸载程序构建")
     print("=" * 50)
 
     PyInstaller.__main__.run()

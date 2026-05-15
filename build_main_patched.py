@@ -17,7 +17,7 @@ if __name__ == '__main__':
     import zipfile
 
     PROJECT_DIR = r"c:\Users\22739\Desktop\B站视频解析工具V1.8\bilibilidownloadtool-master"
-    EXE_NAME = "V2.0.0_main"
+    EXE_NAME = "V2.0.1_main"
 
     os.chdir(PROJECT_DIR)
 
@@ -50,7 +50,7 @@ if __name__ == '__main__':
     ]
 
     print("=" * 50)
-    print("  B站视频解析工具 V2.0.0 构建脚本 (patched)")
+    print("  B站视频解析工具 V2.0.1 构建脚本 (patched)")
     print("=" * 50)
     print("\n[1/3] PyInstaller 打包...")
 

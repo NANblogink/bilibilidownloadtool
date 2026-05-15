@@ -5,7 +5,7 @@ import sys
 import zipfile
 
 APP_NAME = "B站视频解析工具"
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.0.1"
 EXE_NAME = f"V{APP_VERSION}_main"
 PROJECT_DIR = r"c:\Users\22739\Desktop\B站视频解析工具V1.8\bilibilidownloadtool-master"
 

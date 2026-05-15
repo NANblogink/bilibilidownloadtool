@@ -16,7 +16,7 @@ if __name__ == '__main__':
     import shutil
 
     PROJECT_DIR = r"c:\Users\22739\Desktop\B站视频解析工具V1.8\bilibilidownloadtool-master"
-    EXE_NAME = "V2.0.0_installer"
+    EXE_NAME = "V2.0.1_installer"
 
     os.chdir(PROJECT_DIR)
 
@@ -34,13 +34,13 @@ if __name__ == '__main__':
         '--icon=logo.ico',
         '--add-data', 'logo.ico;.',
         '--add-data', 'logo.png;.',
-        '--add-data', 'dist/V2.0.0_main.zip;.',
+        '--add-data', 'dist/V2.0.1_main.zip;.',
         '--noconfirm',
         'installer.py'
     ]
 
     print("=" * 50)
-    print("  B站视频解析工具 V2.0.0 安装程序构建")
+    print("  B站视频解析工具 V2.0.1 安装程序构建")
     print("=" * 50)
 
     PyInstaller.__main__.run()

@@ -1527,7 +1527,6 @@ class BilibiliParser:
                 "order": "pubdate"
             }
             
-            # 使用正确的请求头和 cookies
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
                 'Referer': f'https://space.bilibili.com/{mid}',
@@ -1542,7 +1541,6 @@ class BilibiliParser:
             session.verify = False
             session.proxies = {}
             
-            # 复制当前会话的 cookies
             if hasattr(self, 'session'):
                 session.cookies.update(self.session.cookies)
                 logger.info(f"复制了 {len(session.cookies)} 个 cookies")
@@ -1558,10 +1556,11 @@ class BilibiliParser:
                         video_data = data.get('data', {})
                         if video_data:
                             items = video_data.get('list', {}).get('vlist', [])
-                            videos = []
+                            total = video_data.get('page', {}).get('count', 0)
+                            all_videos = []
                             
                             for item in items:
-                                videos.append({
+                                all_videos.append({
                                     "aid": item.get('aid', ''),
                                     "bvid": item.get('bvid', ''),
                                     "title": item.get('title', ''),
@@ -1577,13 +1576,56 @@ class BilibiliParser:
                                     "mid": item.get('mid', '')
                                 })
                             
-                            logger.info(f"备用 API 获取作品列表成功，共 {len(videos)} 个视频")
+                            if total > ps and page == 1:
+                                import math
+                                total_pages = math.ceil(total / ps)
+                                logger.info(f"备用API: 总计 {total} 个视频，共 {total_pages} 页，开始加载剩余页面...")
+                                if progress_callback:
+                                    progress_callback(f"共找到 {total} 个视频，开始加载...")
+                                for p in range(2, total_pages + 1):
+                                    try:
+                                        params2["pn"] = p
+                                        if progress_callback:
+                                            progress_callback(f"正在加载第 {p}/{total_pages} 页 ({len(all_videos)}/{total} 个视频)...")
+                                        p_response = session.get(url2, params=params2, timeout=15, allow_redirects=True)
+                                        if p_response.status_code == 200:
+                                            p_data = p_response.json()
+                                            if p_data.get('code') == 0:
+                                                p_items = p_data.get('data', {}).get('list', {}).get('vlist', [])
+                                                for item in p_items:
+                                                    all_videos.append({
+                                                        "aid": item.get('aid', ''),
+                                                        "bvid": item.get('bvid', ''),
+                                                        "title": item.get('title', ''),
+                                                        "pic": item.get('pic', ''),
+                                                        "description": item.get('description', ''),
+                                                        "created": item.get('created', 0),
+                                                        "length": item.get('length', ''),
+                                                        "play": item.get('play', 0),
+                                                        "video_review": item.get('video_review', 0),
+                                                        "review": item.get('review', 0),
+                                                        "favorites": item.get('favorites', 0),
+                                                        "author": item.get('author', ''),
+                                                        "mid": item.get('mid', '')
+                                                    })
+                                                logger.info(f"备用API: 已加载第 {p}/{total_pages} 页，累计 {len(all_videos)} 个视频")
+                                            else:
+                                                logger.warning(f"备用API: 加载第 {p} 页返回错误码 {p_data.get('code')}")
+                                        else:
+                                            logger.warning(f"备用API: 加载第 {p} 页HTTP状态码 {p_response.status_code}")
+                                    except Exception as e:
+                                        logger.warning(f"备用API: 加载第 {p} 页异常：{str(e)}，跳过")
+                                
+                                if progress_callback:
+                                    progress_callback(f"加载完成！共 {len(all_videos)} 个视频")
+                            
+                            logger.info(f"备用 API 获取作品列表成功，共 {len(all_videos)} 个视频")
                             return {
                                 "success": True,
-                                "videos": videos,
+                                "videos": all_videos,
                                 "page": page,
                                 "ps": ps,
-                                "total": video_data.get('page', {}).get('count', 0)
+                                "total": total
                             }
                 except Exception as json_e:
                     logger.error(f"解析 JSON 失败: {str(json_e)}")

@@ -14,7 +14,7 @@ GITHUB_API = "https://api.github.com/repos/NANblogink/bilibilidownloadtool/relea
 
 
 class CloudService:
-    def __init__(self, current_version="2.0.0"):
+    def __init__(self, current_version="2.0.1"):
         self.current_version = current_version
         self.platform = "windows"
         self.session = requests.Session()

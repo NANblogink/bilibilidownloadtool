@@ -1,7 +1,7 @@
-﻿#!/usr/bin/env python
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-B站视频解析工具 V2.0 正式安装程序
+B站视频解析工具 V2.0.1 正式安装程序
 """
 
 import os
@@ -125,7 +125,7 @@ class InstallerThread(QThread):
             # 步骤4：查找主程序
             exe_path = self.find_main_exe()
             if not exe_path:
-                self.log_signal.emit("警告：未找到V2.0.0_main.exe，使用目录下第一个exe文件")
+                self.log_signal.emit("警告：未找到V2.0.1_main.exe，使用目录下第一个exe文件")
                 exe_files = [f for f in os.listdir(self.install_path) if f.endswith('.exe')]
                 if exe_files:
                     exe_path = os.path.join(self.install_path, exe_files[0])
@@ -165,8 +165,8 @@ class InstallerThread(QThread):
 
     def find_main_exe(self):
         for root, dirs, files in os.walk(self.install_path):
-            if "V2.0.0_main.exe" in files:
-                return os.path.join(root, "V2.0.0_main.exe")
+            if "V2.0.1_main.exe" in files:
+                return os.path.join(root, "V2.0.1_main.exe")
         return None
 
     def find_uninstaller_exe(self):
@@ -526,18 +526,18 @@ class InstallPage(QWizardPage):
     def get_embedded_package(self):
         if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
             temp_dir = sys._MEIPASS
-            zip_path = os.path.join(temp_dir, "V2.0.0_main.zip")
+            zip_path = os.path.join(temp_dir, "V2.0.1_main.zip")
             if os.path.exists(zip_path):
                 import shutil
-                temp_package = os.path.join(tempfile.gettempdir(), "V2.0.0_main_install.zip")
+                temp_package = os.path.join(tempfile.gettempdir(), "V2.0.1_main_install.zip")
                 shutil.copy2(zip_path, temp_package)
                 return temp_package
         else:
             script_dir = os.path.dirname(os.path.abspath(__file__))
-            zip_path = os.path.join(script_dir, "dist", "V2.0.0_main", "V2.0.0_main.zip")
+            zip_path = os.path.join(script_dir, "dist", "V2.0.1_main", "V2.0.1_main.zip")
             if os.path.exists(zip_path):
                 return zip_path
-            zip_path = os.path.join(script_dir, "V2.0.0_main.zip")
+            zip_path = os.path.join(script_dir, "V2.0.1_main.zip")
             if os.path.exists(zip_path):
                 return zip_path
         return None
@@ -781,10 +781,10 @@ class InstallerWizard(QWizard):
         install_path = self.path_page.path_edit.text()
         exe_path = None
         
-        # 查找V2.0.0_main.exe
+        # 查找V2.0.1_main.exe
         for root, dirs, files in os.walk(install_path):
-            if "V2.0.0_main.exe" in files:
-                exe_path = os.path.join(root, "V2.0.0_main.exe")
+            if "V2.0.1_main.exe" in files:
+                exe_path = os.path.join(root, "V2.0.1_main.exe")
                 break
         
         if not exe_path:
