@@ -28,3 +28,18 @@ check_all.py
 test_*.py
 build_main_console.py
 yolov8n.pt
+
+# 排除敏感文件
+API接口文档.md
+articles/
+hevc安装.Appx
+
+# 排除辅助脚本
+create_release.py
+upload_release.py
+upload_hotfix.py
+update_version_api.py
+upload_zip.py
+upload_zip2.py
+verify_cloud.py
+update_announcement.py
