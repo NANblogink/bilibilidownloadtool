@@ -16,11 +16,18 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
+# 排除IDE配置
+.idea/
+.vscode/
+*.swp
+*.swo
+
 # 排除运行时生成的文件
 wbi_cache.json
 cookie.txt
 app_config.json
 dismissed_announcements.json
+download_tasks.json
 runs/
 temp/
 verify.py
@@ -33,6 +40,13 @@ yolov8n.pt
 API接口文档.md
 articles/
 hevc安装.Appx
+cookie*.txt
+cookie*.json
+*.pem
+*.key
+*.env
+*.db
+*.sqlite*
 
 # 排除辅助脚本
 create_release.py
@@ -43,3 +57,4 @@ upload_zip.py
 upload_zip2.py
 verify_cloud.py
 update_announcement.py
+generate_material.py

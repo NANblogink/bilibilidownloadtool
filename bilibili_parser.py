@@ -1954,8 +1954,13 @@ class BilibiliParser:
             import json
             import subprocess
 
-            ffprobe_path = self.ffmpeg_local.replace('ffmpeg.exe', 'ffprobe.exe')
-            if not os.path.exists(ffprobe_path):
+            ffprobe_path = None
+            ffmpeg_dir = os.path.dirname(self.ffmpeg_local)
+            if ffmpeg_dir:
+                candidate = os.path.join(ffmpeg_dir, 'ffprobe.exe')
+                if os.path.exists(candidate):
+                    ffprobe_path = candidate
+            if not ffprobe_path:
                 ffprobe_path = shutil.which('ffprobe')
 
             if not ffprobe_path:
@@ -2643,6 +2648,12 @@ class BilibiliParser:
 
             if progress_callback:
                 progress_callback(10, "正在解析媒体类型...")
+
+            if media_type == "space":
+                return {
+                    "success": False,
+                    "error": "space类型需要在UI层通过show_space_videos处理，请使用主界面解析UP主主页链接"
+                }
 
             if media_type == "av":
                 try:
@@ -6793,11 +6804,24 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         return f"{hours:02d}:{minutes:02d}:{secs:.2f}"
 
     def _get_video_codec(self, video_path, ffmpeg_exec):
-        """获取视频文件的编码格式"""
         try:
+            if video_path and video_path.lower().endswith('.m4s'):
+                logger.debug(f"跳过m4s文件的编码检测：{video_path}")
+                return 'unknown'
             import subprocess
+            ffprobe_exec = None
+            ffmpeg_dir = os.path.dirname(ffmpeg_exec)
+            if ffmpeg_dir:
+                candidate = os.path.join(ffmpeg_dir, 'ffprobe.exe')
+                if os.path.exists(candidate):
+                    ffprobe_exec = candidate
+            if not ffprobe_exec:
+                ffprobe_exec = shutil.which('ffprobe')
+            if not ffprobe_exec or not os.path.exists(ffprobe_exec):
+                logger.warning("未找到ffprobe，无法检测视频编码")
+                return 'unknown'
             cmd = [
-                ffmpeg_exec,
+                ffprobe_exec,
                 '-v', 'quiet',
                 '-print_format', 'json',
                 '-show_streams',
@@ -6805,18 +6829,24 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             ]
             result = subprocess.run(
                 cmd,
-                check=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 shell=False,
-                creationflags=subprocess.CREATE_NO_WINDOW
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=30
             )
+            if result.returncode != 0:
+                logger.warning(f"ffprobe检测视频编码失败，返回码：{result.returncode}")
+                return 'unknown'
             import json
             output = result.stdout.decode('utf-8', errors='ignore')
             data = json.loads(output)
             for stream in data.get('streams', []):
                 if stream.get('codec_type') == 'video':
                     return stream.get('codec_name', 'unknown')
+            return 'unknown'
+        except subprocess.TimeoutExpired:
+            logger.warning("ffprobe检测视频编码超时")
             return 'unknown'
         except Exception as e:
             logger.warning(f"获取视频编码失败：{str(e)}")

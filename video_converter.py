@@ -209,9 +209,20 @@ class VideoConverter:
         self.root.update()
         
         try:
-            # 使用ffprobe获取视频信息
+            ffprobe_path = None
+            ffmpeg_dir = os.path.dirname(self.ffmpeg_path)
+            if ffmpeg_dir:
+                candidate = os.path.join(ffmpeg_dir, 'ffprobe.exe')
+                if os.path.exists(candidate):
+                    ffprobe_path = candidate
+            if not ffprobe_path:
+                import shutil as _shutil
+                ffprobe_path = _shutil.which('ffprobe')
+            if not ffprobe_path:
+                self.status_label.config(text="未找到ffprobe，无法检测视频信息", fg="#ff0000")
+                return
             cmd = [
-                self.ffmpeg_path.replace('ffmpeg.exe', 'ffprobe.exe'),
+                ffprobe_path,
                 '-v', 'quiet',
                 '-print_format', 'json',
                 '-show_format',

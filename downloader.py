@@ -519,7 +519,8 @@ class DownloadManager(QObject):
     def set_max_threads(self, max_threads):
         if max_threads > 0:
             self.max_threads = min(max_threads, 16)
-            logger.info(f"线程数已修改为：{self.max_threads}")
+            self.max_concurrent_tasks = min(max_threads, 16)
+            logger.info(f"线程数已修改为：{self.max_threads}，最大并发任务数：{self.max_concurrent_tasks}")
 
     def _schedule_tasks(self):
         while not self._shutting_down:
@@ -1550,6 +1551,66 @@ class DownloadManager(QObject):
                         
                         if message == "TASK_PAUSED":
                             continue
+                        
+                        if not success:
+                            max_retries = 2
+                            for retry in range(1, max_retries + 1):
+                                logger.info(f"任务{task_id}：第{ep_index+1}集下载失败，自动重试 {retry}/{max_retries}...")
+                                try:
+                                    self._mutex.lock()
+                                    task_info = self.active_tasks.get(task_id)
+                                    if not task_info or task_info['is_cancelled'] or task_info.get('is_paused'):
+                                        self._mutex.unlock()
+                                        break
+                                    video_info = task_info.get('video_info', {})
+                                    bvid = video_info.get('bvid', '')
+                                    is_tv_mode = video_info.get('is_tv_mode', False)
+                                    parser = task_info.get('parser')
+                                    episodes_list = task_info.get('episodes', [])
+                                    retry_ep_info = episodes_list[ep_index] if ep_index < len(episodes_list) else {}
+                                    self._mutex.unlock()
+                                    
+                                    new_media_info = None
+                                    if parser and bvid:
+                                        try:
+                                            new_media_info = parser.parse_media("video", bvid, is_tv_mode)
+                                        except Exception as parse_err:
+                                            logger.warning(f"任务{task_id}：重试解析失败：{parse_err}")
+                                    
+                                    if new_media_info and new_media_info.get('success'):
+                                        new_video_urls = new_media_info.get('video_urls', {})
+                                        new_audio_url = new_media_info.get('audio_url', '')
+                                        new_qualities = new_media_info.get('qualities', [])
+                                        if new_video_urls or new_audio_url:
+                                            self._mutex.lock()
+                                            task_info = self.active_tasks.get(task_id)
+                                            if task_info:
+                                                task_info['video_info'].update({
+                                                    'video_urls': new_video_urls,
+                                                    'audio_url': new_audio_url,
+                                                })
+                                                if new_qualities:
+                                                    task_info['video_info']['qualities'] = new_qualities
+                                                if ep_index < len(task_info.get('episodes', [])):
+                                                    task_info['episodes'][ep_index].update({
+                                                        'video_urls': new_video_urls,
+                                                        'audio_url': new_audio_url,
+                                                    })
+                                            self._mutex.unlock()
+                                            logger.info(f"任务{task_id}：重试解析成功，获取到新链接")
+                                    
+                                    retry_success, retry_message = self._download_episode(task_id, ep_index, retry_ep_info)
+                                    if retry_success:
+                                        success = True
+                                        message = retry_message
+                                        logger.info(f"任务{task_id}：第{ep_index+1}集重试成功")
+                                        break
+                                    else:
+                                        logger.warning(f"任务{task_id}：第{ep_index+1}集重试 {retry} 失败：{retry_message}")
+                                        import time as retry_time
+                                        retry_time.sleep(retry * 2)
+                                except Exception as retry_err:
+                                    logger.error(f"任务{task_id}：第{ep_index+1}集重试异常：{retry_err}")
                         
                         self._mutex.lock()
                         task_info = self.active_tasks.get(task_id)

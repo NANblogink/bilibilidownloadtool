@@ -10,6 +10,7 @@ import logging
 import ctypes
 import re
 import requests
+import threading
 
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QPushButton, QScrollArea,
                              QComboBox, QLabel, QFileDialog, QProgressBar, QMessageBox, QGroupBox,
@@ -2356,7 +2357,8 @@ class NotificationWidget(QWidget):
         super().__init__(parent)
         
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.Window)
-        self.setAutoFillBackground(True)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAutoFillBackground(False)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         
         self.container = QWidget(self)
@@ -11518,61 +11520,55 @@ class BilibiliDownloader(BaseWindow):
                 self.config = config
             
             def run(self):
-                """线程运行方法"""
                 try:
                     logger.info("=== 开始处理视频 ===")
                     import time
+                    from concurrent.futures import ThreadPoolExecutor, as_completed
                     
-                    # 为每个视频创建下载任务
                     success_count = 0
                     total_videos = len(self.videos)
                     logger.info(f"处理视频数量：{total_videos}")
                     
                     all_download_tasks = []
+                    max_workers = min(self.config.get_app_setting("max_threads", 4), 8, total_videos)
+                    logger.info(f"并发解析线程数：{max_workers}")
                     
-                    for i, video in enumerate(self.videos):
+                    finished_count = [0]
+                    parse_lock = threading.Lock()
+                    
+                    def parse_single_video(i, video):
                         try:
-                            # 更新进度
-                            progress = int((i / total_videos) * 100)
-                            self.progress.emit(progress, f"处理视频 {i+1}/{total_videos}...")
-                            
                             bvid = video.get('bvid')
                             if not bvid:
                                 logger.warning("视频没有bvid，跳过")
-                                continue
+                                return None
                             
                             logger.info(f"处理视频：{bvid} - {video.get('title', '未知标题')}")
                             
-                            # 解析视频获取详细信息
                             media_info = self.parser.parse_media("video", bvid, self.tv_mode)
                             
                             if not media_info.get('success'):
                                 logger.warning(f"完全模式：解析视频 {bvid} 失败，跳过")
-                                continue
+                                return None
                             
-                            # 获取视频的分辨率选项
-                            quality_options = media_info.get('quality_options', [])
+                            quality_options = media_info.get('qualities', [])
                             if quality_options:
-                                # 使用选中的清晰度，如果没有则使用第一个可用清晰度
                                 selected_qn = self.default_qn
-                                qn_available = [q['qn'] for q in quality_options]
+                                qn_available = [qn for qn, name in quality_options]
                                 if selected_qn not in qn_available:
                                     selected_qn = qn_available[0] if qn_available else 80
                             else:
                                 selected_qn = self.default_qn
                             logger.info(f"视频清晰度：{selected_qn}")
                             
-                            # 创建下载任务
                             task_id = str(int(time.time() * 1000) + i)
                             
-                            # 获取视频的集数信息
                             episodes = []
                             if media_info.get('collection'):
                                 episodes = media_info.get('collection', [])
                             elif media_info.get('episodes'):
                                 episodes = media_info.get('episodes', [])
                             else:
-                                # 单集视频
                                 episodes = [{
                                     'page': 1,
                                     'title': media_info.get('title', ''),
@@ -11598,24 +11594,35 @@ class BilibiliDownloader(BaseWindow):
                                 "audio_quality": self.selected_audio_quality if self.selected_audio_quality else self.config.get_app_setting("audio_quality", 30280)
                             }
                             
-                            # 保存任务信息
-                            all_download_tasks.append((video, episodes, task_id, download_params))
-                            success_count += 1
                             logger.info(f"完全模式：已添加下载任务 {video.get('title', bvid)}")
-                            
-                            # 添加适当的延迟，避免过度占用系统资源
-                            time.sleep(0.3)  # 减少延迟时间，提高处理速度
+                            return (video, episodes, task_id, download_params)
                             
                         except Exception as e:
                             logger.error(f"完全模式：处理视频 {video.get('bvid', 'unknown')} 时出错：{str(e)}")
-                            import traceback
-                            traceback.print_exc()
-                            continue
+                            return None
+                        finally:
+                            with parse_lock:
+                                finished_count[0] += 1
+                                progress = int((finished_count[0] / total_videos) * 100)
+                            self.progress.emit(progress, f"处理视频 {finished_count[0]}/{total_videos}...")
                     
-                    # 显示处理完成的通知
+                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                        futures = {}
+                        for i, video in enumerate(self.videos):
+                            future = executor.submit(parse_single_video, i, video)
+                            futures[future] = i
+                        
+                        for future in as_completed(futures):
+                            try:
+                                result = future.result()
+                                if result is not None:
+                                    all_download_tasks.append(result)
+                                    success_count += 1
+                            except Exception as e:
+                                logger.error(f"完全模式：获取解析结果时出错：{str(e)}")
+                    
                     self.progress.emit(100, "处理完成")
                     
-                    # 检查all_download_tasks的长度
                     logger.info(f"处理完成，共有 {len(all_download_tasks)} 个任务")
                     
                     self.parse_done.emit(all_download_tasks, success_count, len(self.videos), self.space_info)
@@ -14514,8 +14521,7 @@ class BilibiliDownloader(BaseWindow):
             select_btn.clicked.connect(create_select_handler(link_data))
             download_btn.clicked.connect(create_download_handler(link_data))
 
-            
-            import threading
+
             def parse_link(url, link_data):
                 try:
                     if self.parser is None:
@@ -14624,9 +14630,9 @@ class BilibiliDownloader(BaseWindow):
 
             for ld in selected_items:
                 try:
-                    quality_options = ld['video_info'].get('quality_options', [])
+                    quality_options = ld['video_info'].get('qualities', [])
                     if quality_options:
-                        qn_available = [q['qn'] for q in quality_options]
+                        qn_available = [qn for qn, name in quality_options]
                         selected_qn = default_qn if default_qn in qn_available else qn_available[0]
                     else:
                         selected_qn = default_qn

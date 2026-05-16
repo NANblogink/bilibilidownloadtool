@@ -250,7 +250,8 @@ if __name__ == "__main__":
                 download_manager[0] = DownloadManager(
                     parser=parser[0],
                     task_manager=task_manager[0],
-                    max_threads=max_threads
+                    max_threads=max_threads,
+                    max_concurrent_tasks=max_threads
                 )
                 print("DownloadManager初始化成功")
             except Exception as e:
