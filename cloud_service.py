@@ -108,12 +108,21 @@ class CloudService:
 
             download_url = ""
             file_size = 0
+            import sys as _sys
+            is_mac = _sys.platform == 'darwin'
             for asset in release.get("assets", []):
                 name = asset.get("name", "").lower()
-                if name.endswith(".exe") and "installer" not in name and "uninstall" not in name:
-                    download_url = asset.get("browser_download_url", "")
-                    file_size = asset.get("size", 0)
-                    break
+                if is_mac:
+                    if name.endswith(".dmg") or name.endswith(".zip"):
+                        if "mac" in name or "darwin" in name or name.endswith(".dmg"):
+                            download_url = asset.get("browser_download_url", "")
+                            file_size = asset.get("size", 0)
+                            break
+                else:
+                    if name.endswith(".exe") and "installer" not in name and "uninstall" not in name:
+                        download_url = asset.get("browser_download_url", "")
+                        file_size = asset.get("size", 0)
+                        break
 
             if not download_url:
                 download_url = release.get("html_url", "")

@@ -15,6 +15,19 @@ from task_manager import TaskManager
 from utils import get_unique_filename
 from env_checker import check_environment
 
+IS_MACOS = sys.platform == 'darwin'
+IS_WINDOWS = sys.platform == 'win32'
+
+
+def _get_platform_font():
+    """获取跨平台默认字体"""
+    if IS_MACOS:
+        return QFont("PingFang SC", 13)
+    elif IS_WINDOWS:
+        return QFont("Microsoft YaHei", 9)
+    else:
+        return QFont("Noto Sans CJK SC", 10)
+
 class SafeQApplication(QApplication):
     def notify(self, receiver, event):
         try:
@@ -167,7 +180,7 @@ if __name__ == "__main__":
         qInstallMessageHandler(message_handler)
         requests.packages.urllib3.disable_warnings()
         app = SafeQApplication(sys.argv)
-        font = QFont("Microsoft YaHei", 9)
+        font = _get_platform_font()
         app.setFont(font)
         app.setStyle('Fusion')
         from ui import init_dpi_scale

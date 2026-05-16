@@ -1,8 +1,14 @@
-﻿#!/usr/bin/env python
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
 B站视频解析工具 V2.0 卸载程序
+注意: 此卸载程序仅适用于 Windows 平台
 """
+import sys
+if sys.platform != 'win32':
+    print("此卸载程序仅适用于 Windows 平台")
+    print("macOS 用户请直接删除应用目录即可")
+    sys.exit(1)
 
 import os
 import sys

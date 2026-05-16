@@ -7,10 +7,18 @@ import time
 import json
 import traceback
 import logging
-import ctypes
 import re
 import requests
 import threading
+
+IS_WINDOWS = sys.platform == 'win32'
+IS_MACOS = sys.platform == 'darwin'
+
+if IS_WINDOWS:
+    try:
+        import ctypes
+    except ImportError:
+        ctypes = None
 
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QPushButton, QScrollArea,
                              QComboBox, QLabel, QFileDialog, QProgressBar, QMessageBox, QGroupBox,
@@ -95,7 +103,7 @@ _BASE_STYLE = """
         border: 1px solid #e9ecef;
     }
     QWidget { 
-        font-family: "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif; 
+        font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif; 
         font-size: 13px; 
         color: #333333;
     }
@@ -1108,7 +1116,7 @@ class FloatingBall(QWidget):
             else:
                 painter.setPen(QColor(255, 255, 255))
                 font_size = int(self.width() * 0.3)
-                ball_font = QFont("Microsoft YaHei", font_size, QFont.Bold)
+                ball_font = QFont("PingFang SC" if IS_MACOS else "Microsoft YaHei", font_size, QFont.Bold)
                 painter.setFont(ball_font)
                 painter.drawText(self.rect(), Qt.AlignCenter, "B")
             painter.end()
@@ -2671,8 +2679,9 @@ class UpdateDialog(QDialog):
                 else:
                     app_dir = os.path.dirname(os.path.abspath(__file__))
 
-                update_script = os.path.join(temp_dir, "updater.bat")
-                script_content = f"""@echo off
+                update_script = os.path.join(temp_dir, "updater.bat" if IS_WINDOWS else "updater.sh")
+                if IS_WINDOWS:
+                    script_content = f"""@echo off
 chcp 65001 >nul
 echo 正在更新B站视频解析工具...
 timeout /t 2 /nobreak >nul
@@ -2689,15 +2698,37 @@ echo 更新完成，正在启动程序...
 start "" "{app_dir}\\{os.path.basename(sys.executable) if hasattr(sys, 'frozen') else 'main.py'}"
 exit /b 0
 """
+                else:
+                    script_content = f"""#!/bin/bash
+echo "正在更新B站视频解析工具..."
+sleep 2
+
+cp -rf "{extract_dir}/"* "{app_dir}/"
+
+if [ $? -ne 0 ]; then
+    echo "更新失败！"
+    exit 1
+fi
+
+echo "更新完成，正在启动程序..."
+cd "{app_dir}"
+exec "{sys.executable}" {" ".join(sys.argv)}
+"""
                 with open(update_script, 'w', encoding='utf-8') as f:
                     f.write(script_content)
 
+                if not IS_WINDOWS:
+                    os.chmod(update_script, 0o755)
+
                 self._update_status("更新即将完成，程序将自动重启...")
 
-                subprocess.Popen(
-                    ['cmd', '/c', update_script],
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                )
+                if IS_WINDOWS:
+                    subprocess.Popen(
+                        ['cmd', '/c', update_script],
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
+                else:
+                    subprocess.Popen(['/bin/bash', update_script])
 
                 import time
                 time.sleep(1)
@@ -7199,23 +7230,41 @@ class BilibiliDownloader(BaseWindow):
     def check_proxy_settings(self):
         try:
             import platform
-            
+
             if platform.system() == 'Windows':
-                # 检查Windows代理设置
-                import winreg
                 try:
-                    internet_settings = winreg.OpenKey(winreg.HKEY_CURRENT_USER, 
+                    import winreg
+                    internet_settings = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                                                    r'SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings',
                                                    0, winreg.KEY_READ)
                     proxy_enable = winreg.QueryValueEx(internet_settings, 'ProxyEnable')[0]
                     proxy_server = winreg.QueryValueEx(internet_settings, 'ProxyServer')[0]
                     winreg.CloseKey(internet_settings)
-                    
+
                     if proxy_enable:
                         logger.warning(f"检测到系统代理设置：{proxy_server}")
                         return True, proxy_server
                 except Exception as e:
                     logger.debug(f"检查Windows代理设置失败：{str(e)}")
+            elif platform.system() == 'Darwin':
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        ['networksetup', '-getwebproxy', 'Wi-Fi'],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    if result.returncode == 0 and 'Enabled' in result.stdout:
+                        for line in result.stdout.split('\n'):
+                            if 'Server:' in line:
+                                server = line.split(':')[1].strip()
+                            elif 'Port:' in line:
+                                port = line.split(':')[1].strip()
+                        if server and port:
+                            proxy = f"{server}:{port}"
+                            logger.warning(f"检测到macOS代理设置：{proxy}")
+                            return True, proxy
+                except Exception as e:
+                    logger.debug(f"检查macOS代理设置失败：{str(e)}")
             
             # 检查环境变量中的代理设置
             http_proxy = os.environ.get('HTTP_PROXY') or os.environ.get('http_proxy')
@@ -7582,12 +7631,12 @@ class BilibiliDownloader(BaseWindow):
             if os.path.exists(bento4_dir):
                 results.append(f"✅ Bento4目录存在: {bento4_dir}")
                 
-                # 检查mp4decrypt.exe
-                mp4decrypt_path = os.path.join(bento4_dir, 'mp4decrypt.exe')
+                mp4decrypt_name = 'mp4decrypt.exe' if IS_WINDOWS else 'mp4decrypt'
+                mp4decrypt_path = os.path.join(bento4_dir, mp4decrypt_name)
                 if os.path.exists(mp4decrypt_path):
-                    results.append(f"✅ mp4decrypt.exe存在: {mp4decrypt_path}")
+                    results.append(f"✅ {mp4decrypt_name}存在: {mp4decrypt_path}")
                 else:
-                    results.append(f"❌ mp4decrypt.exe不存在: {mp4decrypt_path}")
+                    results.append(f"❌ {mp4decrypt_name}不存在: {mp4decrypt_path}")
                     
                 # 列出目录内容
                 try:
@@ -7605,18 +7654,17 @@ class BilibiliDownloader(BaseWindow):
                 if hasattr(sys, '_MEIPASS'):
                     possible_paths.append(os.path.join(sys._MEIPASS, 'bento4'))
                     possible_paths.append(os.path.join(sys._MEIPASS, 'bento4', 'bin'))
-                    possible_paths.append(os.path.join(sys._MEIPASS, 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
                 possible_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4'))
                 possible_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', 'bin'))
-                possible_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
                 
                 for path in possible_paths:
                     if os.path.exists(path):
                         results.append(f"✅ 找到备选路径: {path}")
-                        if os.path.exists(os.path.join(path, 'mp4decrypt.exe')):
-                            results.append(f"   ✅ mp4decrypt.exe在备选路径中存在")
+                        mp4decrypt_check = os.path.join(path, 'mp4decrypt.exe' if IS_WINDOWS else 'mp4decrypt')
+                        if os.path.exists(mp4decrypt_check):
+                            results.append(f"   ✅ mp4decrypt在备选路径中存在")
                         else:
-                            results.append(f"   ❌ mp4decrypt.exe在备选路径中不存在")
+                            results.append(f"   ❌ mp4decrypt在备选路径中不存在")
                     else:
                         results.append(f"❌ 备选路径不存在: {path}")
         else:
@@ -17902,7 +17950,7 @@ if __name__ == "__main__":
     config = ConfigLoader()
 
     app = QApplication(sys.argv)
-    app.setFont(QFont("Microsoft YaHei", scale(10)))
+    app.setFont(QFont("PingFang SC" if IS_MACOS else "Microsoft YaHei", scale(10)))
     ui = BilibiliDownloader(config)
     ui.show()
     sys.exit(app.exec_())

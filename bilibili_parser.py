@@ -22,6 +22,26 @@ from api_request import ApiRequest
 from video_parser import VideoParser
 import requests
 
+IS_WINDOWS = sys.platform == 'win32'
+IS_MACOS = sys.platform == 'darwin'
+
+
+def _exe(name):
+    """根据平台返回可执行文件名"""
+    if IS_WINDOWS:
+        return name + '.exe'
+    return name
+
+
+def _get_bento4_sdk_dirname():
+    """获取Bento4 SDK目录名"""
+    if IS_WINDOWS:
+        return 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32'
+    elif IS_MACOS:
+        return 'Bento4-SDK-1-6-0-641.x86_64-apple-macosx'
+    else:
+        return 'Bento4-SDK-1-6-0-641.x86_64-linux'
+
 # 导入工具管理器
 try:
     from tool_manager import get_tool_manager
@@ -235,7 +255,7 @@ class BilibiliParser:
                 if tool_status['ffmpeg_exists'] and tool_status['bento4_exists']:
                     # 使用已安装的工具
                     self.ffmpeg_local = tool_status['ffmpeg_path']
-                    self.bento4_dir = tool_status['bento4_path'].replace(os.sep + 'mp4decrypt.exe', '')
+                    self.bento4_dir = os.path.dirname(tool_status['bento4_path'])
                     self.using_system_tools = True
                     logger.info(f"使用已安装的工具: FFmpeg={self.ffmpeg_local}, Bento4={self.bento4_dir}")
                 else:
@@ -256,9 +276,9 @@ class BilibiliParser:
         if hasattr(sys, '_MEIPASS'):
             self.bento4_dir = os.path.join(self.current_dir, 'bento4', 'bin')
         else:
-            self.bento4_dir = os.path.join(self.current_dir, 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin')
+            self.bento4_dir = os.path.join(self.current_dir, 'bento4', _get_bento4_sdk_dirname(), 'bin')
         
-        self.ffmpeg_local = os.path.join(self.current_dir, 'ffmpeg', 'bin', 'ffmpeg.exe')
+        self.ffmpeg_local = os.path.join(self.current_dir, 'ffmpeg', 'bin', _exe('ffmpeg'))
         
         # 检查工具是否存在，并尝试多个可能的路径
         self._check_and_fix_paths()
@@ -271,21 +291,20 @@ class BilibiliParser:
         possible_bento4_paths = []
         if hasattr(sys, '_MEIPASS'):
             possible_bento4_paths.append(os.path.join(sys._MEIPASS, 'bento4', 'bin'))
-            possible_bento4_paths.append(os.path.join(sys._MEIPASS, 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
+            possible_bento4_paths.append(os.path.join(sys._MEIPASS, 'bento4', _get_bento4_sdk_dirname(), 'bin'))
             possible_bento4_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', 'bin'))
-            possible_bento4_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
+            possible_bento4_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', _get_bento4_sdk_dirname(), 'bin'))
             possible_bento4_paths.append(os.path.join(os.getcwd(), 'bento4', 'bin'))
-            possible_bento4_paths.append(os.path.join(os.getcwd(), 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
+            possible_bento4_paths.append(os.path.join(os.getcwd(), 'bento4', _get_bento4_sdk_dirname(), 'bin'))
         else:
             possible_bento4_paths.append(self.bento4_dir)
             possible_bento4_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', 'bin'))
-            possible_bento4_paths.append(os.path.join(os.getcwd(), 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
+            possible_bento4_paths.append(os.path.join(os.getcwd(), 'bento4', _get_bento4_sdk_dirname(), 'bin'))
             possible_bento4_paths.append(os.path.join(os.getcwd(), 'bento4', 'bin'))
         
-        # 寻找包含mp4decrypt.exe的路径
         found_bento4 = False
         for path in possible_bento4_paths:
-            test_path = os.path.join(path, 'mp4decrypt.exe')
+            test_path = os.path.join(path, _exe('mp4decrypt'))
             if os.path.exists(test_path):
                 self.bento4_dir = path
                 found_bento4 = True
@@ -298,15 +317,14 @@ class BilibiliParser:
         # 可能的ffmpeg路径列表
         possible_ffmpeg_paths = []
         if hasattr(sys, '_MEIPASS'):
-            possible_ffmpeg_paths.append(os.path.join(sys._MEIPASS, 'ffmpeg', 'bin', 'ffmpeg.exe'))
-            possible_ffmpeg_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ffmpeg', 'bin', 'ffmpeg.exe'))
-            possible_ffmpeg_paths.append(os.path.join(os.getcwd(), 'ffmpeg', 'bin', 'ffmpeg.exe'))
+            possible_ffmpeg_paths.append(os.path.join(sys._MEIPASS, 'ffmpeg', 'bin', _exe('ffmpeg')))
+            possible_ffmpeg_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ffmpeg', 'bin', _exe('ffmpeg')))
+            possible_ffmpeg_paths.append(os.path.join(os.getcwd(), 'ffmpeg', 'bin', _exe('ffmpeg')))
         else:
             possible_ffmpeg_paths.append(self.ffmpeg_local)
-            possible_ffmpeg_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ffmpeg', 'bin', 'ffmpeg.exe'))
-            possible_ffmpeg_paths.append(os.path.join(os.getcwd(), 'ffmpeg', 'bin', 'ffmpeg.exe'))
+            possible_ffmpeg_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ffmpeg', 'bin', _exe('ffmpeg')))
+            possible_ffmpeg_paths.append(os.path.join(os.getcwd(), 'ffmpeg', 'bin', _exe('ffmpeg')))
         
-        # 寻找ffmpeg.exe
         found_ffmpeg = False
         for path in possible_ffmpeg_paths:
             if os.path.exists(path):
@@ -326,8 +344,8 @@ class BilibiliParser:
                 'path': self.ffmpeg_local
             },
             'mp4decrypt': {
-                'exists': os.path.exists(os.path.join(self.bento4_dir, 'mp4decrypt.exe')),
-                'path': os.path.join(self.bento4_dir, 'mp4decrypt.exe')
+                'exists': os.path.exists(os.path.join(self.bento4_dir, _exe('mp4decrypt'))),
+                'path': os.path.join(self.bento4_dir, _exe('mp4decrypt'))
             },
             'bento4_dir': {
                 'exists': os.path.exists(self.bento4_dir),
@@ -1957,7 +1975,7 @@ class BilibiliParser:
             ffprobe_path = None
             ffmpeg_dir = os.path.dirname(self.ffmpeg_local)
             if ffmpeg_dir:
-                candidate = os.path.join(ffmpeg_dir, 'ffprobe.exe')
+                candidate = os.path.join(ffmpeg_dir, _exe('ffprobe'))
                 if os.path.exists(candidate):
                     ffprobe_path = candidate
             if not ffprobe_path:
@@ -5910,7 +5928,7 @@ class BilibiliParser:
                         logger.error(f"文件仍然被占用，尝试{max_attempts}次后失败")
                         return None
             
-            bento4_path = os.path.join(self.bento4_dir, 'mp4dump.exe')
+            bento4_path = os.path.join(self.bento4_dir, _exe('mp4dump'))
             if os.path.exists(bento4_path):
                 try:
                     absolute_path = os.path.abspath(m4s_path)
@@ -5976,7 +5994,7 @@ class BilibiliParser:
             except Exception as e:
                 logger.error(f"直接读取文件时出错：{str(e)}")
             
-            mp4info_path = os.path.join(self.bento4_dir, 'mp4info.exe')
+            mp4info_path = os.path.join(self.bento4_dir, _exe('mp4info'))
             if os.path.exists(mp4info_path):
                 try:
                     absolute_path = os.path.abspath(m4s_path)
@@ -6109,7 +6127,7 @@ class BilibiliParser:
             except Exception as ffmpeg_e:
                 logger.warning(f"ffmpeg解密失败，尝试使用Bento4：{str(ffmpeg_e)}")
                 
-                bento4_path = os.path.join(self.bento4_dir, 'mp4decrypt.exe')
+                bento4_path = os.path.join(self.bento4_dir, _exe('mp4decrypt'))
                 if not os.path.exists(bento4_path):
                     raise Exception(f"Bento4 mp4decrypt工具不存在：{bento4_path}")
                 
@@ -6210,7 +6228,7 @@ class BilibiliParser:
                 ffprobe_exec = shutil.which('ffprobe')
                 if not ffprobe_exec or not os.path.exists(ffprobe_exec):
                     if os.path.exists(self.ffmpeg_local):
-                        ffprobe_path = os.path.join(os.path.dirname(self.ffmpeg_local), 'ffprobe.exe')
+                        ffprobe_path = os.path.join(os.path.dirname(self.ffmpeg_local), _exe('ffprobe'))
                         if os.path.exists(ffprobe_path):
                             ffprobe_exec = ffprobe_path
                 
@@ -6812,7 +6830,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             ffprobe_exec = None
             ffmpeg_dir = os.path.dirname(ffmpeg_exec)
             if ffmpeg_dir:
-                candidate = os.path.join(ffmpeg_dir, 'ffprobe.exe')
+                candidate = os.path.join(ffmpeg_dir, _exe('ffprobe'))
                 if os.path.exists(candidate):
                     ffprobe_exec = candidate
             if not ffprobe_exec:
