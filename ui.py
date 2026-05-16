@@ -263,7 +263,6 @@ def show_captcha_dialog(gt, challenge, callback, parent=None):
                 background-color: white;
                 border: 2px solid #409eff;
                 border-radius: %dpx;
-                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
             }
             QPushButton {
                 padding: %dpx %dpx;
@@ -2018,7 +2017,6 @@ class ParseProgressWindow(QDialog):
                 border: 2px solid #409eff;
                 border-radius: 12px;
                 background-color: white;
-                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
             }
             QTextEdit {
                 background-color: #1e1e1e;
@@ -3027,7 +3025,6 @@ class MergeProgressWindow(QDialog):
             border: 2px solid #409eff;
             border-radius: 12px;
             background-color: white;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
         }
         """))
         
@@ -3261,7 +3258,6 @@ class DanmakuSelectionDialog(QDialog):
                 border: 2px solid #409eff;
                 border-radius: 12px;
                 background-color: white;
-                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
             }
             QListWidget {
                 border: none;
@@ -3644,7 +3640,6 @@ class EpisodeSelectionDialog(QDialog):
                 border: 2px solid #409eff;
                 border-radius: 12px;
                 background-color: white;
-                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
             }
             QListWidget {
                 border: none;
@@ -3671,7 +3666,6 @@ class EpisodeSelectionDialog(QDialog):
             }
             .card-view QListWidget::item:hover {
                 border-color: #409eff;
-                box-shadow: 0 4px 12px rgba(64, 158, 255, 0.15);
             }
             .card-view QListWidget::item:selected {
                 border-color: #409eff;
@@ -5796,7 +5790,6 @@ class TaskManagerWindow(BaseWindow):
                     border: 2px solid #409eff;
                     border-radius: 12px;
                     background-color: white;
-                    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
                 }
                 QListWidget {
                     border: 1px solid #dee2e6;
@@ -8809,7 +8802,7 @@ class BilibiliDownloader(BaseWindow):
         # 左侧：收藏夹列表区域
         folder_section = QWidget()
         folder_section.setAutoFillBackground(True)
-        folder_section.setStyleSheet(scale_style("background-color: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);"))
+        folder_section.setStyleSheet(scale_style("background-color: white; border-radius: 12px;"))
         folder_section.setMinimumWidth(scale(200))
         folder_section.setMaximumWidth(scale(280))
         folder_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
@@ -8934,7 +8927,7 @@ class BilibiliDownloader(BaseWindow):
         # 右侧：收藏内容区域
         content_section = QWidget()
         content_section.setAutoFillBackground(True)
-        content_section.setStyleSheet(scale_style("background-color: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); z-index: 1000;"))
+        content_section.setStyleSheet(scale_style("background-color: white; border-radius: 12px; z-index: 1000;"))
         content_section.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         content_section_layout = QVBoxLayout(content_section)
         content_section_layout.setSpacing(scale(12))
