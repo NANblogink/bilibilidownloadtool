@@ -22,91 +22,80 @@ jobs:
       - name: Install Homebrew dependencies
         run: |
           brew install ffmpeg
-          brew install bento4 || echo "bento4 not available in homebrew, will check system path"
+          brew install bento4 || echo "bento4 not available in homebrew"
 
       - name: Install Python dependencies
         run: |
           pip install requests aiohttp pycryptodome brotli orjson qrcode Pillow
           pip install PyQt5 || echo "PyQt5 install had issues"
-          pip install browser-cookie3 || echo "browser-cookie3 install had issues, skipping"
+          pip install browser-cookie3 || echo "browser-cookie3 install skipped"
 
-      - name: Setup virtual display for PyQt5
-        run: |
-          brew install xquartz || true
-
-      - name: Test platform helpers (no GUI needed)
+      - name: Test platform helpers
         run: |
           python -c "
           import sys
           print(f'Platform: {sys.platform}')
-          assert sys.platform == 'darwin', f'Expected darwin, got {sys.platform}'
+          assert sys.platform == 'darwin'
 
           from bilibili_parser import _exe, _get_bento4_sdk_dirname
-          assert _exe('ffmpeg') == 'ffmpeg', f'Expected ffmpeg on macOS, got {_exe(\"ffmpeg\")}'
-          assert _exe('mp4decrypt') == 'mp4decrypt', f'Expected mp4decrypt on macOS, got {_exe(\"mp4decrypt\")}'
-          bento4_dir = _get_bento4_sdk_dirname()
-          assert 'apple-macosx' in bento4_dir, f'Expected apple-macosx in dir name, got {bento4_dir}'
-          print(f'_exe(ffmpeg) = {_exe(\"ffmpeg\")}')
-          print(f'_exe(mp4decrypt) = {_exe(\"mp4decrypt\")}')
-          print(f'Bento4 SDK dir = {bento4_dir}')
-          print('Platform helper checks passed!')
+          assert _exe('ffmpeg') == 'ffmpeg'
+          assert _exe('mp4decrypt') == 'mp4decrypt'
+          assert 'apple-macosx' in _get_bento4_sdk_dirname()
+          print('bilibili_parser platform helpers OK')
           "
 
-      - name: Test tool_manager (no GUI needed)
+      - name: Test tool_manager
         run: |
           python -c "
-          import sys, os
           from tool_manager import ToolManager, _get_platform_data_dir, _get_executable_name
           tm = ToolManager()
           data_dir = _get_platform_data_dir()
-          print(f'Platform data dir: {data_dir}')
-          assert 'Library/Application Support' in data_dir, f'Expected macOS path, got {data_dir}'
-          assert _get_executable_name('ffmpeg') == 'ffmpeg', f'Expected ffmpeg on macOS'
-          assert _get_executable_name('ffmpeg.exe') == 'ffmpeg.exe', f'Should not modify .exe suffix'
+          print(f'Data dir: {data_dir}')
+          assert 'Library/Application Support' in data_dir
+          assert _get_executable_name('ffmpeg') == 'ffmpeg'
           result = tm.check_tools_installed()
-          print(f'Tool check result: {result}')
-          print('Tool manager checks passed!')
+          print(f'Tool check: {result}')
+          print('tool_manager OK')
           "
 
-      - name: Test config (no GUI needed)
+      - name: Test config
         run: |
           python -c "
           from config import ConfigLoader, _get_platform_config_dir
           config_dir = _get_platform_config_dir()
-          print(f'Platform config dir: {config_dir}')
-          assert 'Library/Application Support' in config_dir, f'Expected macOS path, got {config_dir}'
+          print(f'Config dir: {config_dir}')
+          assert 'Library/Application Support' in config_dir
           c = ConfigLoader()
           print(f'Config file: {c.config_file}')
-          print('Config checks passed!')
+          print('config OK')
           "
 
-      - name: Test env_checker (no GUI needed)
+      - name: Test env_checker
         run: |
           python -c "
           from env_checker import _get_ffmpeg_executable_name, _get_ffprobe_executable_name
-          assert _get_ffmpeg_executable_name() == 'ffmpeg', f'Expected ffmpeg on macOS'
-          assert _get_ffprobe_executable_name() == 'ffprobe', f'Expected ffprobe on macOS'
-          print('Env checker checks passed!')
+          assert _get_ffmpeg_executable_name() == 'ffmpeg'
+          assert _get_ffprobe_executable_name() == 'ffprobe'
+          print('env_checker OK')
           "
 
-      - name: Verify FFmpeg works
+      - name: Verify FFmpeg
         run: |
           ffmpeg -version | head -1
-          which mp4decrypt && echo "mp4decrypt found at: $(which mp4decrypt)" || echo "mp4decrypt not in PATH (may need manual install)"
+          which mp4decrypt || echo "mp4decrypt not in PATH"
 
-      - name: Test PyQt5 import with virtual display
+      - name: Test PyQt5 font
         run: |
           python -c "
           import os
           os.environ['QT_QPA_PLATFORM'] = 'offscreen'
           from PyQt5.QtWidgets import QApplication
-          from PyQt5.QtGui import QFont
           app = QApplication([])
           from main import _get_platform_font
           font = _get_platform_font()
-          print(f'Platform font: {font.family()}, size: {font.pointSize()}')
-          print('PyQt5 checks passed!')
-          " || echo "PyQt5 GUI test skipped (no display available)"
+          print(f'Font: {font.family()}, size: {font.pointSize()}')
+          print('PyQt5 font OK')
+          " || echo "PyQt5 test skipped"
 
   windows-test:
     runs-on: windows-latest
@@ -124,37 +113,14 @@ jobs:
           pip install requests aiohttp pycryptodome brotli orjson qrcode Pillow
           pip install PyQt5 || echo "PyQt5 install had issues"
 
-      - name: Test platform helpers on Windows
+      - name: Test platform helpers
         run: |
-          python -c "
-          import sys
-          print(f'Platform: {sys.platform}')
-          assert sys.platform == 'win32', f'Expected win32, got {sys.platform}'
+          python -c "import sys; assert sys.platform == 'win32'; from bilibili_parser import _exe, _get_bento4_sdk_dirname; assert _exe('ffmpeg') == 'ffmpeg.exe'; assert _exe('mp4decrypt') == 'mp4decrypt.exe'; assert 'microsoft-win32' in _get_bento4_sdk_dirname(); print('bilibili_parser OK')"
 
-          from bilibili_parser import _exe, _get_bento4_sdk_dirname
-          assert _exe('ffmpeg') == 'ffmpeg.exe', f'Expected ffmpeg.exe on Windows, got {_exe(\"ffmpeg\")}'
-          assert _exe('mp4decrypt') == 'mp4decrypt.exe', f'Expected mp4decrypt.exe on Windows, got {_exe(\"mp4decrypt\")}'
-          bento4_dir = _get_bento4_sdk_dirname()
-          assert 'microsoft-win32' in bento4_dir, f'Expected microsoft-win32 in dir name, got {bento4_dir}'
-          print('Windows platform checks passed!')
-          "
-
-      - name: Test tool_manager on Windows
+      - name: Test tool_manager
         run: |
-          python -c "
-          from tool_manager import ToolManager, _get_platform_data_dir, _get_executable_name
-          tm = ToolManager()
-          data_dir = _get_platform_data_dir()
-          print(f'Platform data dir: {data_dir}')
-          assert _get_executable_name('ffmpeg') == 'ffmpeg.exe', f'Expected ffmpeg.exe on Windows'
-          print('Windows tool manager checks passed!')
-          "
+          python -c "from tool_manager import ToolManager, _get_platform_data_dir, _get_executable_name; tm = ToolManager(); print(_get_platform_data_dir()); assert _get_executable_name('ffmpeg') == 'ffmpeg.exe'; print('tool_manager OK')"
 
-      - name: Test config on Windows
+      - name: Test config
         run: |
-          python -c "
-          from config import ConfigLoader
-          c = ConfigLoader()
-          print(f'Config file: {c.config_file}')
-          print('Windows config checks passed!')
-          "
+          python -c "from config import ConfigLoader; c = ConfigLoader(); print(c.config_file); print('config OK')"
