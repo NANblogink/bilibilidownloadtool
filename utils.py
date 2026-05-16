@@ -1,9 +1,13 @@
 
 import os
+import sys
 import time
 import requests
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import QMessageBox
+
+_IS_WIN = sys.platform == 'win32'
+_SUB_NO_WIN = {'creationflags': __import__('subprocess').CREATE_NO_WINDOW} if _IS_WIN else {}
 
 class HEVCCheckThread(QThread):
     result_signal = pyqtSignal(bool)
@@ -14,7 +18,7 @@ class HEVCCheckThread(QThread):
             proc = subprocess.run(
                 ["powershell", "Get-AppxPackage *HEVCVideoExtension*"],
                 capture_output=True, text=True, timeout=10,
-                creationflags=subprocess.CREATE_NO_WINDOW
+                **_SUB_NO_WIN
             )
             self.result_signal.emit("HEVCVideoExtension" in proc.stdout)
         except Exception:
@@ -52,7 +56,7 @@ class HEVCDownloadThread(QThread):
                         self.progress_signal.emit(progress)
 
             subprocess.run(["powershell", "Add-AppxPackage", save_path], check=True, timeout=60,
-                          creationflags=subprocess.CREATE_NO_WINDOW)
+                          **_SUB_NO_WIN)
             self.finish_signal.emit(True, "HEVC扩展安装成功")
         except Exception as e:
             self.finish_signal.emit(False, f"HEVC处理失败：{str(e)}")

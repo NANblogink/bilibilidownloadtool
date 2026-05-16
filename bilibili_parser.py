@@ -26,6 +26,9 @@ import requests
 IS_WINDOWS = sys.platform == 'win32'
 IS_MACOS = sys.platform == 'darwin'
 
+import subprocess as _sp
+_SUBPROCESS_NO_WINDOW = {'creationflags': _sp.CREATE_NO_WINDOW} if IS_WINDOWS else {}
+
 
 def _exe(name):
     """根据平台返回可执行文件名"""
@@ -1914,7 +1917,7 @@ class BilibiliParser:
 
             cmd = [ffmpeg_exec, '-codecs']
             result = subprocess.run(cmd, capture_output=True, text=False, timeout=10,
-                                   creationflags=subprocess.CREATE_NO_WINDOW)
+                                   **_SUBPROCESS_NO_WINDOW)
             output = result.stdout.decode('utf-8', errors='replace')
             self.hevc_supported = 'hevc' in output.lower() and 'decoder' in output.lower()
             return self.hevc_supported
@@ -1947,7 +1950,7 @@ class BilibiliParser:
                     capture_output=True,
                     text=True,
                     timeout=120,
-                    creationflags=subprocess.CREATE_NO_WINDOW
+                    **_SUBPROCESS_NO_WINDOW
                 )
 
                 progress_callback(100)
@@ -1987,7 +1990,7 @@ class BilibiliParser:
 
             cmd = [ffprobe_path, '-v', 'quiet', '-print_format', 'json', '-show_streams', video_path]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30,
-                                  creationflags=subprocess.CREATE_NO_WINDOW)
+                                  **_SUBPROCESS_NO_WINDOW)
 
             if result.returncode != 0:
                 return {"compatible": True, "codec": "unknown", "reason": "检测失败"}
@@ -2045,7 +2048,7 @@ class BilibiliParser:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 shell=True,
-                creationflags=subprocess.CREATE_NO_WINDOW
+                **_SUBPROCESS_NO_WINDOW
             )
 
             for line in process.stdout:
@@ -5940,7 +5943,7 @@ class BilibiliParser:
                     
                     import subprocess
                     result = subprocess.run(cmd, capture_output=True, text=False, timeout=30,
-                                          creationflags=subprocess.CREATE_NO_WINDOW)
+                                          **_SUBPROCESS_NO_WINDOW)
                     
                     if result.returncode == 0:
                         output = result.stdout.decode('utf-8', errors='replace')
@@ -6004,7 +6007,7 @@ class BilibiliParser:
                     
                     import subprocess
                     result = subprocess.run(cmd, capture_output=True, text=False, timeout=30,
-                                          creationflags=subprocess.CREATE_NO_WINDOW)
+                                          **_SUBPROCESS_NO_WINDOW)
                     
                     if result.returncode == 0:
                         output = result.stdout.decode('utf-8', errors='replace')
@@ -6237,7 +6240,7 @@ class BilibiliParser:
                     cmd = [ffprobe_exec, '-i', video_path, '-v', 'error', '-print_format', 'json', '-show_format', '-show_streams']
                     logger.info(f"加密检测：使用ffprobe检测文件类型，命令={cmd}")
                     result = subprocess.run(cmd, capture_output=True, text=False, timeout=30,
-                                          creationflags=subprocess.CREATE_NO_WINDOW)
+                                          **_SUBPROCESS_NO_WINDOW)
                     stdout = result.stdout.decode('utf-8', errors='replace')
                     stderr = result.stderr.decode('utf-8', errors='replace')
                     logger.info(f"加密检测：ffprobe返回码={result.returncode}")
@@ -6851,7 +6854,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 shell=False,
-                creationflags=subprocess.CREATE_NO_WINDOW,
+                **_SUBPROCESS_NO_WINDOW,
                 timeout=30
             )
             if result.returncode != 0:
@@ -7023,7 +7026,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     stderr=subprocess.PIPE,
                     stdin=subprocess.PIPE,
                     shell=False,
-                    creationflags=subprocess.CREATE_NO_WINDOW
+                    **_SUBPROCESS_NO_WINDOW
                 )
                 logger.debug(f"ffmpeg执行成功，返回码：{result.returncode}")
                 # 尝试解码输出，忽略错误
@@ -7057,7 +7060,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         stderr=subprocess.PIPE,
                         stdin=subprocess.PIPE,
                         shell=True,
-                        creationflags=subprocess.CREATE_NO_WINDOW
+                        **_SUBPROCESS_NO_WINDOW
                     )
                     logger.debug(f"ffmpeg执行成功，返回码：{result.returncode}")
                     # 尝试解码输出，忽略错误

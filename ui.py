@@ -58,14 +58,15 @@ def init_dpi_scale():
                 global_ui_shrink = max(0.35, 1.0 / (global_dpi_scale ** 1.2))
                 return
         import ctypes
-        hdc = ctypes.windll.user32.GetDC(0)
-        if hdc:
-            dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)
-            ctypes.windll.user32.ReleaseDC(0, hdc)
-            if dpi > 0:
-                global_dpi_scale = dpi / 96.0
-                global_ui_shrink = max(0.35, 1.0 / (global_dpi_scale ** 1.2))
-                return
+        if sys.platform == 'win32':
+            hdc = ctypes.windll.user32.GetDC(0)
+            if hdc:
+                dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)
+                ctypes.windll.user32.ReleaseDC(0, hdc)
+                if dpi > 0:
+                    global_dpi_scale = dpi / 96.0
+                    global_ui_shrink = max(0.35, 1.0 / (global_dpi_scale ** 1.2))
+                    return
     except:
         pass
     global_dpi_scale = 1.0
