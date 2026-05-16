@@ -58,3 +58,4 @@ upload_zip2.py
 verify_cloud.py
 update_announcement.py
 generate_material.py
+patch_pyinstaller.py

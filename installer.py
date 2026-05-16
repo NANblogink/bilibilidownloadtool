@@ -16,30 +16,28 @@ from PyQt5.QtWidgets import (
     QApplication, QWizard, QWizardPage, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QFileDialog, QCheckBox,
     QProgressBar, QMessageBox, QGroupBox, QFormLayout, QTextEdit,
-    QRadioButton, QButtonGroup, QFrame, QScrollArea, QTextBrowser
+    QCheckBox, QFrame, QScrollArea, QTextBrowser, QSpacerItem, QSizePolicy
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QFont, QTextCursor
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize
+from PyQt5.QtGui import QFont, QTextCursor, QIcon, QPixmap
+
+
+APP_NAME = "B站视频解析工具"
+APP_VERSION = "V2.0.1"
+APP_EXE = "V2.0.1_main.exe"
+UNINSTALLER_EXE = "V2.0_uninstaller.exe"
+REG_KEY = r"Software\BilibiliDownloadTool"
+SHORTCUT_NAME = f"{APP_NAME}{APP_VERSION}"
+
 
 def markdown_to_html(text):
-    """简单的Markdown转HTML函数"""
-    # 标题
     text = text.replace('### ', '<h3>').replace('\n### ', '</h3>\n<h3>')
     text = text.replace('## ', '<h2>').replace('\n## ', '</h2>\n<h2>')
     text = text.replace('# ', '<h1>').replace('\n# ', '</h1>\n<h1>')
-    
-    # 粗体和斜体
-    text = text.replace('**', '<b>', 1).replace('**', '</b>', 1)
-    text = text.replace('*', '<i>', 1).replace('*', '</i>', 1)
-    
-    # 链接 [text](url)
     import re
-    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
-    
-    # 水平线
+    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" style="color:#00a1d6">\1</a>', text)
     text = text.replace('---', '<hr>')
-    
-    # 列表
     lines = text.split('\n')
     result = []
     in_list = False
@@ -57,11 +55,8 @@ def markdown_to_html(text):
     if in_list:
         result.append('</ul>')
     text = '\n'.join(result)
-    
-    # 段落
     text = text.replace('\n\n', '</p>\n<p>')
-    
-    return f'<html><body><p>{text}</p></body></html>'
+    return f'<html><body style="font-family:Microsoft YaHei;font-size:13px;color:#333;line-height:1.8"><p>{text}</p></body></html>'
 
 
 class InstallerThread(QThread):
@@ -79,17 +74,15 @@ class InstallerThread(QThread):
 
     def run(self):
         try:
-            self.log_signal.emit("正在准备安装...")
+            self.log_signal.emit("正在准备安装环境...")
             self.progress_signal.emit(0, 100)
 
             if self.package_path and os.path.exists(self.package_path):
-                self.log_signal.emit(f"使用安装包: {self.package_path}")
+                self.log_signal.emit(f"安装包就绪: {os.path.basename(self.package_path)}")
                 self.extract_package(self.package_path)
             else:
                 self.log_signal.emit("错误：未找到安装包！")
                 self.finished_signal.emit(False, "未找到安装包")
-                return
-                
         except Exception as e:
             error_msg = f"安装失败：{str(e)}\n{traceback.format_exc()}"
             self.log_signal.emit(error_msg)
@@ -97,67 +90,72 @@ class InstallerThread(QThread):
 
     def extract_package(self, package_path):
         try:
-            self.log_signal.emit("正在解压安装包...")
-            self.progress_signal.emit(10, 100)
+            self.log_signal.emit("正在解压文件，请稍候...")
+            self.progress_signal.emit(5, 100)
 
             if not os.path.exists(self.install_path):
                 os.makedirs(self.install_path)
 
             file_size = os.path.getsize(package_path)
-            self.log_signal.emit(f"安装包大小: {file_size / 1024 / 1024:.2f} MB")
+            self.log_signal.emit(f"安装包大小: {file_size / 1024 / 1024:.1f} MB")
 
             with zipfile.ZipFile(package_path, 'r') as z:
                 total_files = len(z.namelist())
+                self.log_signal.emit(f"共 {total_files} 个文件待解压")
                 for i, name in enumerate(z.namelist()):
                     z.extract(name, self.install_path)
-                    if i % 100 == 0:
-                        progress = 10 + int((i / total_files) * 40)
+                    if i % 200 == 0:
+                        progress = 5 + int((i / total_files) * 50)
                         self.progress_signal.emit(progress, 100)
-                        self.log_signal.emit(f"解压进度: {int((i / total_files) * 100)}%")
+                        pct = int((i / total_files) * 100)
+                        self.log_signal.emit(f"解压进度: {pct}% ({i}/{total_files})")
 
-            self.log_signal.emit("解压完成！")
-            self.progress_signal.emit(50, 100)
-            
-            # 步骤3：记录安装路径到注册表
+            self.log_signal.emit("文件解压完成")
+            self.progress_signal.emit(55, 100)
+
+            self.log_signal.emit("正在写入注册表...")
             self.save_install_path()
             self.progress_signal.emit(60, 100)
-            
-            # 步骤4：查找主程序
+
             exe_path = self.find_main_exe()
             if not exe_path:
-                self.log_signal.emit("警告：未找到V2.0.1_main.exe，使用目录下第一个exe文件")
+                self.log_signal.emit(f"警告：未找到{APP_EXE}")
                 exe_files = [f for f in os.listdir(self.install_path) if f.endswith('.exe')]
                 if exe_files:
                     exe_path = os.path.join(self.install_path, exe_files[0])
                 else:
                     raise Exception("未找到可执行文件")
-            
-            self.log_signal.emit(f"主程序：{exe_path}")
-            self.progress_signal.emit(70, 100)
+
+            self.log_signal.emit(f"主程序定位: {os.path.basename(exe_path)}")
+            self.progress_signal.emit(65, 100)
 
             icon_path = self.find_icon(exe_path)
 
             if self.create_desktop:
-                self.create_shortcut(exe_path, "Desktop", "B站视频解析工具V2.0", icon_path=icon_path, description="B站视频解析下载工具")
+                self.create_shortcut(exe_path, "Desktop", SHORTCUT_NAME, icon_path=icon_path, description=APP_NAME)
                 self.log_signal.emit("桌面快捷方式已创建")
 
             if self.create_startmenu:
-                self.create_shortcut(exe_path, "StartMenu", "B站视频解析工具V2.0", icon_path=icon_path, description="B站视频解析下载工具")
+                self.create_shortcut(exe_path, "StartMenu", SHORTCUT_NAME, icon_path=icon_path, description=APP_NAME)
                 self.log_signal.emit("开始菜单快捷方式已创建")
 
                 uninstaller_path = self.find_uninstaller_exe()
                 if uninstaller_path:
-                    self.create_shortcut(uninstaller_path, "StartMenu", "卸载B站视频解析工具V2.0", description="卸载B站视频解析工具V2.0")
-                    self.log_signal.emit("开始菜单卸载快捷方式已创建")
+                    self.create_shortcut(uninstaller_path, "StartMenu", f"卸载{SHORTCUT_NAME}", description=f"卸载{SHORTCUT_NAME}")
+                    self.log_signal.emit("卸载程序快捷方式已创建")
 
-            self.progress_signal.emit(85, 100)
-            # 步骤6：添加环境变量
+            self.progress_signal.emit(80, 100)
+
+            self.log_signal.emit("正在配置环境变量...")
             self.add_env_paths(exe_path)
+            self.progress_signal.emit(95, 100)
+
+            self.log_signal.emit("正在完成安装...")
             self.progress_signal.emit(100, 100)
-            
-            self.log_signal.emit("安装完成！")
+
+            self.log_signal.emit(f"{APP_NAME} {APP_VERSION} 安装完成！")
             self.finished_signal.emit(True, "安装成功！")
-            
+
         except Exception as e:
             error_msg = f"安装失败：{str(e)}\n{traceback.format_exc()}"
             self.log_signal.emit(error_msg)
@@ -165,14 +163,14 @@ class InstallerThread(QThread):
 
     def find_main_exe(self):
         for root, dirs, files in os.walk(self.install_path):
-            if "V2.0.1_main.exe" in files:
-                return os.path.join(root, "V2.0.1_main.exe")
+            if APP_EXE in files:
+                return os.path.join(root, APP_EXE)
         return None
 
     def find_uninstaller_exe(self):
         for root, dirs, files in os.walk(self.install_path):
-            if "V2.0_uninstaller.exe" in files:
-                return os.path.join(root, "V2.0_uninstaller.exe")
+            if UNINSTALLER_EXE in files:
+                return os.path.join(root, UNINSTALLER_EXE)
         return None
 
     def find_icon(self, exe_path):
@@ -184,14 +182,14 @@ class InstallerThread(QThread):
         return None
 
     def save_install_path(self):
-        """保存安装路径到注册表"""
         try:
-            key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\BilibiliDownloadTool")
+            key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, REG_KEY)
             winreg.SetValueEx(key, "InstallPath", 0, winreg.REG_SZ, self.install_path)
+            winreg.SetValueEx(key, "Version", 0, winreg.REG_SZ, APP_VERSION)
             winreg.CloseKey(key)
-            self.log_signal.emit("安装路径已记录")
+            self.log_signal.emit("安装信息已写入注册表")
         except Exception as e:
-            self.log_signal.emit(f"记录安装路径失败：{str(e)}")
+            self.log_signal.emit(f"写入注册表失败：{str(e)}")
 
     def create_shortcut(self, target_path, location, name, icon_path=None, description=None):
         try:
@@ -204,7 +202,7 @@ class InstallerThread(QThread):
                 program_group = os.path.join(
                     os.path.expanduser('~'),
                     'AppData', 'Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs',
-                    'B站视频解析工具V2.0'
+                    SHORTCUT_NAME
                 )
                 if not os.path.exists(program_group):
                     os.makedirs(program_group)
@@ -235,12 +233,10 @@ class InstallerThread(QThread):
             self.log_signal.emit(f"创建快捷方式失败：{str(e)}")
 
     def add_env_paths(self, exe_path):
-        """添加ffmpeg、bento4和主程序目录到环境变量"""
         ffmpeg_path = None
         bento4_path = None
         main_program_path = os.path.dirname(exe_path)
 
-        # 查找文件夹
         for root, dirs, files in os.walk(self.install_path):
             for d in dirs:
                 if d.lower() == "ffmpeg":
@@ -248,7 +244,6 @@ class InstallerThread(QThread):
                 if d.lower() == "bento4":
                     bento4_path = os.path.join(root, d, "bin")
 
-        # 添加到用户环境变量
         try:
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_ALL_ACCESS)
             try:
@@ -269,8 +264,7 @@ class InstallerThread(QThread):
                     current_path += ";"
                 current_path += ";".join(paths_to_add)
                 winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, current_path)
-                self.log_signal.emit("环境变量已更新！")
-                self.log_signal.emit("现在可以通过 win+r 或 cmd 输入 bilidown 启动程序")
+                self.log_signal.emit("环境变量已更新")
 
             winreg.CloseKey(key)
 
@@ -278,19 +272,72 @@ class InstallerThread(QThread):
             self.log_signal.emit(f"添加环境变量失败：{str(e)}")
 
 
-class LicensePage(QWizardPage):
-    """协议页面"""
-
+class WelcomePage(QWizardPage):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setTitle("许可协议")
-        self.setSubTitle("请阅读并接受以下许可协议以继续安装。")
+        self.setTitle(f"欢迎使用 {APP_NAME} 安装向导")
+        self.setSubTitle(f"此向导将引导您完成 {APP_NAME} {APP_VERSION} 的安装")
 
         layout = QVBoxLayout()
 
-        # 协议文本
+        info_frame = QFrame()
+        info_frame.setStyleSheet("""
+            QFrame {
+                background-color: #f0f9ff;
+                border: 1px solid #b3e0ff;
+                border-radius: 8px;
+                padding: 15px;
+            }
+        """)
+        info_layout = QVBoxLayout(info_frame)
+
+        version_label = QLabel(f"📦 {APP_NAME} {APP_VERSION}")
+        version_label.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
+        version_label.setStyleSheet("color: #00a1d6; border: none;")
+        info_layout.addWidget(version_label)
+
+        desc_label = QLabel(
+            "一款功能强大的B站视频解析下载工具，支持多画质选择、\n"
+            "批量下载、UP主主页解析、番剧下载等功能。"
+        )
+        desc_label.setStyleSheet("color: #555; border: none; font-size: 13px;")
+        info_layout.addWidget(desc_label)
+
+        layout.addWidget(info_frame)
+        layout.addSpacing(15)
+
+        update_label = QLabel("🆕 V2.0.1 更新内容：")
+        update_label.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))
+        layout.addWidget(update_label)
+
+        updates = [
+            "修复 ffmpeg/ffprobe 调用错误导致视频编码检测失败",
+            "修复批量下载不开始的问题（threading 变量作用域错误）",
+            "修复线程设置无效（最大并发任务数硬编码问题）",
+            "新增下载失败自动重新解析链接静默重试",
+            "新增完全模式多线程并发解析",
+            "修复悬浮窗提示背景不透明问题",
+        ]
+        for u in updates:
+            lbl = QLabel(f"  • {u}")
+            lbl.setStyleSheet("color: #666; font-size: 12px;")
+            layout.addWidget(lbl)
+
+        layout.addStretch()
+        self.setLayout(layout)
+
+
+class LicensePage(QWizardPage):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setTitle("许可协议")
+        self.setSubTitle("请阅读并接受以下许可协议以继续安装")
+
+        layout = QVBoxLayout()
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: 1px solid #ddd; border-radius: 6px; }")
 
         license_text = """
 # 许可协议
@@ -299,14 +346,14 @@ class LicensePage(QWizardPage):
 
 ## 版权声明
 
-本软件（B站视频解析工具V2.0）版权归原作者所有。
+本软件（{app_name} {version}）版权归原作者所有。
 
 ## 使用许可
 
-- 您可以免费使用、复制和分发本软件。
-- 本软件仅供学习和个人使用，不得用于商业用途。
-- 使用本软件产生的任何后果由使用者自行承担。
-- 请遵守B站的相关服务条款。
+- 您可以免费使用、复制和分发本软件
+- 本软件仅供学习和个人使用，不得用于商业用途
+- 使用本软件产生的任何后果由使用者自行承担
+- 请遵守B站的相关服务条款
 
 ## 免责声明
 
@@ -319,8 +366,8 @@ class LicensePage(QWizardPage):
 
 ---
 
-请阅读上述协议。如接受，请点击"接受"并继续安装。
-        """
+请阅读上述协议。如接受，请勾选下方选项并继续安装。
+        """.format(app_name=APP_NAME, version=APP_VERSION)
 
         text_browser = QTextBrowser()
         text_browser.setReadOnly(True)
@@ -331,8 +378,8 @@ class LicensePage(QWizardPage):
 
         layout.addWidget(scroll)
 
-        # 接受协议复选框
         self.accept_check = QCheckBox("我已阅读并接受上述许可协议")
+        self.accept_check.setStyleSheet("font-size: 13px; spacing: 8px;")
         self.accept_check.toggled.connect(self.completeChanged)
         layout.addWidget(self.accept_check)
 
@@ -343,37 +390,36 @@ class LicensePage(QWizardPage):
 
 
 class InstallPathPage(QWizardPage):
-    """安装路径页面"""
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setTitle("选择安装位置")
-        self.setSubTitle("请选择软件的安装位置。")
+        self.setSubTitle("请选择软件的安装目录")
 
         layout = QVBoxLayout()
 
-        # 路径选择
         form_layout = QFormLayout()
+        form_layout.setSpacing(12)
 
         self.path_edit = QLineEdit()
-        default_path = os.path.join(os.path.expanduser('~'), 'AppData', 'Local', 'BilibiliDownloader')
+        default_path = os.path.join(os.path.expanduser('~'), 'AppData', 'Local', 'BilibiliDownloadTool')
         self.path_edit.setText(default_path)
-        self.path_edit.setMinimumHeight(30)
+        self.path_edit.setMinimumHeight(32)
+        self.path_edit.setStyleSheet("QLineEdit { padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; }")
 
         browse_button = QPushButton("浏览...")
+        browse_button.setMinimumHeight(32)
         browse_button.clicked.connect(self.browse_path)
 
         path_widget = QWidget()
         path_layout = QHBoxLayout(path_widget)
         path_layout.setContentsMargins(0, 0, 0, 0)
-        path_layout.addWidget(self.path_edit)
+        path_layout.addWidget(self.path_edit, 1)
         path_layout.addWidget(browse_button)
 
-        form_layout.addRow("安装位置：", path_widget)
+        form_layout.addRow("安装目录：", path_widget)
 
-        # 空间提示
-        hint_label = QLabel("提示：建议选择有足够空间的分区安装，约需要500MB-1GB空间。")
-        hint_label.setStyleSheet("color: #666;")
+        hint_label = QLabel("💡 建议安装在有充足空间的分区，约需 300-500 MB")
+        hint_label.setStyleSheet("color: #888; font-size: 12px;")
         form_layout.addRow("", hint_label)
 
         layout.addLayout(form_layout)
@@ -399,23 +445,21 @@ class InstallPathPage(QWizardPage):
             os.remove(test_file)
             return True
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"无法写入到该位置：{str(e)}")
+            QMessageBox.critical(self, "错误", f"无法写入到该位置：\n{str(e)}")
             return False
 
 
 class OptionsPage(QWizardPage):
-    """选项页面"""
-
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setTitle("选择附加任务")
-        self.setSubTitle("请选择您想要执行的附加任务。")
+        self.setTitle("附加选项")
+        self.setSubTitle("选择您需要的附加任务")
 
         layout = QVBoxLayout()
 
-        # 快捷方式选项
         group = QGroupBox("快捷方式")
         group_layout = QVBoxLayout()
+        group_layout.setSpacing(10)
 
         self.desktop_check = QCheckBox("创建桌面快捷方式")
         self.desktop_check.setChecked(True)
@@ -433,34 +477,34 @@ class OptionsPage(QWizardPage):
 
 
 class InstallPage(QWizardPage):
-    """安装页面"""
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setTitle("正在安装")
-        self.setSubTitle("正在安装B站视频解析工具V2.0，请稍候...")
+        self.setSubTitle(f"正在安装 {APP_NAME} {APP_VERSION}，请稍候...")
 
         self.install_thread = None
         self.is_installing = False
 
         layout = QVBoxLayout()
 
-        # 进度条
         self.progress_bar = QProgressBar()
         self.progress_bar.setMinimum(0)
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
+        self.progress_bar.setMinimumHeight(28)
         layout.addWidget(self.progress_bar)
 
-        # 状态标签
         self.status_label = QLabel("准备安装...")
+        self.status_label.setStyleSheet("color: #555; font-size: 13px;")
         layout.addWidget(self.status_label)
 
-        # 日志
+        layout.addSpacing(8)
+
         group = QGroupBox("安装日志")
         log_layout = QVBoxLayout()
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
+        self.log_text.setStyleSheet("font-family: Consolas, monospace; font-size: 12px; background-color: #fafafa;")
         log_layout.addWidget(self.log_text)
         group.setLayout(log_layout)
         layout.addWidget(group)
@@ -475,40 +519,34 @@ class InstallPage(QWizardPage):
         self.is_installing = True
         wizard = self.wizard()
 
-        # 获取参数
         install_path = wizard.page(1).path_edit.text()
         create_desktop = wizard.page(2).desktop_check.isChecked()
         create_startmenu = wizard.page(2).startmenu_check.isChecked()
 
-        self.log_text.append("开始安装...")
-        self.log_text.append(f"安装位置：{install_path}")
+        self.log_text.append(f"开始安装 {APP_NAME} {APP_VERSION}...")
+        self.log_text.append(f"安装目录：{install_path}")
 
-        # 禁用按钮
         wizard.button(QWizard.CancelButton).setEnabled(False)
         wizard.button(QWizard.BackButton).setEnabled(False)
 
-        # 检查是否已安装
         is_installed, installed_path = self.is_already_installed()
-        overwrite = False
-        
         if is_installed:
             reply = QMessageBox.question(
                 self,
-                "确认覆盖安装",
-                f"检测到软件已安装在:\n{installed_path}\n\n是否覆盖安装？",
+                "检测到已有安装",
+                f"检测到软件已安装在：\n{installed_path}\n\n是否覆盖安装？",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
             if reply == QMessageBox.Yes:
-                overwrite = True
-                self.log_text.append(f"检测到已安装，将覆盖安装到: {install_path}")
+                self.log_text.append(f"将覆盖安装到: {install_path}")
             else:
                 wizard.reject()
                 return
 
         package_path = self.get_embedded_package()
         if not package_path:
-            QMessageBox.critical(self, "错误", "未找到内嵌安装包！")
+            QMessageBox.critical(self, "错误", "未找到安装包！请确认安装程序完整。")
             wizard.button(QWizard.CancelButton).setEnabled(True)
             return
 
@@ -522,7 +560,7 @@ class InstallPage(QWizardPage):
         self.install_thread.progress_signal.connect(self.update_progress)
         self.install_thread.finished_signal.connect(self.install_finished)
         self.install_thread.start()
-    
+
     def get_embedded_package(self):
         if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
             temp_dir = sys._MEIPASS
@@ -534,18 +572,17 @@ class InstallPage(QWizardPage):
                 return temp_package
         else:
             script_dir = os.path.dirname(os.path.abspath(__file__))
-            zip_path = os.path.join(script_dir, "dist", "V2.0.1_main", "V2.0.1_main.zip")
-            if os.path.exists(zip_path):
-                return zip_path
-            zip_path = os.path.join(script_dir, "V2.0.1_main.zip")
-            if os.path.exists(zip_path):
-                return zip_path
+            for candidate in [
+                os.path.join(script_dir, "dist", "V2.0.1_main.zip"),
+                os.path.join(script_dir, "V2.0.1_main.zip"),
+            ]:
+                if os.path.exists(candidate):
+                    return candidate
         return None
-    
+
     def is_already_installed(self):
-        """检查软件是否已安装"""
         try:
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\BilibiliDownloadTool", 0, winreg.KEY_READ)
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_KEY, 0, winreg.KEY_READ)
             install_path, _ = winreg.QueryValueEx(key, "InstallPath")
             winreg.CloseKey(key)
             if os.path.exists(install_path):
@@ -568,69 +605,86 @@ class InstallPage(QWizardPage):
         wizard.install_message = message
 
         if success:
-            self.log_text.append("\n安装完成！")
+            self.log_text.append(f"\n✅ {APP_NAME} {APP_VERSION} 安装完成！")
+            self.status_label.setText("安装完成！")
+            self.status_label.setStyleSheet("color: #00a1d6; font-size: 13px; font-weight: bold;")
             wizard.button(QWizard.NextButton).setEnabled(True)
             wizard.next()
         else:
-            self.log_text.append(f"\n安装失败：{message}")
+            self.log_text.append(f"\n❌ 安装失败：{message}")
+            self.status_label.setText("安装失败")
+            self.status_label.setStyleSheet("color: #e74c3c; font-size: 13px; font-weight: bold;")
             wizard.button(QWizard.CancelButton).setEnabled(True)
             QMessageBox.critical(self, "安装失败", message)
 
 
 class FinishPage(QWizardPage):
-    """完成页面"""
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setTitle("安装完成")
-        self.setSubTitle("已成功安装B站视频解析工具V2.0！")
+        self.setSubTitle(f"{APP_NAME} {APP_VERSION} 已成功安装！")
 
         layout = QVBoxLayout()
 
-        # 完成信息
-        info_label = QLabel("恭喜您，软件已成功安装！")
-        info_font = QFont("Microsoft YaHei", 12)
-        info_label.setFont(info_font)
-        layout.addWidget(info_label)
+        success_frame = QFrame()
+        success_frame.setStyleSheet("""
+            QFrame {
+                background-color: #e8f8f0;
+                border: 1px solid #a3d9b1;
+                border-radius: 8px;
+                padding: 20px;
+            }
+        """)
+        frame_layout = QVBoxLayout(success_frame)
 
+        success_label = QLabel(f"🎉 {APP_NAME} {APP_VERSION} 安装成功！")
+        success_label.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
+        success_label.setStyleSheet("color: #27ae60; border: none;")
+        frame_layout.addWidget(success_label)
+
+        tip_label = QLabel("您可以通过桌面快捷方式或开始菜单启动程序")
+        tip_label.setStyleSheet("color: #555; border: none; font-size: 13px;")
+        frame_layout.addWidget(tip_label)
+
+        layout.addWidget(success_frame)
         layout.addSpacing(15)
 
-        # 选项
-        self.visit_web_check = QCheckBox("访问网页版 (https://www.bilidown.cn)")
-        self.visit_web_check.setChecked(True)
-        layout.addWidget(self.visit_web_check)
-
-        self.visit_repo_check = QCheckBox("访问GitHub仓库 (https://github.com/NANblogink/bilibilidownloadtool)")
-        self.visit_repo_check.setChecked(False)
-        layout.addWidget(self.visit_repo_check)
-
-        self.launch_check = QCheckBox("启动 B站视频解析工具V2.0")
+        self.launch_check = QCheckBox(f"立即启动 {APP_NAME}")
         self.launch_check.setChecked(True)
+        self.launch_check.setStyleSheet("font-size: 13px;")
         layout.addWidget(self.launch_check)
 
-        layout.addStretch()
+        self.visit_web_check = QCheckBox("访问项目主页 (bilidown.cn)")
+        self.visit_web_check.setChecked(False)
+        self.visit_web_check.setStyleSheet("font-size: 13px;")
+        layout.addWidget(self.visit_web_check)
 
+        self.visit_repo_check = QCheckBox("访问 GitHub 仓库")
+        self.visit_repo_check.setChecked(False)
+        self.visit_repo_check.setStyleSheet("font-size: 13px;")
+        layout.addWidget(self.visit_repo_check)
+
+        layout.addStretch()
         self.setLayout(layout)
 
 
 class InstallerWizard(QWizard):
-    """安装向导"""
-
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("B站视频解析工具 V2.0 安装程序")
-        self.setMinimumSize(800, 600)
-        self.resize(800, 600)
+        self.setWindowTitle(f"{APP_NAME} {APP_VERSION} 安装程序")
+        self.setMinimumSize(820, 620)
+        self.resize(820, 620)
         self.setWizardStyle(QWizard.ModernStyle)
 
         self.install_success = False
         self.install_message = ""
         self.install_path = ""
 
-        # 设置logo
         self.setLogo()
 
-        # 添加页面
+        self.welcome_page = WelcomePage(self)
+        self.addPage(self.welcome_page)
+
         self.license_page = LicensePage(self)
         self.addPage(self.license_page)
 
@@ -646,20 +700,16 @@ class InstallerWizard(QWizard):
         self.finish_page = FinishPage(self)
         self.addPage(self.finish_page)
 
-        # 连接按钮
         self.button(QWizard.FinishButton).clicked.connect(self.on_finish)
 
-        # 自定义按钮文本
         self.setButtonText(QWizard.BackButton, "< 上一步")
         self.setButtonText(QWizard.NextButton, "下一步 >")
         self.setButtonText(QWizard.FinishButton, "完成")
         self.setButtonText(QWizard.CancelButton, "取消")
 
-        # 应用样式
         self.apply_stylesheet()
 
     def setLogo(self):
-        """设置窗口logo"""
         logo_paths = []
         if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
             logo_paths.append(os.path.join(sys._MEIPASS, "logo.ico"))
@@ -668,13 +718,10 @@ class InstallerWizard(QWizard):
             script_dir = os.path.dirname(os.path.abspath(__file__))
             logo_paths.append(os.path.join(script_dir, "logo.ico"))
             logo_paths.append(os.path.join(script_dir, "logo.png"))
-            logo_paths.append(os.path.join(script_dir, "dist", "logo.ico"))
-            logo_paths.append(os.path.join(script_dir, "dist", "logo.png"))
 
         for path in logo_paths:
             if os.path.exists(path):
                 try:
-                    from PyQt5.QtGui import QIcon, QPixmap
                     self.setWindowIcon(QIcon(path))
                     self.logo_path = path
                     break
@@ -682,7 +729,6 @@ class InstallerWizard(QWizard):
                     pass
 
     def apply_stylesheet(self):
-        """应用美化样式"""
         self.setStyleSheet("""
             QWizard {
                 background-color: #f5f5f5;
@@ -711,14 +757,13 @@ class InstallerWizard(QWizard):
             QPushButton:pressed {
                 background-color: #007aa3;
             }
-            QPushButton[objectName="cancel"] {
-                background-color: #999999;
-            }
-            QPushButton[objectName="cancel"]:hover {
-                background-color: #777777;
+            QPushButton:disabled {
+                background-color: #ccc;
+                color: #999;
             }
             QCheckBox {
                 spacing: 8px;
+                font-size: 13px;
             }
             QCheckBox::indicator {
                 width: 18px;
@@ -736,6 +781,7 @@ class InstallerWizard(QWizard):
                 margin-top: 15px;
                 padding-top: 15px;
                 font-weight: bold;
+                font-size: 13px;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
@@ -749,54 +795,60 @@ class InstallerWizard(QWizard):
                 text-align: center;
                 background-color: #f5f5f5;
                 height: 25px;
+                font-size: 12px;
             }
             QProgressBar::chunk {
                 background-color: #00a1d6;
                 border-radius: 6px;
             }
+            QLineEdit {
+                padding: 4px 8px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #00a1d6;
+            }
         """)
 
     def on_finish(self):
-        """点击完成按钮"""
         if self.finish_page.visit_web_check.isChecked():
             try:
                 webbrowser.open("https://www.bilidown.cn")
             except:
                 pass
-        
+
         if self.finish_page.visit_repo_check.isChecked():
             try:
                 webbrowser.open("https://github.com/NANblogink/bilibilidownloadtool")
             except:
                 pass
-        
+
         if self.finish_page.launch_check.isChecked():
             try:
                 self.launch_program()
             except:
                 pass
-    
+
     def launch_program(self):
-        """启动主程序"""
         install_path = self.path_page.path_edit.text()
         exe_path = None
-        
-        # 查找V2.0.1_main.exe
+
         for root, dirs, files in os.walk(install_path):
-            if "V2.0.1_main.exe" in files:
-                exe_path = os.path.join(root, "V2.0.1_main.exe")
+            if APP_EXE in files:
+                exe_path = os.path.join(root, APP_EXE)
                 break
-        
+
         if not exe_path:
-            # 查找第一个exe文件
             for root, dirs, files in os.walk(install_path):
                 for f in files:
-                    if f.endswith('.exe'):
+                    if f.endswith('.exe') and 'uninstall' not in f.lower():
                         exe_path = os.path.join(root, f)
                         break
                 if exe_path:
                     break
-        
+
         if exe_path:
             import subprocess
             subprocess.Popen([exe_path], cwd=os.path.dirname(exe_path), creationflags=subprocess.CREATE_NO_WINDOW)
