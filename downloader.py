@@ -143,7 +143,7 @@ class EpisodeDownloadThread(QThread):
                 self.ep_title = self.ep_title.replace(c, '_')
             self.ep_title = self.ep_title[:30]
         except Exception as e:
-            print(f"标题初始化错误: {e}")
+            logger.error(f"标题初始化错误: {e}")
             self.ep_title = f"第{self.ep_index+1}集"
 
     def _check_save_path(self):
@@ -1435,7 +1435,7 @@ class DownloadManager(QObject):
                     status += f" ({speed_str})"
                 
                 if p % 10 == 0:
-                    print(f"任务{task_id}：{status}")
+                    logger.debug(f"任务{task_id}：{status}")
 
                 self._mutex.lock()
                 task_info = self.active_tasks.get(task_id)

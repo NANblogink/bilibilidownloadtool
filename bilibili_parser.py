@@ -213,7 +213,9 @@ class BilibiliParser:
         self.video_parser = VideoParser()
 
         import sys
-        if hasattr(sys, '_MEIPASS'):
+        if getattr(sys, 'frozen', False):
+            self.current_dir = os.path.dirname(sys.executable)
+        elif hasattr(sys, '_MEIPASS'):
             self.current_dir = sys._MEIPASS
         else:
             self.current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -267,22 +269,21 @@ class BilibiliParser:
         """检查必要工具是否存在，尝试多个可能的路径"""
         import sys
         
-        # 可能的bento4路径列表
+        exe_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else None
+        
         possible_bento4_paths = []
+        if exe_dir:
+            possible_bento4_paths.append(os.path.join(exe_dir, 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
+            possible_bento4_paths.append(os.path.join(exe_dir, 'bento4', 'bin'))
         if hasattr(sys, '_MEIPASS'):
             possible_bento4_paths.append(os.path.join(sys._MEIPASS, 'bento4', 'bin'))
             possible_bento4_paths.append(os.path.join(sys._MEIPASS, 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
-            possible_bento4_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', 'bin'))
-            possible_bento4_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
-            possible_bento4_paths.append(os.path.join(os.getcwd(), 'bento4', 'bin'))
-            possible_bento4_paths.append(os.path.join(os.getcwd(), 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
-        else:
-            possible_bento4_paths.append(self.bento4_dir)
-            possible_bento4_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', 'bin'))
-            possible_bento4_paths.append(os.path.join(os.getcwd(), 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
-            possible_bento4_paths.append(os.path.join(os.getcwd(), 'bento4', 'bin'))
+        possible_bento4_paths.append(self.bento4_dir)
+        possible_bento4_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', 'bin'))
+        possible_bento4_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
+        possible_bento4_paths.append(os.path.join(os.getcwd(), 'bento4', 'bin'))
+        possible_bento4_paths.append(os.path.join(os.getcwd(), 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
         
-        # 寻找包含mp4decrypt.exe的路径
         found_bento4 = False
         for path in possible_bento4_paths:
             test_path = os.path.join(path, 'mp4decrypt.exe')
@@ -295,18 +296,15 @@ class BilibiliParser:
         if not found_bento4:
             logger.warning("未找到Bento4工具，解密功能可能无法正常工作")
         
-        # 可能的ffmpeg路径列表
         possible_ffmpeg_paths = []
+        if exe_dir:
+            possible_ffmpeg_paths.append(os.path.join(exe_dir, 'ffmpeg', 'bin', 'ffmpeg.exe'))
         if hasattr(sys, '_MEIPASS'):
             possible_ffmpeg_paths.append(os.path.join(sys._MEIPASS, 'ffmpeg', 'bin', 'ffmpeg.exe'))
-            possible_ffmpeg_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ffmpeg', 'bin', 'ffmpeg.exe'))
-            possible_ffmpeg_paths.append(os.path.join(os.getcwd(), 'ffmpeg', 'bin', 'ffmpeg.exe'))
-        else:
-            possible_ffmpeg_paths.append(self.ffmpeg_local)
-            possible_ffmpeg_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ffmpeg', 'bin', 'ffmpeg.exe'))
-            possible_ffmpeg_paths.append(os.path.join(os.getcwd(), 'ffmpeg', 'bin', 'ffmpeg.exe'))
+        possible_ffmpeg_paths.append(self.ffmpeg_local)
+        possible_ffmpeg_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ffmpeg', 'bin', 'ffmpeg.exe'))
+        possible_ffmpeg_paths.append(os.path.join(os.getcwd(), 'ffmpeg', 'bin', 'ffmpeg.exe'))
         
-        # 寻找ffmpeg.exe
         found_ffmpeg = False
         for path in possible_ffmpeg_paths:
             if os.path.exists(path):
@@ -6010,7 +6008,7 @@ class BilibiliParser:
         except Exception as e:
             logger.error(f"提取KID时出错：{str(e)}")
             import traceback
-            traceback.print_exc()
+            logger.debug("traceback", exc_info=True)
             return None
 
     async def _decrypt_with_bento4(self, input_file, output_file, kid=None):
@@ -6190,7 +6188,7 @@ class BilibiliParser:
         except Exception as e:
             logger.error(f"解密时出错：{str(e)}")
             import traceback
-            traceback.print_exc()
+            logger.debug("traceback", exc_info=True)
             raise
 
     def _check_encryption(self, video_path):
@@ -6333,7 +6331,7 @@ class BilibiliParser:
         except Exception as e:
             logger.error(f"加密检测：检测失败：{str(e)}")
             import traceback
-            traceback.print_exc()
+            logger.debug("traceback", exc_info=True)
             logger.warning("加密检测：检测异常，安全起见标记为加密文件")
             return True, "加密文件"
             
@@ -6430,7 +6428,7 @@ class BilibiliParser:
                 except Exception as e:
                     logger.error(f"XML API请求失败：{str(e)}")
                     import traceback
-                    traceback.print_exc()
+                    logger.debug("traceback", exc_info=True)
                     continue
             
             proto_urls = [
@@ -6472,7 +6470,7 @@ class BilibiliParser:
                 except Exception as e:
                     logger.error(f"Protobuf API请求失败：{str(e)}")
                     import traceback
-                    traceback.print_exc()
+                    logger.debug("traceback", exc_info=True)
                     continue
             
             logger.info("所有API都未获取到弹幕")
@@ -6480,7 +6478,7 @@ class BilibiliParser:
         except Exception as e:
             logger.error(f"获取弹幕失败：{str(e)}")
             import traceback
-            traceback.print_exc()
+            logger.debug("traceback", exc_info=True)
             return {"data": {}, "error": str(e)}
             
     def _get_danmaku_info(self, cid, aid=None):
@@ -6552,7 +6550,7 @@ class BilibiliParser:
         except Exception as e:
             logger.error(f"获取弹幕元数据失败：{str(e)}")
             import traceback
-            traceback.print_exc()
+            logger.debug("traceback", exc_info=True)
             return {"success": False, "error": str(e)}
             
     def _get_danmaku_segment(self, cid, segment_index, aid=None):

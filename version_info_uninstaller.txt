@@ -1,0 +1,29 @@
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(2, 0, 1, 0),
+    prodvers=(2, 0, 1, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+        StringTable(
+          u'080404b0',
+          [StringStruct(u'CompanyName', u'\u5bd2\u70df\u4f3c\u96ea'),
+           StringStruct(u'FileDescription', u'B\u7ad9\u89c6\u9891\u89e3\u6790\u5de5\u5177\u5378\u8f7d\u7a0b\u5e8f'),
+           StringStruct(u'FileVersion', u'2.0.1.0'),
+           StringStruct(u'InternalName', u'BilibiliDownloadToolUninstaller'),
+           StringStruct(u'LegalCopyright', u'\u00a9 2026 \u5bd2\u70df\u4f3c\u96ea'),
+           StringStruct(u'OriginalFilename', u'V2.0_uninstaller.exe'),
+           StringStruct(u'ProductName', u'B\u7ad9\u89c6\u9891\u89e3\u6790\u5de5\u5177'),
+           StringStruct(u'ProductVersion', u'2.0.1.0')])
+      ]
+    ),
+    VarFileInfo([VarStruct(u'Translation', [2052, 1200])])
+  ]
+)

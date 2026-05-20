@@ -291,7 +291,7 @@ class WelcomePage(QWizardPage):
         """)
         info_layout = QVBoxLayout(info_frame)
 
-        version_label = QLabel(f"📦 {APP_NAME} {APP_VERSION}")
+        version_label = QLabel(f"{APP_NAME} {APP_VERSION}")
         version_label.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
         version_label.setStyleSheet("color: #00a1d6; border: none;")
         info_layout.addWidget(version_label)
@@ -306,7 +306,7 @@ class WelcomePage(QWizardPage):
         layout.addWidget(info_frame)
         layout.addSpacing(15)
 
-        update_label = QLabel("🆕 V2.0.1 更新内容：")
+        update_label = QLabel("V2.0.1 更新内容：")
         update_label.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))
         layout.addWidget(update_label)
 
@@ -418,7 +418,7 @@ class InstallPathPage(QWizardPage):
 
         form_layout.addRow("安装目录：", path_widget)
 
-        hint_label = QLabel("💡 建议安装在有充足空间的分区，约需 300-500 MB")
+        hint_label = QLabel("建议安装在有充足空间的分区，约需 300-500 MB")
         hint_label.setStyleSheet("color: #888; font-size: 12px;")
         form_layout.addRow("", hint_label)
 
@@ -439,9 +439,8 @@ class InstallPathPage(QWizardPage):
         try:
             if not os.path.exists(path):
                 os.makedirs(path)
-            test_file = os.path.join(path, "test.tmp")
-            with open(test_file, 'w') as f:
-                f.write("test")
+            fd, test_file = tempfile.mkstemp(dir=path, suffix='.tmp')
+            os.close(fd)
             os.remove(test_file)
             return True
         except Exception as e:
@@ -519,9 +518,9 @@ class InstallPage(QWizardPage):
         self.is_installing = True
         wizard = self.wizard()
 
-        install_path = wizard.page(1).path_edit.text()
-        create_desktop = wizard.page(2).desktop_check.isChecked()
-        create_startmenu = wizard.page(2).startmenu_check.isChecked()
+        install_path = wizard.path_page.path_edit.text()
+        create_desktop = wizard.options_page.desktop_check.isChecked()
+        create_startmenu = wizard.options_page.startmenu_check.isChecked()
 
         self.log_text.append(f"开始安装 {APP_NAME} {APP_VERSION}...")
         self.log_text.append(f"安装目录：{install_path}")
@@ -605,13 +604,13 @@ class InstallPage(QWizardPage):
         wizard.install_message = message
 
         if success:
-            self.log_text.append(f"\n✅ {APP_NAME} {APP_VERSION} 安装完成！")
+            self.log_text.append(f"\n{APP_NAME} {APP_VERSION} 安装完成！")
             self.status_label.setText("安装完成！")
             self.status_label.setStyleSheet("color: #00a1d6; font-size: 13px; font-weight: bold;")
             wizard.button(QWizard.NextButton).setEnabled(True)
             wizard.next()
         else:
-            self.log_text.append(f"\n❌ 安装失败：{message}")
+            self.log_text.append(f"\n安装失败：{message}")
             self.status_label.setText("安装失败")
             self.status_label.setStyleSheet("color: #e74c3c; font-size: 13px; font-weight: bold;")
             wizard.button(QWizard.CancelButton).setEnabled(True)
@@ -637,7 +636,7 @@ class FinishPage(QWizardPage):
         """)
         frame_layout = QVBoxLayout(success_frame)
 
-        success_label = QLabel(f"🎉 {APP_NAME} {APP_VERSION} 安装成功！")
+        success_label = QLabel(f"{APP_NAME} {APP_VERSION} 安装成功！")
         success_label.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
         success_label.setStyleSheet("color: #27ae60; border: none;")
         frame_layout.addWidget(success_label)

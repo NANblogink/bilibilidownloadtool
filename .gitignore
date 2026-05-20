@@ -1,4 +1,4 @@
-# 排除编译和打包文件
+# 编译和打包文件
 dist/
 build/
 *.spec
@@ -8,21 +8,24 @@ __pycache__/
 *.egg-info/
 *.log
 
-# 排除大数据文件
+# 大数据文件
 *.zip
 *.7z
+*.rar
 
-# 排除系统文件
+# 系统文件
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# 排除IDE配置
+# IDE配置
 .idea/
 .vscode/
 *.swp
 *.swo
+*~
 
-# 排除运行时生成的文件
+# 运行时生成的文件
 wbi_cache.json
 cookie.txt
 app_config.json
@@ -30,25 +33,41 @@ dismissed_announcements.json
 download_tasks.json
 runs/
 temp/
-verify.py
-check_all.py
-test_*.py
-build_main_console.py
-yolov8n.pt
 
-# 排除敏感文件
-API接口文档.md
-articles/
-hevc安装.Appx
+# 日志文件和目录
+log/
+*.log
+logs_*.zip
+
+# 敏感文件 - Cookie和登录凭据
 cookie*.txt
 cookie*.json
+cookies*.txt
+cookies*.json
 *.pem
 *.key
 *.env
 *.db
 *.sqlite*
+session*.json
+token*.json
+credential*.json
 
-# 排除辅助脚本
+# 敏感信息文档
+API接口文档.md
+articles/
+hevc安装.Appx
+
+# 打包输出目录
+dabao/dist/
+dabao/build/
+
+# 测试和辅助脚本
+verify.py
+check_all.py
+test_*.py
+build_main_console.py
+yolov8n.pt
 create_release.py
 upload_release.py
 upload_hotfix.py
@@ -59,3 +78,6 @@ verify_cloud.py
 update_announcement.py
 generate_material.py
 patch_pyinstaller.py
+
+# B站下载输出目录
+B站下载/

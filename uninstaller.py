@@ -1,7 +1,7 @@
 ﻿#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-B站视频解析工具 V2.0 卸载程序
+B站视频解析工具 V2.0.1 卸载程序
 """
 
 import os
@@ -29,7 +29,7 @@ def markdown_to_html(text):
     import re
     text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
     text = text.replace('---', '<hr>')
-    
+
     lines = text.split('\n')
     result = []
     in_list = False
@@ -48,12 +48,11 @@ def markdown_to_html(text):
         result.append('</ul>')
     text = '\n'.join(result)
     text = text.replace('\n\n', '</p>\n<p>')
-    
+
     return f'<html><body><p>{text}</p></body></html>'
 
 
 class UninstallerThread(QThread):
-    """卸载工作线程"""
     log_signal = pyqtSignal(str)
     progress_signal = pyqtSignal(int, int)
     finished_signal = pyqtSignal(bool, str)
@@ -63,29 +62,25 @@ class UninstallerThread(QThread):
         self.install_path = install_path
         self.remove_shortcuts = remove_shortcuts
         self.remove_env = remove_env
-        self.is_running = True
 
     def run(self):
         try:
             self.log_signal.emit("开始卸载...")
             self.progress_signal.emit(0, 100)
 
-            # 步骤1：删除快捷方式
             if self.remove_shortcuts:
                 self.log_signal.emit("正在删除快捷方式...")
-                self.remove_shortcut("Desktop", "B站视频解析工具V2.0")
-                self.remove_shortcut("StartMenu", "B站视频解析工具V2.0")
+                self.remove_shortcut("Desktop", "B站视频解析工具V2.0.1")
+                self.remove_shortcut("StartMenu", "B站视频解析工具V2.0.1")
                 self.log_signal.emit("快捷方式已删除")
             self.progress_signal.emit(30, 100)
 
-            # 步骤2：移除环境变量
             if self.remove_env:
                 self.log_signal.emit("正在移除环境变量...")
                 self.remove_env_paths()
                 self.log_signal.emit("环境变量已移除")
             self.progress_signal.emit(60, 100)
 
-            # 步骤3：删除安装目录
             self.log_signal.emit(f"正在删除安装目录: {self.install_path}")
             if os.path.exists(self.install_path):
                 shutil.rmtree(self.install_path, ignore_errors=True)
@@ -100,7 +95,6 @@ class UninstallerThread(QThread):
             self.finished_signal.emit(False, str(e))
 
     def remove_shortcut(self, location, name):
-        """删除快捷方式"""
         try:
             if location == "Desktop":
                 shortcut_path = os.path.join(os.path.expanduser('~'), 'Desktop', f"{name}.lnk")
@@ -110,14 +104,13 @@ class UninstallerThread(QThread):
                     'AppData', 'Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs',
                     f"{name}.lnk"
                 )
-            
+
             if os.path.exists(shortcut_path):
                 os.remove(shortcut_path)
         except Exception as e:
             self.log_signal.emit(f"删除快捷方式失败：{str(e)}")
 
     def remove_env_paths(self):
-        """从环境变量中移除ffmpeg和bento4路径"""
         try:
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_ALL_ACCESS)
             try:
@@ -132,7 +125,7 @@ class UninstallerThread(QThread):
                     path = path.strip()
                     if path and ("ffmpeg" not in path.lower() or "bento4" not in path.lower()):
                         new_paths.append(path)
-                
+
                 new_path_str = ';'.join(new_paths)
                 winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, new_path_str)
                 self.log_signal.emit("环境变量更新成功")
@@ -143,12 +136,11 @@ class UninstallerThread(QThread):
 
 
 class ConfirmPage(QWizardPage):
-    """确认卸载页面"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setTitle("确认卸载")
-        self.setSubTitle("请确认您要卸载B站视频解析工具V2.0")
+        self.setSubTitle("请确认您要卸载B站视频解析工具V2.0.1")
 
         layout = QVBoxLayout()
 
@@ -200,12 +192,11 @@ class ConfirmPage(QWizardPage):
 
 
 class UninstallPage(QWizardPage):
-    """卸载页面"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setTitle("正在卸载")
-        self.setSubTitle("正在卸载B站视频解析工具V2.0，请稍候...")
+        self.setSubTitle("正在卸载B站视频解析工具V2.0.1，请稍候...")
 
         self.uninstall_thread = None
         self.is_uninstalling = False
@@ -256,9 +247,8 @@ class UninstallPage(QWizardPage):
         self.uninstall_thread.start()
 
     def get_install_path(self):
-        """从注册表获取安装路径"""
         try:
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, 
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                                 r"Software\BilibiliDownloadTool", 0, winreg.KEY_READ)
             install_path, _ = winreg.QueryValueEx(key, "InstallPath")
             winreg.CloseKey(key)
@@ -290,12 +280,11 @@ class UninstallPage(QWizardPage):
 
 
 class FinishPage(QWizardPage):
-    """完成页面"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setTitle("卸载完成")
-        self.setSubTitle("已成功卸载B站视频解析工具V2.0")
+        self.setSubTitle("已成功卸载B站视频解析工具V2.0.1")
 
         layout = QVBoxLayout()
 
@@ -323,11 +312,10 @@ class FinishPage(QWizardPage):
 
 
 class UninstallerWizard(QWizard):
-    """卸载向导"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("B站视频解析工具 V2.0 卸载程序")
+        self.setWindowTitle("B站视频解析工具 V2.0.1 卸载程序")
         self.setMinimumSize(600, 450)
         self.resize(650, 500)
         self.setWizardStyle(QWizard.ModernStyle)
@@ -351,7 +339,6 @@ class UninstallerWizard(QWizard):
 
 
 def is_installed():
-    """检查软件是否已安装"""
     try:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\BilibiliDownloadTool", 0, winreg.KEY_READ)
         install_path, _ = winreg.QueryValueEx(key, "InstallPath")
@@ -367,10 +354,9 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
 
-    # 检查是否已安装
     installed, install_path = is_installed()
     if not installed:
-        QMessageBox.warning(None, "未安装", "未检测到B站视频解析工具V2.0已安装！", QMessageBox.Ok)
+        QMessageBox.warning(None, "未安装", "未检测到B站视频解析工具V2.0.1已安装！", QMessageBox.Ok)
         sys.exit(0)
 
     wizard = UninstallerWizard()

@@ -1,0 +1,50 @@
+name: Windows Compatibility Test
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  windows-test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          pip install PyQt5 requests aiohttp pycryptodome brotli orjson qrcode Pillow browser-cookie3
+
+      - name: Check Python imports
+        run: |
+          python -c "import sys; print(f'Platform: {sys.platform}')"
+          python -c "from tool_manager import ToolManager; tm = ToolManager(); print(f'Install dir: {tm.install_dir}')"
+          python -c "from config import ConfigLoader; c = ConfigLoader(); print(f'Config file: {c.config_file}')"
+
+      - name: Test platform helpers
+        run: |
+          python -c "
+          from bilibili_parser import _exe, _get_bento4_sdk_dirname
+          import sys
+          assert _exe('ffmpeg') == 'ffmpeg.exe', f'Expected ffmpeg.exe on Windows, got {_exe(\"ffmpeg\")}'
+          assert _exe('mp4decrypt') == 'mp4decrypt.exe', f'Expected mp4decrypt.exe on Windows, got {_exe(\"mp4decrypt\")}'
+          print(f'Bento4 SDK dir = {_get_bento4_sdk_dirname()}')
+          print('Windows platform checks passed!')
+          "
+
+      - name: Test main.py font
+        run: |
+          python -c "
+          from main import _get_platform_font
+          font = _get_platform_font()
+          print(f'Platform font: {font.family()}, size: {font.pointSize()}')
+          print('Font check passed!')
+          "
