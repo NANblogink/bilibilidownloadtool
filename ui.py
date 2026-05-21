@@ -1,6 +1,5 @@
-
-import os
 import sys
+import os
 import webbrowser
 import shutil
 import time
@@ -28,6 +27,16 @@ try:
     _setup_log()
 except Exception:
     pass
+
+logger = logging.getLogger(__name__)
+
+def global_exception_hook(exctype, value, tb):
+    if exctype == KeyboardInterrupt:
+        sys.__excepthook__(exctype, value, tb)
+        return
+    logger.error(f"未捕获的异常: {value}", exc_info=(exctype, value, tb))
+
+sys.excepthook = global_exception_hook
 
 
 import collections
@@ -373,7 +382,23 @@ def show_captcha_dialog(gt, challenge, callback, parent=None):
         info_label.setStyleSheet(f"font-size: {scale(18)}px; font-weight: 600; color: #333; letter-spacing: 0.5px;")
         content_layout.addWidget(info_label)
         
-        web_view = QWebEngineView()
+        web_view = None
+        web_engine_error = None
+        try:
+            web_view = QWebEngineView()
+        except Exception as e:
+            web_engine_error = str(e)
+            logger.error(f"QWebEngineView初始化失败: {e}")
+        
+        if web_view is None:
+            QMessageBox.warning(parent or None, "人机验证不可用", 
+                "当前环境下无法加载验证码组件（QWebEngine）。\n\n"
+                "请使用「扫码登录」方式完成登录。\n\n"
+                f"错误详情: {web_engine_error or '未知错误'}",
+                QMessageBox.Ok)
+            callback(None, None, None)
+            return None
+        
         web_view.setMinimumSize(scale(380), scale(260))
         web_view.setStyleSheet(f"border-radius: {scale(8)}px;")
         content_layout.addWidget(web_view)
