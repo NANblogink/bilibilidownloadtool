@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-B站视频解析工具 V2.0.1 正式安装程序
+B站视频解析工具 安装程序
 """
 
 import os
 import sys
+import json
 import tempfile
 import traceback
 import webbrowser
@@ -23,9 +24,31 @@ from PyQt5.QtGui import QFont, QTextCursor, QIcon, QPixmap
 
 
 APP_NAME = "B站视频解析工具"
-APP_VERSION = "V2.0.1"
-APP_EXE = "V2.0.1_main.exe"
-UNINSTALLER_EXE = "V2.0_uninstaller.exe"
+
+
+def load_version_info():
+    candidates = []
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates.append(os.path.join(script_dir, 'version_info.json'))
+    if hasattr(sys, '_MEIPASS'):
+        candidates.append(os.path.join(sys._MEIPASS, 'version_info.json'))
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.dirname(sys.executable)
+        candidates.append(os.path.join(exe_dir, 'version_info.json'))
+    for version_file in candidates:
+        if os.path.exists(version_file):
+            try:
+                with open(version_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                continue
+    return {"version": "2.0.2", "description": "B站视频解析工具"}
+
+
+version_info = load_version_info()
+APP_VERSION = f"V{version_info['version']}"
+APP_EXE = f"{version_info['version']}_main.exe"
+UNINSTALLER_EXE = f"{version_info['version']}_uninstaller.exe"
 REG_KEY = r"Software\BilibiliDownloadTool"
 SHORTCUT_NAME = f"{APP_NAME}{APP_VERSION}"
 
@@ -306,7 +329,7 @@ class WelcomePage(QWizardPage):
         layout.addWidget(info_frame)
         layout.addSpacing(15)
 
-        update_label = QLabel("V2.0.1 更新内容：")
+        update_label = QLabel(f"{APP_VERSION} 更新内容：")
         update_label.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))
         layout.addWidget(update_label)
 
@@ -563,17 +586,17 @@ class InstallPage(QWizardPage):
     def get_embedded_package(self):
         if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
             temp_dir = sys._MEIPASS
-            zip_path = os.path.join(temp_dir, "V2.0.1_main.zip")
+            zip_path = os.path.join(temp_dir, f"{version_info['version']}_main.zip")
             if os.path.exists(zip_path):
                 import shutil
-                temp_package = os.path.join(tempfile.gettempdir(), "V2.0.1_main_install.zip")
+                temp_package = os.path.join(tempfile.gettempdir(), f"{version_info['version']}_main_install.zip")
                 shutil.copy2(zip_path, temp_package)
                 return temp_package
         else:
             script_dir = os.path.dirname(os.path.abspath(__file__))
             for candidate in [
-                os.path.join(script_dir, "dist", "V2.0.1_main.zip"),
-                os.path.join(script_dir, "V2.0.1_main.zip"),
+                os.path.join(script_dir, "dist", f"{version_info['version']}_main.zip"),
+                os.path.join(script_dir, f"{version_info['version']}_main.zip"),
             ]:
                 if os.path.exists(candidate):
                     return candidate

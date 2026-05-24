@@ -6,6 +6,35 @@ import json
 import traceback
 import logging
 
+if sys.platform == 'win32' and getattr(sys, 'frozen', False):
+    try:
+        import ctypes
+        ctypes.windll.kernel32.GetConsoleWindow.restype = ctypes.c_void_p
+        ctypes.windll.user32.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        ctypes.windll.user32.ShowWindow.restype = ctypes.c_bool
+        _console_hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if _console_hwnd:
+            ctypes.windll.user32.ShowWindow(_console_hwnd, 0)
+    except Exception:
+        pass
+    
+    try:
+        _internal_dir = os.path.join(os.path.dirname(sys.executable), '_internal')
+        _qt_bin_dir = os.path.join(_internal_dir, 'PyQt5', 'Qt5', 'bin')
+        _qt_resources_dir = os.path.join(_internal_dir, 'PyQt5', 'Qt5', 'resources')
+        
+        _webengine_process = os.path.join(_qt_bin_dir, 'QtWebEngineProcess.exe')
+        if os.path.exists(_webengine_process):
+            os.environ['QTWEBENGINEPROCESS_PATH'] = _webengine_process
+        
+        if os.path.isdir(_qt_resources_dir):
+            os.environ['QTWEBENGINE_RESOURCES_PATH'] = _qt_resources_dir
+        
+        if os.path.isdir(_qt_bin_dir):
+            os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = '--disable-gpu'
+    except Exception:
+        pass
+
 from logger_config import logger
 
 def qt_message_handler(msg_type, msg_log_context, msg_string):
@@ -86,7 +115,7 @@ def load_version_info():
                 continue
     logger.warning("加载版本信息失败，使用默认版本")
     return {
-        "version": "2026年5月1日09:38:46维护版",
+        "version": "V2.0.2",
         "author": "寒烟似雪",
         "qq": "2273962061",
         "description": "B站视频解析下载工具"

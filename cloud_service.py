@@ -43,12 +43,22 @@ class CloudService:
         try:
             result = self._check_custom_api(channel)
             if result is not None:
+                if not result.get("has_update", False):
+                    return result
+                latest = result.get("latest_version", "")
+                if latest and self._parse_version(self.current_version) >= self._parse_version(latest):
+                    result["has_update"] = False
                 return result
         except Exception as e:
             logger.debug(f"自建API检查失败，回退到GitHub: {e}")
 
         try:
-            return self._check_github_api()
+            result = self._check_github_api()
+            if result.get("has_update", False):
+                latest = result.get("latest_version", "")
+                if latest and self._parse_version(self.current_version) >= self._parse_version(latest):
+                    result["has_update"] = False
+            return result
         except Exception as e:
             logger.error(f"GitHub API检查也失败: {e}")
             return {"has_update": False}

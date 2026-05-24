@@ -2,6 +2,7 @@ import os
 import time
 import threading
 import shutil
+from datetime import datetime
 from functools import partial
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from PyQt5.QtCore import QThread, pyqtSignal, QObject, Qt, QMutex, QWaitCondition
@@ -713,7 +714,16 @@ class DownloadManager(QObject):
                 "download_danmaku": download_danmaku,
                 "danmaku_format": danmaku_format,
                 "video_format": video_format,
-                "audio_format": audio_format
+                "audio_format": audio_format,
+                "audio_quality": download_params.get('audio_quality', 0),
+                "bvid": video_info.get("bvid", ""),
+                "aid": video_info.get("aid", ""),
+                "up_name": video_info.get("owner", {}).get("name", ""),
+                "cover_url": video_info.get("pic", ""),
+                "total_episodes": len(episodes),
+                "completed_episodes": 0,
+                "task_start_time": datetime.now().isoformat(),
+                "task_type": "video",
             }
             task = self.task_manager.add_task(task_info_for_manager)
             self.task_added.emit(task_id)
@@ -1688,7 +1698,8 @@ class DownloadManager(QObject):
                             "progress": 100,
                             "completed_episodes": task_info['completed_episodes'],
                             "failed_episodes": task_info['failed_episodes'],
-                            "downloaded_episodes": task_info.get('downloaded_episodes', [])
+                            "downloaded_episodes": task_info.get('downloaded_episodes', []),
+                            "task_end_time": datetime.now().isoformat(),
                         }
                         if task_info['failed_episodes'] > 0:
                             self.task_manager.update_task_status(task_id, "failed", f"部分失败：成功{task_info['completed_episodes']}集，失败{task_info['failed_episodes']}集", task_data)

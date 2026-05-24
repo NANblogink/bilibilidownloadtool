@@ -24,6 +24,10 @@ class ToolManager:
     def __init__(self):
         if getattr(sys, 'frozen', False):
             self.install_dir = os.path.dirname(sys.executable)
+            _parent_dir = os.path.dirname(self.install_dir)
+            if os.path.isdir(os.path.join(_parent_dir, 'ffmpeg')) and os.path.isdir(os.path.join(_parent_dir, 'bento4')):
+                self.install_dir = _parent_dir
+                logger.info(f"检测到工具在上级目录，使用: {self.install_dir}")
         else:
             program_files_dir = os.path.join(os.environ.get('ProgramFiles', 'C:\\Program Files'), 'BilibiliDownloadTool')
             user_data_dir = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~\\AppData\\Roaming')), 'BilibiliDownloadTool')
@@ -78,8 +82,11 @@ class ToolManager:
         ]
         if getattr(sys, 'frozen', False):
             exe_dir = os.path.dirname(sys.executable)
-            ffmpeg_candidates.insert(0, os.path.join(exe_dir, 'ffmpeg', 'bin', 'ffmpeg.exe'))
-            ffmpeg_candidates.insert(1, os.path.join(exe_dir, 'ffmpeg', 'bin'))
+            parent_dir = os.path.dirname(exe_dir)
+            ffmpeg_candidates.insert(0, os.path.join(parent_dir, 'ffmpeg', 'bin', 'ffmpeg.exe'))
+            ffmpeg_candidates.insert(1, os.path.join(parent_dir, 'ffmpeg', 'bin'))
+            ffmpeg_candidates.insert(2, os.path.join(exe_dir, 'ffmpeg', 'bin', 'ffmpeg.exe'))
+            ffmpeg_candidates.insert(3, os.path.join(exe_dir, 'ffmpeg', 'bin'))
         for path in ffmpeg_candidates:
             if os.path.isfile(path):
                 local['ffmpeg'] = path
@@ -98,8 +105,11 @@ class ToolManager:
         ]
         if getattr(sys, 'frozen', False):
             exe_dir = os.path.dirname(sys.executable)
-            bento4_candidates.insert(0, os.path.join(exe_dir, 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin', 'mp4decrypt.exe'))
-            bento4_candidates.insert(1, os.path.join(exe_dir, 'bento4', 'bin', 'mp4decrypt.exe'))
+            parent_dir = os.path.dirname(exe_dir)
+            bento4_candidates.insert(0, os.path.join(parent_dir, 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin', 'mp4decrypt.exe'))
+            bento4_candidates.insert(1, os.path.join(parent_dir, 'bento4', 'bin', 'mp4decrypt.exe'))
+            bento4_candidates.insert(2, os.path.join(exe_dir, 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin', 'mp4decrypt.exe'))
+            bento4_candidates.insert(3, os.path.join(exe_dir, 'bento4', 'bin', 'mp4decrypt.exe'))
         for path in bento4_candidates:
             if os.path.isfile(path):
                 local['mp4decrypt'] = path

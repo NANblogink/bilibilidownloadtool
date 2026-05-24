@@ -65,6 +65,10 @@ def setup_logging():
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.DEBUG)
     console_handler.setFormatter(_ColorFormatter())
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
     root_logger.addHandler(console_handler)
     
     log_filename = datetime.now().strftime('%Y-%m-%d') + '.log'

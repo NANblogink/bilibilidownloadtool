@@ -1,14 +1,27 @@
-﻿#!/usr/bin/env python
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-B站视频解析工具 V2.0.1 卸载程序
+B站视频解析工具 卸载程序
 """
 
 import os
 import sys
+import json
 import shutil
 import winreg
 import traceback
+
+if sys.platform == 'win32' and getattr(sys, 'frozen', False):
+    try:
+        import ctypes
+        ctypes.windll.kernel32.GetConsoleWindow.restype = ctypes.c_void_p
+        ctypes.windll.user32.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        ctypes.windll.user32.ShowWindow.restype = ctypes.c_bool
+        _console_hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if _console_hwnd:
+            ctypes.windll.user32.ShowWindow(_console_hwnd, 0)
+    except Exception:
+        pass
 
 from PyQt5.QtWidgets import (
     QApplication, QWizard, QWizardPage, QWidget, QVBoxLayout, QHBoxLayout,
@@ -17,6 +30,31 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QFont, QTextCursor
+
+
+def load_version_info():
+    candidates = []
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates.append(os.path.join(script_dir, 'version_info.json'))
+    if hasattr(sys, '_MEIPASS'):
+        candidates.append(os.path.join(sys._MEIPASS, 'version_info.json'))
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.dirname(sys.executable)
+        candidates.append(os.path.join(exe_dir, 'version_info.json'))
+    for version_file in candidates:
+        if os.path.exists(version_file):
+            try:
+                with open(version_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                continue
+    return {"version": "2.0.1", "description": "B站视频解析工具"}
+
+
+version_info = load_version_info()
+APP_NAME = "B站视频解析工具"
+APP_VERSION = f"V{version_info['version']}"
+SHORTCUT_NAME = f"{APP_NAME}{APP_VERSION}"
 
 
 def markdown_to_html(text):
@@ -70,8 +108,8 @@ class UninstallerThread(QThread):
 
             if self.remove_shortcuts:
                 self.log_signal.emit("正在删除快捷方式...")
-                self.remove_shortcut("Desktop", "B站视频解析工具V2.0.1")
-                self.remove_shortcut("StartMenu", "B站视频解析工具V2.0.1")
+                self.remove_shortcut("Desktop", SHORTCUT_NAME)
+                self.remove_shortcut("StartMenu", SHORTCUT_NAME)
                 self.log_signal.emit("快捷方式已删除")
             self.progress_signal.emit(30, 100)
 
@@ -140,7 +178,7 @@ class ConfirmPage(QWizardPage):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setTitle("确认卸载")
-        self.setSubTitle("请确认您要卸载B站视频解析工具V2.0.1")
+        self.setSubTitle(f"请确认您要卸载{APP_NAME}{APP_VERSION}")
 
         layout = QVBoxLayout()
 
@@ -196,7 +234,7 @@ class UninstallPage(QWizardPage):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setTitle("正在卸载")
-        self.setSubTitle("正在卸载B站视频解析工具V2.0.1，请稍候...")
+        self.setSubTitle(f"正在卸载{APP_NAME}{APP_VERSION}，请稍候...")
 
         self.uninstall_thread = None
         self.is_uninstalling = False
@@ -284,7 +322,7 @@ class FinishPage(QWizardPage):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setTitle("卸载完成")
-        self.setSubTitle("已成功卸载B站视频解析工具V2.0.1")
+        self.setSubTitle(f"已成功卸载{APP_NAME}{APP_VERSION}")
 
         layout = QVBoxLayout()
 
@@ -315,7 +353,7 @@ class UninstallerWizard(QWizard):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("B站视频解析工具 V2.0.1 卸载程序")
+        self.setWindowTitle(f"{APP_NAME} {APP_VERSION} 卸载程序")
         self.setMinimumSize(600, 450)
         self.resize(650, 500)
         self.setWizardStyle(QWizard.ModernStyle)
@@ -356,7 +394,7 @@ def main():
 
     installed, install_path = is_installed()
     if not installed:
-        QMessageBox.warning(None, "未安装", "未检测到B站视频解析工具V2.0.1已安装！", QMessageBox.Ok)
+        QMessageBox.warning(None, "未安装", f"未检测到{APP_NAME}{APP_VERSION}已安装！", QMessageBox.Ok)
         sys.exit(0)
 
     wizard = UninstallerWizard()

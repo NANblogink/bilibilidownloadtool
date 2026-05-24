@@ -336,13 +336,60 @@ class BilibiliParser:
 
     def _init_session(self):
         import threading
+        
         headers = self.config.get_headers()
         self.session.headers.clear()
         self.session.headers.update(headers)
-
+        
         self.cookies = self._load_cookies()
         logger.info(f"从文件加载的cookie：{self.cookies}")
         self.session.cookies.update(self.cookies)
+        
+        _need_server_buvid3 = True
+        for key in self.session.cookies.keys():
+            val = self.session.cookies.get(key, '')
+            if key == 'buvid3' and val and not val.startswith('XY'):
+                _need_server_buvid3 = False
+                break
+        
+        if _need_server_buvid3:
+            try:
+                logger.info("_init_session: 正在从bilibili.com获取服务端签发的buvid3...")
+                _init_headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+                }
+                _init_resp = self.session.get('https://www.bilibili.com', headers=_init_headers, timeout=10, allow_redirects=True)
+                if _init_resp.cookies:
+                    self.session.cookies.update(_init_resp.cookies)
+                for k, v in dict(self.session.cookies).items():
+                    if 'buvid' in k.lower():
+                        logger.info(f"  获取到服务端cookie: {k}={v[:30]}...")
+            except Exception as e:
+                logger.warning(f"_init_session: 获取服务端buvid3失败: {e}")
+
+        _has_sid = False
+        for key in self.session.cookies.keys():
+            if key == 'sid':
+                _has_sid = True
+                break
+        if not _has_sid:
+            try:
+                logger.info("_init_session: 正在从passport获取sid...")
+                _init_headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+                }
+                _passport_resp = self.session.get('https://passport.bilibili.com/login', headers=_init_headers, timeout=10, allow_redirects=True)
+                if _passport_resp.cookies:
+                    self.session.cookies.update(_passport_resp.cookies)
+                    for k, v in dict(_passport_resp.cookies).items():
+                        logger.info(f"  获取到passport cookie: {k}={v[:30]}...")
+            except Exception as e:
+                logger.warning(f"_init_session: 获取sid失败: {e}")
+        
         logger.info(f"session cookie：{dict(self.session.cookies)}")
         self.csrf_token = self.cookies.get('bili_jct', '')
 
@@ -371,6 +418,15 @@ class BilibiliParser:
         
         self._load_cached_wbi_keys()
         threading.Thread(target=self._update_wbi_keys).start()
+        
+        if 'bili_ticket' not in self.cookies:
+            def _gen_ticket():
+                try:
+                    time.sleep(3)
+                    self._generate_bili_ticket()
+                except Exception as e:
+                    logger.warning(f"预生成bili_ticket失败: {e}")
+            threading.Thread(target=_gen_ticket, daemon=True).start()
     
     def _get_wbi_keys(self):
         try:
@@ -455,33 +511,26 @@ class BilibiliParser:
     
     def _generate_bili_ticket(self):
         try:
-            
             timestamp = int(time.time())
             key = "XgwSnGZ1p"
             message = f"ts{timestamp}"
             hexsign = hmac.new(key.encode('utf-8'), message.encode('utf-8'), hashlib.sha256).hexdigest()
             
-            
             params = {
                 "key_id": "ec02",
                 "hexsign": hexsign,
-                "context[ts]": timestamp
+                "context[ts]": str(timestamp),
+                "csrf": self.csrf_token if self.csrf_token else ''
             }
-            
-            # 只有当csrf_token不为空时才添加csrf参数
-            if self.csrf_token:
-                params["csrf"] = self.csrf_token
-            
             
             url = "https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket"
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
                 'Referer': 'https://www.bilibili.com/',
-                'Accept': 'application/json, text/plain, */*',
-                'Content-Type': 'application/json'
+                'Accept': 'application/json, text/plain, */*'
             }
             
-            response = self.session.post(url, json=params, headers=headers, timeout=10)
+            response = self.session.post(url, params=params, headers=headers, timeout=10)
             response.raise_for_status()
             data = response.json()
             
@@ -489,12 +538,22 @@ class BilibiliParser:
                 ticket = data.get('data', {}).get('ticket', '')
                 if ticket:
                     logger.debug("生成 bili_ticket 成功")
-                    
                     self.cookies['bili_ticket'] = ticket
                     self.session.cookies.update({'bili_ticket': ticket})
+                    
+                    nav_data = data.get('data', {}).get('nav', {})
+                    if nav_data:
+                        img_url = nav_data.get('img', '')
+                        sub_url = nav_data.get('sub', '')
+                        if img_url and sub_url:
+                            img_key = img_url.rsplit('/', 1)[-1].split('.')[0]
+                            sub_key = sub_url.rsplit('/', 1)[-1].split('.')[0]
+                            if hasattr(self, 'wbi_sign') and self.wbi_sign:
+                                self.wbi_sign.set_wbi_keys(img_key, sub_key)
+                                logger.debug(f"从bili_ticket响应更新WBI密钥: img={img_key[:8]}..., sub={sub_key[:8]}...")
                     return ticket
             
-            logger.error(f"生成 bili_ticket 失败：{data.get('message', '未知错误')}")
+            logger.error(f"生成 bili_ticket 失败：{data.get('code')}: {data.get('message', '未知错误')}")
             return None
         except Exception as e:
             logger.error(f"生成 bili_ticket 失败：{str(e)}")
@@ -613,23 +672,35 @@ class BilibiliParser:
     _cache_expiry = 300
     _cache_max_size = 100
     
-    def _api_request(self, url, timeout=15, max_retries=3, use_wbi=False, params=None, use_cache=True):
+    def _api_request(self, url, timeout=15, max_retries=5, use_wbi=False, params=None, use_cache=True):
         try:
             if not url or not isinstance(url, str):
                 return False, {"error": "无效的API请求地址"}
             
-            # 生成缓存键
             cache_key = self._generate_cache_key(url, params, use_wbi)
             
-            # 检查缓存
             if use_cache:
                 cached_data = self._get_cached_data(cache_key)
                 if cached_data:
                     return True, cached_data
             
+            _BROWSER_HEADERS = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Referer': 'https://www.bilibili.com/',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Origin': 'https://www.bilibili.com',
+                'Connection': 'keep-alive',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-site',
+                'Sec-Ch-Ua': '"Not A(Brand";v="8", "Chromium";v="129", "Google Chrome";v="129"',
+                'Sec-Ch-Ua-Mobile': '?0',
+                'Sec-Ch-Ua-Platform': '"Windows"',
+            }
+
             for retry in range(max_retries):
                 try:
-                    # 构建URL
                     if params:
                         import urllib.parse
                         url_parts = list(urllib.parse.urlparse(url))
@@ -648,28 +719,33 @@ class BilibiliParser:
 
                     logger.debug(f"发送API请求: {url}")
 
-                    # 确保会话已初始化
                     if not hasattr(self, 'session') or self.session is None:
                         self.session = requests.Session()
-                        self.session.headers.update({
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
-                            'Referer': 'https://www.bilibili.com',
-                            'Accept': 'application/json, text/plain, */*'
-                        })
-                    elif 'Referer' not in self.session.headers:
-                        self.session.headers.update({'Referer': 'https://www.bilibili.com'})
+                        self.session.headers.update(_BROWSER_HEADERS)
+                    else:
+                        for k, v in _BROWSER_HEADERS.items():
+                            if k not in self.session.headers or not self.session.headers[k]:
+                                self.session.headers[k] = v
                     
-                    # 发送请求
+                    self._enforce_request_interval()
+                    
                     resp = self.session.get(url, timeout=timeout, proxies={}, allow_redirects=True, stream=False)
+
+                    if resp.cookies:
+                        self.session.cookies.update(resp.cookies)
 
                     if resp.status_code != 200:
                         logger.debug(f"API请求失败，状态码: {resp.status_code}, URL: {url}")
-                        logger.debug(f"响应内容: {resp.text[:200]}...")  # 限制日志长度
+                        if resp.status_code == 412:
+                            logger.warning("触发412风控（请求频率过高），等待后重试")
+                            time.sleep(3 + retry * 2)
+                            if retry < max_retries - 1:
+                                continue
+                            return False, {"error": "请求频率过高，请稍后再试"}
                         return False, {"error": f"请求错误（code={resp.status_code}）"}
 
                     content = resp.text.strip()
                     
-                    # 处理特殊响应格式
                     if content.startswith('!'):
                         start_index = content.find('{')
                         if start_index != -1:
@@ -686,18 +762,44 @@ class BilibiliParser:
                                 error_message = data.get('message', '未知错误')
                             
                             if code == -403 or code == 403:
-                                return False, {"error": "访问权限不足"}
+                                if not self.cookies or 'SESSDATA' not in self.cookies:
+                                    return False, {"error": "访问权限不足，请先登录"}
+                                logger.warning(f"403权限不足，尝试刷新cookie后重试: {error_message}")
+                                if retry < max_retries - 1:
+                                    time.sleep(1 + retry)
+                                    continue
+                                return False, {"error": "访问权限不足，请确认登录状态"}
                             
                             elif code == -352:
-                                logger.warning(f"风控校验失败：{error_message}")
+                                logger.warning(f"风控校验失败(-352)：{error_message}，尝试自动处理")
                                 self._generate_bili_ticket()
                                 if 'v_voucher' not in self.cookies:
                                     self._get_v_voucher(url, params)
                                 if retry < max_retries - 1:
+                                    time.sleep(2 + retry)
                                     continue
+                                return False, {"error": f"风控校验失败，请稍后再试（code=-352）"}
+
+                            elif code == -799:
+                                logger.warning(f"请求过于频繁(-799)：{error_message}")
+                                wait_time = 8 * (2 ** retry) + random.randint(1, 5)
+                                logger.info(f"-799重试等待{wait_time}秒...")
+                                time.sleep(wait_time)
+                                if retry < max_retries - 1:
+                                    continue
+                                return False, {"error": "请求过于频繁，请稍后再试"}
+
+                            elif code == -509:
+                                logger.warning(f"请求频率限制(-509)：{error_message}")
+                                wait_time = 5 * (2 ** retry) + random.randint(1, 3)
+                                logger.info(f"-509重试等待{wait_time}秒...")
+                                time.sleep(wait_time)
+                                if retry < max_retries - 1:
+                                    continue
+                                return False, {"error": "请求频率限制，请稍后再试"}
+
                             return False, {"error": f"API返回错误：{error_message}（code={code}）"}
                         
-                        # 缓存成功的响应
                         self._cache_api_response(cache_key, data)
                         return True, data
                     except json.JSONDecodeError as e:
@@ -713,7 +815,7 @@ class BilibiliParser:
                     error_msg = str(e)
                     if "Timeout" in error_msg:
                         if retry < max_retries - 1:
-                            time.sleep(1 + retry * 0.5)  # 指数退避
+                            time.sleep(1 + retry * 0.5)
                             continue
                         return False, {"error": "API请求超时，请检查网络连接"}
                     elif "RequestException" in error_msg:
@@ -743,6 +845,16 @@ class BilibiliParser:
         if use_wbi:
             key_parts.append("wbi=True")
         return hashlib.md5("|".join(key_parts).encode()).hexdigest()
+
+    _last_request_time = 0.0
+    _min_request_interval = 0.5
+
+    def _enforce_request_interval(self):
+        now = time.time()
+        elapsed = now - self._last_request_time
+        if elapsed < self._min_request_interval:
+            time.sleep(self._min_request_interval - elapsed)
+        self._last_request_time = time.time()
     
     def _get_cached_data(self, cache_key):
         if cache_key in self._api_cache:
@@ -811,12 +923,9 @@ class BilibiliParser:
     def get_qrcode(self):
         try:
             url = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
-            import requests
             import logging
-            import brotli
             logger = logging.getLogger(__name__)
             
-            # 优化请求头，确保兼容性
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
                 'Referer': 'https://www.bilibili.com/',
@@ -828,23 +937,20 @@ class BilibiliParser:
                 'Pragma': 'no-cache'
             }
             
-            # 使用会话对象，保持cookie一致性
-            session = requests.Session()
-            session.headers.update(headers)
-            session.verify = False
-            session.proxies = {}  # 强制禁用代理
+            self.session.headers.update(headers)
             
             logger.info(f"发送请求到：{url}")
             
-            # 增加超时时间，确保网络较慢时也能获取二维码
-            resp = session.get(url, timeout=15, proxies={}, allow_redirects=True)
+            resp = self.session.get(url, timeout=15, proxies={}, allow_redirects=True)
+            
+            if resp.cookies:
+                self.session.cookies.update(resp.cookies)
+                logger.debug(f"获取二维码更新会话cookies：{dict(resp.cookies)}")
             
             logger.info(f"获取二维码API响应状态码：{resp.status_code}")
             
-            # 处理响应内容
             content = resp.text
             if not content or content.strip() == '':
-                # 尝试使用content属性
                 if resp.content:
                     try:
                         content = resp.content.decode('utf-8')
@@ -856,12 +962,10 @@ class BilibiliParser:
             if resp.status_code != 200:
                 raise Exception(f"获取二维码失败：HTTP {resp.status_code}")
             
-            # 解析JSON响应
             try:
                 data = json.loads(content)
                 logger.info(f"解析后的JSON数据：{data}")
             except json.JSONDecodeError as e:
-                # 清理响应内容，处理可能的前缀
                 content = content.strip()
                 if content.startswith('!'):
                     start_index = content.find('{')
@@ -873,13 +977,11 @@ class BilibiliParser:
                 except json.JSONDecodeError as e:
                     raise Exception(f"获取二维码失败：JSON解析错误：{str(e)}")
             
-            # 检查响应码
             code = data.get('code', 0)
             if code != 0:
                 message = data.get('message', '未知错误')
                 raise Exception(f"获取二维码失败：{message}（code={code}）")
             
-            # 获取二维码信息
             qrcode_data = data.get('data', {})
             qrcode_url = qrcode_data.get('url', '')
             qrcode_key = qrcode_data.get('qrcode_key', '')
@@ -893,7 +995,6 @@ class BilibiliParser:
                 "qrcode_key": qrcode_key
             }
         except ImportError as e:
-            # 处理缺少brotli库的情况
             import logging
             logger = logging.getLogger(__name__)
             logger.error(f"缺少brotli库：{str(e)}")
@@ -912,21 +1013,19 @@ class BilibiliParser:
             }
             
             try:
-                session = requests.Session()
-                session.headers.update(headers)
-                session.verify = False
-                session.proxies = {}  # 强制禁用代理
+                self.session.headers.update(headers)
+                resp = self.session.get(url, timeout=15, proxies={}, allow_redirects=True)
                 
-                resp = session.get(url, timeout=15, proxies={}, allow_redirects=True)
+                if resp.cookies:
+                    self.session.cookies.update(resp.cookies)
+                    logger.debug(f"获取二维码更新会话cookies(no brotli)：{dict(resp.cookies)}")
                 
                 if resp.status_code != 200:
                     raise Exception(f"获取二维码失败：HTTP {resp.status_code}")
                 
-                # 尝试不同的解析方式
                 try:
                     data = resp.json()
                 except json.JSONDecodeError:
-                    # 尝试手动解析
                     content = resp.text.strip()
                     if content.startswith('!'):
                         start_index = content.find('{')
@@ -969,9 +1068,7 @@ class BilibiliParser:
     def poll_login_status(self, qrcode_key):
         try:
             url = f"https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key={qrcode_key}"
-            import requests
             import logging
-            import brotli
             logger = logging.getLogger(__name__)
             
             headers = {
@@ -989,39 +1086,24 @@ class BilibiliParser:
                 'Sec-Fetch-Site': 'same-site'
             }
             
+            self.session.headers.update(headers)
+            resp = self.session.get(url, timeout=10, proxies={}, allow_redirects=True)
             
-            session = requests.Session()
-            session.headers.update(headers)
-            session.verify = False
-            session.proxies = {}  # 强制禁用代理
-            resp = session.get(url, timeout=10, proxies={}, allow_redirects=True)
-            
+            if resp.cookies:
+                self.session.cookies.update(resp.cookies)
+                logger.debug(f"轮询更新会话cookies：{dict(resp.cookies)}")
             
             if resp.status_code != 200:
                 raise Exception(f"轮询登录状态失败：HTTP {resp.status_code}")
             
-            
-            content_encoding = resp.headers.get('Content-Encoding', '')
-            if 'br' in content_encoding:
-                try:
-                    
-                    content = brotli.decompress(resp.content)
-                    content = content.decode('utf-8')
-                except Exception as e:
-                    logger.error(f"解压缩失败：{str(e)}")
-                    raise Exception(f"轮询登录状态失败：解压缩响应内容失败")
-            else:
-                content = resp.text
-            
+            content = resp.text
             
             if not content or content.strip() == '':
                 raise Exception("轮询登录状态失败：响应内容为空")
             
-            
             try:
                 data = json.loads(content)
             except json.JSONDecodeError:
-                
                 content = content.strip()
                 if content.startswith('!'):
                     start_index = content.find('{')
@@ -1032,30 +1114,25 @@ class BilibiliParser:
                 except json.JSONDecodeError as e:
                     raise Exception(f"轮询登录状态失败：JSON解析错误：{str(e)}")
             
-            
             code = data.get('code', 0)
             message = data.get('message', '')
             login_data = data.get('data', {})
             
-            
             logger.debug(f"Login poll response: code={code}, message={message}, data={login_data}")
             
-            
             if "风险" in message or "验证" in message:
-                url = login_data.get('url', '')
-                logger.debug(f"Risk detected: message={message}, url={url}")
+                risk_url = login_data.get('url', '')
+                logger.debug(f"Risk detected: message={message}, url={risk_url}")
                 return {
                     "success": False,
                     "status": message,
                     "code": code,
-                    "url": url,
+                    "url": risk_url,
                     "risk": True
                 }
             
-            
             login_code = login_data.get('code', code)
             login_message = login_data.get('message', message)
-            
             
             if login_code in ERROR_CODES:
                 return {
@@ -1070,16 +1147,12 @@ class BilibiliParser:
                     "code": login_code
                 }
             
-            
             cookies = {}
-            
             for cookie in resp.cookies:
                 cookies[cookie.name] = cookie.value
             
             if cookies:
-                
                 self.save_cookies(cookies)
-                
                 user_info = self.get_user_info()
                 return {
                     "success": True,
@@ -1110,11 +1183,12 @@ class BilibiliParser:
             }
             
             try:
-                session = requests.Session()
-                session.headers.update(headers)
-                session.verify = False
-                session.proxies = {}  # 强制禁用代理
-                resp = session.get(url, timeout=10, proxies={}, allow_redirects=True)
+                self.session.headers.update(headers)
+                resp = self.session.get(url, timeout=10, proxies={}, allow_redirects=True)
+                
+                if resp.cookies:
+                    self.session.cookies.update(resp.cookies)
+                    logger.debug(f"轮询更新会话cookies(no brotli)：{dict(resp.cookies)}")
                 
                 if resp.status_code != 200:
                     raise Exception(f"轮询登录状态失败：HTTP {resp.status_code}")
@@ -1124,25 +1198,21 @@ class BilibiliParser:
                 message = data.get('message', '')
                 login_data = data.get('data', {})
                 
-                
                 logger.debug(f"Login poll response (no brotli): code={code}, message={message}, data={login_data}")
                 
-                
                 if "风险" in message or "验证" in message:
-                    url = login_data.get('url', '')
-                    logger.debug(f"Risk detected (no brotli): message={message}, url={url}")
+                    risk_url = login_data.get('url', '')
+                    logger.debug(f"Risk detected (no brotli): message={message}, url={risk_url}")
                     return {
                         "success": False,
                         "status": message,
                         "code": code,
-                        "url": url,
+                        "url": risk_url,
                         "risk": True
                     }
                 
-                
                 login_code = login_data.get('code', code)
                 login_message = login_data.get('message', message)
-                
                 
                 if login_code in ERROR_CODES:
                     return {
@@ -1156,7 +1226,6 @@ class BilibiliParser:
                         "status": login_message or "未知状态",
                         "code": login_code
                     }
-                
                 
                 cookies = {}
                 for cookie in resp.cookies:
@@ -2067,6 +2136,32 @@ class BilibiliParser:
             import logging
             logger = logging.getLogger(__name__)
             
+            _has_valid_buvid3 = False
+            for key in self.session.cookies.keys():
+                val = self.session.cookies.get(key, '')
+                if key == 'buvid3' and val and not val.startswith('XY'):
+                    _has_valid_buvid3 = True
+                    break
+            if not _has_valid_buvid3:
+                logger.info("get_captcha: session缺少服务端签发的buvid3，正在获取...")
+                try:
+                    _init_headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+                    }
+                    _init_resp = self.session.get('https://www.bilibili.com', headers=_init_headers, timeout=10, allow_redirects=True)
+                    if _init_resp.cookies:
+                        self.session.cookies.update(_init_resp.cookies)
+                        logger.info(f"get_captcha: 从bilibili.com获取到{len(_init_resp.cookies)}个cookie")
+                    
+                    _pre_resp = self.session.get('https://passport.bilibili.com/login', headers=_init_headers, timeout=10, allow_redirects=True)
+                    if _pre_resp.cookies:
+                        self.session.cookies.update(_pre_resp.cookies)
+                        logger.info(f"get_captcha: 从passport获取到{len(_pre_resp.cookies)}个cookie")
+                except Exception as _e:
+                    logger.warning(f"get_captcha: 初始化cookie失败: {_e}")
+            
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
                 'Referer': 'https://www.bilibili.com/',
@@ -2277,19 +2372,36 @@ class BilibiliParser:
             
             data_data = data.get('data', {})
             data_message = data_data.get('message', '') if isinstance(data_data, dict) else ''
-            if "risk" in url or "verify" in url or "环境存在风险" in message or "环境存在风险" in data_message:
-                
+            status_val = data.get('status', 0)
+            if "risk" in url or "verify" in url or "环境存在风险" in message or "环境存在风险" in data_message or status_val == 2:
                 risk_message = data_message or message or "登录存在风险，需要验证"
-                
                 if risk_message == "OK" or not risk_message:
                     risk_message = "登录存在风险，需要验证"
-                logger.debug(f"Risk detected in login response: message={risk_message}, url={url}")
+                logger.info(f"Risk detected in login response: message={risk_message}, url={url}, status={status_val}")
+                tmp_token = ''
+                if url:
+                    import re as _re
+                    m = _re.search(r'tmp_token=([a-f0-9]+)', url)
+                    if m:
+                        tmp_token = m.group(1)
+                        logger.info(f"Extracted tmp_token: {tmp_token[:20]}...")
+                    else:
+                        from urllib.parse import urlparse, parse_qs
+                        try:
+                            parsed = urlparse(url)
+                            qs = parse_qs(parsed.query)
+                            if 'tmp_token' in qs:
+                                tmp_token = qs['tmp_token'][0]
+                                logger.info(f"Extracted tmp_token from URL params: {tmp_token[:20]}...")
+                        except Exception:
+                            pass
                 return {
                     "success": False,
                     "error": risk_message,
                     "status": risk_message,
                     "code": code,
                     "url": url,
+                    "tmp_token": tmp_token,
                     "risk": True
                 }
             
@@ -2422,7 +2534,7 @@ class BilibiliParser:
             
             for country in common_countries:
                 result.append({
-                    'cid': country.get('id'),
+                    'cid': country.get('country_id'),
                     'name': country.get('cname'),
                     'code': country.get('country_id')
                 })
@@ -2430,7 +2542,7 @@ class BilibiliParser:
             
             for country in other_countries:
                 result.append({
-                    'cid': country.get('id'),
+                    'cid': country.get('country_id'),
                     'name': country.get('cname'),
                     'code': country.get('country_id')
                 })
@@ -2445,6 +2557,31 @@ class BilibiliParser:
             url = "https://passport.bilibili.com/x/passport-login/web/sms/send"
             import logging
             logger = logging.getLogger(__name__)
+            
+            _has_valid_buvid3 = False
+            for key in self.session.cookies.keys():
+                val = self.session.cookies.get(key, '')
+                if key == 'buvid3' and val and not val.startswith('XY'):
+                    _has_valid_buvid3 = True
+                    break
+            
+            if not _has_valid_buvid3:
+                logger.info("send_sms_code: session缺少服务端签发的buvid3，正在获取...")
+                try:
+                    _init_headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+                    }
+                    _init_resp = self.session.get('https://www.bilibili.com', headers=_init_headers, timeout=10, allow_redirects=True)
+                    if _init_resp.cookies:
+                        self.session.cookies.update(_init_resp.cookies)
+                    logger.info(f"send_sms_code: 访问bilibili.com后session有{len(self.session.cookies)}个cookie")
+                    for k, v in dict(self.session.cookies).items():
+                        if 'buvid' in k.lower():
+                            logger.info(f"  {k}={v[:30]}...")
+                except Exception as _e:
+                    logger.warning(f"send_sms_code: 获取buvid3失败: {_e}")
             
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
@@ -2468,17 +2605,16 @@ class BilibiliParser:
                 'seccode': f"{validate}|jordan"
             }
             
-            
-            logger.debug(f"发送短信验证码参数：{data}")
-            
+            logger.info(f"发送短信验证码请求到：{url} (web端API) [V2-FIX]")
+            logger.info(f"send_sms_code: session cookies = {dict(self.session.cookies)}")
+            logger.info(f"send_sms_code: >>> CID={cid} <<<, tel={tel}")
             
             self.session.headers.update(headers)
             
-            logger.info(f"发送短信验证码请求到：{url}")
-            logger.info(f"请求参数：{data}")
-            
             resp = self.session.post(url, data=data, timeout=10)
             
+            logger.info(f"send_sms_code: 请求发送完毕，响应状态={resp.status_code}")
+            logger.info(f"send_sms_code: 请求时发送的cookie头={resp.request.headers.get('Cookie', 'NONE')}")
             
             if resp.cookies:
                 self.session.cookies.update(resp.cookies)
@@ -2487,15 +2623,12 @@ class BilibiliParser:
             if resp.status_code != 200:
                 raise Exception(f"发送短信验证码失败：HTTP {resp.status_code}")
             
-            
             content = resp.text.strip()
             logger.debug(f"发送短信验证码响应：{content}")
-            
             
             try:
                 sms_data = resp.json()
             except json.JSONDecodeError:
-                
                 if content.startswith('!'):
                     start_index = content.find('{')
                     if start_index != -1:
@@ -2507,9 +2640,7 @@ class BilibiliParser:
             logger.debug(f"发送短信验证码响应代码：{code}，消息：{message}")
             
             if code != 0:
-                
                 if message == "OK" or not message:
-                    
                     if code in ERROR_CODES:
                         error_message = f"发送短信验证码失败：{ERROR_CODES[code]}（错误码：{code}）"
                     else:
@@ -2518,8 +2649,7 @@ class BilibiliParser:
                     error_message = f"发送短信验证码失败：{message}"
                 raise Exception(error_message)
             
-            
-            logger.debug("发送短信验证码成功，返回结果：{\"success\": True, \"data\": " + str(sms_data.get('data', {})) + "}")
+            logger.debug("发送短信验证码成功")
             
             return {
                 "success": True,
@@ -2551,7 +2681,7 @@ class BilibiliParser:
             }
             
             data = {
-                'cid': str(cid),  
+                'cid': str(cid),
                 'tel': tel,
                 'code': code,
                 'source': 'main_web',
@@ -2560,14 +2690,11 @@ class BilibiliParser:
                 'keep': True
             }
             
-            
             self.session.headers.update(headers)
             
-            logger.info(f"发送短信验证码验证请求到：{url}")
-            logger.info(f"请求参数：{data}")
+            logger.info(f"发送短信验证码验证请求到：{url} (web端API)")
             
             resp = self.session.post(url, data=data, timeout=10)
-            
             
             if resp.cookies:
                 self.session.cookies.update(resp.cookies)
@@ -2576,40 +2703,50 @@ class BilibiliParser:
             if resp.status_code != 200:
                 raise Exception(f"短信验证码验证失败：HTTP {resp.status_code}")
             
-            
             content = resp.text.strip()
             logger.debug(f"短信验证码验证响应：{content}")
-            
             
             try:
                 verify_data = resp.json()
             except json.JSONDecodeError:
-                
                 if content.startswith('!'):
                     start_index = content.find('{')
                     if start_index != -1:
                         content = content[start_index:]
                 verify_data = json.loads(content)
             
-            code = verify_data.get('code', 0)
+            code_resp = verify_data.get('code', 0)
             message = verify_data.get('message', '未知错误')
-            logger.debug(f"短信验证码验证响应代码：{code}，消息：{message}")
+            logger.debug(f"短信验证码验证响应代码：{code_resp}，消息：{message}")
             
-            if code != 0:
-                
-                error_message = f"短信验证码验证失败：{message}（错误码：{code}）"
+            data = verify_data.get('data', {})
+            if not isinstance(data, dict):
+                data = {}
+            risk_url = data.get('url', '')
+            
+            if "risk" in risk_url or "verify" in risk_url or "环境存在风险" in message:
+                risk_message = message or "登录存在风险，需要验证"
+                logger.debug(f"Risk detected in SMS login: message={risk_message}, url={risk_url}")
+                return {
+                    "success": False,
+                    "error": risk_message,
+                    "status": risk_message,
+                    "code": code_resp,
+                    "url": risk_url,
+                    "risk": True
+                }
+            
+            if code_resp != 0:
+                error_message = f"短信验证码验证失败：{message}（错误码：{code_resp}）"
                 raise Exception(error_message)
-            
             
             cookies = resp.cookies.get_dict()
             logger.info(f"获取到的cookie：{cookies}")
-            
             
             if cookies:
                 cookie_str = '; '.join([f'{k}={v}' for k, v in cookies.items()])
                 self.save_cookies(cookie_str)
             else:
-                
                 session_cookies = self.session.cookies.get_dict()
                 if session_cookies:
                     logger.info(f"从会话中获取到的cookie：{session_cookies}")
@@ -2629,6 +2766,123 @@ class BilibiliParser:
             }
         except Exception as e:
             logger.error(f"短信登录失败：{str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def verify_risk_sms(self, tmp_token, cid, tel, code, captcha_key):
+        try:
+            url = "https://passport.bilibili.com/x/passport-login/web/login/verify_sms"
+            import logging
+            logger = logging.getLogger(__name__)
+
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Referer': 'https://www.bilibili.com/',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Cache-Control': 'no-cache',
+                'Origin': 'https://www.bilibili.com',
+                'Connection': 'keep-alive',
+                'Pragma': 'no-cache',
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+
+            data = {
+                'tmp_token': tmp_token,
+                'cid': str(cid),
+                'tel': tel,
+                'code': code,
+                'source': 'main_web',
+                'captcha_key': captcha_key
+            }
+
+            self.session.headers.update(headers)
+
+            logger.info(f"发送风控验证请求到：{url}")
+            logger.info(f"verify_risk_sms: tmp_token={tmp_token[:20]}..., cid={cid}, tel={tel}")
+
+            resp = self.session.post(url, data=data, timeout=10)
+
+            if resp.cookies:
+                self.session.cookies.update(resp.cookies)
+                logger.debug(f"更新会话cookies：{dict(resp.cookies)}")
+
+            if resp.status_code != 200:
+                raise Exception(f"风控验证失败：HTTP {resp.status_code}")
+
+            content = resp.text.strip()
+            logger.debug(f"风控验证响应：{content}")
+
+            try:
+                verify_data = resp.json()
+            except json.JSONDecodeError:
+                if content.startswith('!'):
+                    start_index = content.find('{')
+                    if start_index != -1:
+                        content = content[start_index:]
+                verify_data = json.loads(content)
+
+            code_resp = verify_data.get('code', 0)
+            message = verify_data.get('message', '未知错误')
+            logger.info(f"风控验证响应代码：{code_resp}，消息：{message}")
+
+            if code_resp != 0:
+                error_message = f"风控验证失败：{message}（错误码：{code_resp}）"
+                raise Exception(error_message)
+
+            cookies = resp.cookies.get_dict()
+            logger.info(f"风控验证获取到的cookie：{cookies}")
+
+            if cookies:
+                cookie_str = '; '.join([f'{k}={v}' for k, v in cookies.items()])
+                self.save_cookies(cookie_str)
+            else:
+                session_cookies = self.session.cookies.get_dict()
+                if session_cookies:
+                    logger.info(f"从会话中获取到的cookie：{session_cookies}")
+                    cookie_str = '; '.join([f'{k}={v}' for k, v in session_cookies.items()])
+                    self.save_cookies(cookie_str)
+                else:
+                    data_inner = verify_data.get('data', {})
+                    url_inner = data_inner.get('url', '') if isinstance(data_inner, dict) else ''
+                    if url_inner:
+                        logger.info(f"从风控验证响应的 url 中提取 cookie：{url_inner}")
+                        import re
+                        cookie_params = re.findall(r'(DedeUserID|DedeUserID__ckMd5|SESSDATA|bili_jct)=([^&]+)', url_inner)
+                        if cookie_params:
+                            cookie_dict = dict(cookie_params)
+                            logger.info(f"从 url 中提取到的 cookie：{cookie_dict}")
+                            cookie_str = '; '.join([f'{k}={v}' for k, v in cookie_dict.items()])
+                            self.save_cookies(cookie_str)
+
+            data_inner = verify_data.get('data', {})
+            sso_url = data_inner.get('url', '') if isinstance(data_inner, dict) else ''
+            if sso_url:
+                logger.info(f"处理风控验证 SSO 跳转：{sso_url}")
+                try:
+                    sso_resp = self.session.get(sso_url, timeout=10, allow_redirects=True)
+                    logger.info(f"SSO 跳转响应状态码：{sso_resp.status_code}")
+                    sso_cookies = sso_resp.cookies.get_dict()
+                    if sso_cookies:
+                        logger.info(f"从 SSO 跳转中获取到的 cookie：{sso_cookies}")
+                        cookie_str = '; '.join([f'{k}={v}' for k, v in sso_cookies.items()])
+                        self.save_cookies(cookie_str)
+                except Exception as e:
+                    logger.warning(f"SSO 跳转处理失败：{str(e)}")
+
+            self._init_session()
+
+            user_info = self.get_user_info()
+
+            return {
+                "success": True,
+                "user_info": user_info,
+                "data": verify_data.get('data', {})
+            }
+        except Exception as e:
+            logger.error(f"风控验证失败：{str(e)}")
             return {
                 "success": False,
                 "error": str(e)
@@ -3580,30 +3834,29 @@ class BilibiliParser:
             logger.error(error_msg)
             raise
 
-    def get_folder_content(self, media_id, page=1, page_size=20, get_all=False):
+    def get_folder_content(self, media_id, page=1, page_size=20, get_all=False, progress_callback=None):
         try:
             logger.info(f"开始获取收藏夹内容，media_id: {media_id}, page: {page}, page_size: {page_size}, get_all: {get_all}")
             
             if not self.cookies:
                 raise Exception("请先登录")
             
-            # 构建API参数，严格按照B站API文档
             base_params = {
                 'media_id': media_id,
-                'ps': min(page_size, 20),  # API限制ps最大为20
+                'ps': min(page_size, 20),
                 'pn': page,
                 'platform': 'web'
             }
             
-            # 使用B站API文档指定的URL
             url = "https://api.bilibili.com/x/v3/fav/resource/list"
             
-            # 先尝试使用WBI签名
+            if progress_callback:
+                progress_callback(5, "正在获取收藏夹内容...")
+            
             logger.info("尝试使用WBI签名获取收藏夹内容")
             success, api_data = self._api_request(url, timeout=15, use_wbi=True, params=base_params)
             
             if not success:
-                # 如果失败，尝试不使用WBI签名
                 logger.info("尝试不使用WBI签名获取收藏夹内容")
                 success, api_data = self._api_request(url, timeout=15, use_wbi=False, params=base_params)
                 if not success:
@@ -3611,24 +3864,20 @@ class BilibiliParser:
                     logger.error(f"API请求失败：{error_msg}")
                     raise Exception(f"获取收藏夹内容失败：{error_msg}")
             
-            logger.info(f"解析后的响应数据：{api_data}")
-            
-            # 检查响应码
             code = api_data.get('code', 0)
             if code != 0:
                 error_msg = api_data.get('message', '未知错误')
                 raise Exception(f"获取收藏夹内容失败：{error_msg}（code={code}）")
             
-            # 处理数据
             result_data = api_data.get('data', {})
             medias = result_data.get('medias', [])
             has_more = result_data.get('has_more', False)
+            total_count = result_data.get('info', {}).get('media_count', 0)
             
             logger.info(f"获取到 {len(medias)} 个收藏内容")
             
             collection_items = []
             for item in medias:
-                # 根据API文档，类型为2的是视频稿件
                 if item.get('type') == 2:
                     collection_items.append({
                         'id': item.get('id'),
@@ -3636,37 +3885,35 @@ class BilibiliParser:
                         'title': item.get('title', '未知内容'),
                         'cover': item.get('cover'),
                         'bvid': item.get('bv_id') or item.get('bvid'),
-                        'aid': item.get('id'),  # 视频ID就是aid
+                        'aid': item.get('id'),
                         'up_name': item.get('upper', {}).get('name', '未知UP主'),
                         'duration': item.get('duration', 0),
                         'fav_time': item.get('fav_time', 0)
                     })
             
             logger.info(f"处理后收藏内容数量：{len(collection_items)}")
-            for item in collection_items[:5]:  # 只打印前5个，避免日志过多
-                logger.info(f"收藏内容：{item['title']} - BV号：{item['bvid']}")
-            if len(collection_items) > 5:
-                logger.info(f"... 还有 {len(collection_items) - 5} 个收藏内容")
             
-            # 如果需要获取所有内容
             if get_all and has_more:
                 all_items = collection_items.copy()
                 current_page = page + 1
+                estimated_pages = max(1, (total_count - len(medias)) // 20 + 2) if total_count > 0 else 10
                 
                 while True:
+                    if progress_callback:
+                        page_progress = min(90, int(10 + 80 * (current_page - 1) / estimated_pages))
+                        progress_callback(page_progress, f"正在加载第 {current_page} 页（已获取 {len(all_items)} 项）...")
+                    
                     params = {
                         'media_id': media_id,
-                        'ps': 20,  # API限制最大为20
+                        'ps': 20,
                         'pn': current_page,
                         'platform': 'web'
                     }
                     
                     logger.info(f"获取第{current_page}页收藏内容")
-                    # 使用_api_request方法
                     success, data = self._api_request(url, timeout=15, use_wbi=True, params=params)
                     
                     if not success:
-                        # 尝试不使用WBI签名
                         success, data = self._api_request(url, timeout=15, use_wbi=False, params=params)
                         if not success:
                             error_msg = data['error']
@@ -3683,7 +3930,7 @@ class BilibiliParser:
                     logger.info(f"第{current_page}页获取到 {len(page_medias)} 个收藏内容")
                     
                     for item in page_medias:
-                        if item.get('type') == 2:  # 只处理视频稿件
+                        if item.get('type') == 2:
                             all_items.append({
                                 'id': item.get('id'),
                                 'type': 'video',
@@ -3700,9 +3947,11 @@ class BilibiliParser:
                         break
                     
                     current_page += 1
-                    # 避免请求过快被封
                     import time
                     time.sleep(0.5)
+                
+                if progress_callback:
+                    progress_callback(95, f"获取完成，共 {len(all_items)} 项，正在处理...")
                 
                 logger.info(f"处理后收藏内容总数量：{len(all_items)}")
                 return {
@@ -3711,9 +3960,10 @@ class BilibiliParser:
                     'total': len(all_items)
                 }
             else:
-                # 从API响应中获取真实的收藏夹内容数量
                 total = result_data.get('info', {}).get('media_count', 0)
                 logger.info(f"收藏夹总内容数量：{total}")
+                if progress_callback:
+                    progress_callback(100, "获取完成")
                 return {
                     'items': collection_items,
                     'has_more': has_more,
@@ -3721,7 +3971,6 @@ class BilibiliParser:
                 }
         except Exception as e:
             error_msg = str(e)
-            # 避免错误信息重复
             if not error_msg.startswith("获取收藏夹内容失败："):
                 error_msg = f"获取收藏夹内容失败：{error_msg}"
             logger.error(error_msg)

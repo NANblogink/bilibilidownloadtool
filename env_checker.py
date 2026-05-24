@@ -31,7 +31,6 @@ def add_to_path(path):
 
 def check_ffmpeg():
     print("开始检查FFmpeg...")
-    # 检查系统PATH中的ffmpeg
     ffmpeg_exec = shutil.which('ffmpeg')
     print(f"系统PATH中的ffmpeg: {ffmpeg_exec}")
     if ffmpeg_exec and os.path.exists(ffmpeg_exec):
@@ -49,35 +48,50 @@ def check_ffmpeg():
         except Exception as e:
             print(f"执行系统ffmpeg时出错: {str(e)}")
     
-    # 检查本地ffmpeg
+    ffmpeg_candidates = []
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.dirname(sys.executable)
+        parent_dir = os.path.dirname(exe_dir)
+        ffmpeg_candidates.append(os.path.join(parent_dir, 'ffmpeg', 'bin', 'ffmpeg.exe'))
+        ffmpeg_candidates.append(os.path.join(exe_dir, 'ffmpeg', 'bin', 'ffmpeg.exe'))
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    ffmpeg_local = os.path.join(current_dir, 'ffmpeg', 'bin', 'ffmpeg.exe')
-    print(f"本地ffmpeg路径: {ffmpeg_local}")
-    print(f"本地ffmpeg文件是否存在: {os.path.exists(ffmpeg_local)}")
-    if os.path.exists(ffmpeg_local):
-        try:
-            print(f"尝试执行本地ffmpeg: {ffmpeg_local}")
-            result = subprocess.run([ffmpeg_local, '-version'], capture_output=True, text=False, timeout=10)
-            stdout = result.stdout.decode('utf-8', errors='replace')
-            stderr = result.stderr.decode('utf-8', errors='replace')
-            print(f"本地ffmpeg执行返回码: {result.returncode}")
-            if result.returncode == 0:
-                print(f"本地ffmpeg版本: {stdout[:100]}...")
-                return True, ffmpeg_local
-            else:
-                print(f"本地ffmpeg执行失败: {stderr[:100]}...")
-        except Exception as e:
-            print(f"执行本地ffmpeg时出错: {str(e)}")
+    ffmpeg_candidates.append(os.path.join(current_dir, 'ffmpeg', 'bin', 'ffmpeg.exe'))
+    
+    for ffmpeg_local in ffmpeg_candidates:
+        print(f"检查本地ffmpeg路径: {ffmpeg_local}")
+        print(f"本地ffmpeg文件是否存在: {os.path.exists(ffmpeg_local)}")
+        if os.path.exists(ffmpeg_local):
+            try:
+                print(f"尝试执行本地ffmpeg: {ffmpeg_local}")
+                result = subprocess.run([ffmpeg_local, '-version'], capture_output=True, text=False, timeout=10)
+                stdout = result.stdout.decode('utf-8', errors='replace')
+                stderr = result.stderr.decode('utf-8', errors='replace')
+                print(f"本地ffmpeg执行返回码: {result.returncode}")
+                if result.returncode == 0:
+                    print(f"本地ffmpeg版本: {stdout[:100]}...")
+                    return True, ffmpeg_local
+                else:
+                    print(f"本地ffmpeg执行失败: {stderr[:100]}...")
+            except Exception as e:
+                print(f"执行本地ffmpeg时出错: {str(e)}")
     
     print("未找到可用的FFmpeg")
     return False, None
 
 def fix_ffmpeg():
+    ffmpeg_candidates = []
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.dirname(sys.executable)
+        parent_dir = os.path.dirname(exe_dir)
+        ffmpeg_candidates.append(os.path.join(parent_dir, 'ffmpeg', 'bin'))
+        ffmpeg_candidates.append(os.path.join(exe_dir, 'ffmpeg', 'bin'))
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    ffmpeg_bin_path = os.path.join(current_dir, 'ffmpeg', 'bin')
-    if os.path.exists(os.path.join(ffmpeg_bin_path, 'ffmpeg.exe')):
-        add_to_path(ffmpeg_bin_path)
-        return check_ffmpeg()
+    ffmpeg_candidates.append(os.path.join(current_dir, 'ffmpeg', 'bin'))
+    
+    for ffmpeg_bin_path in ffmpeg_candidates:
+        if os.path.exists(os.path.join(ffmpeg_bin_path, 'ffmpeg.exe')):
+            add_to_path(ffmpeg_bin_path)
+            return check_ffmpeg()
     return False, None
 
 def check_python_version():
