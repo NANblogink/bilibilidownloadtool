@@ -29,50 +29,80 @@ def test_download_and_merge():
         logger.info(f"URL 解析成功: type={url_info['type']}, id={url_info['id']}")
 
         result = parser.parse_media(url_info['type'], url_info['id'])
-        title = result.get('title', '')
-        pages = result.get('pages', [])
+        success = result.get('success', False)
         error = result.get('error', '')
+        title = result.get('title', '')
+        collection = result.get('collection', [])
+        episodes = result.get('episodes', [])
+        qualities = result.get('qualities', {})
+        video_urls = result.get('video_urls', {})
+        audio_url = result.get('audio_url', '')
+        kid = result.get('kid', '')
+        bvid = result.get('bvid', '')
+        cid = result.get('cid', '')
 
-        if error:
-            logger.warning(f"解析返回错误: {error}")
+        logger.info(f"parse_media 返回: success={success}, title={title}")
+        logger.info(f"  collection 数: {len(collection)}")
+        logger.info(f"  episodes 数: {len(episodes)}")
+        logger.info(f"  qualities: {list(qualities.keys()) if isinstance(qualities, dict) else qualities}")
+        logger.info(f"  video_urls keys: {list(video_urls.keys()) if isinstance(video_urls, dict) else 'N/A'}")
+        logger.info(f"  audio_url: {audio_url[:60] if audio_url else 'None'}...")
+        logger.info(f"  kid: {kid}")
+        logger.info(f"  bvid: {bvid}, cid: {cid}")
 
-        assert title, f"未获取到标题"
-        assert pages, f"未获取到分P信息"
-        logger.info(f"标题: {title}, 分P数: {len(pages)}")
+        if not success and error:
+            logger.error(f"parse_media 返回错误: {error}")
+            assert False, f"parse_media 失败: {error}"
 
-        page = pages[0]
-        cid = page.get('cid', '')
-        qualities = page.get('qualities', [])
-        assert qualities, "无可用清晰度"
-        logger.info(f"cid={cid}, 可用清晰度数: {len(qualities)}")
+        assert title, "未获取到标题"
+        assert bvid, "未获取到 bvid"
+        assert cid, "未获取到 cid"
+
+        ep_list = collection if collection else episodes
+        if not ep_list:
+            logger.warning("collection 和 episodes 都为空，使用 bvid/cid 直接获取播放信息")
+        else:
+            logger.info(f"分P/合集数: {len(ep_list)}")
+            first_ep = ep_list[0]
+            cid = first_ep.get('cid', cid)
+            logger.info(f"使用第一集 cid={cid}")
+
+        if not video_urls:
+            logger.info("video_urls 为空，重新获取播放信息...")
+            play_info = parser._get_play_info('video', bvid, cid, False, audio_quality=30280)
+            assert play_info and play_info.get('success'), f"获取播放信息失败: {play_info.get('error', '') if play_info else 'None'}"
+            video_urls = play_info.get('video_urls', {})
+            audio_url = play_info.get('audio_url', '')
+            kid = play_info.get('kid', '')
+            qualities = play_info.get('qualities', {})
+            logger.info(f"重新获取成功: qualities={list(qualities.keys()) if isinstance(qualities, dict) else qualities}")
+
+        assert video_urls, "无视频流地址"
 
         qn = None
-        for q in qualities:
-            qid = q.get('quality_id', '')
-            if qid in ['16', '32', '64']:
-                qn = qid
-                qdesc = q.get('quality_desc', '')
-                logger.info(f"选择清晰度: {qid} ({qdesc})")
-                break
+        video_url = None
+        if isinstance(qualities, dict):
+            for qid in ['16', '32', '64', '80']:
+                if qid in qualities:
+                    qn = qid
+                    break
+            if not qn and qualities:
+                qn = list(qualities.keys())[-1]
 
-        if not qn:
-            qn = qualities[-1].get('quality_id', '')
-            qdesc = qualities[-1].get('quality_desc', '')
-            logger.info(f"使用最低清晰度: {qn} ({qdesc})")
+        if qn and qn in video_urls:
+            video_url = video_urls[qn]
+            qdesc = qualities.get(qn, '')
+            logger.info(f"选择清晰度: {qn} ({qdesc})")
+        elif video_urls:
+            first_key = list(video_urls.keys())[0]
+            video_url = video_urls[first_key]
+            qn = first_key
+            logger.info(f"使用清晰度: {qn}")
 
-        bvid = url_info['id']
-        logger.info(f"获取播放信息: bvid={bvid}, cid={cid}, qn={qn}")
-
-        play_info = parser._get_play_info('video', bvid, cid, False, audio_quality=30280)
-        assert play_info, "获取播放信息失败"
-        logger.info("播放信息获取成功")
-
-        video_url = play_info.get('video_url', '')
-        audio_url = play_info.get('audio_url', '')
-        kid = play_info.get('kid', '')
-        assert video_url, "无视频流地址"
+        assert video_url, "未能获取视频流URL"
         logger.info(f"视频流地址: {video_url[:80]}...")
-        logger.info(f"音频流地址: {audio_url[:80] if audio_url else 'None'}...")
+        if audio_url:
+            logger.info(f"音频流地址: {audio_url[:80]}...")
 
         video_temp = os.path.join(save_dir, "video_temp.m4s")
         audio_temp = os.path.join(save_dir, "audio_temp.m4s") if audio_url else None
@@ -91,31 +121,42 @@ def test_download_and_merge():
             audio_size = os.path.getsize(audio_temp)
             logger.info(f"音频下载完成: {audio_size} bytes")
 
-        output_path = os.path.join(save_dir, f"{title[:30]}.mp4")
+        safe_title = title[:30]
         for c in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
-            output_path = output_path.replace(c, '_')
+            safe_title = safe_title.replace(c, '_')
+        output_path = os.path.join(save_dir, f"{safe_title}.mp4")
 
         logger.info(f"开始合并音视频: {output_path}")
-        merge_result = parser.merge_media(video_temp, audio_temp, output_path, kid)
+        merge_ok = False
+        merge_msg = ""
 
-        if isinstance(merge_result, tuple):
-            merge_ok, merge_msg = merge_result
-        else:
-            merge_ok = merge_result
-            merge_msg = ""
+        try:
+            merge_result = parser.merge_media(video_temp, audio_temp, output_path, kid)
+            if isinstance(merge_result, tuple):
+                merge_ok, merge_msg = merge_result
+            elif isinstance(merge_result, bool):
+                merge_ok = merge_result
+            else:
+                merge_ok = bool(merge_result)
+        except Exception as e:
+            merge_msg = str(e)
+            logger.warning(f"parser.merge_media 异常: {e}")
 
         if not merge_ok:
-            logger.warning(f"parser.merge_media 返回失败: {merge_msg}，尝试直接 ffmpeg 合并")
-            ffmpeg_path = shutil.which('ffmpeg') or parser.ffmpeg_local
-            if os.path.exists(ffmpeg_path):
+            logger.warning(f"parser.merge_media 失败: {merge_msg}，尝试直接 ffmpeg 合并")
+            ffmpeg_path = shutil.which('ffmpeg') or getattr(parser, 'ffmpeg_local', 'ffmpeg')
+            if os.path.isfile(ffmpeg_path) or shutil.which(ffmpeg_path):
                 import subprocess
-                cmd = [ffmpeg_path, '-i', video_temp]
+                cmd = [ffmpeg_path if os.path.isfile(ffmpeg_path) else shutil.which(ffmpeg_path)]
+                cmd += ['-i', video_temp]
                 if audio_temp:
                     cmd += ['-i', audio_temp]
                 cmd += ['-c:v', 'copy', '-c:a', 'copy', '-y', output_path]
                 logger.info(f"执行 ffmpeg: {' '.join(cmd[:6])}...")
-                subprocess.run(cmd, check=True, timeout=60, **subprocess_no_window_kwargs())
-                merge_ok = os.path.exists(output_path)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, **subprocess_no_window_kwargs())
+                if result.returncode != 0:
+                    logger.error(f"ffmpeg stderr: {result.stderr[:500]}")
+                merge_ok = os.path.exists(output_path) and os.path.getsize(output_path) > 1000
 
         assert merge_ok, f"合并失败: {merge_msg}"
         assert os.path.exists(output_path), "合并后文件不存在"
@@ -126,9 +167,9 @@ def test_download_and_merge():
 
         logger.info("=" * 50)
         logger.info("端到端测试全部通过!")
-        logger.info(f"  解析: OK")
+        logger.info(f"  解析: OK (title={title})")
         logger.info(f"  下载: OK (视频 {video_size} bytes)")
-        logger.info(f"  合并: OK ({output_size} bytes)")
+        logger.info(f"  合并: OK ({output_size} bytes, {output_size/1024/1024:.1f} MB)")
         logger.info("=" * 50)
 
     finally:
