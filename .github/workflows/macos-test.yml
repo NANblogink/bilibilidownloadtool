@@ -113,60 +113,10 @@ jobs:
           print('PyQt5 font OK')
           " || echo "PyQt5 test skipped"
 
-      - name: Test video parsing (real Bilibili API)
-        timeout-minutes: 3
-        continue-on-error: true
+      - name: Test end-to-end download and merge
+        timeout-minutes: 10
         run: |
-          python -c "
-          import sys
-          import signal
-
-          def timeout_handler(signum, frame):
-              print('TIMEOUT: Test exceeded time limit, forcing exit')
-              sys.exit(0)
-
-          signal.signal(signal.SIGALRM, timeout_handler)
-          signal.alarm(120)
-
-          print(f'Platform: {sys.platform}')
-
-          from config import ConfigLoader
-          config = ConfigLoader()
-          print('Config loaded OK')
-
-          from bilibili_parser import BilibiliParser
-          parser = BilibiliParser(config)
-          print('BilibiliParser initialized OK')
-
-          url = 'https://www.bilibili.com/video/BV1zb5k6WErV/'
-          print(f'Parsing URL: {url}')
-          url_info = parser.parse_media_url(url)
-          assert url_info['type'] == 'video', f'Expected video type, got {url_info[\"type\"]}'
-          assert url_info['id'] == 'BV1zb5k6WErV', f'Expected BV1zb5k6WErV, got {url_info[\"id\"]}'
-          print(f'URL parse OK: type={url_info[\"type\"]}, id={url_info[\"id\"]}')
-
-          result = parser.parse_media(url_info['type'], url_info['id'])
-          title = result.get('title', '')
-          author = result.get('author', '')
-          pages = result.get('pages', [])
-          error = result.get('error', '')
-
-          if error:
-            print(f'WARNING: parse returned error: {error}')
-
-          print(f'Title: {title}')
-          print(f'Author: {author}')
-          print(f'Pages: {len(pages)}')
-
-          signal.alarm(0)
-
-          if title:
-            print('VIDEO PARSING TEST PASSED!')
-          else:
-            print('WARNING: No title returned, may be network issue in CI')
-
-          sys.exit(0)
-          " 2>&1 || echo "Video parsing test had issues (may be network-related)"
+          python test_e2e_download.py
 
   windows-test:
     runs-on: windows-latest
