@@ -180,20 +180,57 @@ def test_download_and_merge():
             logger.warning(f"清理失败: {e}")
 
 
-def _download_file(url, save_path, headers=None, chunk_size=8192):
+def _download_file(url, save_path, headers=None, chunk_size=8192, max_retries=5):
     import requests
-    resp = requests.get(url, headers=headers, stream=True, timeout=30)
-    resp.raise_for_status()
-    total = int(resp.headers.get('content-length', 0))
-    downloaded = 0
-    with open(save_path, 'wb') as f:
-        for chunk in resp.iter_content(chunk_size=chunk_size):
-            if chunk:
-                f.write(chunk)
-                downloaded += len(chunk)
-                if total > 0 and downloaded % (500 * 1024) < chunk_size:
-                    pct = int(downloaded * 100 / total)
-                    logger.info(f"  下载进度: {pct}% ({downloaded}/{total})")
+    from requests.exceptions import ChunkedEncodingError, ConnectionError
+
+    existing_size = 0
+    if os.path.exists(save_path):
+        existing_size = os.path.getsize(save_path)
+        logger.info(f"  发现已有文件 {existing_size} bytes，尝试断点续传")
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            req_headers = dict(headers) if headers else {}
+            if existing_size > 0:
+                req_headers['Range'] = f'bytes={existing_size}-'
+
+            resp = requests.get(url, headers=req_headers, stream=True, timeout=60)
+            if resp.status_code == 416:
+                logger.info(f"  文件已完整下载")
+                return
+            resp.raise_for_status()
+
+            content_length = int(resp.headers.get('content-length', 0))
+            total = existing_size + content_length
+
+            mode = 'ab' if existing_size > 0 and resp.status_code == 206 else 'wb'
+            if resp.status_code != 206 and existing_size > 0:
+                existing_size = 0
+                total = content_length
+                mode = 'wb'
+
+            downloaded = existing_size
+            with open(save_path, mode) as f:
+                for chunk in resp.iter_content(chunk_size=chunk_size):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total > 0 and downloaded % (500 * 1024) < chunk_size:
+                            pct = int(downloaded * 100 / total)
+                            logger.info(f"  下载进度: {pct}% ({downloaded}/{total})")
+            resp.close()
+            logger.info(f"  下载完成: {downloaded} bytes")
+            return
+        except (ChunkedEncodingError, ConnectionError, requests.exceptions.RequestException) as e:
+            logger.warning(f"  下载中断 (尝试 {attempt}/{max_retries}): {e}")
+            if os.path.exists(save_path):
+                existing_size = os.path.getsize(save_path)
+                logger.info(f"  已下载 {existing_size} bytes，将断点续传")
+            if attempt == max_retries:
+                raise
+            import time
+            time.sleep(2 * attempt)
 
 
 def _bili_headers():
