@@ -1,44 +1,15 @@
 import os
 import sys
 import json
-
-IS_MACOS = sys.platform == 'darwin'
-IS_WINDOWS = sys.platform == 'win32'
-
-
-def _get_platform_config_dir():
-    """获取跨平台配置文件目录"""
-    if IS_MACOS:
-        return os.path.expanduser('~/Library/Application Support/BilibiliDownloadTool')
-    elif IS_WINDOWS:
-        return os.path.dirname(os.path.abspath(__file__))
-    else:
-        xdg = os.environ.get('XDG_CONFIG_HOME', '')
-        if xdg:
-            return os.path.join(xdg, 'BilibiliDownloadTool')
-        return os.path.expanduser('~/.config/BilibiliDownloadTool')
-
-
 class ConfigLoader:
     def __init__(self):
-        config_dir = _get_platform_config_dir()
-        if IS_MACOS or (not IS_WINDOWS and not os.path.exists(os.path.dirname(os.path.abspath(__file__)) + '/app_config.json')):
+        if sys.platform == 'darwin':
+            config_dir = os.path.expanduser('~/Library/Application Support/BilibiliDownloadTool')
             os.makedirs(config_dir, exist_ok=True)
-            self.config_file = os.path.join(config_dir, "app_config.json")
+            self.config_file = os.path.join(config_dir, 'app_config.json')
         else:
             self.config_file = "app_config.json"
-
-        if not os.path.exists(self.config_file):
-            local_config = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_config.json")
-            if os.path.exists(local_config) and self.config_file != local_config:
-                import shutil
-                try:
-                    shutil.copy2(local_config, self.config_file)
-                except Exception:
-                    pass
-
         self.config = self._load_config()
-
     def _get_default_config(self):
         return {
             "headers": {
@@ -73,10 +44,10 @@ class ConfigLoader:
                 "danmaku_api": "https://api.bilibili.com/x/v1/dm/list.so?oid={oid}&type={type}"
             },
             "other_urls": {
-                "hevc_extension_url": "https://apps.microsoft.com/store/detail/microsoft-hevc-video-extension/9NMZQFK7HTR4"
+                "hevc_extension_url": "" if sys.platform == 'darwin' else "https://apps.microsoft.com/store/detail/microsoft-hevc-video-extension/9NMZQFK7HTR4"
             },
             "app_settings": {
-                "default_save_path": os.path.join(os.path.expanduser('~'), "BilibiliDownloads"),
+                "default_save_path": os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载"),
                 "last_save_path": "",
                 "max_threads": 2,
                 "auto_convert_incompatible": False,
@@ -84,7 +55,6 @@ class ConfigLoader:
                 "add_episode_to_filename": True
             }
         }
-
     def _load_config(self):
         if os.path.exists(self.config_file):
             try:
@@ -104,34 +74,24 @@ class ConfigLoader:
                 return self._get_default_config()
         else:
             return self._get_default_config()
-
     def save_config(self):
         try:
-            config_dir = os.path.dirname(self.config_file)
-            if config_dir and not os.path.exists(config_dir):
-                os.makedirs(config_dir, exist_ok=True)
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, ensure_ascii=False, indent=4)
             return True
         except Exception as e:
             print(f"保存配置文件失败：{str(e)}")
             return False
-
     def get_headers(self):
         return self.config.get("headers", {})
-
     def get_quality_map(self):
         return {int(k): v for k, v in self.config.get("quality_map", {}).items()}
-
     def get_api_url(self, key):
         return self.config.get("api_urls", {}).get(key, "")
-
     def get_other_url(self, key):
         return self.config.get("other_urls", {}).get(key, "")
-
     def get_app_setting(self, key, default=None):
         return self.config.get("app_settings", {}).get(key, default)
-
     def set_app_setting(self, key, value):
         if "app_settings" not in self.config:
             self.config["app_settings"] = {}

@@ -1,24 +1,24 @@
 
 import os
-import sys
 import time
 import requests
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import QMessageBox
-
-_IS_WIN = sys.platform == 'win32'
-_SUB_NO_WIN = {'creationflags': __import__('subprocess').CREATE_NO_WINDOW} if _IS_WIN else {}
+from platform_utils import IS_MACOS, IS_WINDOWS, subprocess_no_window_kwargs
 
 class HEVCCheckThread(QThread):
     result_signal = pyqtSignal(bool)
 
     def run(self):
+        if IS_MACOS:
+            self.result_signal.emit(True)
+            return
         try:
             import subprocess
             proc = subprocess.run(
                 ["powershell", "Get-AppxPackage *HEVCVideoExtension*"],
                 capture_output=True, text=True, timeout=10,
-                **_SUB_NO_WIN
+                **subprocess_no_window_kwargs()
             )
             self.result_signal.emit("HEVCVideoExtension" in proc.stdout)
         except Exception:
@@ -35,6 +35,9 @@ class HEVCDownloadThread(QThread):
         self.is_running = True
 
     def run(self):
+        if IS_MACOS:
+            self.finish_signal.emit(True, "macOS 原生支持 HEVC，无需安装")
+            return
         try:
             import subprocess
             filename = "Microsoft.HEVCVideoExtension.Appx"
@@ -56,7 +59,7 @@ class HEVCDownloadThread(QThread):
                         self.progress_signal.emit(progress)
 
             subprocess.run(["powershell", "Add-AppxPackage", save_path], check=True, timeout=60,
-                          **_SUB_NO_WIN)
+                          **subprocess_no_window_kwargs())
             self.finish_signal.emit(True, "HEVC扩展安装成功")
         except Exception as e:
             self.finish_signal.emit(False, f"HEVC处理失败：{str(e)}")

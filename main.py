@@ -4,29 +4,57 @@ import requests
 import time
 import json
 import traceback
+import logging
+from platform_utils import IS_MACOS, IS_WINDOWS, platform_font
+
+if sys.platform == 'win32' and getattr(sys, 'frozen', False):
+    try:
+        import ctypes
+        ctypes.windll.kernel32.GetConsoleWindow.restype = ctypes.c_void_p
+        ctypes.windll.user32.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        ctypes.windll.user32.ShowWindow.restype = ctypes.c_bool
+        _console_hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if _console_hwnd:
+            ctypes.windll.user32.ShowWindow(_console_hwnd, 0)
+    except Exception:
+        pass
+
+if IS_WINDOWS:
+    try:
+        _internal_dir = os.path.join(os.path.dirname(sys.executable), '_internal')
+        _qt_bin_dir = os.path.join(_internal_dir, 'PyQt5', 'Qt5', 'bin')
+        _qt_resources_dir = os.path.join(_internal_dir, 'PyQt5', 'Qt5', 'resources')
+
+        _webengine_process = os.path.join(_qt_bin_dir, 'QtWebEngineProcess.exe')
+        if os.path.exists(_webengine_process):
+            os.environ['QTWEBENGINEPROCESS_PATH'] = _webengine_process
+
+        if os.path.isdir(_qt_resources_dir):
+            os.environ['QTWEBENGINE_RESOURCES_PATH'] = _qt_resources_dir
+
+        if os.path.isdir(_qt_bin_dir):
+            os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = '--disable-gpu'
+    except Exception:
+        pass
+
+from logger_config import logger
+
+def qt_message_handler(msg_type, msg_log_context, msg_string):
+    pass
+
+from PyQt5.QtCore import qInstallMessageHandler
+qInstallMessageHandler(qt_message_handler)
+
 from PyQt5.QtWidgets import QApplication, QSplashScreen, QLabel, QVBoxLayout, QWidget, QProgressBar
 from PyQt5.QtGui import QFont, QColor, QPalette
 from PyQt5.QtCore import Qt, QTimer
-from ui import BilibiliDownloader
+from ui import BilibiliDownloader, run_on_main_thread
 from bilibili_parser import BilibiliParser
 from downloader import DownloadManager
 from config import ConfigLoader
 from task_manager import TaskManager
 from utils import get_unique_filename
 from env_checker import check_environment
-
-IS_MACOS = sys.platform == 'darwin'
-IS_WINDOWS = sys.platform == 'win32'
-
-
-def _get_platform_font():
-    """获取跨平台默认字体"""
-    if IS_MACOS:
-        return QFont("PingFang SC", 13)
-    elif IS_WINDOWS:
-        return QFont("Microsoft YaHei", 9)
-    else:
-        return QFont("Noto Sans CJK SC", 10)
 
 class SafeQApplication(QApplication):
     def notify(self, receiver, event):
@@ -52,42 +80,54 @@ class SafeQApplication(QApplication):
                     pass
                 return True
             try:
-                print(f"[SafeQApplication] 未处理TypeError: {str(e)}")
-                traceback.print_exc()
+                logger.debug("SafeQApplication 未处理TypeError: %s", str(e))
             except Exception:
                 pass
             return True
         except Exception as e:
             try:
-                print(f"[SafeQApplication] 未处理异常: {type(e).__name__}: {str(e)}")
+                logger.error("SafeQApplication 异常: %s", str(e))
             except Exception:
                 pass
             return True
 
 def _global_exception_hook(exc_type, exc_value, exc_tb):
     try:
-        print(f"[全局异常钩子] {exc_type.__name__}: {exc_value}")
+        logger.error("全局未捕获异常", exc_info=(exc_type, exc_value, exc_tb))
         traceback.print_exception(exc_type, exc_value, exc_tb)
     except Exception:
         pass
 
 sys.excepthook = _global_exception_hook
 def load_version_info():
-    try:
-        import os
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        version_file = os.path.join(script_dir, 'version_info.json')
-        with open(version_file, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception as e:
-        print(f"读取版本信息失败：{str(e)}")
-        return {
-            "version": "2026年5月1日09:38:46维护版",
-            "author": "寒烟似雪",
-            "qq": "2273962061",
-            "description": "B站视频解析下载工具"
-        }
+    candidates = []
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates.append(os.path.join(script_dir, 'version_info.json'))
+    if hasattr(sys, '_MEIPASS'):
+        candidates.append(os.path.join(sys._MEIPASS, 'version_info.json'))
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.dirname(sys.executable)
+        candidates.append(os.path.join(exe_dir, 'version_info.json'))
+    for version_file in candidates:
+        if os.path.exists(version_file):
+            try:
+                with open(version_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                continue
+    logger.warning("加载版本信息失败，使用默认版本")
+    return {
+        "version": "V2.0.2",
+        "author": "寒烟似雪",
+        "qq": "2273962061",
+        "description": "B站视频解析下载工具"
+    }
 version_info = load_version_info()
+
+def _get_platform_font():
+    font_family, font_size = platform_font()
+    return QFont(font_family, font_size)
+
 class SplashScreen(QWidget):
     def __init__(self):
         super().__init__()
@@ -180,7 +220,8 @@ if __name__ == "__main__":
         qInstallMessageHandler(message_handler)
         requests.packages.urllib3.disable_warnings()
         app = SafeQApplication(sys.argv)
-        font = _get_platform_font()
+        font_family, font_size = platform_font()
+        font = QFont(font_family, font_size)
         app.setFont(font)
         app.setStyle('Fusion')
         from ui import init_dpi_scale
@@ -212,7 +253,7 @@ if __name__ == "__main__":
                 print(f'写入权限: {"OK" if result["write_permission"]["ok"] else "需要检查权限"}')
                 print(f'整体状态: {"就绪" if result["all_ok"] else "需要修复"}')
             except Exception as e:
-                print(f"环境检查出错：{str(e)}")
+                logger.error(f"\1")
             finally:
                 env_check_done.set()
         env_thread = threading.Thread(target=run_env_check, daemon=True)
@@ -237,9 +278,9 @@ if __name__ == "__main__":
             splash.update_progress(45, "工具检查完成")
             app.processEvents()
         except Exception as e:
-            print(f"工具检查失败: {str(e)}")
+            logger.error(f"\1")
             import traceback
-            traceback.print_exc()
+            logger.debug("traceback", exc_info=True)
             splash.update_progress(45, "工具检查跳过")
             app.processEvents()
         parser = [None]
@@ -268,10 +309,10 @@ if __name__ == "__main__":
                 )
                 print("DownloadManager初始化成功")
             except Exception as e:
-                print(f"初始化组件时出错：{str(e)}")
+                logger.error(f"\1")
                 import traceback
-                traceback.print_exc()
-                print(f"初始化失败后，parser[0] = {parser[0]}")
+                logger.debug("traceback", exc_info=True)
+                logger.error(f"\1")
             finally:
                 print("组件初始化完成，设置components_ready事件")
                 components_ready.set()
@@ -393,15 +434,15 @@ if __name__ == "__main__":
             def init_tasks():
                 def check_hevc():
                     hevc_supported = parser[0].check_hevc_support()
-                    QTimer.singleShot(0, lambda: window.update_hevc_status(hevc_supported))
+                    window.signal_emitter.hevc_checked.emit(hevc_supported)
                 def check_cookie():
                     if parser[0].cookies:
                         success, msg = parser[0].verify_cookie()
                         if not success:
-                            QTimer.singleShot(0, lambda: window.show_notification("您的登录状态已过期，请重新登录", "warning"))
+                            window.signal_emitter.show_notification.emit("您的登录状态已过期，请重新登录", "warning")
                 def load_user_info():
                     user_info = parser[0].get_user_info()
-                    QTimer.singleShot(0, lambda: window.update_user_info(user_info))
+                    window.signal_emitter.user_info_updated.emit(user_info)
                 import threading
                 def run_init_tasks():
                     try:
@@ -409,7 +450,7 @@ if __name__ == "__main__":
                         check_cookie()
                         load_user_info()
                     except Exception as e:
-                        print(f"初始化任务执行失败：{str(e)}")
+                        logger.error(f"初始化任务失败: {str(e)}")
                 thread = threading.Thread(target=run_init_tasks, daemon=True)
                 thread.start()
             def handle_cookie_verification(cookie_input):
@@ -428,9 +469,9 @@ if __name__ == "__main__":
                         print(f"Cookie验证结果：{success}, {msg}")
                         window.signal_emitter.cookie_verified.emit(success, msg)
                     except Exception as e:
-                        print(f"Cookie处理异常：{str(e)}")
+                        logger.warning(f"\1")
                         import traceback
-                        traceback.print_exc()
+                        logger.debug("traceback", exc_info=True)
                         window.signal_emitter.cookie_verified.emit(False, f"Cookie处理失败：{str(e)}")
                 thread = threading.Thread(target=verify_in_thread, daemon=True)
                 thread.start()
@@ -441,9 +482,9 @@ if __name__ == "__main__":
                         user_info = parser[0].get_user_info(force_refresh=True)
                         window.signal_emitter.user_info_updated.emit(user_info)
                     except Exception as e:
-                        print(f"加载用户信息异常：{str(e)}")
+                        logger.warning(f"\1")
                         import traceback
-                        traceback.print_exc()
+                        logger.debug("traceback", exc_info=True)
                 thread = threading.Thread(target=load_in_thread, daemon=True)
                 thread.start()
             window.signal_emitter.load_user_info.connect(handle_load_user_info)
@@ -451,23 +492,23 @@ if __name__ == "__main__":
                 def check_in_thread():
                     try:
                         hevc_supported = parser[0].check_hevc_support()
-                        QTimer.singleShot(0, lambda: window.update_hevc_status(hevc_supported))
+                        window.signal_emitter.hevc_checked.emit(hevc_supported)
                     except Exception as e:
-                        print(f"检查HEVC支持异常：{str(e)}")
+                        logger.warning(f"\1")
                         import traceback
-                        traceback.print_exc()
+                        logger.debug("traceback", exc_info=True)
                 thread = threading.Thread(target=check_in_thread, daemon=True)
                 thread.start()
             window.signal_emitter.check_hevc.connect(handle_check_hevc)
             def handle_install_hevc():
                 def install_in_thread():
                     def progress_callback(progress):
-                        QTimer.singleShot(0, lambda: window.update_hevc_progress(progress))
+                        window.signal_emitter.hevc_download_progress.emit(int(progress))
                     try:
                         success, msg = parser[0].install_hevc(progress_callback)
-                        QTimer.singleShot(0, lambda: window.on_hevc_install_finish(success, msg))
+                        window.signal_emitter.hevc_install_finished.emit(success, msg)
                     except Exception as e:
-                        QTimer.singleShot(0, lambda: window.on_hevc_install_finish(False, f"安装失败：{str(e)}"))
+                        window.signal_emitter.hevc_install_finished.emit(False, f"安装失败：{str(e)}")
                 thread = threading.Thread(target=install_in_thread, daemon=True)
                 thread.start()
             window.signal_emitter.install_hevc.connect(handle_install_hevc)
@@ -478,10 +519,10 @@ if __name__ == "__main__":
                             if parser[0] and parser[0].cookies:
                                 success, msg = parser[0].verify_cookie()
                                 if not success:
-                                    QTimer.singleShot(0, lambda: window.update_user_info({"success": False}))
+                                    window.signal_emitter.user_info_updated.emit({"success": False})
                         except Exception as e:
-                            print(f"Cookie轮询异常：{str(e)}")
-                        QTimer.singleShot(5 * 60 * 1000, poll_cookie_status)
+                            logger.warning(f"\1")
+                        run_on_main_thread(lambda: QTimer.singleShot(5 * 60 * 1000, poll_cookie_status))
                     thread = threading.Thread(target=poll_in_thread, daemon=True)
                     thread.start()
                 poll_cookie_status()
@@ -491,7 +532,7 @@ if __name__ == "__main__":
                 print(f"URL: {url}, is_tv_mode: {is_tv_mode}")
                 def progress_callback(progress, message):
                     print(f"解析进度: {progress}%, {message}")
-                    QTimer.singleShot(0, lambda: window.update_parse_progress(progress, message))
+                    window.signal_emitter.parse_progress.emit(int(progress), message)
                 def parse_in_thread():
                     print("=== parse_in_thread开始执行 ===")
                     try:
@@ -519,14 +560,14 @@ if __name__ == "__main__":
                             print(f"media_info获取成功，发送信号")
                             window.signal_emitter.parse_finished.emit(media_info)
                         except Exception as e:
-                            print(f"解析媒体信息时出错: {str(e)}")
+                            logger.error(f"\1")
                             import traceback
-                            traceback.print_exc()
+                            logger.debug("traceback", exc_info=True)
                             window.signal_emitter.parse_finished.emit({"success": False, "error": f"解析失败：{str(e)}"})
                     except Exception as e:
-                        print(f"handle_parse_media异常: {str(e)}")
+                        logger.warning(f"\1")
                         import traceback
-                        traceback.print_exc()
+                        logger.debug("traceback", exc_info=True)
                         window.signal_emitter.parse_finished.emit({"success": False, "error": f"解析失败：{str(e)}"})
                 print("启动解析线程")
                 thread = threading.Thread(target=parse_in_thread, daemon=True)
@@ -537,8 +578,7 @@ if __name__ == "__main__":
             window.signal_emitter.start_download.connect(download_manager[0].start_download)
             def handle_same_task_exists(download_params):
                 print("检测到相同任务已存在，打开下载窗口")
-                from PyQt5.QtCore import QTimer
-                QTimer.singleShot(0, lambda: window.show_notification("相同的下载任务已存在！", "info") if hasattr(window, 'show_notification') else None)
+                window.show_notification("相同的下载任务已存在！", "info")
                 def switch_to_download():
                     if hasattr(window, 'batch_windows'):
                         existing_window = None
@@ -560,14 +600,13 @@ if __name__ == "__main__":
                             if hasattr(window, 'expanded_widget') and window.expanded_widget:
                                 window.expanded_widget.adjustSize()
                         except Exception as e:
-                            print(f"切换到下载窗口失败：{str(e)}")
-                QTimer.singleShot(0, switch_to_download)
+                            logger.error(f"\1")
+                run_on_main_thread(switch_to_download)
             download_manager[0].same_task_exists.connect(handle_same_task_exists)
             window.signal_emitter.same_task_exists.connect(handle_same_task_exists)
             def handle_cancel_download():
                 download_manager[0].cancel_all()
-                from PyQt5.QtCore import QTimer
-                QTimer.singleShot(0, lambda: window.status_label.setText("下载已取消"))
+                run_on_main_thread(lambda: window.status_label.setText("下载已取消"))
             window.signal_emitter.cancel_download.connect(handle_cancel_download)
             download_manager[0].global_progress_updated.connect(window.update_download_progress)
             download_manager[0].episode_progress_updated.connect(window.update_episode_progress)
@@ -631,9 +670,9 @@ if __name__ == "__main__":
                     try:
                         window.signal_emitter.show_debug_window.emit(error_msg, code_context, file_path)
                     except Exception:
-                        print(f"应用程序运行时错误：{error_msg}")
+                        logger.error(f"\1")
                 else:
-                    print(f"应用程序运行时错误：{error_msg}")
+                    logger.error(f"\1")
             except Exception:
                 pass
         sys.excepthook = excepthook
@@ -641,11 +680,11 @@ if __name__ == "__main__":
             app.exec_()
         except Exception as e:
             import traceback
-            print(f"应用程序运行时错误：{str(e)}")
-            print(traceback.format_exc())
+            logger.error(f"\1")
+            print(logger.debug("traceback", exc_info=True))
             input("按回车键退出...")
     except Exception as e:
         import traceback
-        print(f"应用程序启动失败：{str(e)}")
-        print(traceback.format_exc())
+        logger.error(f"\1")
+        print(logger.debug("traceback", exc_info=True))
         input("按回车键退出...")

@@ -2,10 +2,12 @@ import os
 import time
 import threading
 import shutil
+from datetime import datetime
 from functools import partial
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from PyQt5.QtCore import QThread, pyqtSignal, QObject, Qt, QMutex, QWaitCondition
 from utils import get_unique_filename
+from platform_utils import IS_MACOS, IS_WINDOWS, illegal_filename_chars
 
 try:
     from logger_config import logger
@@ -139,11 +141,11 @@ class EpisodeDownloadThread(QThread):
                     self.ep_title = actual_title
                 else:
                     self.ep_title = f"第{self.ep_index+1}集"
-            for c in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
+            for c in illegal_filename_chars():
                 self.ep_title = self.ep_title.replace(c, '_')
             self.ep_title = self.ep_title[:30]
         except Exception as e:
-            print(f"标题初始化错误: {e}")
+            logger.error(f"标题初始化错误: {e}")
             self.ep_title = f"第{self.ep_index+1}集"
 
     def _check_save_path(self):
@@ -448,12 +450,8 @@ class EpisodeDownloadThread(QThread):
                 try:
                     os.rename(video_path, output_path)
                 except Exception as e:
-                    
-                    if "系统无法将文件移到不同的磁盘驱动器" in str(e):
-                        import shutil
-                        shutil.move(video_path, output_path)
-                    else:
-                        raise Exception(f"重命名文件失败：{str(e)}")
+                    import shutil
+                    shutil.move(video_path, output_path)
             
 
             if not os.path.exists(output_path):
@@ -713,7 +711,16 @@ class DownloadManager(QObject):
                 "download_danmaku": download_danmaku,
                 "danmaku_format": danmaku_format,
                 "video_format": video_format,
-                "audio_format": audio_format
+                "audio_format": audio_format,
+                "audio_quality": download_params.get('audio_quality', 0),
+                "bvid": video_info.get("bvid", ""),
+                "aid": video_info.get("aid", ""),
+                "up_name": video_info.get("owner", {}).get("name", ""),
+                "cover_url": video_info.get("pic", ""),
+                "total_episodes": len(episodes),
+                "completed_episodes": 0,
+                "task_start_time": datetime.now().isoformat(),
+                "task_type": "video",
             }
             task = self.task_manager.add_task(task_info_for_manager)
             self.task_added.emit(task_id)
@@ -920,7 +927,7 @@ class DownloadManager(QObject):
                         ep_title = actual_title
                     else:
                         ep_title = f"第{ep_index+1}集"
-                for c in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
+                for c in illegal_filename_chars():
                     ep_title = ep_title.replace(c, '_')
                 ep_title = ep_title[:30]
             except Exception as e:
@@ -1033,12 +1040,8 @@ class DownloadManager(QObject):
                         try:
                             os.rename(video_path, output_path)
                         except Exception as e:
-                            
-                            if "系统无法将文件移到不同的磁盘驱动器" in str(e):
-                                import shutil
-                                shutil.move(video_path, output_path)
-                            else:
-                                raise Exception(f"重命名文件失败：{str(e)}")
+                            import shutil
+                            shutil.move(video_path, output_path)
                     self.episode_progress_updated.emit(task_id, ep_index, 100, "合并完成")
                     self.merge_finished.emit(task_id, ep_index)
                     logger.info(f"任务{task_id}：第{ep_index+1}集视频下载完成")
@@ -1435,7 +1438,7 @@ class DownloadManager(QObject):
                     status += f" ({speed_str})"
                 
                 if p % 10 == 0:
-                    print(f"任务{task_id}：{status}")
+                    logger.debug(f"任务{task_id}：{status}")
 
                 self._mutex.lock()
                 task_info = self.active_tasks.get(task_id)
@@ -1688,7 +1691,8 @@ class DownloadManager(QObject):
                             "progress": 100,
                             "completed_episodes": task_info['completed_episodes'],
                             "failed_episodes": task_info['failed_episodes'],
-                            "downloaded_episodes": task_info.get('downloaded_episodes', [])
+                            "downloaded_episodes": task_info.get('downloaded_episodes', []),
+                            "task_end_time": datetime.now().isoformat(),
                         }
                         if task_info['failed_episodes'] > 0:
                             self.task_manager.update_task_status(task_id, "failed", f"部分失败：成功{task_info['completed_episodes']}集，失败{task_info['failed_episodes']}集", task_data)
@@ -1886,7 +1890,7 @@ class DownloadManager(QObject):
                                 title_candidates = [ep.get('ep_title', ''), ep.get('title', ''), ep.get('name', '')]
                                 actual_title = next((t for t in title_candidates if t), '')
                                 check_title = actual_title if actual_title else f"第{idx+1}集"
-                            for c in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
+                            for c in illegal_filename_chars():
                                 check_title = check_title.replace(c, '_')
                             check_title = check_title[:30]
                             check_title = check_title.replace("正片_", "")

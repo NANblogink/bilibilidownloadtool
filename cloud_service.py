@@ -6,6 +6,7 @@ import os
 import sys
 import time
 import threading
+from platform_utils import IS_MACOS, IS_WINDOWS, exe
 
 logger = logging.getLogger(__name__)
 
@@ -14,9 +15,9 @@ GITHUB_API = "https://api.github.com/repos/NANblogink/bilibilidownloadtool/relea
 
 
 class CloudService:
-    def __init__(self, current_version="2.0.1"):
+    def __init__(self, current_version="2.0.2"):
         self.current_version = current_version
-        self.platform = "windows"
+        self.platform = "macos" if IS_MACOS else ("windows" if IS_WINDOWS else "linux")
         self.session = requests.Session()
         self.session.timeout = 10
         self._dismissed_file = self._get_dismissed_file_path()
@@ -43,12 +44,22 @@ class CloudService:
         try:
             result = self._check_custom_api(channel)
             if result is not None:
+                if not result.get("has_update", False):
+                    return result
+                latest = result.get("latest_version", "")
+                if latest and self._parse_version(self.current_version) >= self._parse_version(latest):
+                    result["has_update"] = False
                 return result
         except Exception as e:
             logger.debug(f"自建API检查失败，回退到GitHub: {e}")
 
         try:
-            return self._check_github_api()
+            result = self._check_github_api()
+            if result.get("has_update", False):
+                latest = result.get("latest_version", "")
+                if latest and self._parse_version(self.current_version) >= self._parse_version(latest):
+                    result["has_update"] = False
+            return result
         except Exception as e:
             logger.error(f"GitHub API检查也失败: {e}")
             return {"has_update": False}
@@ -108,21 +119,18 @@ class CloudService:
 
             download_url = ""
             file_size = 0
-            import sys as _sys
-            is_mac = _sys.platform == 'darwin'
             for asset in release.get("assets", []):
                 name = asset.get("name", "").lower()
-                if is_mac:
-                    if name.endswith(".dmg") or name.endswith(".zip"):
-                        if "mac" in name or "darwin" in name or name.endswith(".dmg"):
-                            download_url = asset.get("browser_download_url", "")
-                            file_size = asset.get("size", 0)
-                            break
+                if IS_WINDOWS:
+                    is_main = name.endswith(".exe") and "installer" not in name and "uninstall" not in name
+                elif IS_MACOS:
+                    is_main = name.endswith(".dmg") and "installer" not in name and "uninstall" not in name
                 else:
-                    if name.endswith(".exe") and "installer" not in name and "uninstall" not in name:
-                        download_url = asset.get("browser_download_url", "")
-                        file_size = asset.get("size", 0)
-                        break
+                    is_main = "installer" not in name and "uninstall" not in name and not name.endswith('.py')
+                if is_main:
+                    download_url = asset.get("browser_download_url", "")
+                    file_size = asset.get("size", 0)
+                    break
 
             if not download_url:
                 download_url = release.get("html_url", "")
@@ -249,6 +257,8 @@ class CloudService:
 
     def download_update(self, download_url, save_path, progress_callback=None):
         try:
+            if download_url.startswith('/'):
+                download_url = f"https://www.bilidown.cn{download_url}"
             resp = self.session.get(download_url, stream=True, timeout=30)
             total = int(resp.headers.get("content-length", 0))
             downloaded = 0

@@ -1,39 +1,107 @@
-
-import os
 import sys
+import os
 import webbrowser
 import shutil
 import time
 import json
 import traceback
 import logging
+import ctypes
 import re
 import requests
 import threading
-
-IS_WINDOWS = sys.platform == 'win32'
-IS_MACOS = sys.platform == 'darwin'
-
-if IS_WINDOWS:
-    try:
-        import ctypes
-    except ImportError:
-        ctypes = None
+from platform_utils import IS_MACOS, IS_WINDOWS, exe, subprocess_no_window_kwargs, get_system_proxy
 
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QPushButton, QScrollArea,
                              QComboBox, QLabel, QFileDialog, QProgressBar, QMessageBox, QGroupBox,
                              QCheckBox, QTextEdit, QDialog, QListWidget, QListWidgetItem,
                              QStackedWidget, QRadioButton, QButtonGroup, QSpacerItem, QSizePolicy, QMenu,
-                             QApplication, QSpinBox, QTabWidget, QSystemTrayIcon, QCompleter, QToolBar, QAction, QStyle, QSplitter, QTreeView, QFileSystemModel, QFrame)
+                             QApplication, QSpinBox, QTabWidget, QSystemTrayIcon, QCompleter, QToolBar, QAction, QStyle, QSplitter, QTreeView, QFileSystemModel, QFrame, QHeaderView)
 from PyQt5.QtCore import QSize, Qt, pyqtSignal, QObject, QEvent, pyqtSlot, QPoint, QThread, QTimer, QEventLoop, QUrl, QCoreApplication, QMetaObject, Q_ARG, QDir
 from PyQt5.QtGui import QFont, QPalette, QColor, QCursor, QPixmap, QPainter, QBrush, QIcon, QPainterPath, QImage
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 from PyQt5.QtWebChannel import QWebChannel
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+try:
+    from logger_config import setup_logging as _setup_log
+    _setup_log()
+except Exception:
+    pass
+
 logger = logging.getLogger(__name__)
 
-if hasattr(sys, 'frozen') or sys.platform == 'win32':
+def global_exception_hook(exctype, value, tb):
+    if exctype == KeyboardInterrupt:
+        sys.__excepthook__(exctype, value, tb)
+        return
+    logger.error(f"未捕获的异常: {value}", exc_info=(exctype, value, tb))
+
+sys.excepthook = global_exception_hook
+
+
+import collections
+
+
+class _SafeExecHelper(QObject):
+    _trigger = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self._queue = collections.deque()
+        self._timer = QTimer(self)
+        self._timer.setInterval(0)
+        self._timer.timeout.connect(self._drain)
+        self._trigger.connect(self._on_trigger)
+
+    def _on_trigger(self):
+        if not self._timer.isActive() and self._queue:
+            self._timer.start()
+
+    def _drain(self):
+        try:
+            while self._queue:
+                cb = self._queue.popleft()
+                cb()
+        except Exception:
+            pass
+        if not self._queue:
+            self._timer.stop()
+
+
+_safe_helper = _SafeExecHelper()
+
+
+def run_on_main_thread(callback):
+    try:
+        _safe_helper._queue.append(callback)
+        _safe_helper._trigger.emit()
+    except Exception:
+        pass
+
+
+logger = logging.getLogger(__name__)
+
+
+def _global_excepthook(exc_type, exc_value, exc_tb):
+    logger.critical("未捕获异常", exc_info=(exc_type, exc_value, exc_tb))
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+
+sys.excepthook = _global_excepthook
+
+
+def _log_thread_exception(args):
+    logger.critical("线程异常", exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+
+
+if hasattr(sys, 'excepthook'):
+    try:
+        threading.excepthook = _log_thread_exception
+    except Exception:
+        pass
+
+if IS_WINDOWS:
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
     except:
@@ -58,7 +126,7 @@ def init_dpi_scale():
                 global_ui_shrink = max(0.35, 1.0 / (global_dpi_scale ** 1.2))
                 return
         import ctypes
-        if sys.platform == 'win32':
+        if IS_WINDOWS:
             hdc = ctypes.windll.user32.GetDC(0)
             if hdc:
                 dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)
@@ -66,7 +134,7 @@ def init_dpi_scale():
                 if dpi > 0:
                     global_dpi_scale = dpi / 96.0
                     global_ui_shrink = max(0.35, 1.0 / (global_dpi_scale ** 1.2))
-                    return
+                return
     except:
         pass
     global_dpi_scale = 1.0
@@ -81,19 +149,28 @@ def scale_style(style_str):
     return re.sub(r'(\d+)px', lambda m: str(scale(int(m.group(1)))) + 'px', style_str)
 
 def load_version_info():
-    try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        version_file = os.path.join(script_dir, 'version_info.json')
-        with open(version_file, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception as e:
-        print(f"读取版本信息失败：{str(e)}")
-        return {
-            "version": "V1.8",
-            "author": "寒烟似雪",
-            "qq": "2273962061",
-            "description": "B站视频解析下载工具"
-        }
+    candidates = []
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates.append(os.path.join(script_dir, 'version_info.json'))
+    if hasattr(sys, '_MEIPASS'):
+        candidates.append(os.path.join(sys._MEIPASS, 'version_info.json'))
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.dirname(sys.executable)
+        candidates.append(os.path.join(exe_dir, 'version_info.json'))
+    for version_file in candidates:
+        if os.path.exists(version_file):
+            try:
+                with open(version_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                continue
+    logger.warning("version_info.json not found in any candidate directory")
+    return {
+        "version": "V2.0.2",
+        "author": "寒烟似雪",
+        "qq": "2273962061",
+        "description": "B站视频解析下载工具"
+    }
 
 version_info = load_version_info()
 
@@ -104,7 +181,7 @@ _BASE_STYLE = """
         border: 1px solid #e9ecef;
     }
     QWidget { 
-        font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif; 
+        font-family: "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif; 
         font-size: 13px; 
         color: #333333;
     }
@@ -236,8 +313,10 @@ class CaptchaHandler(QObject):
     @pyqtSlot(str, str, str)
     def onCaptchaSuccess(self, validate, seccode, challenge):
         if validate:
-            self.callback(validate, seccode, challenge)
-            self.dialog.accept()
+            try:
+                self.callback(validate, seccode, challenge)
+            except Exception as e:
+                logger.error(f"CaptchaHandler回调异常: {e}")
 
 def show_captcha_dialog(gt, challenge, callback, parent=None):
     try:
@@ -316,7 +395,56 @@ def show_captcha_dialog(gt, challenge, callback, parent=None):
         info_label.setStyleSheet(f"font-size: {scale(18)}px; font-weight: 600; color: #333; letter-spacing: 0.5px;")
         content_layout.addWidget(info_label)
         
-        web_view = QWebEngineView()
+        web_view = None
+        web_engine_error = None
+        try:
+            web_view = QWebEngineView()
+            web_view.page().renderProcessTerminated.connect(
+                lambda status, code, wv=web_view: logger.warning(f"QWebEngineView渲染进程终止: status={status}, code={code}")
+            )
+            
+            _captcha_cookies = {}
+            def _on_captcha_cookie_added(cookie):
+                try:
+                    name = bytes(cookie.name()).decode('utf-8', errors='replace')
+                    value = bytes(cookie.value()).decode('utf-8', errors='replace')
+                    domain = cookie.domain()
+                    if name and value:
+                        _captcha_cookies[name] = value
+                except Exception:
+                    pass
+            
+            try:
+                _cs = web_view.page().profile().cookieStore()
+                _cs.cookieAdded.connect(_on_captcha_cookie_added)
+            except Exception:
+                pass
+            
+            def _sync_captcha_cookies():
+                if _captcha_cookies:
+                    logger.info(f"极验验证完成，回写{len(_captcha_cookies)}个cookie到session")
+                    try:
+                        self.parser.session.cookies.update(_captcha_cookies)
+                        self.parser.cookies.update(_captcha_cookies)
+                    except Exception:
+                        pass
+            
+            _captcha_sync_fn = _sync_captcha_cookies
+            dialog._sync_captcha_cookies = _sync_captcha_cookies
+        except Exception as e:
+            web_engine_error = str(e)
+            logger.error(f"QWebEngineView初始化失败: {e}")
+            _captcha_sync_fn = lambda: None
+        
+        if web_view is None:
+            QMessageBox.warning(parent or None, "人机验证不可用", 
+                "当前环境下无法加载验证码组件（QWebEngine）。\n\n"
+                "请使用「扫码登录」方式完成登录。\n\n"
+                f"错误详情: {web_engine_error or '未知错误'}",
+                QMessageBox.Ok)
+            callback(None, None, None)
+            return None
+        
         web_view.setMinimumSize(scale(380), scale(260))
         web_view.setStyleSheet(f"border-radius: {scale(8)}px;")
         content_layout.addWidget(web_view)
@@ -593,12 +721,52 @@ def show_captcha_dialog(gt, challenge, callback, parent=None):
         dialog.mousePressEvent = mousePressEvent
         dialog.mouseMoveEvent = mouseMoveEvent
         dialog.mouseReleaseEvent = mouseReleaseEvent
-        
-        
+
+        _captcha_timeout_timer = QTimer()
+        _captcha_timeout_timer.setSingleShot(True)
+        _captcha_timed_out = [False]
+
+        def _on_captcha_timeout():
+            _captcha_timed_out[0] = True
+            logger.warning("验证码对话框超时（120秒），自动关闭")
+            try:
+                callback(None, None, None)
+            except Exception:
+                pass
+            dialog.reject()
+
+        _captcha_timeout_timer.timeout.connect(_on_captcha_timeout)
+        _captcha_timeout_timer.start(120000)
+
+        _orig_callback = callback
+        def _wrapped_callback(validate, seccode, challenge):
+            _captcha_timeout_timer.stop()
+            try:
+                _orig_callback(validate, seccode, challenge)
+            except Exception as ex:
+                logger.error(f"captcha callback error: {ex}")
+            finally:
+                if validate:
+                    dialog.accept()
+
+        handler.callback = _wrapped_callback
+
         dialog.exec_()
+
+        _captcha_timeout_timer.stop()
+        try:
+            _sync_captcha_cookies()
+        except Exception:
+            pass
+        try:
+            if web_view:
+                web_view.stop()
+                web_view.setUrl(QUrl('about:blank'))
+                web_view.deleteLater()
+        except Exception:
+            pass
     except Exception as e:
-        print(f"验证码对话框错误：{str(e)}")
-        print(traceback.format_exc())
+        logger.error(f"验证码对话框错误：{str(e)}", exc_info=True)
         callback(None, None, None)
 
 class ExpandedCard(QDialog):
@@ -1116,7 +1284,7 @@ class FloatingBall(QWidget):
             else:
                 painter.setPen(QColor(255, 255, 255))
                 font_size = int(self.width() * 0.3)
-                ball_font = QFont("PingFang SC" if IS_MACOS else "Microsoft YaHei", font_size, QFont.Bold)
+                ball_font = QFont("Microsoft YaHei", font_size, QFont.Bold)
                 painter.setFont(ball_font)
                 painter.drawText(self.rect(), Qt.AlignCenter, "B")
             painter.end()
@@ -1331,13 +1499,13 @@ class FloatingBall(QWidget):
             print("=== 窗口显示完成 ===")
         except Exception as e:
             
-            print(f"展开悬浮球时出错：{str(e)}")
+            logger.error(f"\1")
             
             self.expanded = False
             self.expanded_widget = None
             
             
-            traceback.print_exc()
+            logger.debug("traceback", exc_info=True)
     
     def collapse(self):
         print("关闭按钮被点击了！")
@@ -1348,7 +1516,7 @@ class FloatingBall(QWidget):
                 self.expanded_widget.hide()
                 print("expanded_widget已隐藏")
             except Exception as e:
-                print(f"隐藏时出错: {str(e)}")
+                logger.error(f"\1")
         else:
             print("expanded_widget不存在")
         self.expanded = False
@@ -1575,18 +1743,18 @@ class FloatingBall(QWidget):
                                 print("parser未初始化，无法获取弹幕信息")
                                 return
                             
-                            print(f"开始获取弹幕信息，cid: {cid}")
+                            logger.debug("开始\1")
                             danmaku_video_info = self.parent.parser.get_danmaku(cid)
-                            print(f"获取弹幕信息结果: {danmaku_video_info}")
+                            logger.debug("获取\1")
                             if danmaku_video_info.get('error') == "":
                                 count = danmaku_video_info.get('data', {}).get('count', 0)
-                                QTimer.singleShot(0, lambda: self.parent.danmaku_count_label.setText(f"{count}条"))
+                                run_on_main_thread(lambda: self.parent.danmaku_count_label.setText(f"{count}条"))
                             else:
-                                QTimer.singleShot(0, lambda: self.parent.danmaku_count_label.setText("获取失败"))
+                                run_on_main_thread(lambda: self.parent.danmaku_count_label.setText("获取失败"))
                         except Exception as e:
-                            print(f"获取弹幕信息失败：{str(e)}")
-                            traceback.print_exc()
-                            QTimer.singleShot(0, lambda: self.parent.danmaku_count_label.setText("获取失败"))
+                            logger.warning(f"\1")
+                            logger.debug("traceback", exc_info=True)
+                            run_on_main_thread(lambda: self.parent.danmaku_count_label.setText("获取失败"))
                     
                     thread = threading.Thread(target=get_danmaku_info, daemon=True)
                     thread.start()
@@ -1923,7 +2091,7 @@ class FloatingBall(QWidget):
                     'progress_text': progress_text
                 }
             except Exception as e:
-                print(f"添加剧集进度条失败：{str(e)}")
+                logger.warning(f"\1")
                 return
         
         
@@ -1946,7 +2114,7 @@ class FloatingBall(QWidget):
                 elif "完成" in status:
                     task_info['name_label'].setText("下载完成")
             except Exception as e:
-                print(f"更新剧集进度失败：{str(e)}")
+                logger.warning(f"\1")
     
     def finish_episode(self, task_id, ep_index, success, message):
         try:
@@ -1972,7 +2140,7 @@ class FloatingBall(QWidget):
                         import winsound
                         winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
                     except Exception as e:
-                        print(f"播放提示音失败：{str(e)}")
+                        logger.warning(f"\1")
         else:
             
             if self.parent and hasattr(self.parent, 'show_notification'):
@@ -2195,7 +2363,7 @@ class ParseProgressWindow(QDialog):
             self.log_text.append(log_message)
             self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
         except Exception as e:
-            print(f"更新进度时出错: {str(e)}")
+            logger.error(f"\1")
     
     def add_log(self, message):
         self.add_log_signal.emit(message)
@@ -2203,6 +2371,129 @@ class ParseProgressWindow(QDialog):
     def _add_log_slot(self, message):
         self.log_text.append(message)
         self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
+
+
+class DataLoadingDialog(QDialog):
+    update_signal = pyqtSignal(int, str)
+    close_signal = pyqtSignal()
+    
+    def __init__(self, parent=None, title="加载中", message="正在加载数据..."):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog | Qt.WindowStaysOnTopHint)
+        self.setWindowModality(Qt.ApplicationModal)
+        self.setAutoFillBackground(True)
+        self.setFixedSize(scale(420), scale(200))
+        
+        self._cancelled = False
+        
+        custom_style = get_base_style() + scale_style("""
+            QDialog {
+                background-color: white;
+                border: 2px solid #409eff;
+                border-radius: 12px;
+            }
+            QLabel {
+                color: #333;
+                font-size: 14px;
+            }
+            QProgressBar {
+                min-height: 14px;
+                border-radius: 7px;
+                background-color: #e9ecef;
+                border: none;
+            }
+            QProgressBar::chunk {
+                border-radius: 7px;
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #409eff, stop:1 #68d3b8);
+            }
+            QPushButton {
+                background-color: #f5f5f5;
+                border: 1px solid #d9d9d9;
+                border-radius: 6px;
+                padding: 6px 20px;
+                font-size: 13px;
+                color: #666;
+                min-height: 30px;
+            }
+            QPushButton:hover {
+                background-color: #e8e8e8;
+                border-color: #409eff;
+                color: #409eff;
+            }
+        """)
+        self.setStyleSheet(custom_style)
+        
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(scale(24), scale(24), scale(24), scale(20))
+        main_layout.setSpacing(scale(12))
+        
+        title_bar = QHBoxLayout()
+        title_label = QLabel(title)
+        title_label.setStyleSheet(scale_style("font-size: 16px; font-weight: 600; color: #409eff;"))
+        title_bar.addWidget(title_label)
+        title_bar.addStretch()
+        main_layout.addLayout(title_bar)
+        
+        self.message_label = QLabel(message)
+        self.message_label.setWordWrap(True)
+        self.message_label.setStyleSheet(scale_style("font-size: 14px; color: #555;"))
+        main_layout.addWidget(self.message_label)
+        
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        main_layout.addWidget(self.progress_bar)
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.clicked.connect(self._on_cancel)
+        btn_layout.addWidget(self.cancel_btn)
+        main_layout.addLayout(btn_layout)
+        
+        self.update_signal.connect(self._on_update)
+        self.close_signal.connect(self._on_close)
+        
+        self.drag_position = None
+    
+    def _on_cancel(self):
+        self._cancelled = True
+        self.reject()
+    
+    def is_cancelled(self):
+        return self._cancelled
+    
+    def update_progress(self, value, message):
+        self.update_signal.emit(value, message)
+    
+    def finish_and_close(self):
+        self.close_signal.emit()
+    
+    def _on_update(self, value, message):
+        try:
+            self.progress_bar.setValue(value)
+            if message:
+                self.message_label.setText(message)
+        except Exception:
+            pass
+    
+    def _on_close(self):
+        try:
+            self.accept()
+        except Exception:
+            pass
+    
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.drag_position = event.globalPos() - self.frameGeometry().topLeft()
+            event.accept()
+    
+    def mouseMoveEvent(self, event):
+        if self.drag_position and event.buttons() & Qt.LeftButton:
+            self.move(event.globalPos() - self.drag_position)
+            event.accept()
 
 
 class BaseWindow(QMainWindow):
@@ -2352,7 +2643,11 @@ class SignalEmitter(QObject):
     network_test_result = pyqtSignal(bool, str)
     folders_loaded = pyqtSignal(list)
     folder_content_loaded = pyqtSignal(list)
+    folder_content_page = pyqtSignal(list, int, int)
+    folder_content_finished = pyqtSignal(int)
     folder_error = pyqtSignal(str)
+    data_loading_progress = pyqtSignal(int, str)
+    data_loading_finished = pyqtSignal()
     batch_parse_result = pyqtSignal(object, bool, object)
     batch_parse_progress = pyqtSignal(int, int, str)
     update_available = pyqtSignal(dict)
@@ -2360,6 +2655,8 @@ class SignalEmitter(QObject):
 
 
 class NotificationWidget(QWidget):
+    _show_signal = pyqtSignal(str, str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         
@@ -2396,7 +2693,15 @@ class NotificationWidget(QWidget):
         self.setMinimumWidth(scale(300))
         self.setMaximumWidth(scale(500))
         
+        self._show_signal.connect(self._do_show_notification)
+        
     def show_notification(self, message, notification_type="info"):
+        if threading.current_thread() is not threading.main_thread():
+            self._show_signal.emit(message, notification_type)
+            return
+        self._do_show_notification(message, notification_type)
+    
+    def _do_show_notification(self, message, notification_type="info"):
         print(f"NotificationWidget.show_notification called with message: {message}, type: {notification_type}")
         try:
             # 立即更新消息内容和样式
@@ -2436,8 +2741,8 @@ class NotificationWidget(QWidget):
             QTimer.singleShot(5000, self.hide)
             print("通知显示成功，5秒后自动隐藏")
         except Exception as e:
-            print(f"通知显示失败：{str(e)}")
-            traceback.print_exc()
+            logger.warning(f"\1")
+            logger.debug("traceback", exc_info=True)
     
     def center(self):
         screen = QApplication.primaryScreen()
@@ -2460,6 +2765,150 @@ class NotificationWidget(QWidget):
     def mousePressEvent(self, event):
         self.hide()
 
+class AnnouncementDialog(QDialog):
+    action_triggered = pyqtSignal(dict)
+
+    def __init__(self, parent, announcement):
+        super().__init__(parent)
+        self.ann = announcement
+        ann_type = announcement.get("type", "info")
+
+        tc_map = {
+            "info": ("#1677ff", "#f0f5ff"),
+            "warning": ("#fa8c16", "#fff7e6"),
+            "error": ("#ff4d4f", "#fff2f0"),
+            "update": ("#52c41a", "#f6ffed"),
+        }
+        accent, bg_color = tc_map.get(ann_type, tc_map["info"])
+
+        self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
+        self.setWindowTitle(announcement.get('title', '公告'))
+        self.setAttribute(Qt.WA_DeleteOnClose, True)
+
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: white;
+                border: none;
+            }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(14)
+
+        header = QHBoxLayout()
+        header.setSpacing(12)
+
+        icon_lbl = QLabel()
+        icon_lbl.setFixedSize(28, 28)
+        icon_lbl.setStyleSheet(f"""
+            QLabel {{
+                background-color: {accent};
+                color: white;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+            }}
+        """)
+        icons = {"info": "i", "warning": "!", "error": "\u00d7", "update": "\u2191"}
+        icon_lbl.setText(icons.get(ann_type, "i"))
+        icon_lbl.setAlignment(Qt.AlignCenter)
+        header.addWidget(icon_lbl)
+
+        title_lbl = QLabel(announcement.get('title', '公告'))
+        title_lbl.setStyleSheet("font-size: 15px; font-weight: 600; color: #262626;")
+        header.addWidget(title_lbl, 1)
+
+        layout.addLayout(header)
+
+        body_lbl = QLabel(announcement.get('content', ''))
+        body_lbl.setWordWrap(True)
+        body_lbl.setStyleSheet(f"""
+            QLabel {{
+                font-size: 13px;
+                color: #595959;
+                background-color: {bg_color};
+                padding: 12px;
+                border-radius: 6px;
+            }}
+        """)
+        body_lbl.setMinimumHeight(60)
+        layout.addWidget(body_lbl, 1)
+
+        action = announcement.get("action", {})
+        atype = action.get("type", "none")
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+
+        if atype in ("update", "url"):
+            primary = QPushButton("查看详情" if atype == "url" else "立即更新")
+            primary.setCursor(Qt.PointingHandCursor)
+            primary.setFixedHeight(32)
+            primary.setMinimumWidth(88)
+            primary.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {accent};
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    font-size: 13px;
+                    font-weight: 500;
+                    padding: 0 16px;
+                }}
+                QPushButton:hover {{ background-color: #0958d9; }}
+                QPushButton:pressed {{ background-color: #003eb3; }}
+            """)
+            primary.clicked.connect(lambda: self.action_triggered.emit(self.ann))
+            btn_row.addWidget(primary)
+
+            secondary = QPushButton("关闭")
+            secondary.setCursor(Qt.PointingHandCursor)
+            secondary.setFixedHeight(32)
+            secondary.setStyleSheet("""
+                QPushButton {
+                    background-color: white;
+                    color: #595959;
+                    border: 1px solid #d9d9d9;
+                    border-radius: 5px;
+                    font-size: 13px;
+                    padding: 0 14px;
+                }
+                QPushButton:hover { border-color: #bbb; color: #333; }
+                QPushButton:pressed { background-color: #fafafa; }
+            """)
+            secondary.clicked.connect(self.close)
+            btn_row.addWidget(secondary)
+        else:
+            ok_btn = QPushButton("我知道了")
+            ok_btn.setCursor(Qt.PointingHandCursor)
+            ok_btn.setFixedHeight(32)
+            ok_btn.setMinimumWidth(88)
+            ok_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {accent};
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    font-size: 13px;
+                    font-weight: 500;
+                    padding: 0 16px;
+                }}
+                QPushButton:hover {{ background-color: #0958d9; }}
+            """)
+            ok_btn.clicked.connect(self.close)
+            btn_row.addWidget(ok_btn)
+
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        self.setMinimumWidth(360)
+        self.setMaximumWidth(500)
+        self.setMinimumHeight(200)
+        self.setMaximumHeight(400)
+        self.adjustSize()
+
+
 class UpdateDialog(QDialog):
     _progress_signal = pyqtSignal(int, str)
     _status_signal = pyqtSignal(str, bool)
@@ -2469,153 +2918,133 @@ class UpdateDialog(QDialog):
             super().__init__(parent)
             self.update_info = update_info
             self.setAttribute(Qt.WA_DeleteOnClose)
-            self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
-            self.setAutoFillBackground(True)
-            self.setFixedSize(scale(460), scale(400))
+            self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
+            self.setWindowTitle("检查更新")
 
             self._progress_signal.connect(self._on_progress)
             self._status_signal.connect(self._on_status_update)
 
-            container = QWidget(self)
-            container.setObjectName("updateDialogContainer")
-            container.setStyleSheet(scale_style("""
-                #updateDialogContainer {
+            is_force = update_info.get("force_update", False)
+            accent = "#cf1322" if is_force else "#1677ff"
+
+            self.setStyleSheet(f"""
+                QDialog {{
                     background-color: white;
-                    border-radius: 12px;
-                    border: 1px solid #e0e0e0;
-                }
-                QLabel { font-family: 'Microsoft YaHei', sans-serif; }
-                QPushButton { font-family: 'Microsoft YaHei', sans-serif; }
-            """))
+                    border: none;
+                }}
+            """)
 
-            main_layout = QVBoxLayout(self)
-            main_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
-            main_layout.addWidget(container)
+            layout = QVBoxLayout(self)
+            layout.setContentsMargins(24, 20, 24, 20)
+            layout.setSpacing(14)
 
-            layout = QVBoxLayout(container)
-            layout.setContentsMargins(scale(24), scale(20), scale(24), scale(20))
-            layout.setSpacing(scale(10))
+            hdr = QHBoxLayout()
+            hdr.setSpacing(10)
 
-            header_layout = QHBoxLayout()
-            header_layout.setSpacing(scale(10))
+            ver_lbl = QLabel(update_info.get("latest_version", ""))
+            ver_lbl.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {accent};
+                    color: white;
+                    font-size: 12px;
+                    font-weight: 600;
+                    padding: 3px 9px;
+                    border-radius: 4px;
+                }}
+            """)
+            hdr.addWidget(ver_lbl)
 
-            icon_label = QLabel()
-            icon_label.setFixedSize(scale(36), scale(36))
-            icon_label.setStyleSheet(scale_style("""
-                background-color: #1890ff;
-                border-radius: 18px;
-                color: white;
-                font-size: 18px;
-                font-weight: bold;
-                qproperty-alignment: AlignCenter;
-            """))
-            icon_label.setText("↑")
-            header_layout.addWidget(icon_label)
+            ttl = QLabel("有新版本可用")
+            ttl.setStyleSheet("font-size: 16px; font-weight: 600; color: #262626;")
+            hdr.addWidget(ttl, 1)
 
-            title_label = QLabel("发现新版本")
-            title_label.setStyleSheet(scale_style("font-size: 18px; font-weight: bold; color: #1a1a1a;"))
-            header_layout.addWidget(title_label, stretch=1)
-
-            close_btn = QPushButton("×")
-            close_btn.setFixedSize(scale(28), scale(28))
-            close_btn.setCursor(Qt.PointingHandCursor)
-            close_btn.setStyleSheet(scale_style("""
-                QPushButton {
-                    background-color: transparent; border: none; border-radius: 14px;
-                    font-size: 18px; color: #999; font-weight: bold;
-                }
-                QPushButton:hover { background-color: #f0f0f0; color: #333; }
-            """))
-            if not update_info.get("force_update", False):
-                close_btn.clicked.connect(self.reject)
-            else:
-                close_btn.setEnabled(False)
-                close_btn.setStyleSheet("background-color: transparent; border: none;")
-            header_layout.addWidget(close_btn)
-            layout.addLayout(header_layout)
-
-            latest = update_info.get("latest_version", "")
-            ver_label = QLabel(f"V{latest} 已发布")
-            ver_label.setStyleSheet(scale_style("font-size: 14px; color: #1890ff; font-weight: bold;"))
-            layout.addWidget(ver_label)
+            layout.addLayout(hdr)
 
             notes = update_info.get("release_notes", "")
             if notes:
-                notes_edit = QTextEdit()
-                notes_edit.setReadOnly(True)
-                notes_edit.setPlainText(notes)
-                notes_edit.setStyleSheet(scale_style("""
+                te = QTextEdit()
+                te.setReadOnly(True)
+                te.setPlainText(notes)
+                te.setStyleSheet("""
                     QTextEdit {
-                        background-color: #f8f9fa; border: 1px solid #e8e8e8;
-                        border-radius: 6px; padding: 8px; font-size: 13px;
-                        color: #333; font-family: 'Microsoft YaHei', sans-serif;
+                        background-color: #fafafa;
+                        border: 1px solid #e8e8e8;
+                        border-radius: 6px;
+                        padding: 12px;
+                        font-size: 12px;
+                        color: #595959;
                     }
-                """))
-                notes_edit.setMaximumHeight(scale(120))
-                layout.addWidget(notes_edit, stretch=1)
+                """)
+                te.setMinimumHeight(90)
+                te.setMaximumHeight(130)
+                layout.addWidget(te, 1)
 
             self.progress_bar = QProgressBar()
             self.progress_bar.setRange(0, 100)
             self.progress_bar.setValue(0)
-            self.progress_bar.setFixedHeight(scale(6))
+            self.progress_bar.setFixedHeight(5)
             self.progress_bar.setTextVisible(False)
-            self.progress_bar.setStyleSheet(scale_style("""
-                QProgressBar {
-                    background-color: #f0f0f0; border: none; border-radius: 3px;
-                }
-                QProgressBar::chunk {
-                    background-color: #1890ff; border-radius: 3px;
-                }
-            """))
+            self.progress_bar.setStyleSheet(f"""
+                QProgressBar {{ background: #f0f0f0; border: none; border-radius: 2px; }}
+                QProgressBar::chunk {{ background: {accent}; border-radius: 2px; }}
+            """)
             self.progress_bar.hide()
             layout.addWidget(self.progress_bar)
 
             self.status_label = QLabel("")
-            self.status_label.setStyleSheet(scale_style("font-size: 12px; color: #999;"))
+            self.status_label.setAlignment(Qt.AlignCenter)
+            self.status_label.setStyleSheet("font-size: 12px; color: #8c8c8c;")
             self.status_label.hide()
             layout.addWidget(self.status_label)
 
-            btn_layout = QHBoxLayout()
-            btn_layout.addStretch(1)
+            btns = QHBoxLayout()
+            btns.setSpacing(8)
 
-            if update_info.get("force_update", False):
-                self.download_btn = QPushButton("立即更新")
-                self.download_btn.setStyleSheet(scale_style("""
-                    QPushButton {
-                        background-color: #f5222d; color: white; border: none;
-                        border-radius: 6px; padding: 8px 28px; font-size: 14px; font-weight: bold;
-                    }
-                    QPushButton:hover { background-color: #cf1322; }
-                    QPushButton:disabled { background-color: #ddd; color: #999; }
-                """))
-            else:
-                skip_btn = QPushButton("稍后再说")
-                skip_btn.setStyleSheet(scale_style("""
-                    QPushButton {
-                        background-color: #f0f0f0; color: #666; border: none;
-                        border-radius: 6px; padding: 8px 16px; font-size: 13px;
-                    }
-                    QPushButton:hover { background-color: #e0e0e0; }
-                """))
-                skip_btn.clicked.connect(self.reject)
-                btn_layout.addWidget(skip_btn)
+            if not is_force:
+                skip = QPushButton("稍后再说")
+                skip.setCursor(Qt.PointingHandCursor)
+                skip.setFixedHeight(32)
+                skip.setStyleSheet("""
+                    QPushButton {{
+                        background-color: white; color: #595959;
+                        border: 1px solid #d9d9d9; border-radius: 5px;
+                        font-size: 13px; padding: 0 14px;
+                    }}
+                    QPushButton:hover {{ border-color: #bbb; color: #333; }}
+                    QPushButton:pressed {{ background: #fafafa; }}
+                """)
+                skip.clicked.connect(self.reject)
+                btns.addWidget(skip)
 
-                self.download_btn = QPushButton("立即更新")
-                self.download_btn.setStyleSheet(scale_style("""
-                    QPushButton {
-                        background-color: #1890ff; color: white; border: none;
-                        border-radius: 6px; padding: 8px 28px; font-size: 14px; font-weight: bold;
-                    }
-                    QPushButton:hover { background-color: #096dd9; }
-                    QPushButton:disabled { background-color: #ddd; color: #999; }
-                """))
-
+            self.download_btn = QPushButton("立即更新")
+            self.download_btn.setCursor(Qt.PointingHandCursor)
+            self.download_btn.setFixedHeight(32)
+            self.download_btn.setMinimumWidth(96)
+            self.download_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {accent}; color: white;
+                    border: none; border-radius: 5px;
+                    font-size: 13px; font-weight: 500; padding: 0 18px;
+                }}
+                QPushButton:hover {{ background-color: #0958d9; }}
+                QPushButton:pressed {{ background-color: #003eb3; }}
+                QPushButton:disabled {{ background: #d9d9d9; color: #bfbfbf; }}
+            """)
             self.download_btn.clicked.connect(self._on_download)
-            btn_layout.addWidget(self.download_btn)
-            layout.addLayout(btn_layout)
+            btns.addWidget(self.download_btn)
+
+            btns.addStretch()
+            layout.addLayout(btns)
+
+            self.setMinimumWidth(400)
+            self.setMaximumWidth(520)
+            self.setMinimumHeight(250)
+            self.setMaximumHeight(500)
+            self.adjustSize()
 
             self._drag_pos = None
             self._is_downloading = False
+
         except Exception as e:
             logger.error(f"创建更新对话框失败: {e}")
 
@@ -2643,8 +3072,13 @@ class UpdateDialog(QDialog):
                     self._update_status("错误：下载地址为空", True)
                     return
 
+                is_exe_update = download_url.lower().endswith('.exe') if IS_WINDOWS else False
+                
                 temp_dir = tempfile.mkdtemp(prefix="bilidown_update_")
-                save_path = os.path.join(temp_dir, "update.zip")
+                if is_exe_update:
+                    save_path = os.path.join(temp_dir, "update_setup.exe")
+                else:
+                    save_path = os.path.join(temp_dir, "update.zip")
 
                 def progress_cb(pct, done, total):
                     try:
@@ -2664,6 +3098,27 @@ class UpdateDialog(QDialog):
                     self._update_status("文件校验失败，请重新下载", True)
                     return
 
+                if is_exe_update:
+                    self._update_status("正在启动安装程序...")
+                    self._progress_signal.emit(-1, "正在启动安装程序...")
+                    
+                    import subprocess
+                    subprocess.Popen(
+                        [save_path],
+                        **subprocess_no_window_kwargs()
+                    )
+                    
+                    import time
+                    time.sleep(1)
+                    
+                    try:
+                        from PyQt5.QtWidgets import QApplication
+                        QApplication.quit()
+                    except Exception:
+                        pass
+                    os._exit(0)
+                    return
+
                 self._update_status("正在解压更新包...")
                 self._progress_signal.emit(-1, "正在解压更新包...")
 
@@ -2678,7 +3133,7 @@ class UpdateDialog(QDialog):
                 else:
                     app_dir = os.path.dirname(os.path.abspath(__file__))
 
-                update_script = os.path.join(temp_dir, "updater.bat" if IS_WINDOWS else "updater.sh")
+                update_script = os.path.join(temp_dir, "updater.bat")
                 if IS_WINDOWS:
                     script_content = f"""@echo off
 chcp 65001 >nul
@@ -2697,37 +3152,29 @@ echo 更新完成，正在启动程序...
 start "" "{app_dir}\\{os.path.basename(sys.executable) if hasattr(sys, 'frozen') else 'main.py'}"
 exit /b 0
 """
-                else:
-                    script_content = f"""#!/bin/bash
-echo "正在更新B站视频解析工具..."
-sleep 2
+                    with open(update_script, 'w', encoding='utf-8') as f:
+                        f.write(script_content)
 
-cp -rf "{extract_dir}/"* "{app_dir}/"
+                    self._update_status("更新即将完成，程序将自动重启...")
 
-if [ $? -ne 0 ]; then
-    echo "更新失败！"
-    exit 1
-fi
-
-echo "更新完成，正在启动程序..."
-cd "{app_dir}"
-exec "{sys.executable}" {" ".join(sys.argv)}
-"""
-                with open(update_script, 'w', encoding='utf-8') as f:
-                    f.write(script_content)
-
-                if not IS_WINDOWS:
-                    os.chmod(update_script, 0o755)
-
-                self._update_status("更新即将完成，程序将自动重启...")
-
-                if IS_WINDOWS:
                     subprocess.Popen(
                         ['cmd', '/c', update_script],
-                        creationflags=subprocess.CREATE_NO_WINDOW
+                        **subprocess_no_window_kwargs()
                     )
                 else:
-                    subprocess.Popen(['/bin/bash', update_script])
+                    import shutil as _shutil
+                    for item in os.listdir(extract_dir):
+                        src = os.path.join(extract_dir, item)
+                        dst = os.path.join(app_dir, item)
+                        if os.path.isdir(src):
+                            _shutil.copytree(src, dst, dirs_exist_ok=True)
+                        else:
+                            _shutil.copy2(src, dst)
+
+                    self._update_status("更新即将完成，程序将自动重启...")
+
+                    restart_target = os.path.join(app_dir, os.path.basename(sys.executable) if hasattr(sys, 'frozen') else 'main.py')
+                    subprocess.Popen(['open', '-a', 'Terminal', restart_target])
 
                 import time
                 time.sleep(1)
@@ -2772,17 +3219,13 @@ exec "{sys.executable}" {" ".join(sys.argv)}
             pass
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
-            event.accept()
+        event.ignore()
 
     def mouseMoveEvent(self, event):
-        if self._drag_pos and event.buttons() == Qt.LeftButton:
-            self.move(event.globalPos() - self._drag_pos)
-            event.accept()
+        event.ignore()
 
     def mouseReleaseEvent(self, event):
-        self._drag_pos = None
+        event.ignore()
 
 
 class AnnouncementBar(QWidget):
@@ -3258,6 +3701,7 @@ class DanmakuSelectionDialog(QDialog):
                 border: 2px solid #409eff;
                 border-radius: 12px;
                 background-color: white;
+                border: 1px solid #e2e8f0;
             }
             QListWidget {
                 border: none;
@@ -3578,6 +4022,133 @@ class DanmakuSelectionDialog(QDialog):
     
     def on_scroll(self, value):
         pass
+
+
+class ResizableDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._resizing = False
+        self._resize_direction = None
+        self._drag_pos = None
+        self._edge_margin = 8
+        self._is_maximized = False
+        self._normal_geometry = None
+    
+    def setResizable(self):
+        self.setMouseTracking(True)
+        self.installEventFilter(self)
+    
+    def eventFilter(self, obj, event):
+        if obj == self and event.type() == QEvent.HoverMove:
+            self._update_cursor(event.globalPos())
+        return super().eventFilter(obj, event)
+    
+    def _update_cursor(self, global_pos):
+        if self._resizing or self._is_maximized:
+            return
+        
+        pos = self.mapFromGlobal(global_pos)
+        w = self.width()
+        h = self.height()
+        
+        left = pos.x() < self._edge_margin
+        right = pos.x() > w - self._edge_margin
+        top = pos.y() < self._edge_margin
+        bottom = pos.y() > h - self._edge_margin
+        
+        if top and left:
+            cursor = Qt.SizeFDiagCursor
+        elif top and right:
+            cursor = Qt.SizeBDiagCursor
+        elif bottom and left:
+            cursor = Qt.SizeBDiagCursor
+        elif bottom and right:
+            cursor = Qt.SizeFDiagCursor
+        elif left:
+            cursor = Qt.SizeHorCursor
+        elif right:
+            cursor = Qt.SizeHorCursor
+        elif top:
+            cursor = Qt.SizeVerCursor
+        elif bottom:
+            cursor = Qt.SizeVerCursor
+        else:
+            cursor = Qt.ArrowCursor
+        
+        self.setCursor(cursor)
+    
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and not self._is_maximized:
+            pos = event.pos()
+            w = self.width()
+            h = self.height()
+            
+            left = pos.x() < self._edge_margin
+            right = pos.x() > w - self._edge_margin
+            top = pos.y() < self._edge_margin
+            bottom = pos.y() > h - self._edge_margin
+            
+            direction = []
+            if top: direction.append('top')
+            if bottom: direction.append('bottom')
+            if left: direction.append('left')
+            if right: direction.append('right')
+            
+            if direction:
+                self._resizing = True
+                self._resize_direction = direction
+                self._drag_pos = event.globalPos()
+                self._original_geometry = self.geometry()
+                event.accept()
+                return
+        
+        super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        if self._resizing and self._drag_pos:
+            global_pos = event.globalPos()
+            diff = global_pos - self._drag_pos
+            
+            geo = self._original_geometry
+            new_x, new_y, new_w, new_h = geo.x(), geo.y(), geo.width(), geo.height()
+            min_w, min_h = self.minimumWidth(), self.minimumHeight()
+            
+            if 'left' in self._resize_direction:
+                new_x += diff.x()
+                new_w -= diff.x()
+            if 'right' in self._resize_direction:
+                new_w += diff.x()
+            if 'top' in self._resize_direction:
+                new_y += diff.y()
+                new_h -= diff.y()
+            if 'bottom' in self._resize_direction:
+                new_h += diff.y()
+            
+            if new_w >= min_w and new_h >= min_h:
+                self.setGeometry(new_x, new_y, new_w, new_h)
+            
+            event.accept()
+            return
+        
+        super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._resizing = False
+            self._resize_direction = None
+            self._drag_pos = None
+        super().mouseReleaseEvent(event)
+    
+    def toggle_maximize(self):
+        if self._is_maximized:
+            self.showNormal()
+            if self._normal_geometry:
+                self.setGeometry(self._normal_geometry)
+            self._is_maximized = False
+        else:
+            self._normal_geometry = self.geometry()
+            self.showMaximized()
+            self._is_maximized = True
 
 class EpisodeSelectionDialog(QDialog):
     def __init__(self, parent, episodes, is_bangumi=False, selected_episodes=None):
@@ -4756,12 +5327,14 @@ class TaskManagerWindow(BaseWindow):
         type_color_map = {
             "视频+弹幕": "#8b5cf6",
             "视频": "#10b981",
-            "弹幕": "#f59e0b"
+            "弹幕": "#f59e0b",
+            "封面": "#3b82f6"
         }
         type_bg_map = {
             "视频+弹幕": "#f5f3ff",
             "视频": "#ecfdf5",
-            "弹幕": "#fffbeb"
+            "弹幕": "#fffbeb",
+            "封面": "#eff6ff"
         }
         
         card_base_style = scale_style("""
@@ -4790,9 +5363,14 @@ class TaskManagerWindow(BaseWindow):
             
             download_video = task.get("download_video", True)
             download_danmaku = task.get("download_danmaku", False)
+            task_type_field = task.get("task_type", "")
             
             task_type = ""
-            if download_video and download_danmaku:
+            if task_type_field == "cover":
+                task_type = "封面"
+            elif task_type_field == "danmaku":
+                task_type = "弹幕"
+            elif download_video and download_danmaku:
                 task_type = "视频+弹幕"
             elif download_video:
                 task_type = "视频"
@@ -4895,6 +5473,77 @@ class TaskManagerWindow(BaseWindow):
             
             card_layout.addLayout(info_layout)
             
+            detail_parts = []
+            bvid = task.get("bvid", "")
+            up_name = task.get("up_name", "")
+            file_size = task.get("file_size", 0)
+            file_path = task.get("file_path", "")
+            cover_url = task.get("cover_url", "")
+            video_format = task.get("video_format", "")
+            audio_format = task.get("audio_format", "")
+            total_episodes = task.get("total_episodes", 0)
+            completed_episodes = task.get("completed_episodes", 0)
+            task_start_time = task.get("task_start_time", "")
+            task_end_time = task.get("task_end_time", "")
+            
+            if bvid:
+                detail_parts.append(f"BV: {bvid}")
+            if up_name:
+                detail_parts.append(f"UP: {up_name}")
+            if file_size and file_size > 0:
+                if file_size >= 1024 * 1024 * 1024:
+                    detail_parts.append(f"大小: {file_size / (1024*1024*1024):.2f}GB")
+                elif file_size >= 1024 * 1024:
+                    detail_parts.append(f"大小: {file_size / (1024*1024):.1f}MB")
+                elif file_size >= 1024:
+                    detail_parts.append(f"大小: {file_size / 1024:.1f}KB")
+                else:
+                    detail_parts.append(f"大小: {file_size}B")
+            if total_episodes and total_episodes > 1:
+                detail_parts.append(f"集数: {completed_episodes}/{total_episodes}")
+            if video_format and task_type != "封面":
+                detail_parts.append(f"格式: {video_format}")
+            if task_start_time:
+                try:
+                    from datetime import datetime as _dt
+                    dt = _dt.fromisoformat(task_start_time)
+                    detail_parts.append(f"开始: {dt.strftime('%m-%d %H:%M')}")
+                except:
+                    pass
+            if task_end_time and status == "completed":
+                try:
+                    from datetime import datetime as _dt
+                    dt = _dt.fromisoformat(task_end_time)
+                    detail_parts.append(f"完成: {dt.strftime('%m-%d %H:%M')}")
+                except:
+                    pass
+            
+            if detail_parts:
+                detail_layout = QHBoxLayout()
+                detail_layout.setSpacing(scale(8))
+                detail_icon = QLabel("📋")
+                detail_icon.setStyleSheet(scale_style("font-size: 11px;"))
+                detail_layout.addWidget(detail_icon)
+                detail_text = " | ".join(detail_parts)
+                detail_label = QLabel(detail_text)
+                detail_label.setStyleSheet(scale_style("font-size: 11px; color: #64748b;"))
+                detail_label.setWordWrap(True)
+                detail_layout.addWidget(detail_label, stretch=1)
+                card_layout.addLayout(detail_layout)
+            
+            if file_path and file_path != save_path:
+                fp_layout = QHBoxLayout()
+                fp_layout.setSpacing(scale(6))
+                fp_icon = QLabel("📄")
+                fp_icon.setStyleSheet(scale_style("font-size: 11px;"))
+                fp_layout.addWidget(fp_icon)
+                fp_text = file_path[:60] + "..." if len(file_path) > 60 else file_path
+                fp_label = QLabel(fp_text)
+                fp_label.setToolTip(file_path)
+                fp_label.setStyleSheet(scale_style("font-size: 11px; color: #94a3b8;"))
+                fp_layout.addWidget(fp_label, stretch=1)
+                card_layout.addLayout(fp_layout)
+            
             url_layout = QHBoxLayout()
             url_layout.setSpacing(scale(6))
             url_icon_label = QLabel("🔗")
@@ -4929,7 +5578,8 @@ class TaskManagerWindow(BaseWindow):
             download_btn = QPushButton("查看下载")
             download_btn.setStyleSheet(card_btn_style + scale_style("QPushButton { background-color: #3b82f6; color: white; } QPushButton:hover { background-color: #2563eb; } QPushButton:pressed { background-color: #1d4ed8; }"))
             download_btn.clicked.connect(lambda checked, t=task: self.open_download_window(t))
-            btn_layout.addWidget(download_btn)
+            if task_type != "封面":
+                btn_layout.addWidget(download_btn)
             
             if status == "downloading":
                 pause_btn = QPushButton("暂停")
@@ -5009,6 +5659,7 @@ class TaskManagerWindow(BaseWindow):
             if self.download_manager:
                 self.download_manager.episode_progress_updated.connect(batch_window.update_episode_progress)
                 self.download_manager.episode_finished.connect(batch_window.finish_episode)
+                self.download_manager.global_progress_updated.connect(batch_window._update_global_progress)
             batch_window.cancel_all.connect(lambda: self.download_manager.cancel_all())
             batch_window.window_closed.connect(lambda tid=new_task_id: self.on_batch_window_closed(tid))
             batch_window.show()
@@ -5082,7 +5733,7 @@ class TaskManagerWindow(BaseWindow):
             elif os.name == 'posix':
                 subprocess.run(['open', path] if sys.platform == 'darwin' else ['xdg-open', path], check=True)
         except Exception as e:
-            print(f"打开目录失败：{str(e)}")
+            logger.warning(f"\1")
 
     def copy_to_clipboard(self, text):
         try:
@@ -5226,9 +5877,39 @@ class TaskManagerWindow(BaseWindow):
         content_layout.setSpacing(scale(15))
 
         info_group = QGroupBox("基本信息")
+        info_group.setObjectName("video_info_group")
         info_group.setMinimumHeight(scale(200))
         info_layout = QVBoxLayout(info_group)
         info_layout.setSpacing(scale(12))
+        
+        task_type_field = task.get("task_type", "")
+        download_video = task.get("download_video", True)
+        download_danmaku = task.get("download_danmaku", False)
+        
+        if task_type_field == "cover":
+            task_type_display = "封面下载"
+        elif task_type_field == "danmaku":
+            task_type_display = "弹幕下载"
+        elif download_video and download_danmaku:
+            task_type_display = "视频+弹幕"
+        elif download_video:
+            task_type_display = "视频下载"
+        elif download_danmaku:
+            task_type_display = "弹幕下载"
+        else:
+            task_type_display = "未知类型"
+        
+        type_layout = QHBoxLayout()
+        type_layout.setSpacing(scale(10))
+        type_label = QLabel("任务类型：")
+        type_label.setMinimumWidth(scale(100))
+        type_label.setMinimumHeight(scale(36))
+        type_content = QLabel(task_type_display)
+        type_content.setMinimumHeight(scale(36))
+        type_content.setStyleSheet(scale_style("font-weight: 600; color: #409eff;"))
+        type_layout.addWidget(type_label)
+        type_layout.addWidget(type_content, stretch=1)
+        info_layout.addLayout(type_layout)
         
         title_layout = QHBoxLayout()
         title_layout.setSpacing(scale(10))
@@ -5243,13 +5924,40 @@ class TaskManagerWindow(BaseWindow):
         title_layout.addWidget(title_content, stretch=1)
         info_layout.addLayout(title_layout)
         
+        bvid = task.get('bvid', '')
+        if bvid:
+            bvid_layout = QHBoxLayout()
+            bvid_layout.setSpacing(scale(10))
+            bvid_label = QLabel("BV号：")
+            bvid_label.setMinimumWidth(scale(100))
+            bvid_label.setMinimumHeight(scale(36))
+            bvid_content = QLabel(bvid)
+            bvid_content.setMinimumHeight(scale(36))
+            bvid_layout.addWidget(bvid_label)
+            bvid_layout.addWidget(bvid_content)
+            info_layout.addLayout(bvid_layout)
+        
+        up_name = task.get('up_name', '')
+        if up_name:
+            up_layout = QHBoxLayout()
+            up_layout.setSpacing(scale(10))
+            up_label = QLabel("UP主：")
+            up_label.setMinimumWidth(scale(100))
+            up_label.setMinimumHeight(scale(36))
+            up_content = QLabel(up_name)
+            up_content.setMinimumHeight(scale(36))
+            up_layout.addWidget(up_label)
+            up_layout.addWidget(up_content)
+            info_layout.addLayout(up_layout)
+        
         url_layout = QHBoxLayout()
         url_layout.setSpacing(scale(10))
         url_label = QLabel("下载链接：")
         url_label.setMinimumWidth(scale(100))
         url_label.setMinimumHeight(scale(36))
         url_text = task.get('url', '')
-        url_link = QLabel(f"<a href='{url_text}'>{url_text[:150]}...</a>")
+        url_display = url_text[:150] + "..." if len(url_text) > 150 else url_text
+        url_link = QLabel(f"<a href='{url_text}'>{url_display}</a>" if url_text else "无")
         url_link.setOpenExternalLinks(True)
         url_link.setWordWrap(True)
         url_link.setMinimumHeight(scale(36))
@@ -5270,7 +5978,8 @@ class TaskManagerWindow(BaseWindow):
         path_label.setMinimumWidth(scale(100))
         path_label.setMinimumHeight(scale(36))
         path_text = task.get('save_path', '')
-        path_content = QLabel(path_text[:150] + "...")
+        path_display = path_text[:150] + "..." if len(path_text) > 150 else path_text
+        path_content = QLabel(path_display if path_text else "未设置")
         path_content.setToolTip(path_text)
         path_content.setWordWrap(True)
         path_content.setMinimumHeight(scale(36))
@@ -5285,9 +5994,30 @@ class TaskManagerWindow(BaseWindow):
         path_layout.addWidget(open_path_btn)
         info_layout.addLayout(path_layout)
         
-        # 只对视频任务显示分辨率信息
-        download_video = task.get("download_video", True)
-        if download_video:
+        file_path_val = task.get('file_path', '')
+        if file_path_val and file_path_val != path_text:
+            fp_layout = QHBoxLayout()
+            fp_layout.setSpacing(scale(10))
+            fp_label = QLabel("文件路径：")
+            fp_label.setMinimumWidth(scale(100))
+            fp_label.setMinimumHeight(scale(36))
+            fp_display = file_path_val[:150] + "..." if len(file_path_val) > 150 else file_path_val
+            fp_content = QLabel(fp_display)
+            fp_content.setToolTip(file_path_val)
+            fp_content.setWordWrap(True)
+            fp_content.setMinimumHeight(scale(36))
+            fp_content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            fp_open_btn = QPushButton("打开")
+            fp_open_btn.setMinimumHeight(scale(32))
+            fp_open_btn.setMinimumWidth(scale(80))
+            fp_open_btn.setStyleSheet(scale_style("padding: 6px 12px; font-size: 12px;"))
+            fp_open_btn.clicked.connect(lambda: self.open_directory(os.path.dirname(file_path_val)))
+            fp_layout.addWidget(fp_label)
+            fp_layout.addWidget(fp_content, stretch=1)
+            fp_layout.addWidget(fp_open_btn)
+            info_layout.addLayout(fp_layout)
+        
+        if download_video and task_type_field != "cover":
             qn = task.get('qn', '')
             if qn:
                 qn_layout = QHBoxLayout()
@@ -5312,9 +6042,7 @@ class TaskManagerWindow(BaseWindow):
                 qn_layout.addWidget(qn_content)
                 info_layout.addLayout(qn_layout)
         
-        # 对弹幕任务显示弹幕格式信息
-        download_danmaku = task.get("download_danmaku", False)
-        if download_danmaku:
+        if download_danmaku and task_type_field != "cover":
             danmaku_format = task.get("danmaku_format", "XML")
             danmaku_layout = QHBoxLayout()
             danmaku_layout.setSpacing(scale(10))
@@ -5326,6 +6054,41 @@ class TaskManagerWindow(BaseWindow):
             danmaku_layout.addWidget(danmaku_label)
             danmaku_layout.addWidget(danmaku_content)
             info_layout.addLayout(danmaku_layout)
+        
+        file_size = task.get('file_size', 0)
+        if file_size and file_size > 0:
+            fs_layout = QHBoxLayout()
+            fs_layout.setSpacing(scale(10))
+            fs_label = QLabel("文件大小：")
+            fs_label.setMinimumWidth(scale(100))
+            fs_label.setMinimumHeight(scale(36))
+            if file_size >= 1024 * 1024 * 1024:
+                fs_text = f"{file_size / (1024*1024*1024):.2f} GB"
+            elif file_size >= 1024 * 1024:
+                fs_text = f"{file_size / (1024*1024):.1f} MB"
+            elif file_size >= 1024:
+                fs_text = f"{file_size / 1024:.1f} KB"
+            else:
+                fs_text = f"{file_size} B"
+            fs_content = QLabel(fs_text)
+            fs_content.setMinimumHeight(scale(36))
+            fs_layout.addWidget(fs_label)
+            fs_layout.addWidget(fs_content)
+            info_layout.addLayout(fs_layout)
+        
+        total_episodes = task.get('total_episodes', 0)
+        completed_episodes = task.get('completed_episodes', 0)
+        if total_episodes and total_episodes > 0:
+            ep_layout = QHBoxLayout()
+            ep_layout.setSpacing(scale(10))
+            ep_label = QLabel("集数进度：")
+            ep_label.setMinimumWidth(scale(100))
+            ep_label.setMinimumHeight(scale(36))
+            ep_content = QLabel(f"{completed_episodes} / {total_episodes}")
+            ep_content.setMinimumHeight(scale(36))
+            ep_layout.addWidget(ep_label)
+            ep_layout.addWidget(ep_content)
+            info_layout.addLayout(ep_layout)
         
         status_layout = QHBoxLayout()
         status_layout.setSpacing(scale(10))
@@ -5360,6 +6123,42 @@ class TaskManagerWindow(BaseWindow):
             duration_layout.addWidget(duration_content)
             info_layout.addLayout(duration_layout)
         
+        task_start_time = task.get('task_start_time', '')
+        if task_start_time:
+            try:
+                from datetime import datetime as _dt
+                dt = _dt.fromisoformat(task_start_time)
+                start_layout = QHBoxLayout()
+                start_layout.setSpacing(scale(10))
+                start_label = QLabel("开始时间：")
+                start_label.setMinimumWidth(scale(100))
+                start_label.setMinimumHeight(scale(36))
+                start_content = QLabel(dt.strftime('%Y-%m-%d %H:%M:%S'))
+                start_content.setMinimumHeight(scale(36))
+                start_layout.addWidget(start_label)
+                start_layout.addWidget(start_content)
+                info_layout.addLayout(start_layout)
+            except:
+                pass
+        
+        task_end_time = task.get('task_end_time', '')
+        if task_end_time:
+            try:
+                from datetime import datetime as _dt
+                dt = _dt.fromisoformat(task_end_time)
+                end_layout = QHBoxLayout()
+                end_layout.setSpacing(scale(10))
+                end_label = QLabel("完成时间：")
+                end_label.setMinimumWidth(scale(100))
+                end_label.setMinimumHeight(scale(36))
+                end_content = QLabel(dt.strftime('%Y-%m-%d %H:%M:%S'))
+                end_content.setMinimumHeight(scale(36))
+                end_layout.addWidget(end_label)
+                end_layout.addWidget(end_content)
+                info_layout.addLayout(end_layout)
+            except:
+                pass
+        
         error_msg = task.get('error_message', '')
         if error_msg:
             error_layout = QHBoxLayout()
@@ -5367,7 +6166,7 @@ class TaskManagerWindow(BaseWindow):
             error_label = QLabel("错误信息：")
             error_label.setMinimumWidth(scale(100))
             error_label.setMinimumHeight(scale(36))
-            error_content = QLabel(error_msg[:200] + "...")
+            error_content = QLabel(error_msg[:200] + "..." if len(error_msg) > 200 else error_msg)
             error_content.setToolTip(error_msg)
             error_content.setStyleSheet("color: #f56c6c;")
             error_content.setWordWrap(True)
@@ -5380,10 +6179,9 @@ class TaskManagerWindow(BaseWindow):
         content_layout.addWidget(info_group)
 
         # 根据任务类型显示不同的标题
-        download_video = task.get("download_video", True)
-        download_danmaku = task.get("download_danmaku", False)
-        
-        if download_danmaku and not download_video:
+        if task_type_field == "cover":
+            files_group = QGroupBox("下载封面")
+        elif download_danmaku and not download_video:
             files_group = QGroupBox("下载弹幕")
         else:
             files_group = QGroupBox("下载文件")
@@ -5417,14 +6215,66 @@ class TaskManagerWindow(BaseWindow):
         
         file_data = []
         
-        # 获取任务类型
-        download_video = task.get("download_video", True)
-        download_danmaku = task.get("download_danmaku", False)
         danmaku_format = task.get("danmaku_format", "XML")
         
-        if episodes:
+        if task_type_field == "cover":
+            cover_file_path = task.get('file_path', '')
+            cover_url = task.get('cover_url', '')
+            cover_exists = False
+            if cover_file_path:
+                cover_exists = os.path.exists(cover_file_path)
+            elif cover_url and task.get('save_path', ''):
+                try:
+                    from urllib.parse import urlparse
+                    parsed = urlparse(cover_url)
+                    ext = os.path.splitext(parsed.path)[1] or '.png'
+                    guessed_path = os.path.join(task.get('save_path', ''), f"{task.get('title', 'cover')}_cover{ext}")
+                    if os.path.exists(guessed_path):
+                        cover_file_path = guessed_path
+                        cover_exists = True
+                except:
+                    pass
+            
+            cover_item_data = {
+                'ep': None,
+                'ep_name': f"[封面] {task.get('title', '未知')}",
+                'file_path': cover_file_path,
+                'file_exists': cover_exists,
+                'task': task,
+                'type': 'cover',
+                'cover_url': cover_url,
+            }
+            file_data.append(cover_item_data)
+            
+            list_item = QListWidgetItem(f"[封面] {task.get('title', '未知')}")
+            if not cover_exists:
+                list_item.setFlags(list_item.flags() & ~Qt.ItemIsEnabled)
+                list_item.setForeground(QColor('#94a3b8'))
+                list_item.setToolTip("封面文件已被移动或删除")
+            else:
+                list_item.setToolTip(f"封面文件：{cover_file_path}")
+            list_item.setData(Qt.UserRole, cover_item_data)
+            file_list.addItem(list_item)
+            
+            if cover_url:
+                url_item_data = {
+                    'ep': None,
+                    'ep_name': f"[封面URL] {cover_url[:80]}{'...' if len(cover_url) > 80 else ''}",
+                    'file_path': '',
+                    'file_exists': False,
+                    'task': task,
+                    'type': 'cover_url',
+                    'cover_url': cover_url,
+                }
+                file_data.append(url_item_data)
+                url_item = QListWidgetItem(f"[封面URL] {cover_url[:80]}{'...' if len(cover_url) > 80 else ''}")
+                url_item.setForeground(QColor('#3b82f6'))
+                url_item.setToolTip(f"点击复制封面URL\n{cover_url}")
+                url_item.setData(Qt.UserRole, url_item_data)
+                file_list.addItem(url_item)
+        
+        elif episodes:
             for i, ep in enumerate(episodes):
-                # 构建与下载时一致的标题格式
                 if is_bangumi and task.get('video_info', {}).get('bangumi_info'):
                     season = task['video_info']['bangumi_info'].get('season_title', '未知季度')
                     ep_idx = ep.get('ep_index', '未知集')
@@ -5444,18 +6294,25 @@ class TaskManagerWindow(BaseWindow):
                     ep_title = ep.get('title', f"第{page}集")
                     display_name = f"第{page}集 - {ep_title}"
                 
-                # 清理标题
                 clean_title = ep_title.replace("正片_", "")
                 for c in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
                     clean_title = clean_title.replace(c, '_')
                 clean_title = clean_title[:30]
                 
-                # 显示视频文件
                 if download_video:
+                    video_format = task.get('video_format', 'mp4')
                     file_exists = False
+                    file_path = ""
                     try:
-                        file_path = os.path.join(task.get('save_path', ''), f"{clean_title}.mp4")
+                        file_path = os.path.join(task.get('save_path', ''), f"{clean_title}.{video_format}")
                         file_exists = os.path.exists(file_path)
+                        if not file_exists:
+                            for alt_ext in ['mp4', 'flv', 'mkv', 'webm']:
+                                alt_path = os.path.join(task.get('save_path', ''), f"{clean_title}.{alt_ext}")
+                                if os.path.exists(alt_path):
+                                    file_path = alt_path
+                                    file_exists = True
+                                    break
                     except:
                         pass
                     
@@ -5477,7 +6334,6 @@ class TaskManagerWindow(BaseWindow):
                     list_item.setData(Qt.UserRole, file_item_data)
                     file_list.addItem(list_item)
                 
-                # 显示弹幕文件
                 if download_danmaku:
                     danmaku_exists = False
                     danmaku_count = 0
@@ -5492,59 +6348,42 @@ class TaskManagerWindow(BaseWindow):
                         danmaku_path = os.path.join(task.get('save_path', ''), f"{clean_title}{danmaku_ext}")
                         danmaku_exists = os.path.exists(danmaku_path)
                         
-                        # 调试信息
-                        print(f"弹幕文件路径: {danmaku_path}")
-                        print(f"弹幕文件是否存在: {danmaku_exists}")
-                        print(f"弹幕格式: {danmaku_format}")
-                        
-                        # 读取弹幕文件，提取弹幕内容
                         if danmaku_exists:
                             with open(danmaku_path, 'r', encoding='utf-8') as f:
                                 content = f.read()
-                                print(f"弹幕文件内容长度: {len(content)}")
-                                # 根据不同格式提取弹幕内容
                                 if danmaku_format == 'XML':
                                     import re
-                                    # 提取XML格式的弹幕内容
                                     danmaku_matches = re.findall(r'<d p=[^>]+>(.*?)</d>', content, re.DOTALL)
                                     danmaku_content = [match.strip() for match in danmaku_matches if match.strip()]
                                 elif danmaku_format == 'ASS':
-                                    # 提取ASS格式的弹幕内容
                                     for line in content.split('\n'):
                                         if line.strip().startswith('Dialogue:'):
-                                            # 提取对话内容（ASS格式：Dialogue: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text）
                                             parts = line.split(',', 9)
                                             if len(parts) > 9:
                                                 danmaku_content.append(parts[9].strip())
                                 elif danmaku_format == 'SRT':
-                                    # 提取SRT格式的弹幕内容
                                     lines = content.split('\n')
-                                    for i, line in enumerate(lines):
-                                        if line.strip().isdigit() and i + 2 < len(lines):
-                                            # SRT格式：序号\n时间\n内容\n\n
-                                            text_line = lines[i + 2].strip()
+                                    for li, line in enumerate(lines):
+                                        if line.strip().isdigit() and li + 2 < len(lines):
+                                            text_line = lines[li + 2].strip()
                                             if text_line:
                                                 danmaku_content.append(text_line)
                                 danmaku_count = len(danmaku_content)
-                                print(f"提取的弹幕数量: {danmaku_count}")
-                    except Exception as e:
-                        print(f"读取弹幕文件出错: {str(e)}")
+                    except Exception:
                         pass
                     
-                    # 构建显示内容
                     if danmaku_count > 0:
-                        # 显示前3条弹幕作为预览
                         preview_lines = danmaku_content[:3]
                         preview_text = '\n'.join(preview_lines)
                         if danmaku_count > 3:
                             preview_text += f"\n... 共{danmaku_count}条弹幕"
-                        display_name = f"[弹幕] {display_name}\n{preview_text}"
+                        dm_display_name = f"[弹幕] {display_name}\n{preview_text}"
                     else:
-                        display_name = f"[弹幕] {display_name}\n无弹幕内容"
+                        dm_display_name = f"[弹幕] {display_name}\n无弹幕内容"
                     
                     file_item_data = {
                         'ep': ep,
-                        'ep_name': display_name,
+                        'ep_name': dm_display_name,
                         'file_path': danmaku_path,
                         'file_exists': danmaku_exists,
                         'task': task,
@@ -5554,8 +6393,8 @@ class TaskManagerWindow(BaseWindow):
                     }
                     file_data.append(file_item_data)
                     
-                    list_item = QListWidgetItem(display_name)
-                    list_item.setSizeHint(QSize(scale(0), scale(100)))  # 增加行高来显示多行内容
+                    list_item = QListWidgetItem(dm_display_name)
+                    list_item.setSizeHint(QSize(scale(0), scale(100)))
                     if not danmaku_exists:
                         list_item.setFlags(list_item.flags() & ~Qt.ItemIsEnabled)
                         list_item.setForeground(QColor('#94a3b8'))
@@ -5564,6 +6403,24 @@ class TaskManagerWindow(BaseWindow):
                         list_item.setToolTip(f"点击查看全部弹幕内容\n包含 {danmaku_count} 条弹幕")
                     list_item.setData(Qt.UserRole, file_item_data)
                     file_list.addItem(list_item)
+            
+            cover_url = task.get('cover_url', '') or video_info.get('pic', '')
+            if cover_url and task_type_field != "cover":
+                cover_item_data = {
+                    'ep': None,
+                    'ep_name': f"[封面] {task.get('title', '未知')}",
+                    'file_path': '',
+                    'file_exists': False,
+                    'task': task,
+                    'type': 'cover_url',
+                    'cover_url': cover_url,
+                }
+                file_data.append(cover_item_data)
+                cover_item = QListWidgetItem(f"[封面] {task.get('title', '未知')} (URL)")
+                cover_item.setForeground(QColor('#3b82f6'))
+                cover_item.setToolTip(f"封面URL：{cover_url}")
+                cover_item.setData(Qt.UserRole, cover_item_data)
+                file_list.addItem(cover_item)
         else:
             file_list.addItem("无下载文件信息")
         
@@ -5574,7 +6431,7 @@ class TaskManagerWindow(BaseWindow):
 
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(scale(12))
-        if task.get('status') in ['failed', 'pending', 'paused']:
+        if task.get('status') in ['failed', 'pending', 'paused'] and task_type_field != "cover":
             resume_btn = QPushButton("继续下载")
             resume_btn.setMinimumHeight(scale(36))
             resume_btn.setMinimumWidth(scale(100))
@@ -5626,20 +6483,34 @@ class TaskManagerWindow(BaseWindow):
             return
         
         menu = QMenu()
+        file_type = file_data.get('type', '')
         
         if file_data['file_exists']:
             open_action = menu.addAction("打开文件")
             open_action.triggered.connect(lambda: self.open_file(file_data['file_path']))
             
-            # 为弹幕文件添加查看弹幕内容的选项
-            if file_data.get('type') == 'danmaku':
+            if file_type == 'danmaku':
                 view_action = menu.addAction("查看弹幕内容")
                 view_action.triggered.connect(lambda: self.view_danmaku_content(file_data['file_path']))
+            
+            if file_type == 'cover':
+                open_dir_action = menu.addAction("打开所在目录")
+                open_dir_action.triggered.connect(lambda: self.open_directory(os.path.dirname(file_data['file_path'])))
         
-        redownload_action = menu.addAction("重新下载")
-        redownload_action.triggered.connect(lambda: self.redownload_episode(file_data['ep'], file_data['task']))
+        if file_type == 'cover_url':
+            cover_url = file_data.get('cover_url', '')
+            if cover_url:
+                copy_action = menu.addAction("复制封面URL")
+                copy_action.triggered.connect(lambda: self.copy_to_clipboard(cover_url))
+                open_browser_action = menu.addAction("在浏览器中打开")
+                open_browser_action.triggered.connect(lambda: self._open_url_in_browser(cover_url))
         
-        menu.exec_(self.file_list.mapToGlobal(position))
+        if file_data.get('ep') and file_type in ('video', 'danmaku'):
+            redownload_action = menu.addAction("重新下载")
+            redownload_action.triggered.connect(lambda: self.redownload_episode(file_data['ep'], file_data['task']))
+        
+        if menu.actions():
+            menu.exec_(self.file_list.mapToGlobal(position))
 
     def open_file(self, file_path):
         import subprocess
@@ -5649,7 +6520,13 @@ class TaskManagerWindow(BaseWindow):
             elif os.name == 'posix':  
                 subprocess.run(['open', file_path] if sys.platform == 'darwin' else ['xdg-open', os.path.dirname(file_path)], check=False)
         except Exception as e:
-            print(f"打开文件失败：{str(e)}")
+            logger.warning(f"打开文件失败：{str(e)}")
+    
+    def _open_url_in_browser(self, url):
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
     
     def view_danmaku_content(self, file_path):
         try:
@@ -5965,7 +6842,7 @@ class TaskManagerWindow(BaseWindow):
                     self.show_notification("弹幕文件已保存", "success")
                     dialog.accept()
                 except Exception as e:
-                    print(f"保存弹幕文件失败：{str(e)}")
+                    logger.warning(f"\1")
                     self.show_notification(f"保存弹幕文件失败：{str(e)}", "error")
             
             # 连接信号
@@ -5974,7 +6851,7 @@ class TaskManagerWindow(BaseWindow):
             
             dialog.exec_()
         except Exception as e:
-            print(f"查看弹幕内容失败：{str(e)}")
+            logger.warning(f"\1")
             self.show_notification(f"查看弹幕内容失败：{str(e)}", "error")
 
     def redownload_episode(self, episode, task):
@@ -6012,6 +6889,7 @@ class TaskManagerWindow(BaseWindow):
         if self.download_manager:
             self.download_manager.episode_progress_updated.connect(batch_window.update_episode_progress)
             self.download_manager.episode_finished.connect(batch_window.finish_episode)
+            self.download_manager.global_progress_updated.connect(batch_window._update_global_progress)
         batch_window.cancel_all.connect(lambda: self.download_manager.cancel_all())
         batch_window.window_closed.connect(lambda tid=task_id: self.on_batch_window_closed(tid))
         batch_window.show()
@@ -6048,6 +6926,7 @@ class TaskManagerWindow(BaseWindow):
             if self.download_manager:
                 self.download_manager.episode_progress_updated.connect(existing_window.update_episode_progress)
                 self.download_manager.episode_finished.connect(existing_window.finish_episode)
+                self.download_manager.global_progress_updated.connect(existing_window._update_global_progress)
             existing_window.show()  # 显示窗口
             existing_window.raise_()  # 确保窗口在最前面
             batch_window = existing_window
@@ -6066,7 +6945,8 @@ class TaskManagerWindow(BaseWindow):
             if self.download_manager:
                 self.download_manager.episode_progress_updated.connect(batch_window.update_episode_progress)
                 self.download_manager.episode_finished.connect(batch_window.finish_episode)
-            
+                self.download_manager.global_progress_updated.connect(batch_window._update_global_progress)
+
             batch_window.show()
             
             if task_id:
@@ -6749,7 +7629,7 @@ class BatchDownloadWindow(BaseWindow):
                             video_info = task_info.get('video_info', {})
                             qn = task_info.get('qn', 80)
                     except Exception as e:
-                        print(f"获取任务信息失败: {e}")
+                        logger.warning(f"\1")
                         download_manager._mutex.unlock()
                 
                 if not episodes and hasattr(download_manager, 'task_queue'):
@@ -6763,7 +7643,7 @@ class BatchDownloadWindow(BaseWindow):
                                 break
                         download_manager._mutex.unlock()
                     except Exception as e:
-                        print(f"获取队列任务信息失败: {e}")
+                        logger.warning(f"\1")
                         download_manager._mutex.unlock()
         
         fetcher = LinkFetcher(self, task_id, ep_index)
@@ -6898,6 +7778,13 @@ class BatchDownloadWindow(BaseWindow):
                         if parent and hasattr(parent, 'show_notification'):
                             parent.show_notification("全部集数下载成功！", "success")
 
+    def _update_global_progress(self, progress, message):
+        try:
+            self.global_progress.setValue(min(100, max(0, int(progress))))
+            self.global_progress.setFormat(f"{int(progress)}%")
+        except Exception:
+            pass
+
     def on_cancel(self):
         self.cancel_all.emit()
         self.close()
@@ -7006,6 +7893,8 @@ class BilibiliDownloader(BaseWindow):
         self.signal_emitter.network_test_result.connect(self._on_network_test_result)
         self.signal_emitter.folders_loaded.connect(self._on_folders_loaded)
         self.signal_emitter.folder_content_loaded.connect(self._on_folder_content_loaded)
+        self.signal_emitter.folder_content_page.connect(self._on_folder_content_page)
+        self.signal_emitter.folder_content_finished.connect(self._on_folder_content_finished)
         self.signal_emitter.folder_error.connect(self._on_folder_error)
         self.signal_emitter.batch_parse_result.connect(self._on_batch_parse_result)
         self.signal_emitter.batch_parse_progress.connect(self._on_batch_parse_progress)
@@ -7153,24 +8042,20 @@ class BilibiliDownloader(BaseWindow):
         if not announcements:
             return
         ann = announcements[0]
-        bar = AnnouncementBar(self, ann)
-        bar.closed.connect(self._on_announcement_closed)
-        bar.action_triggered.connect(self._on_announcement_action)
-        central = self.centralWidget()
-        if central:
-            layout = central.layout()
-            if layout:
-                layout.insertWidget(0, bar)
-                self._announcement_bar = bar
-                self._pending_announcements = announcements[1:]
+        dialog = AnnouncementDialog(self, ann)
+        dialog.action_triggered.connect(self._on_announcement_action)
+        dialog.finished.connect(lambda: self._on_announcement_dialog_closed(announcements))
+        dialog.show()
+        self._announcement_bar = dialog
+        self._pending_announcements = announcements[1:]
     
-    def _on_announcement_closed(self, ann_id):
+    def _on_announcement_dialog_closed(self, announcements):
         try:
+            ann_id = announcements[0].get("id", "")
             self.cloud_service.dismiss_announcement(ann_id)
         except Exception:
             pass
         if hasattr(self, '_announcement_bar') and self._announcement_bar:
-            self._announcement_bar.deleteLater()
             self._announcement_bar = None
         if hasattr(self, '_pending_announcements') and self._pending_announcements:
             self._show_announcement_bar(self._pending_announcements)
@@ -7188,11 +8073,14 @@ class BilibiliDownloader(BaseWindow):
     def show_notification(self, message, notification_type="info"):
         print(f"显示通知：{message}，类型：{notification_type}")
         try:
+            if threading.current_thread() is not threading.main_thread():
+                self.signal_emitter.show_notification.emit(message, notification_type)
+                return
             self.notification_widget.show_notification(message, notification_type)
             print("通知显示成功")
         except Exception as e:
-            print(f"通知显示失败：{str(e)}")
-            traceback.print_exc()
+            logger.warning(f"显示通知失败: {str(e)}")
+            logger.debug("traceback", exc_info=True)
     
     def show_parse_progress_window(self):
         """显示解析进度窗口"""
@@ -7209,56 +8097,24 @@ class BilibiliDownloader(BaseWindow):
             pass
     
     def show_debug_window(self, error_msg, code_context, file_path):
-        print("显示调试窗口")
+        logger.error("显示调试窗口 - 错误: %s | 文件: %s", error_msg, file_path)
+        logger.error("代码上下文: %s", code_context)
         try:
             debug_window = DebugWindow(self)
             debug_window.set_error_info(error_msg, code_context, file_path)
             debug_window.show()
             debug_window.raise_()
             debug_window.activateWindow()
-            print("调试窗口显示成功")
+            logger.info("调试窗口显示成功")
         except Exception as e:
-            print(f"调试窗口显示失败：{str(e)}")
-            traceback.print_exc()
+            logger.error("调试窗口显示失败: %s", str(e), exc_info=True)
     
     def check_proxy_settings(self):
         try:
-            import platform
-
-            if platform.system() == 'Windows':
-                try:
-                    import winreg
-                    internet_settings = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                                                   r'SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings',
-                                                   0, winreg.KEY_READ)
-                    proxy_enable = winreg.QueryValueEx(internet_settings, 'ProxyEnable')[0]
-                    proxy_server = winreg.QueryValueEx(internet_settings, 'ProxyServer')[0]
-                    winreg.CloseKey(internet_settings)
-
-                    if proxy_enable:
-                        logger.warning(f"检测到系统代理设置：{proxy_server}")
-                        return True, proxy_server
-                except Exception as e:
-                    logger.debug(f"检查Windows代理设置失败：{str(e)}")
-            elif platform.system() == 'Darwin':
-                try:
-                    import subprocess
-                    result = subprocess.run(
-                        ['networksetup', '-getwebproxy', 'Wi-Fi'],
-                        capture_output=True, text=True, timeout=5
-                    )
-                    if result.returncode == 0 and 'Enabled' in result.stdout:
-                        for line in result.stdout.split('\n'):
-                            if 'Server:' in line:
-                                server = line.split(':')[1].strip()
-                            elif 'Port:' in line:
-                                port = line.split(':')[1].strip()
-                        if server and port:
-                            proxy = f"{server}:{port}"
-                            logger.warning(f"检测到macOS代理设置：{proxy}")
-                            return True, proxy
-                except Exception as e:
-                    logger.debug(f"检查macOS代理设置失败：{str(e)}")
+            proxy = get_system_proxy()
+            if proxy:
+                logger.warning(f"检测到系统代理设置：{proxy}")
+                return True, proxy
             
             # 检查环境变量中的代理设置
             http_proxy = os.environ.get('HTTP_PROXY') or os.environ.get('http_proxy')
@@ -7408,7 +8264,7 @@ class BilibiliDownloader(BaseWindow):
             self.update_folder_list(folders)
             self.status_label.setText("收藏夹列表刷新成功")
         except Exception as e:
-            traceback.print_exc()
+            logger.debug("traceback", exc_info=True)
             logger.error(f"更新收藏夹列表失败：{str(e)}")
     
     def _on_folder_content_loaded(self, items):
@@ -7416,8 +8272,26 @@ class BilibiliDownloader(BaseWindow):
             self.update_content_list(items)
             self.status_label.setText(f"收藏内容获取成功 - 共 {len(items)} 个收藏内容")
         except Exception as e:
-            traceback.print_exc()
+            logger.debug("traceback", exc_info=True)
             logger.error(f"更新收藏内容失败：{str(e)}")
+    
+    def _on_folder_content_page(self, page_items, page_num, total_count):
+        try:
+            self._append_content_items(page_items, page_num, total_count)
+        except Exception as e:
+            logger.debug("traceback", exc_info=True)
+            logger.error(f"逐页加载收藏内容失败：{str(e)}")
+    
+    def _on_folder_content_finished(self, total_count):
+        try:
+            if hasattr(self, 'parse_favorite_btn'):
+                self.parse_favorite_btn.setEnabled(self.content_list.count() > 0)
+            if hasattr(self, 'download_cover_favorite_btn'):
+                self.download_cover_favorite_btn.setEnabled(self.content_list.count() > 0)
+            self.status_label.setText(f"收藏内容获取完成 - 共 {total_count} 个收藏内容")
+        except Exception as e:
+            logger.debug("traceback", exc_info=True)
+            logger.error(f"收藏内容完成回调失败：{str(e)}")
     
     def _on_folder_error(self, error_msg):
         try:
@@ -7567,6 +8441,29 @@ class BilibiliDownloader(BaseWindow):
         cookie_test_btn.clicked.connect(self.show_cookie_test)
         layout.addWidget(cookie_test_btn)
         
+        # 功能测试区域的分隔线
+        line2 = QFrame()
+        line2.setFrameShape(QFrame.HLine)
+        line2.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(line2)
+        
+        # 添加UI测试区域
+        ui_group_label = QLabel("🎨 UI 测试")
+        ui_group_label.setStyleSheet(scale_style("font-size: 14px; color: #1890ff; margin-top: 10px;"))
+        layout.addWidget(ui_group_label)
+        
+        # 测试公告弹窗的按钮
+        test_announcement_btn = QPushButton("📢 测试公告弹窗")
+        test_announcement_btn.setObjectName("checkBtn")
+        test_announcement_btn.clicked.connect(self.test_announcement_dialog)
+        layout.addWidget(test_announcement_btn)
+        
+        # 测试更新弹窗的按钮
+        test_update_btn = QPushButton("🚀 测试更新弹窗")
+        test_update_btn.setObjectName("installBtn")
+        test_update_btn.clicked.connect(self.test_update_dialog)
+        layout.addWidget(test_update_btn)
+        
         # 关闭按钮
         close_btn = QPushButton("关闭")
         close_btn.clicked.connect(dialog.close)
@@ -7598,6 +8495,60 @@ class BilibiliDownloader(BaseWindow):
         else:
             QMessageBox.warning(self, "错误", "parser未初始化，请重启应用")
     
+    def test_announcement_dialog(self):
+        """测试公告弹窗显示"""
+        print("测试公告弹窗")
+        
+        test_announcement = {
+            "id": "test_001",
+            "type": "info",
+            "title": "🎉 测试公告标题",
+            "content": "这是一条测试公告内容，用于验证公告弹窗的显示效果。\n\n"
+                       "✨ 支持多行文本显示\n"
+                       "📌 支持富文本格式\n"
+                       "🎨 美观的渐变配色方案",
+            "dismissible": True,
+            "action": {
+                "type": "url",
+                "label": "查看详情",
+                "url": "https://github.com"
+            }
+        }
+        
+        try:
+            dialog = AnnouncementDialog(self, test_announcement)
+            dialog.action_triggered.connect(lambda ann: self.show_notification(f"点击了操作: {ann.get('title', '')}", "success"))
+            dialog.exec_()
+            self.show_notification("测试公告弹窗显示成功", "success")
+        except Exception as e:
+            logger.error(f"测试公告弹窗失败: {e}")
+            QMessageBox.warning(self, "错误", f"测试公告弹窗失败: {str(e)}")
+    
+    def test_update_dialog(self):
+        """测试更新弹窗显示"""
+        print("测试更新弹窗")
+        
+        test_update_info = {
+            "latest_version": "2.0.0",
+            "release_notes": "🚀 版本更新内容：\n\n"
+                           "• 新增：支持4K超清视频下载\n"
+                           "• 优化：下载速度提升50%\n"
+                           "• 修复：已知bug修复若干\n"
+                           "• 改进：UI界面全面美化升级\n\n"
+                           "💡 建议所有用户尽快更新到最新版本！",
+            "download_url": "",
+            "force_update": False,
+            "sha256": ""
+        }
+        
+        try:
+            dialog = UpdateDialog(self, test_update_info)
+            dialog.exec_()
+            self.show_notification("测试更新弹窗显示成功", "success")
+        except Exception as e:
+            logger.error(f"测试更新弹窗失败: {e}")
+            QMessageBox.warning(self, "错误", f"测试更新弹窗失败: {str(e)}")
+    
     def check_tools_existence(self):
         """检查必需的工具文件是否存在"""
         print("开始检查工具文件")
@@ -7625,12 +8576,12 @@ class BilibiliDownloader(BaseWindow):
             if os.path.exists(bento4_dir):
                 results.append(f"✅ Bento4目录存在: {bento4_dir}")
                 
-                mp4decrypt_name = 'mp4decrypt.exe' if IS_WINDOWS else 'mp4decrypt'
-                mp4decrypt_path = os.path.join(bento4_dir, mp4decrypt_name)
+                # 检查mp4decrypt
+                mp4decrypt_path = os.path.join(bento4_dir, exe('mp4decrypt'))
                 if os.path.exists(mp4decrypt_path):
-                    results.append(f"✅ {mp4decrypt_name}存在: {mp4decrypt_path}")
+                    results.append(f"✅ {exe('mp4decrypt')}存在: {mp4decrypt_path}")
                 else:
-                    results.append(f"❌ {mp4decrypt_name}不存在: {mp4decrypt_path}")
+                    results.append(f"❌ {exe('mp4decrypt')}不存在: {mp4decrypt_path}")
                     
                 # 列出目录内容
                 try:
@@ -7648,17 +8599,18 @@ class BilibiliDownloader(BaseWindow):
                 if hasattr(sys, '_MEIPASS'):
                     possible_paths.append(os.path.join(sys._MEIPASS, 'bento4'))
                     possible_paths.append(os.path.join(sys._MEIPASS, 'bento4', 'bin'))
+                    possible_paths.append(os.path.join(sys._MEIPASS, 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
                 possible_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4'))
                 possible_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', 'bin'))
+                possible_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', 'Bento4-SDK-1-6-0-641.x86_64-microsoft-win32', 'bin'))
                 
                 for path in possible_paths:
                     if os.path.exists(path):
                         results.append(f"✅ 找到备选路径: {path}")
-                        mp4decrypt_check = os.path.join(path, 'mp4decrypt.exe' if IS_WINDOWS else 'mp4decrypt')
-                        if os.path.exists(mp4decrypt_check):
-                            results.append(f"   ✅ mp4decrypt在备选路径中存在")
+                        if os.path.exists(os.path.join(path, exe('mp4decrypt'))):
+                            results.append(f"   ✅ {exe('mp4decrypt')}在备选路径中存在")
                         else:
-                            results.append(f"   ❌ mp4decrypt在备选路径中不存在")
+                            results.append(f"   ❌ {exe('mp4decrypt')}在备选路径中不存在")
                     else:
                         results.append(f"❌ 备选路径不存在: {path}")
         else:
@@ -7827,16 +8779,16 @@ class BilibiliDownloader(BaseWindow):
                 def do_install():
                     try:
                         result = tool_manager.install_tools(force=False, progress_callback=progress_callback)
-                        
+
                         def finish():
                             self.on_install_finished(result, progress_dialog, tool_manager)
-                        QTimer.singleShot(0, finish)
+                        run_on_main_thread(finish)
                     except Exception as e:
                         logger.error(f"安装过程出错: {str(e)}")
                         def error():
                             progress_dialog.close()
                             QMessageBox.critical(self, "安装失败", f"安装过程出错: {str(e)}")
-                        QTimer.singleShot(0, error)
+                        run_on_main_thread(error)
                 
                 import threading
                 t = threading.Thread(target=do_install)
@@ -8091,9 +9043,9 @@ class BilibiliDownloader(BaseWindow):
             if hasattr(self, 'parse_progress_window') and self.parse_progress_window:
                 self.parse_progress_window.update_progress(progress, message)
         except Exception as e:
-            print(f"更新解析进度失败：{str(e)}")
+            logger.warning(f"\1")
             import traceback
-            traceback.print_exc()
+            logger.debug("traceback", exc_info=True)
 
     def init_ui(self):
         self.setWindowTitle(f"B站视频解析工具{version_info['version']} - 作者：寒烟似雪(逸雨) QQ：2273962061/3241417097")
@@ -8424,14 +9376,6 @@ class BilibiliDownloader(BaseWindow):
         url_layout.addWidget(self.parse_btn)
         url_layout.addWidget(self.batch_parse_btn)
         content_layout.addLayout(url_layout)
-
-        
-        self.tv_mode_checkbox = QCheckBox("TV端无水印模式")
-        self.tv_mode_checkbox.setMinimumHeight(scale(44))
-        self.tv_mode_checkbox.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.tv_mode_checkbox.setStyleSheet(scale_style("font-size: 13px;"))
-        content_layout.addWidget(self.tv_mode_checkbox)
-
 
 
         
@@ -8897,7 +9841,6 @@ class BilibiliDownloader(BaseWindow):
         self.folder_list.setStyleSheet(scale_style("""
             QListWidget {
                 border: none;
-                border-radius: 8px;
                 background-color: transparent;
                 padding: 4px;
                 outline: none;
@@ -8905,10 +9848,11 @@ class BilibiliDownloader(BaseWindow):
             QListWidget::item {
                 padding: 10px 12px;
                 border-radius: 8px;
-                margin-bottom: 4px;
+                margin-bottom: 2px;
                 font-size: 13px;
                 color: #3a3f4b;
                 background-color: transparent;
+                border: none;
             }
             QListWidget::item:hover {
                 background-color: #f0f4ff;
@@ -8927,7 +9871,7 @@ class BilibiliDownloader(BaseWindow):
         # 右侧：收藏内容区域
         content_section = QWidget()
         content_section.setAutoFillBackground(True)
-        content_section.setStyleSheet(scale_style("background-color: white; border-radius: 12px; z-index: 1000;"))
+        content_section.setStyleSheet(scale_style("background-color: white; border-radius: 12px;"))
         content_section.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         content_section_layout = QVBoxLayout(content_section)
         content_section_layout.setSpacing(scale(12))
@@ -9080,25 +10024,20 @@ class BilibiliDownloader(BaseWindow):
         self.content_list.setStyleSheet(scale_style("""
             QListWidget {
                 border: none;
-                border-radius: 8px;
                 background-color: #f7f8fa;
                 padding: 12px;
-                z-index: 1000;
                 outline: none;
             }
             QListWidget::item {
                 border: none;
                 background: transparent;
                 border-radius: 10px;
-                z-index: 1000;
             }
             QListWidget::item:hover {
                 background: transparent;
-                z-index: 1000;
             }
             QListWidget::item:selected {
                 background: transparent;
-                z-index: 1000;
             }
             QScrollBar:vertical {
                 min-width: 6px;
@@ -9124,12 +10063,12 @@ class BilibiliDownloader(BaseWindow):
         # 使用QScrollArea确保完整的滚动功能
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setStyleSheet("border: none; z-index: 1000;")
+        scroll_area.setStyleSheet("border: none;")
         scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
         # 创建一个容器widget来容纳内容列表
         scroll_container = QWidget()
-        scroll_container.setStyleSheet("z-index: 1000;")
+        scroll_container.setStyleSheet("")
         scroll_layout = QVBoxLayout(scroll_container)
         scroll_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
         scroll_layout.addWidget(self.content_list)
@@ -9298,15 +10237,16 @@ class BilibiliDownloader(BaseWindow):
                 outline: none;
             }
             QListWidget::item {
-                border: none;
-                background: transparent;
+                background: white;
+                border: 1px solid #e0e4ea;
                 border-radius: 6px;
+                padding: 2px;
             }
             QListWidget::item:hover {
-                background: transparent;
+                border: 1px solid #4f6ef7;
             }
             QListWidget::item:selected {
-                background: transparent;
+                background: white;
                 border: 2px solid #4f6ef7;
                 border-radius: 6px;
             }
@@ -9537,7 +10477,7 @@ class BilibiliDownloader(BaseWindow):
                 logger.info(f"获取到 {len(folders)} 个收藏夹，准备更新UI")
                 self.signal_emitter.folders_loaded.emit(folders)
             except Exception as e:
-                traceback.print_exc()
+                logger.debug("traceback", exc_info=True)
                 logger.error(f"获取收藏夹失败：{str(e)}")
                 self.signal_emitter.folder_error.emit(f"获取收藏夹失败：{str(e)}")
         
@@ -9735,6 +10675,15 @@ class BilibiliDownloader(BaseWindow):
         # 在主线程中执行
         QTimer.singleShot(0, clear_content_and_show_skeleton)
         
+        loading_dialog = DataLoadingDialog(self, title="加载收藏夹", message="正在获取收藏夹内容...")
+        loading_dialog.show()
+        _dialog_alive = [True]
+        
+        def _on_dialog_finished():
+            _dialog_alive[0] = False
+        
+        loading_dialog.finished.connect(_on_dialog_finished)
+        
         import threading
         
         def get_folder_content():
@@ -9742,16 +10691,38 @@ class BilibiliDownloader(BaseWindow):
             logger.info("get_folder_content线程开始执行")
             try:
                 logger.info(f"开始获取收藏夹内容，folder_id: {folder_id}")
-                content = self.parser.get_folder_content(folder_id, page_size=50, get_all=True)
+                
+                _total_loaded = [0]
+                
+                def progress_cb(value, msg):
+                    if _dialog_alive[0]:
+                        loading_dialog.update_progress(value, msg)
+                
+                def page_cb(page_items, page_num, total_count):
+                    _total_loaded[0] += len(page_items)
+                    logger.info(f"第{page_num}页获取到 {len(page_items)} 项，累计 {_total_loaded[0]} 项")
+                    if _dialog_alive[0]:
+                        loading_dialog.update_progress(
+                            min(90, int(10 + 80 * _total_loaded[0] / max(total_count, 1))),
+                            f"正在加载第 {page_num} 页（已获取 {_total_loaded[0]}/{total_count} 项）..."
+                        )
+                    self.signal_emitter.folder_content_page.emit(page_items, page_num, total_count)
+                
+                content = self.parser.get_folder_content(
+                    folder_id, page_size=50, get_all=True,
+                    progress_callback=progress_cb, page_callback=page_cb
+                )
                 logger.info(f"获取收藏夹内容成功，共 {len(content['items'])} 个项目")
-                content_items = content.get('items', [])
-                self.signal_emitter.folder_content_loaded.emit(content_items)
+                if _dialog_alive[0]:
+                    loading_dialog.finish_and_close()
+                self.signal_emitter.folder_content_finished.emit(len(content['items']))
             except Exception as e:
-                traceback.print_exc()
+                logger.debug("traceback", exc_info=True)
                 logger.error(f"获取收藏内容失败：{str(e)}")
+                if _dialog_alive[0]:
+                    loading_dialog.finish_and_close()
                 self.signal_emitter.folder_error.emit(f"获取收藏内容失败：{str(e)}")
         
-        # 启动线程
         logger.info("启动获取收藏内容线程")
         thread = threading.Thread(target=get_folder_content)
         thread.daemon = True
@@ -10019,6 +10990,47 @@ class BilibiliDownloader(BaseWindow):
         except Exception:
             pass
     
+    def _append_content_items(self, page_items, page_num, total_count):
+        logger = logging.getLogger(__name__)
+        
+        if not hasattr(self, 'content_list') or not self.content_list:
+            return
+        
+        if page_num == 1:
+            self.content_list.clear()
+            self._calc_card_size()
+            self._fav_total_items = []
+            self._fav_loaded_count = 0
+            if hasattr(self, 'parse_favorite_btn'):
+                self.parse_favorite_btn.setEnabled(False)
+            if hasattr(self, 'download_cover_favorite_btn'):
+                self.download_cover_favorite_btn.setEnabled(False)
+        
+        if not hasattr(self, '_fav_total_items'):
+            self._fav_total_items = []
+        if not hasattr(self, '_fav_loaded_count'):
+            self._fav_loaded_count = 0
+        
+        self._fav_total_items.extend(page_items)
+        
+        start_idx = self._fav_loaded_count
+        card_w = self.content_list._card_width if hasattr(self.content_list, '_card_width') else scale(190)
+        card_h = self.content_list._card_height if hasattr(self.content_list, '_card_height') else scale(280)
+        
+        for i, item in enumerate(page_items):
+            global_idx = start_idx + i
+            if not isinstance(item, dict):
+                continue
+            item_widget = self.create_favorite_card(item, global_idx)
+            list_item = QListWidgetItem()
+            list_item.setSizeHint(QSize(card_w, card_h))
+            list_item.setData(Qt.UserRole, item)
+            self.content_list.addItem(list_item)
+            self.content_list.setItemWidget(list_item, item_widget)
+        
+        self._fav_loaded_count = start_idx + len(page_items)
+        self.status_label.setText(f"正在加载收藏内容... 已获取 {self._fav_loaded_count}/{total_count} 项")
+    
     def update_content_list(self, items):
         logger = logging.getLogger(__name__)
         
@@ -10050,7 +11062,7 @@ class BilibiliDownloader(BaseWindow):
             skeleton_items = []
             card_w = self.content_list._card_width
             card_h = self.content_list._card_height
-            for i in range(min(12, len(items))):  # 显示最多12个骨架屏
+            for i in range(min(12, len(items))):
                 skeleton_widget = QWidget()
                 skeleton_widget.setMinimumSize(card_w, card_h)
                 skeleton_layout = QVBoxLayout()
@@ -10062,27 +11074,23 @@ class BilibiliDownloader(BaseWindow):
                     }
                 """
                 
-                # 封面骨架
                 cover_skeleton = QWidget()
                 cover_skeleton.setMinimumSize(card_w - scale(8), int((card_w - scale(8)) * 9 / 16))
                 cover_skeleton.setStyleSheet(skeleton_style)
                 skeleton_layout.addWidget(cover_skeleton, alignment=Qt.AlignCenter)
                 
-                # 标题骨架
                 skeleton_layout.addSpacing(10)
                 title_skeleton = QWidget()
                 title_skeleton.setMinimumSize(card_w - scale(20), scale(16))
                 title_skeleton.setStyleSheet(skeleton_style)
                 skeleton_layout.addWidget(title_skeleton, alignment=Qt.AlignCenter)
                 
-                # UP主骨架
                 skeleton_layout.addSpacing(6)
                 up_skeleton = QWidget()
                 up_skeleton.setMinimumSize(scale(100), scale(12))
                 up_skeleton.setStyleSheet(skeleton_style)
                 skeleton_layout.addWidget(up_skeleton, alignment=Qt.AlignCenter)
                 
-                # 时长骨架
                 duration_skeleton = QWidget()
                 duration_skeleton.setMinimumSize(scale(60), scale(12))
                 duration_skeleton.setStyleSheet(skeleton_style)
@@ -10090,54 +11098,69 @@ class BilibiliDownloader(BaseWindow):
                 
                 skeleton_widget.setLayout(skeleton_layout)
                 
-                # 创建列表项并设置大小
                 skeleton_item = QListWidgetItem()
                 skeleton_item.setSizeHint(QSize(card_w, card_h))
                 
-                # 添加到列表
                 self.content_list.addItem(skeleton_item)
                 self.content_list.setItemWidget(skeleton_item, skeleton_widget)
                 skeleton_items.append(skeleton_item)
-                
             
-            # 短暂延迟，让骨架屏显示一会儿
-            time.sleep(0.2)
-            
-            # 清空骨架屏
-            self.content_list.clear()
-            
-            # 确保items是一个列表
-            if not isinstance(items, list):
-                logger.error(f"items类型错误，期望列表，实际是：{type(items)}")
-                return
-            
-            # 批量添加项目
-            added_count = 0
-            for i, item in enumerate(items):
-                if not isinstance(item, dict):
-                    logger.error(f"item类型错误，期望字典，实际是：{type(item)}")
-                    continue
-                    
-                # 创建卡片widget
-                item_widget = self.create_favorite_card(item, i)
-                
-                # 创建列表项并设置大小
-                list_item = QListWidgetItem()
-                list_item.setSizeHint(QSize(self.content_list._card_width, self.content_list._card_height))
-                list_item.setData(Qt.UserRole, item)
-                
-                # 添加到列表
-                self.content_list.addItem(list_item)
-                self.content_list.setItemWidget(list_item, item_widget)
-                
-                added_count += 1
-                
-                time.sleep(0.05)
+            self._pending_content_items = list(items)
+            self._content_item_index = 0
+            self._content_batch_size = 20
+            self._skeleton_items = skeleton_items
+
+            def _clear_skeletons_and_load():
+                for si in self._skeleton_items:
+                    try:
+                        self.content_list.takeItem(self.content_list.row(si))
+                    except Exception:
+                        pass
+                self._skeleton_items = []
+                if not isinstance(self._pending_content_items, list):
+                    logger.error(f"items类型错误，期望列表，实际是：{type(self._pending_content_items)}")
+                    return
+                self._load_content_batch()
+
+            QTimer.singleShot(50, _clear_skeletons_and_load)
             
             if hasattr(self, 'parse_favorite_btn'):
                 self.parse_favorite_btn.setEnabled(added_count > 0)
             if hasattr(self, 'download_cover_favorite_btn'):
                 self.download_cover_favorite_btn.setEnabled(False)
+    
+    def _load_content_batch(self):
+        if not hasattr(self, '_pending_content_items') or not self._pending_content_items:
+            return
+        if not hasattr(self, '_content_item_index'):
+            self._content_item_index = 0
+        if not hasattr(self, '_content_batch_size'):
+            self._content_batch_size = 20
+
+        items = self._pending_content_items
+        start = self._content_item_index
+        end = min(start + self._content_batch_size, len(items))
+        added_count = 0
+
+        for i in range(start, end):
+            item = items[i]
+            if not isinstance(item, dict):
+                continue
+            item_widget = self.create_favorite_card(item, i)
+            list_item = QListWidgetItem()
+            list_item.setSizeHint(QSize(self.content_list._card_width, self.content_list._card_height))
+            list_item.setData(Qt.UserRole, item)
+            self.content_list.addItem(list_item)
+            self.content_list.setItemWidget(list_item, item_widget)
+            added_count += 1
+
+        self._content_item_index = end
+
+        if hasattr(self, 'parse_favorite_btn') and self._content_item_index >= len(items):
+            self.parse_favorite_btn.setEnabled(added_count > 0 or self.content_list.count() > 0)
+
+        if self._content_item_index < len(items):
+            QTimer.singleShot(10, self._load_content_batch)
     
     def on_tab_changed(self, index):
         logger = logging.getLogger(__name__)
@@ -10566,10 +11589,10 @@ class BilibiliDownloader(BaseWindow):
                             print("登录后处理完成")
                         except Exception as e:
                             logger.error(f"加载用户信息失败：{str(e)}")
-                            print(f"加载用户信息失败：{str(e)}")
+                            logger.warning(f"\1")
                             print(f"处理成功情况时发生异常：{str(e)}")
                             import traceback
-                            traceback.print_exc()
+                            logger.debug("traceback", exc_info=True)
                     
                     thread = threading.Thread(target=load_user_info_in_thread)
                     thread.daemon = True
@@ -10580,7 +11603,7 @@ class BilibiliDownloader(BaseWindow):
                     self.show_notification(f"保存Cookie失败：{str(e)}", "error")
                     print(f"处理成功情况时发生异常：{str(e)}")
                     import traceback
-                    traceback.print_exc()
+                    logger.debug("traceback", exc_info=True)
             else:
                 print("显示验证失败消息...")
                 self.show_notification(f"验证失败：{msg}", "error")
@@ -10592,7 +11615,7 @@ class BilibiliDownloader(BaseWindow):
         except Exception as e:
             print(f"handle_verification_result函数发生异常：{str(e)}")
             import traceback
-            traceback.print_exc()
+            logger.debug("traceback", exc_info=True)
     
     def show_success_message(self, msg):
         self.show_notification(f"Cookie验证通过啦！\n{msg}", "success")
@@ -10674,7 +11697,7 @@ class BilibiliDownloader(BaseWindow):
                         return
                     else:
                         # 处理其他类型
-                        media_info = self.parser.parse_media(media_type, media_id, self.tv_mode_checkbox.isChecked(), progress_callback)
+                        media_info = self.parser.parse_media(media_type, media_id, False, progress_callback)
                         self.signal_emitter.parse_finished.emit(media_info)
                 except Exception as e:
                     self.signal_emitter.parse_finished.emit({"success": False, "error": f"解析失败：{str(e)}"})
@@ -10698,7 +11721,7 @@ class BilibiliDownloader(BaseWindow):
         if not video_info_group:
             
             for child in self.findChildren(QGroupBox):
-                if child.title() == "解析结果":
+                if child.title() in ("解析结果", "基本信息"):
                     video_info_group = child
                     break
         if video_info_group:
@@ -10739,7 +11762,7 @@ class BilibiliDownloader(BaseWindow):
             
             if not video_info.get("success"):
                 error_msg = video_info.get("error", "未知错误")
-                print(f"解析失败：{error_msg}")
+                logger.warning(f"\1")
                 
                 # 确保在主线程中更新UI
                 QTimer.singleShot(0, lambda: self.update_ui_error(error_msg))
@@ -10755,8 +11778,8 @@ class BilibiliDownloader(BaseWindow):
             # 确保在主线程中更新UI
             QTimer.singleShot(0, lambda: self.update_ui(video_info))
         except Exception as e:
-            print(f"on_parse_finished错误：{str(e)}")
-            traceback.print_exc()
+            logger.error(f"\1")
+            logger.debug("traceback", exc_info=True)
             # 关闭解析进度窗口
             if hasattr(self, 'parse_progress_window') and self.parse_progress_window:
                 QTimer.singleShot(0, lambda: self.parse_progress_window.close())
@@ -11113,18 +12136,13 @@ class BilibiliDownloader(BaseWindow):
                 )
                 if save_path:
                     import threading, requests
-                    from PyQt5.QtGui import QPixmap
                     def download():
                         try:
                             response = requests.get(cover_url, timeout=15)
                             response.raise_for_status()
-                            pixmap = QPixmap()
-                            pixmap.loadFromData(response.content)
-                            if not pixmap.isNull():
-                                pixmap.save(save_path)
-                                self.parent_widget.show_notification(f"封面已保存到：{os.path.basename(save_path)}", "success")
-                            else:
-                                self.parent_widget.show_notification("封面数据无效", "error")
+                            with open(save_path, 'wb') as f:
+                                f.write(response.content)
+                            self.parent_widget.show_notification(f"封面已保存到：{os.path.basename(save_path)}", "success")
                         except Exception as e:
                             self.parent_widget.show_notification(f"保存失败：{str(e)}", "error")
                     thread = threading.Thread(target=download, daemon=True)
@@ -11294,9 +12312,13 @@ class BilibiliDownloader(BaseWindow):
                 selected_videos = dialog.get_selected_videos()
                 if selected_videos and len(selected_videos) > 0:
                     if len(selected_videos) == 1:
-                        # 单个视频，直接解析
-                        media_info = self.parser.parse_media("video", selected_videos[0]['bvid'], self.tv_mode_checkbox.isChecked())
-                        self.signal_emitter.parse_finished.emit(media_info)
+                        def _parse_single_video():
+                            try:
+                                media_info = self.parser.parse_media("video", selected_videos[0]['bvid'], False)
+                                self.signal_emitter.parse_finished.emit(media_info)
+                            except Exception as e:
+                                self.signal_emitter.parse_finished.emit({"success": False, "error": f"解析失败：{str(e)}"})
+                        threading.Thread(target=_parse_single_video, daemon=True).start()
                     else:
                         # 多个视频，使用批量解析逻辑
                         urls = []
@@ -11318,7 +12340,7 @@ class BilibiliDownloader(BaseWindow):
     
     def update_ui_error(self, error_msg):
         try:
-            print(f"=== 开始更新错误状态UI，错误信息：{error_msg}")
+            logger.error(f"\1")
             
             # 确保所有UI控件都存在
             if hasattr(self, 'video_title'):
@@ -11353,8 +12375,8 @@ class BilibiliDownloader(BaseWindow):
             
             print("=== 错误状态UI更新完成 ===")
         except Exception as e:
-            print(f"update_ui_error错误：{str(e)}")
-            traceback.print_exc()
+            logger.error(f"\1")
+            logger.debug("traceback", exc_info=True)
     
     def event(self, event):
         from PyQt5.QtCore import QEvent
@@ -11372,7 +12394,7 @@ class BilibiliDownloader(BaseWindow):
                 except Exception as e:
                     logger.error(f"处理CreateWindowEvent事件时出错：{str(e)}")
                     import traceback
-                    traceback.print_exc()
+                    logger.debug("traceback", exc_info=True)
                 return True
             return True
         try:
@@ -11429,6 +12451,7 @@ class BilibiliDownloader(BaseWindow):
             batch_window.cancel_all.connect(self.on_cancel_download)
             self.download_manager.episode_progress_updated.connect(batch_window.update_episode_progress)
             self.download_manager.episode_finished.connect(batch_window.finish_episode)
+            self.download_manager.global_progress_updated.connect(batch_window._update_global_progress)
             batch_window.window_closed.connect(lambda tid=batch_task_id: self.on_batch_window_closed(tid))
             logger.info("信号连接完成")
             
@@ -11446,56 +12469,72 @@ class BilibiliDownloader(BaseWindow):
             batch_window.activateWindow()
             logger.info("窗口显示完成")
             
-            from PyQt5.QtWidgets import QApplication
-            
             logger.info("添加任务到窗口")
             total_tasks = len(all_download_tasks)
-            for i, (video, episodes, task_id, download_params) in enumerate(all_download_tasks):
-                progress = int((i / total_tasks) * 100)
-                if i % 50 == 0:
-                    self.signal_emitter.parse_progress.emit(progress, f"添加任务 {i+1}/{total_tasks}...")
-                    QApplication.processEvents()
-                
-                bvid = video.get('bvid')
-                for j, ep in enumerate(episodes):
-                    ep_name = f"{video.get('title', bvid)} - 第{ep.get('page', j+1)}集"
-                    ep_tooltip = ep.get('title', '')
-                    batch_window.add_episode_progress(ep_name, ep_tooltip, task_id, j)
             
-            # 显示处理完成的通知
-            self.signal_emitter.parse_progress.emit(100, "任务添加完成")
-            logger.info("任务添加完成")
+            _batch_add_index = [0]
+            _batch_add_size = 20
             
-            # 关闭解析进度窗口
-            if hasattr(self, 'parse_progress_window') and self.parse_progress_window:
-                logger.info("关闭解析进度窗口")
-                QTimer.singleShot(1000, lambda: self.parse_progress_window.close())
+            def _add_tasks_batch():
+                try:
+                    start = _batch_add_index[0]
+                    end = min(start + _batch_add_size, total_tasks)
+                    
+                    for i in range(start, end):
+                        video, episodes, task_id, download_params = all_download_tasks[i]
+                        bvid = video.get('bvid')
+                        for j, ep in enumerate(episodes):
+                            ep_name = f"{video.get('title', bvid)} - 第{ep.get('page', j+1)}集"
+                            ep_tooltip = ep.get('title', '')
+                            batch_window.add_episode_progress(ep_name, ep_tooltip, task_id, j)
+                    
+                    _batch_add_index[0] = end
+                    progress = int((end / total_tasks) * 100)
+                    self.signal_emitter.parse_progress.emit(progress, f"添加任务 {end}/{total_tasks}...")
+                    
+                    if _batch_add_index[0] < total_tasks:
+                        QTimer.singleShot(10, _add_tasks_batch)
+                    else:
+                        self.signal_emitter.parse_progress.emit(100, "任务添加完成")
+                        logger.info("任务添加完成")
+                        
+                        if hasattr(self, 'parse_progress_window') and self.parse_progress_window:
+                            QTimer.singleShot(1000, lambda: self.parse_progress_window.close())
+                        
+                        self.batch_windows[batch_task_id] = batch_window
+                        logger.info(f"保存窗口引用，当前窗口数量：{len(self.batch_windows)}")
+                        
+                        _download_batch_index = [0]
+                        _download_batch_size = 10
+                        
+                        def _start_downloads_batch():
+                            try:
+                                ds = _download_batch_index[0]
+                                de = min(ds + _download_batch_size, total_tasks)
+                                for i in range(ds, de):
+                                    _, _, _, download_params = all_download_tasks[i]
+                                    self.download_manager.start_download(download_params)
+                                _download_batch_index[0] = de
+                                
+                                if _download_batch_index[0] < total_tasks:
+                                    QTimer.singleShot(10, _start_downloads_batch)
+                                else:
+                                    logger.info("所有任务开始下载")
+                                    logger.info(f"完全模式：已成功添加 {success_count}/{total_videos} 个视频到下载队列")
+                                    self.show_notification(f"完全模式：已成功添加 {success_count}/{total_videos} 个视频到下载队列", "success")
+                                    logger.info("=== 批量下载窗口创建完成 ===")
+                            except Exception as e:
+                                logger.error(f"启动下载任务时出错：{str(e)}")
+                        
+                        QTimer.singleShot(100, _start_downloads_batch)
+                except Exception as e:
+                    logger.error(f"添加任务批次时出错：{str(e)}")
             
-            logger.info("强制处理事件，确保窗口显示")
-            # 再次处理事件，确保窗口完全显示
-            logger.info("事件处理完成")
-            
-            # 保存窗口引用
-            self.batch_windows[batch_task_id] = batch_window
-            logger.info(f"保存窗口引用，当前窗口数量：{len(self.batch_windows)}")
-            
-            # 开始下载所有任务
-            logger.info("开始下载所有任务")
-            for i, (_, _, _, download_params) in enumerate(all_download_tasks):
-                self.download_manager.start_download(download_params)
-                if i % 50 == 0:
-                    QApplication.processEvents()
-            logger.info("所有任务开始下载")
-            
-            # 显示完成通知
-            logger.info(f"完全模式：已成功添加 {success_count}/{total_videos} 个视频到下载队列")
-            self.show_notification(f"完全模式：已成功添加 {success_count}/{total_videos} 个视频到下载队列", "success")
-            
-            logger.info("=== 批量下载窗口创建完成 ===")
+            QTimer.singleShot(10, _add_tasks_batch)
         except Exception as e:
             logger.error(f"创建批量下载窗口时出错：{str(e)}")
             import traceback
-            traceback.print_exc()
+            logger.debug("traceback", exc_info=True)
             self.show_notification(f"创建批量下载窗口失败：{str(e)}", "error")
             # 关闭解析进度窗口
             if hasattr(self, 'parse_progress_window') and self.parse_progress_window:
@@ -11515,7 +12554,7 @@ class BilibiliDownloader(BaseWindow):
         self.show_notification(f"完全模式：开始处理 {len(videos)} 个视频", "info")
         
         # 在主线程中获取UI元素的值，避免在子线程中访问UI元素
-        tv_mode = self.tv_mode_checkbox.isChecked() if hasattr(self, 'tv_mode_checkbox') else False
+        tv_mode = False
         save_path = self.path_edit.text().strip() if hasattr(self, 'path_edit') else ""
         if not save_path:
             save_path = self.config.get_app_setting("default_download_path", "")
@@ -11672,7 +12711,7 @@ class BilibiliDownloader(BaseWindow):
                 except Exception as e:
                     logger.error(f"完全模式下载出错：{str(e)}")
                     import traceback
-                    traceback.print_exc()
+                    logger.debug("traceback", exc_info=True)
                     self.error.emit(str(e))
                 finally:
                     logger.info("=== 处理完成 ===")
@@ -11807,7 +12846,7 @@ class BilibiliDownloader(BaseWindow):
             # 查找视频信息组
             video_info_group = None
             for child in self.findChildren(QGroupBox):
-                if child.title() == "解析结果":
+                if child.title() in ("解析结果", "基本信息"):
                     video_info_group = child
                     break
             if video_info_group:
@@ -12012,43 +13051,43 @@ class BilibiliDownloader(BaseWindow):
                                     try:
                                         self.danmaku_count_label.setText("获取失败")
                                     except Exception as e:
-                                        print(f"更新弹幕错误UI失败：{str(e)}")
-                                QTimer.singleShot(0, update_danmaku_error)
+                                        logger.warning(f"\1")
+                                run_on_main_thread(update_danmaku_error)
                                 return
-                            
-                            print(f"开始获取弹幕信息，cid: {cid}")
+
+                            logger.debug("开始\1")
                             danmaku_video_info = self.parser.get_danmaku(cid)
-                            print(f"获取弹幕信息结果: {danmaku_video_info}")
+                            logger.debug("获取\1")
                             if danmaku_video_info.get('error') == "":
                                 count = danmaku_video_info.get('data', {}).get('count', 0)
-                                print(f"弹幕数量：{count}条")
+                                logger.debug(f"弹幕数量已更新")
                                 self.current_danmaku_data = danmaku_video_info
                                 def update_danmaku_count():
                                     try:
-                                        print(f"更新弹幕数量UI：{count}条")
+                                        logger.debug("更新\1")
                                         self.select_danmaku_btn.setEnabled(True)
                                         self.danmaku_count_label.setText(f"{count}条")
                                         print("弹幕数量UI更新成功")
                                     except Exception as e:
-                                        print(f"更新弹幕数量UI失败：{str(e)}")
-                                QTimer.singleShot(0, update_danmaku_count)
+                                        logger.warning(f"\1")
+                                run_on_main_thread(update_danmaku_count)
                             else:
                                 print("弹幕获取失败")
                                 def update_danmaku_error():
                                     try:
                                         self.danmaku_count_label.setText("获取失败")
                                     except Exception as e:
-                                        print(f"更新弹幕错误UI失败：{str(e)}")
-                                QTimer.singleShot(0, update_danmaku_error)
+                                        logger.warning(f"\1")
+                                run_on_main_thread(update_danmaku_error)
                         except Exception as e:
-                            print(f"获取弹幕信息失败：{str(e)}")
-                            traceback.print_exc()
+                            logger.warning(f"\1")
+                            logger.debug("traceback", exc_info=True)
                             def update_danmaku_error():
                                 try:
                                     self.danmaku_count_label.setText("获取失败")
                                 except Exception as e:
-                                    print(f"更新弹幕错误UI失败：{str(e)}")
-                            QTimer.singleShot(0, update_danmaku_error)
+                                    logger.warning(f"\1")
+                            run_on_main_thread(update_danmaku_error)
                     
                     thread = threading.Thread(target=get_danmaku_info, daemon=True)
                     thread.start()
@@ -12067,15 +13106,15 @@ class BilibiliDownloader(BaseWindow):
             
             # 输出弹幕数量label
             if hasattr(self, 'danmaku_count_label'):
-                print(f"弹幕数量label：{self.danmaku_count_label.text()}")
+                logger.debug(f"弹幕数量已更新")
             
             print("=== UI更新完成 ===")
             
             # 更新封面下载tab
             self.update_cover_tab()
         except Exception as e:
-            print(f"update_ui错误：{str(e)}")
-            traceback.print_exc()
+            logger.error(f"\1")
+            logger.debug("traceback", exc_info=True)
 
     def update_cover_tab(self):
         try:
@@ -12136,20 +13175,14 @@ class BilibiliDownloader(BaseWindow):
                 for i, cover_data in enumerate(self.cover_data_list):
                     item_widget = QWidget()
                     item_widget.setAutoFillBackground(True)
-                    item_widget.setFixedSize(scale(100), scale(80))
-                    item_widget.setStyleSheet(scale_style("""
-                        QWidget {
-                            background-color: white;
-                            border-radius: 4px;
-                            border: 1px solid #e0e4ea;
-                        }
-                    """))
+                    item_widget.setFixedSize(scale(96), scale(76))
                     item_layout = QVBoxLayout(item_widget)
-                    item_layout.setContentsMargins(scale(4), scale(4), scale(4), scale(4))
+                    item_layout.setContentsMargins(scale(2), scale(2), scale(2), scale(2))
                     item_layout.setSpacing(scale(2))
                     
                     thumb_label = QLabel()
-                    thumb_label.setFixedSize(scale(90), scale(50))
+                    thumb_label.setMinimumHeight(scale(50))
+                    thumb_label.setMaximumHeight(scale(50))
                     thumb_label.setAlignment(Qt.AlignCenter)
                     thumb_label.setStyleSheet(scale_style("""
                         QLabel {
@@ -12160,7 +13193,7 @@ class BilibiliDownloader(BaseWindow):
                         }
                     """))
                     thumb_label.setText("加载中...")
-                    item_layout.addWidget(thumb_label)
+                    item_layout.addWidget(thumb_label, alignment=Qt.AlignHCenter)
                     
                     name_label = QLabel(cover_data["title"])
                     name_label.setFixedHeight(scale(14))
@@ -12206,9 +13239,11 @@ class BilibiliDownloader(BaseWindow):
                         def on_thumb_loaded(label, pixmap):
                             try:
                                 if not pixmap.isNull():
-                                    scaled = pixmap.scaled(scale(90), scale(50), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-                                    cw = min(scaled.width(), scale(90))
-                                    ch = min(scaled.height(), scale(50))
+                                    tw = label.width() if label.width() > 0 else scale(92)
+                                    th = label.height() if label.height() > 0 else scale(50)
+                                    scaled = pixmap.scaled(tw, th, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                                    cw = min(scaled.width(), tw)
+                                    ch = min(scaled.height(), th)
                                     x = (scaled.width() - cw) // 2
                                     y = (scaled.height() - ch) // 2
                                     cropped = scaled.copy(x, y, cw, ch)
@@ -12242,8 +13277,8 @@ class BilibiliDownloader(BaseWindow):
                 if hasattr(self, 'batch_download_cover_btn'):
                     self.batch_download_cover_btn.setEnabled(False)
         except Exception as e:
-            print(f"update_cover_tab错误：{str(e)}")
-            traceback.print_exc()
+            logger.error(f"\1")
+            logger.debug("traceback", exc_info=True)
     
     def load_cover_preview(self, url):
         if not url or not hasattr(self, 'cover_preview_label'):
@@ -12346,19 +13381,47 @@ class BilibiliDownloader(BaseWindow):
         if save_path:
             self.show_notification("正在下载封面...", "info")
             import threading
+            _cover_url = cover_url
+            _save_path = save_path
+            _title = safe_title
             def download_cover():
                 try:
-                    response = requests.get(cover_url, timeout=15)
+                    response = requests.get(_cover_url, timeout=15)
                     response.raise_for_status()
-                    pixmap = QPixmap()
-                    pixmap.loadFromData(response.content)
-                    if not pixmap.isNull():
-                        pixmap.save(save_path)
-                        self.show_notification(f"封面已保存到：{os.path.basename(save_path)}", "success")
-                    else:
-                        self.show_notification("封面数据无效", "error")
+                    with open(_save_path, 'wb') as f:
+                        f.write(response.content)
+                    self.show_notification(f"封面已保存到：{os.path.basename(_save_path)}", "success")
+                    if hasattr(self, 'task_manager') and self.task_manager:
+                        task_id = f"cover_{int(time.time() * 1000)}"
+                        self.task_manager.add_task({
+                            "id": task_id,
+                            "url": _cover_url,
+                            "title": _title,
+                            "save_path": os.path.dirname(_save_path),
+                            "status": "completed",
+                            "progress": 100,
+                            "task_type": "cover",
+                            "cover_url": _cover_url,
+                            "file_path": _save_path,
+                            "file_size": len(response.content),
+                            "bvid": self.current_video_info.get("bvid", "") if self.current_video_info else "",
+                            "up_name": self.current_video_info.get("owner", {}).get("name", "") if self.current_video_info else "",
+                        })
                 except Exception as e:
                     self.show_notification(f"保存失败：{str(e)}", "error")
+                    if hasattr(self, 'task_manager') and self.task_manager:
+                        task_id = f"cover_{int(time.time() * 1000)}"
+                        self.task_manager.add_task({
+                            "id": task_id,
+                            "url": _cover_url,
+                            "title": _title,
+                            "save_path": os.path.dirname(_save_path),
+                            "status": "failed",
+                            "error_message": str(e),
+                            "task_type": "cover",
+                            "cover_url": _cover_url,
+                            "bvid": self.current_video_info.get("bvid", "") if self.current_video_info else "",
+                        })
             thread = threading.Thread(target=download_cover, daemon=True)
             thread.start()
     
@@ -12392,19 +13455,48 @@ class BilibiliDownloader(BaseWindow):
         if save_path:
             self.show_notification("正在下载封面...", "info")
             import threading
+            _cover_url = cover_url
+            _save_path = save_path
+            _title = safe_title
+            _video_info = video_info
             def download_cover():
                 try:
-                    response = requests.get(cover_url, timeout=15)
+                    response = requests.get(_cover_url, timeout=15)
                     response.raise_for_status()
-                    pixmap = QPixmap()
-                    pixmap.loadFromData(response.content)
-                    if not pixmap.isNull():
-                        pixmap.save(save_path)
-                        self.show_notification(f"封面已保存到：{os.path.basename(save_path)}", "success")
-                    else:
-                        self.show_notification("封面数据无效", "error")
+                    with open(_save_path, 'wb') as f:
+                        f.write(response.content)
+                    self.show_notification(f"封面已保存到：{os.path.basename(_save_path)}", "success")
+                    if hasattr(self, 'task_manager') and self.task_manager:
+                        task_id = f"cover_{int(time.time() * 1000)}"
+                        self.task_manager.add_task({
+                            "id": task_id,
+                            "url": _cover_url,
+                            "title": _title,
+                            "save_path": os.path.dirname(_save_path),
+                            "status": "completed",
+                            "progress": 100,
+                            "task_type": "cover",
+                            "cover_url": _cover_url,
+                            "file_path": _save_path,
+                            "file_size": len(response.content),
+                            "bvid": _video_info.get("bvid", ""),
+                            "up_name": _video_info.get("owner", {}).get("name", ""),
+                        })
                 except Exception as e:
                     self.show_notification(f"保存失败：{str(e)}", "error")
+                    if hasattr(self, 'task_manager') and self.task_manager:
+                        task_id = f"cover_{int(time.time() * 1000)}"
+                        self.task_manager.add_task({
+                            "id": task_id,
+                            "url": _cover_url,
+                            "title": _title,
+                            "save_path": os.path.dirname(_save_path),
+                            "status": "failed",
+                            "error_message": str(e),
+                            "task_type": "cover",
+                            "cover_url": _cover_url,
+                            "bvid": _video_info.get("bvid", ""),
+                        })
             thread = threading.Thread(target=download_cover, daemon=True)
             thread.start()
     
@@ -12414,8 +13506,10 @@ class BilibiliDownloader(BaseWindow):
             return
         
         title = ""
+        cover_url = ""
         if self.current_video_info:
             title = self.current_video_info.get("title", "cover")
+            cover_url = self.current_video_info.get("pic", "")
         title = "".join(c for c in title if c.isalnum() or c in "_ -()[]（）【】") or "cover"
         
         file_path, _ = QFileDialog.getSaveFileName(
@@ -12427,8 +13521,37 @@ class BilibiliDownloader(BaseWindow):
             try:
                 self.current_cover_pixmap.save(file_path)
                 self.show_notification(f"封面已保存到：{os.path.basename(file_path)}", "success")
+                
+                if hasattr(self, 'task_manager') and self.task_manager:
+                    task_id = f"cover_{int(time.time() * 1000)}"
+                    self.task_manager.add_task({
+                        "id": task_id,
+                        "url": cover_url or "",
+                        "title": title,
+                        "save_path": os.path.dirname(file_path),
+                        "status": "completed",
+                        "progress": 100,
+                        "task_type": "cover",
+                        "cover_url": cover_url or "",
+                        "file_path": file_path,
+                        "bvid": self.current_video_info.get("bvid", "") if self.current_video_info else "",
+                        "up_name": self.current_video_info.get("owner", {}).get("name", "") if self.current_video_info else "",
+                    })
             except Exception as e:
                 self.show_notification(f"保存失败：{str(e)}", "error")
+                if hasattr(self, 'task_manager') and self.task_manager:
+                    task_id = f"cover_{int(time.time() * 1000)}"
+                    self.task_manager.add_task({
+                        "id": task_id,
+                        "url": cover_url or "",
+                        "title": title,
+                        "save_path": os.path.dirname(file_path),
+                        "status": "failed",
+                        "error_message": str(e),
+                        "task_type": "cover",
+                        "cover_url": cover_url or "",
+                        "bvid": self.current_video_info.get("bvid", "") if self.current_video_info else "",
+                    })
     
     def on_batch_download_covers(self):
         if not self.cover_data_list:
@@ -12443,6 +13566,8 @@ class BilibiliDownloader(BaseWindow):
         
         import threading
         
+        _task_manager = self.task_manager if hasattr(self, 'task_manager') else None
+        
         def download_all():
             success_count = 0
             fail_count = 0
@@ -12455,17 +13580,39 @@ class BilibiliDownloader(BaseWindow):
                     response = requests.get(url, timeout=15)
                     response.raise_for_status()
                     
-                    pixmap = QPixmap()
-                    pixmap.loadFromData(response.content)
+                    file_path = os.path.join(save_dir, f"{safe_title}.png")
+                    with open(file_path, 'wb') as f:
+                        f.write(response.content)
+                    success_count += 1
                     
-                    if not pixmap.isNull():
-                        file_path = os.path.join(save_dir, f"{safe_title}.png")
-                        pixmap.save(file_path)
-                        success_count += 1
-                    else:
-                        fail_count += 1
-                except Exception:
+                    if _task_manager:
+                        task_id = f"cover_{int(time.time() * 1000)}_{i}"
+                        _task_manager.add_task({
+                            "id": task_id,
+                            "url": url,
+                            "title": safe_title,
+                            "save_path": save_dir,
+                            "status": "completed",
+                            "progress": 100,
+                            "task_type": "cover",
+                            "cover_url": url,
+                            "file_path": file_path,
+                            "file_size": len(response.content),
+                        })
+                except Exception as e:
                     fail_count += 1
+                    if _task_manager:
+                        task_id = f"cover_{int(time.time() * 1000)}_{i}"
+                        _task_manager.add_task({
+                            "id": task_id,
+                            "url": cover_data.get("url", ""),
+                            "title": cover_data.get("title", f"cover_{i+1}"),
+                            "save_path": save_dir,
+                            "status": "failed",
+                            "error_message": str(e),
+                            "task_type": "cover",
+                            "cover_url": cover_data.get("url", ""),
+                        })
             
             def show_result():
                 msg = f"批量下载完成：成功 {success_count} 个"
@@ -12473,7 +13620,7 @@ class BilibiliDownloader(BaseWindow):
                     msg += f"，失败 {fail_count} 个"
                 self.show_notification(msg, "success" if fail_count == 0 else "warning")
             
-            QTimer.singleShot(0, show_result)
+            run_on_main_thread(show_result)
         
         thread = threading.Thread(target=download_all, daemon=True)
         thread.start()
@@ -12502,10 +13649,12 @@ class BilibiliDownloader(BaseWindow):
         
         import threading
         
+        _task_manager = self.task_manager if hasattr(self, 'task_manager') else None
+        
         def download_selected():
             success_count = 0
             fail_count = 0
-            for item in selected_items:
+            for idx, item in enumerate(selected_items):
                 try:
                     content_item = item.data(Qt.UserRole)
                     if not content_item:
@@ -12522,17 +13671,41 @@ class BilibiliDownloader(BaseWindow):
                     response = requests.get(cover_url, timeout=15)
                     response.raise_for_status()
                     
-                    pixmap = QPixmap()
-                    pixmap.loadFromData(response.content)
+                    file_path = os.path.join(save_dir, f"{safe_title}.png")
+                    with open(file_path, 'wb') as f:
+                        f.write(response.content)
+                    success_count += 1
                     
-                    if not pixmap.isNull():
-                        file_path = os.path.join(save_dir, f"{safe_title}.png")
-                        pixmap.save(file_path)
-                        success_count += 1
-                    else:
-                        fail_count += 1
-                except Exception:
+                    if _task_manager:
+                        task_id = f"cover_{int(time.time() * 1000)}_{idx}"
+                        _task_manager.add_task({
+                            "id": task_id,
+                            "url": cover_url,
+                            "title": safe_title,
+                            "save_path": save_dir,
+                            "status": "completed",
+                            "progress": 100,
+                            "task_type": "cover",
+                            "cover_url": cover_url,
+                            "file_path": file_path,
+                            "file_size": len(response.content),
+                            "bvid": content_item.get("bvid", ""),
+                            "up_name": content_item.get("owner", {}).get("name", "") if isinstance(content_item.get("owner"), dict) else "",
+                        })
+                except Exception as e:
                     fail_count += 1
+                    if _task_manager:
+                        task_id = f"cover_{int(time.time() * 1000)}_{idx}"
+                        _task_manager.add_task({
+                            "id": task_id,
+                            "url": content_item.get("cover", "") if content_item else "",
+                            "title": content_item.get("title", "cover") if content_item else "cover",
+                            "save_path": save_dir,
+                            "status": "failed",
+                            "error_message": str(e),
+                            "task_type": "cover",
+                            "cover_url": content_item.get("cover", "") if content_item else "",
+                        })
             
             def show_result():
                 msg = f"封面下载完成：成功 {success_count} 个"
@@ -12540,7 +13713,7 @@ class BilibiliDownloader(BaseWindow):
                     msg += f"，失败 {fail_count} 个"
                 self.show_notification(msg, "success" if fail_count == 0 else "warning")
             
-            QTimer.singleShot(0, show_result)
+            run_on_main_thread(show_result)
         
         thread = threading.Thread(target=download_selected, daemon=True)
         thread.start()
@@ -12566,19 +13739,44 @@ class BilibiliDownloader(BaseWindow):
         if save_path:
             self.show_notification("正在下载封面...", "info")
             import threading
+            _cover_url = cover_url
+            _save_path = save_path
+            _title = safe_title
             def download():
                 try:
-                    response = requests.get(cover_url, timeout=15)
+                    response = requests.get(_cover_url, timeout=15)
                     response.raise_for_status()
-                    pixmap = QPixmap()
-                    pixmap.loadFromData(response.content)
-                    if not pixmap.isNull():
-                        pixmap.save(save_path)
-                        self.show_notification(f"封面已保存到：{os.path.basename(save_path)}", "success")
-                    else:
-                        self.show_notification("封面数据无效", "error")
+                    with open(_save_path, 'wb') as f:
+                        f.write(response.content)
+                    self.show_notification(f"封面已保存到：{os.path.basename(_save_path)}", "success")
+                    if hasattr(self, 'task_manager') and self.task_manager:
+                        task_id = f"cover_{int(time.time() * 1000)}"
+                        self.task_manager.add_task({
+                            "id": task_id,
+                            "url": _cover_url,
+                            "title": _title,
+                            "save_path": os.path.dirname(_save_path),
+                            "status": "completed",
+                            "progress": 100,
+                            "task_type": "cover",
+                            "cover_url": _cover_url,
+                            "file_path": _save_path,
+                            "file_size": len(response.content),
+                        })
                 except Exception as e:
                     self.show_notification(f"保存失败：{str(e)}", "error")
+                    if hasattr(self, 'task_manager') and self.task_manager:
+                        task_id = f"cover_{int(time.time() * 1000)}"
+                        self.task_manager.add_task({
+                            "id": task_id,
+                            "url": _cover_url,
+                            "title": _title,
+                            "save_path": os.path.dirname(_save_path),
+                            "status": "failed",
+                            "error_message": str(e),
+                            "task_type": "cover",
+                            "cover_url": _cover_url,
+                        })
             thread = threading.Thread(target=download, daemon=True)
             thread.start()
     
@@ -12839,16 +14037,80 @@ class BilibiliDownloader(BaseWindow):
             self.batch_windows[task_id] = batch_window
         
         
-        time.sleep(0.1)  
+        def _start_download():
+            logger.info(f"BilibiliDownloader：直接调用下载方法，任务ID：{task_id}")
+            if self.download_manager:
+                self.download_manager.start_download(download_params)
+                logger.info(f"BilibiliDownloader：下载方法已调用")
+            else:
+                logger.error("BilibiliDownloader：下载管理器未初始化")
+            
+            self.download_btn.setEnabled(False)
         
-        logger.info(f"BilibiliDownloader：直接调用下载方法，任务ID：{task_id}")
-        if self.download_manager:
-            self.download_manager.start_download(download_params)
-            logger.info(f"BilibiliDownloader：下载方法已调用")
-        else:
-            logger.error("BilibiliDownloader：下载管理器未初始化")
+        QTimer.singleShot(100, _start_download)
         
-        self.download_btn.setEnabled(False)
+        if auto_download_cover and download_video:
+            cover_url = self.current_video_info.get("pic", "")
+            is_bangumi = self.current_video_info.get("is_bangumi", False)
+            is_cheese = self.current_video_info.get("is_cheese", False)
+            if not cover_url:
+                if is_bangumi and self.current_video_info.get("bangumi_info"):
+                    cover_url = self.current_video_info["bangumi_info"].get("cover", "")
+                elif is_cheese and self.current_video_info.get("cheese_info"):
+                    cover_url = self.current_video_info["cheese_info"].get("cover", "")
+            
+            if cover_url:
+                _auto_cover_url = cover_url
+                _auto_save_path = save_path
+                _auto_title = self.current_video_info.get("title", "cover")
+                _auto_safe_title = "".join(c for c in _auto_title if c.isalnum() or c in "_ -()[]（）【】") or "cover"
+                
+                def _auto_download_cover():
+                    try:
+                        response = requests.get(_auto_cover_url, timeout=15)
+                        response.raise_for_status()
+                        cover_ext = _auto_cover_url.rsplit('.', 1)[-1].split('?')[0] if '.' in _auto_cover_url else 'png'
+                        if cover_ext not in ('png', 'jpg', 'jpeg', 'bmp', 'webp'):
+                            cover_ext = 'png'
+                        cover_file_path = os.path.join(_auto_save_path, f"{_auto_safe_title}_cover.{cover_ext}")
+                        with open(cover_file_path, 'wb') as f:
+                            f.write(response.content)
+                        logger.info(f"自动下载封面成功：{cover_file_path}")
+                        if hasattr(self, 'task_manager') and self.task_manager:
+                            task_id_cover = f"cover_{int(time.time() * 1000)}"
+                            self.task_manager.add_task({
+                                "id": task_id_cover,
+                                "url": _auto_cover_url,
+                                "title": _auto_safe_title,
+                                "save_path": _auto_save_path,
+                                "status": "completed",
+                                "progress": 100,
+                                "task_type": "cover",
+                                "cover_url": _auto_cover_url,
+                                "file_path": cover_file_path,
+                                "file_size": len(response.content),
+                                "bvid": self.current_video_info.get("bvid", ""),
+                                "up_name": self.current_video_info.get("owner", {}).get("name", ""),
+                            })
+                    except Exception as e:
+                        logger.warning(f"自动下载封面失败：{str(e)}")
+                        if hasattr(self, 'task_manager') and self.task_manager:
+                            task_id_cover = f"cover_{int(time.time() * 1000)}"
+                            self.task_manager.add_task({
+                                "id": task_id_cover,
+                                "url": _auto_cover_url,
+                                "title": _auto_safe_title,
+                                "save_path": _auto_save_path,
+                                "status": "failed",
+                                "error_message": str(e),
+                                "task_type": "cover",
+                                "cover_url": _auto_cover_url,
+                                "bvid": self.current_video_info.get("bvid", ""),
+                            })
+                
+                import threading
+                cover_thread = threading.Thread(target=_auto_download_cover, daemon=True)
+                cover_thread.start()
 
     def on_full_mode_download(self):
         if not self.current_video_info:
@@ -13002,6 +14264,69 @@ class BilibiliDownloader(BaseWindow):
             self.show_notification("下载管理器未初始化", "error")
         
         self.download_btn.setEnabled(False)
+        
+        if auto_download_cover and download_video:
+            cover_url = self.current_video_info.get("pic", "")
+            is_bangumi = self.current_video_info.get("is_bangumi", False)
+            is_cheese = self.current_video_info.get("is_cheese", False)
+            if not cover_url:
+                if is_bangumi and self.current_video_info.get("bangumi_info"):
+                    cover_url = self.current_video_info["bangumi_info"].get("cover", "")
+                elif is_cheese and self.current_video_info.get("cheese_info"):
+                    cover_url = self.current_video_info["cheese_info"].get("cover", "")
+            
+            if cover_url:
+                _auto_cover_url = cover_url
+                _auto_save_path = save_path
+                _auto_title = self.current_video_info.get("title", "cover")
+                _auto_safe_title = "".join(c for c in _auto_title if c.isalnum() or c in "_ -()[]（）【】") or "cover"
+                
+                def _auto_download_cover_full():
+                    try:
+                        response = requests.get(_auto_cover_url, timeout=15)
+                        response.raise_for_status()
+                        cover_ext = _auto_cover_url.rsplit('.', 1)[-1].split('?')[0] if '.' in _auto_cover_url else 'png'
+                        if cover_ext not in ('png', 'jpg', 'jpeg', 'bmp', 'webp'):
+                            cover_ext = 'png'
+                        cover_file_path = os.path.join(_auto_save_path, f"{_auto_safe_title}_cover.{cover_ext}")
+                        with open(cover_file_path, 'wb') as f:
+                            f.write(response.content)
+                        logger.info(f"完全模式自动下载封面成功：{cover_file_path}")
+                        if hasattr(self, 'task_manager') and self.task_manager:
+                            task_id_cover = f"cover_{int(time.time() * 1000)}"
+                            self.task_manager.add_task({
+                                "id": task_id_cover,
+                                "url": _auto_cover_url,
+                                "title": _auto_safe_title,
+                                "save_path": _auto_save_path,
+                                "status": "completed",
+                                "progress": 100,
+                                "task_type": "cover",
+                                "cover_url": _auto_cover_url,
+                                "file_path": cover_file_path,
+                                "file_size": len(response.content),
+                                "bvid": self.current_video_info.get("bvid", ""),
+                                "up_name": self.current_video_info.get("owner", {}).get("name", ""),
+                            })
+                    except Exception as e:
+                        logger.warning(f"完全模式自动下载封面失败：{str(e)}")
+                        if hasattr(self, 'task_manager') and self.task_manager:
+                            task_id_cover = f"cover_{int(time.time() * 1000)}"
+                            self.task_manager.add_task({
+                                "id": task_id_cover,
+                                "url": _auto_cover_url,
+                                "title": _auto_safe_title,
+                                "save_path": _auto_save_path,
+                                "status": "failed",
+                                "error_message": str(e),
+                                "task_type": "cover",
+                                "cover_url": _auto_cover_url,
+                                "bvid": self.current_video_info.get("bvid", ""),
+                            })
+                
+                import threading
+                cover_thread = threading.Thread(target=_auto_download_cover_full, daemon=True)
+                cover_thread.start()
 
     def on_cancel_download(self):
         self.signal_emitter.cancel_download.emit()
@@ -13098,6 +14423,35 @@ class BilibiliDownloader(BaseWindow):
             self.resolution_combo.setCurrentIndex(index)
         else:
             self.resolution_combo.setCurrentIndex(0)
+    
+    def _on_login_success_refresh(self, user_info=None):
+        try:
+            self.hide_cookie_ui()
+            
+            if user_info and user_info.get("success"):
+                self.parser.user_info = user_info
+                self.update_user_info(user_info)
+                self._apply_user_info_to_ui(user_info)
+            elif hasattr(self, 'parser') and self.parser and self.parser.cookies:
+                def _fetch_and_refresh():
+                    try:
+                        ui = self.parser.get_user_info(force_refresh=True)
+                        if ui and ui.get("success"):
+                            self.parser.user_info = ui
+                            run_on_main_thread(lambda: self.update_user_info(ui))
+                            run_on_main_thread(lambda: self._apply_user_info_to_ui(ui))
+                        else:
+                            run_on_main_thread(lambda: self._apply_user_info_to_ui(None))
+                    except Exception:
+                        run_on_main_thread(lambda: self._apply_user_info_to_ui(None))
+                threading.Thread(target=_fetch_and_refresh, daemon=True).start()
+                self.login_info_label.setText("加载中...")
+                self.login_info_label.setStyleSheet(scale_style("color: #9ca3af; font-size: 12px;"))
+            else:
+                self._apply_user_info_to_ui(None)
+        except Exception as e:
+            logger.error(f"登录后刷新UI失败：{e}")
+            self._apply_user_info_to_ui(None)
 
     def update_login_info_display(self):
         if hasattr(self, 'login_info_widget') and hasattr(self, 'login_info_label') and hasattr(self, 'avatar_label'):
@@ -13105,69 +14459,95 @@ class BilibiliDownloader(BaseWindow):
                 
                 try:
                     user_info = self.parser.user_info
-                    if user_info and user_info.get("success"):
-                        username = user_info.get("uname", "用户")
-                        self.login_info_label.setText(username)
-                        self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 12px;"))
-                        
-                        avatar_url = user_info.get("face", "")
-                        if avatar_url:
-                            import threading
-                            def fetch_avatar(url=avatar_url):
-                                try:
-                                    headers = {
-                                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                                        "Referer": "https://www.bilibili.com/"
-                                    }
-                                    response = requests.get(url, headers=headers, timeout=5)
-                                    if response.status_code == 200:
-                                        self.signal_emitter.avatar_loaded.emit(response.content)
-                                except Exception as e:
-                                    logger.error(f"下载头像失败：{e}")
-                            t = threading.Thread(target=fetch_avatar, daemon=True)
-                            t.start()
-                        
-                        self.login_info_widget.setCursor(QCursor(Qt.PointingHandCursor))
-                        def handle_click(event):
-                            self.on_user_info_click(event)
-                        self.login_info_widget.mousePressEvent = handle_click
-                        
-                        if hasattr(self, 'user_info_label') and hasattr(self, 'vip_label'):
-                            self.user_info_label.setText("已登录")
-                            if user_info.get("is_vip"):
-                                self.vip_label.setText("√ 会员")
-                                self.vip_label.setStyleSheet("color: #faad14;")
-                            else:
-                                self.vip_label.setText("× 普通用户")
-                                self.vip_label.setStyleSheet("color: #6b7280;")
-                    else:
-                        self.login_info_label.setText("如果想要解析会员内容请登录")
-                        self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 12px;"))
-                        
-                        self.login_info_widget.setCursor(QCursor(Qt.PointingHandCursor))
-                        self.login_info_widget.mousePressEvent = self.on_login_click
-                        
-                        if hasattr(self, 'user_info_label') and hasattr(self, 'vip_label'):
-                            self.user_info_label.setText("未登录")
-                            self.vip_label.setText("× 未登录")
-                            self.vip_label.setStyleSheet("color: #6b7280;")
-                        
-                        self.load_default_avatar()
+                    if not user_info or not user_info.get("success"):
+                        def _fetch_user_info():
+                            try:
+                                ui = self.parser.get_user_info(force_refresh=True)
+                                if ui and ui.get("success"):
+                                    self.parser.user_info = ui
+                                    run_on_main_thread(lambda: self._apply_user_info_to_ui(ui))
+                                else:
+                                    run_on_main_thread(lambda: self._apply_user_info_to_ui(None))
+                            except Exception:
+                                run_on_main_thread(lambda: self._apply_user_info_to_ui(None))
+                        threading.Thread(target=_fetch_user_info, daemon=True).start()
+                        self.login_info_label.setText("加载中...")
+                        self.login_info_label.setStyleSheet(scale_style("color: #9ca3af; font-size: 12px;"))
+                        return
+                    
+                    self._apply_user_info_to_ui(user_info)
                 except Exception as e:
                     logger.error(f"更新登录信息显示失败：{e}")
-                    self.login_info_label.setText("如果想要解析会员内容请登录")
-                    self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 12px;"))
-                    
-                    self.login_info_widget.setCursor(QCursor(Qt.PointingHandCursor))
-                    self.login_info_widget.mousePressEvent = self.on_login_click
-                    
-                    if hasattr(self, 'user_info_label') and hasattr(self, 'vip_label'):
-                        self.user_info_label.setText("未登录")
-                        self.vip_label.setText("× 未登录")
-                        self.vip_label.setStyleSheet("color: #6b7280;")
-                    
-                    self.load_default_avatar()
+                    self._apply_user_info_to_ui(None)
             else:
+                self._apply_user_info_to_ui(None)
+    
+    def _apply_user_info_to_ui(self, user_info):
+        try:
+            if user_info and user_info.get("success"):
+                username = user_info.get("uname", "用户")
+                self.login_info_label.setText(username)
+                self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 12px;"))
+                
+                avatar_url = user_info.get("face", "")
+                if avatar_url:
+                    def fetch_avatar(url=avatar_url):
+                        try:
+                            headers = {
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                                "Referer": "https://www.bilibili.com/"
+                            }
+                            response = requests.get(url, headers=headers, timeout=5)
+                            if response.status_code == 200:
+                                self.signal_emitter.avatar_loaded.emit(response.content)
+                        except Exception as e:
+                            logger.error(f"下载头像失败：{e}")
+                    t = threading.Thread(target=fetch_avatar, daemon=True)
+                    t.start()
+                
+                self.login_info_widget.setCursor(QCursor(Qt.PointingHandCursor))
+                def handle_click(event):
+                    self.on_user_info_click(event)
+                self.login_info_widget.mousePressEvent = handle_click
+                
+                if hasattr(self, 'user_info_label') and hasattr(self, 'vip_label'):
+                    self.user_info_label.setText("已登录")
+                    if user_info.get("is_vip"):
+                        self.vip_label.setText("√ 会员")
+                        self.vip_label.setStyleSheet("color: #faad14;")
+                    else:
+                        self.vip_label.setText("× 普通用户")
+                        self.vip_label.setStyleSheet("color: #6b7280;")
+                
+                self.hide_cookie_ui()
+            else:
+                self.login_info_label.setText("如果想要解析会员内容请登录")
+                self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 12px;"))
+                
+                self.login_info_widget.setCursor(QCursor(Qt.PointingHandCursor))
+                self.login_info_widget.mousePressEvent = self.on_login_click
+                
+                if hasattr(self, 'user_info_label') and hasattr(self, 'vip_label'):
+                    self.user_info_label.setText("未登录")
+                    self.vip_label.setText("× 未登录")
+                    self.vip_label.setStyleSheet("color: #6b7280;")
+                
+                self.load_default_avatar()
+        except Exception as e:
+            logger.error(f"应用用户信息到UI失败：{e}")
+            self.login_info_label.setText("如果想要解析会员内容请登录")
+            self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 12px;"))
+            
+            self.login_info_widget.setCursor(QCursor(Qt.PointingHandCursor))
+            self.login_info_widget.mousePressEvent = self.on_login_click
+            
+            if hasattr(self, 'user_info_label') and hasattr(self, 'vip_label'):
+                self.user_info_label.setText("未登录")
+                self.vip_label.setText("× 未登录")
+                self.vip_label.setStyleSheet("color: #6b7280;")
+            
+            self.load_default_avatar()
+        else:
                 
                 self.login_info_label.setText("如果想要解析会员内容请登录")
                 self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 12px;"))
@@ -13223,7 +14603,7 @@ class BilibiliDownloader(BaseWindow):
         t.start()
 
     def load_avatar(self, avatar_url):
-        print(f"开始加载头像，URL：{avatar_url}")
+        logger.debug("开始\1")
         try:
             print("使用requests库下载头像")
             headers = {
@@ -13256,11 +14636,11 @@ class BilibiliDownloader(BaseWindow):
                 else:
                     print("头像数据无效")
             else:
-                print(f"下载头像失败，状态码：{response.status_code}")
+                logger.warning(f"\1")
         except Exception as e:
-            print(f"加载头像失败：{e}")
+            logger.warning(f"\1")
             import traceback
-            traceback.print_exc()
+            logger.debug("traceback", exc_info=True)
     
     def update_hevc_status(self, supported):
         try:
@@ -13368,7 +14748,7 @@ class BilibiliDownloader(BaseWindow):
                             'progress_text': progress_text
                         }
                     except Exception as e:
-                        print(f"添加剧集进度条失败：{str(e)}")
+                        logger.warning(f"\1")
                 
                 # 更新进度
                 if task_key in self.download_tasks:
@@ -13388,7 +14768,7 @@ class BilibiliDownloader(BaseWindow):
                         elif "完成" in status:
                             task_info['name_label'].setText("下载完成")
                     except Exception as e:
-                        print(f"更新剧集进度失败：{str(e)}")
+                        logger.warning(f"\1")
             
             # 转发给其他窗口
             for window in self.batch_windows.values():
@@ -13444,7 +14824,7 @@ class BilibiliDownloader(BaseWindow):
                                 elif os.name == 'posix':  # macOS/Linux
                                     subprocess.run(['open' if os.uname().sysname == 'Darwin' else 'xdg-open', folder_path])
                     except Exception as e:
-                        print(f"打开文件夹失败：{str(e)}")
+                        logger.warning(f"\1")
             else:
                 self.show_notification(f"视频下载失败：{message}", "error")
 
@@ -13485,7 +14865,7 @@ class BilibiliDownloader(BaseWindow):
                                 elif os.name == 'posix':  # macOS/Linux
                                     subprocess.run(['open' if os.uname().sysname == 'Darwin' else 'xdg-open', folder_path])
                     except Exception as e:
-                        print(f"打开文件夹失败：{str(e)}")
+                        logger.warning(f"\1")
             else:
                 self.show_notification(f"视频下载失败：{message}", "error")
 
@@ -13591,7 +14971,7 @@ class BilibiliDownloader(BaseWindow):
             dialog.exec_()
 
         except Exception as e:
-            print(f"HEVC检测失败：{str(e)}")
+            logger.warning(f"\1")
 
     def _check_and_convert_video(self, task_id, ep_index, message):
         try:
@@ -13632,7 +15012,7 @@ class BilibiliDownloader(BaseWindow):
                 self.show_notification(f"视频转换失败：{result_msg}", "error")
 
         except Exception as e:
-            print(f"视频兼容性检查失败：{str(e)}")
+            logger.warning(f"\1")
 
     def toggle_maximize(self):
         
@@ -14484,74 +15864,72 @@ class BilibiliDownloader(BaseWindow):
                             "audio_quality": self.config.get_app_setting("audio_quality", 30280)
                         }
                         
-                        # 直接调用download_manager.start_download，就像单独下载一样
-                        time.sleep(0.1)  
-                        
-                        logger.info(f"批量解析：直接调用下载方法，任务ID：{task_id}")
-                        if self.download_manager:
-                            self.download_manager.start_download(download_params)
-                            logger.info(f"批量解析：下载方法已调用")
-                        else:
-                            logger.error("批量解析：下载管理器未初始化")
-                        
-                        
-                        existing_window = None
-                        for window in self.batch_windows.values():
-                            if isinstance(window, BatchDownloadWindow) and window.isVisible():
-                                existing_window = window
-                                break
-                        
-                        if existing_window:
+                        def _start_batch_download():
+                            logger.info(f"批量解析：直接调用下载方法，任务ID：{task_id}")
+                            if self.download_manager:
+                                self.download_manager.start_download(download_params)
+                                logger.info(f"批量解析：下载方法已调用")
+                            else:
+                                logger.error("批量解析：下载管理器未初始化")
                             
-                            for i, ep in enumerate(ld['selected_episodes']):
-                                if ld['video_info'].get("is_bangumi") or ld['video_info'].get("is_cheese"):
-                                    ep_name = f"{ep['ep_index']}"
-                                    ep_tooltip = ep['ep_title']
-                                else:
-                                    if 'page' in ep and 'title' in ep:
-                                        ep_name = f"第{ep['page']}集"
-                                        ep_tooltip = ep['title']
-                                    elif 'ep_index' in ep and 'ep_title' in ep:
+                            existing_window = None
+                            for window in self.batch_windows.values():
+                                if isinstance(window, BatchDownloadWindow) and window.isVisible():
+                                    existing_window = window
+                                    break
+                            
+                            if existing_window:
+                                for i, ep in enumerate(ld['selected_episodes']):
+                                    if ld['video_info'].get("is_bangumi") or ld['video_info'].get("is_cheese"):
                                         ep_name = f"{ep['ep_index']}"
                                         ep_tooltip = ep['ep_title']
                                     else:
-                                        ep_name = f"第{i+1}集"
-                                        ep_tooltip = f"第{i+1}集"
+                                        if 'page' in ep and 'title' in ep:
+                                            ep_name = f"第{ep['page']}集"
+                                            ep_tooltip = ep['title']
+                                        elif 'ep_index' in ep and 'ep_title' in ep:
+                                            ep_name = f"{ep['ep_index']}"
+                                            ep_tooltip = ep['ep_title']
+                                        else:
+                                            ep_name = f"第{i+1}集"
+                                            ep_tooltip = f"第{i+1}集"
+                                    
+                                    existing_window.add_episode_progress(ep_name, ep_tooltip, task_id, i)
                                 
-                                existing_window.add_episode_progress(ep_name, ep_tooltip, task_id, i)
-                            
-                            if hasattr(self, 'download_manager') and self.download_manager:
-                                self.download_manager.episode_progress_updated.connect(existing_window.update_episode_progress)
-                                self.download_manager.episode_finished.connect(existing_window.finish_episode)
-                            existing_window.show()
-                            existing_window.raise_()  # 确保窗口在最前面
-                            existing_window.activateWindow()  # 激活窗口
-                        else:
-                            
-                            batch_window = BatchDownloadWindow(ld['video_info'], 0, self.download_manager, self.parser)
-                            for i, ep in enumerate(ld['selected_episodes']):
-                                if ld['video_info'].get("is_bangumi") or ld['video_info'].get("is_cheese"):
-                                    ep_name = f"{ep['ep_index']}"
-                                    ep_tooltip = ep['ep_title']
-                                else:
-                                    if 'page' in ep and 'title' in ep:
-                                        ep_name = f"第{ep['page']}集"
-                                        ep_tooltip = ep['title']
-                                    elif 'ep_index' in ep and 'ep_title' in ep:
+                                if hasattr(self, 'download_manager') and self.download_manager:
+                                    self.download_manager.episode_progress_updated.connect(existing_window.update_episode_progress)
+                                    self.download_manager.episode_finished.connect(existing_window.finish_episode)
+                                    self.download_manager.global_progress_updated.connect(existing_window._update_global_progress)
+                                existing_window.show()
+                                existing_window.raise_()
+                                existing_window.activateWindow()
+                            else:
+                                batch_window = BatchDownloadWindow(ld['video_info'], 0, self.download_manager, self.parser)
+                                for i, ep in enumerate(ld['selected_episodes']):
+                                    if ld['video_info'].get("is_bangumi") or ld['video_info'].get("is_cheese"):
                                         ep_name = f"{ep['ep_index']}"
                                         ep_tooltip = ep['ep_title']
                                     else:
-                                        ep_name = f"第{i+1}集"
-                                        ep_tooltip = f"第{i+1}集"
+                                        if 'page' in ep and 'title' in ep:
+                                            ep_name = f"第{ep['page']}集"
+                                            ep_tooltip = ep['title']
+                                        elif 'ep_index' in ep and 'ep_title' in ep:
+                                            ep_name = f"{ep['ep_index']}"
+                                            ep_tooltip = ep['ep_title']
+                                        else:
+                                            ep_name = f"第{i+1}集"
+                                            ep_tooltip = f"第{i+1}集"
+                                    
+                                    batch_window.add_episode_progress(ep_name, ep_tooltip, task_id, i)
+                                batch_window.cancel_all.connect(self.on_cancel_download)
+                                batch_window.window_closed.connect(lambda tid=task_id: self.on_batch_window_closed(tid))
+                                batch_window.show()
+                                batch_window.raise_()
+                                batch_window.activateWindow()
                                 
-                                batch_window.add_episode_progress(ep_name, ep_tooltip, task_id, i)
-                            batch_window.cancel_all.connect(self.on_cancel_download)
-                            batch_window.window_closed.connect(lambda tid=task_id: self.on_batch_window_closed(tid))
-                            batch_window.show()
-                            batch_window.raise_()  # 确保窗口在最前面
-                            batch_window.activateWindow()  # 激活窗口
-                            
-                            self.batch_windows[task_id] = batch_window
+                                self.batch_windows[task_id] = batch_window
+                        
+                        QTimer.singleShot(100, _start_batch_download)
                         quality_dialog.accept()
 
                     ok_btn.clicked.connect(on_ok)
@@ -14580,7 +15958,7 @@ class BilibiliDownloader(BaseWindow):
                         self.signal_emitter.batch_parse_result.emit(link_data, False, "未识别到有效媒体ID")
                         return
 
-                    media_info = self.parser.parse_media(media_type, media_id, self.tv_mode_checkbox.isChecked())
+                    media_info = self.parser.parse_media(media_type, media_id, False)
                     self.signal_emitter.batch_parse_result.emit(link_data, True, media_info)
                 except Exception as e:
                     self.signal_emitter.batch_parse_result.emit(link_data, False, f"解析失败：{str(e)}")
@@ -14725,6 +16103,7 @@ class BilibiliDownloader(BaseWindow):
                         if hasattr(self, 'download_manager') and self.download_manager:
                             self.download_manager.episode_progress_updated.connect(existing_window.update_episode_progress)
                             self.download_manager.episode_finished.connect(existing_window.finish_episode)
+                            self.download_manager.global_progress_updated.connect(existing_window._update_global_progress)
                         existing_window.show()
                         existing_window.raise_()
                         existing_window.activateWindow()
@@ -14841,30 +16220,34 @@ class BilibiliDownloader(BaseWindow):
             self.config.set_app_setting("last_save_path", path)
     
     def show_custom_file_dialog(self, title, select_folder=True, file_filters=None, allow_multiselect=False):
-        
-        
-        dialog = QDialog(self)
+        dialog = ResizableDialog(self)
         dialog.setWindowTitle(title)
+        
         screen = QApplication.primaryScreen()
         if screen:
             sg = screen.availableGeometry()
-            dialog.setMinimumSize(max(scale(700), int(sg.width() * 0.4)), max(scale(500), int(sg.height() * 0.4)))
+            min_w = max(scale(700), int(sg.width() * 0.4))
+            min_h = max(scale(480), int(sg.height() * 0.45))
+            dialog.setMinimumSize(min_w, min_h)
+            dialog.resize(min_w, min_h)
         else:
-            dialog.setMinimumSize(scale(700), scale(500))
-        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowMinimizeButtonHint | Qt.WindowCloseButtonHint)
-        dialog.setAutoFillBackground(True)
+            dialog.setMinimumSize(scale(700), scale(480))
+            dialog.resize(scale(700), scale(480))
         
-        
-        custom_style = get_base_style() + scale_style("""
+        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        dialog.setResizable()
+        dialog.setStyleSheet(get_base_style() + scale_style("""
             QDialog {
                 border: 2px solid #409eff;
                 border-radius: 12px;
-                background-color: white;
+                background-color: #fafafa;
             }
             QWidget#titleBar {
-                background-color: #409eff;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #409eff, stop:1 #66b1ff);
                 color: white;
-                min-height: 40px;
+                min-height: 36px;
+                max-height: 42px;
                 border-top-left-radius: 10px;
                 border-top-right-radius: 10px;
             }
@@ -14872,680 +16255,613 @@ class BilibiliDownloader(BaseWindow):
                 font-size: 14px;
                 font-weight: bold;
                 color: white;
+                padding-left: 4px;
             }
             QPushButton#closeBtn {
-                min-width: 28px;
-                min-height: 28px;
+                min-width: 30px;
+                min-height: 30px;
+                max-width: 30px;
+                max-height: 30px;
                 border: none;
+                border-radius: 15px;
+                background-color: transparent;
+                color: white;
+                font-size: 16px;
+                font-weight: bold;
+            }
+            QPushButton#closeBtn:hover {
+                background-color: rgba(255, 80, 80, 0.8);
+            }
+            QPushButton#maxBtn {
+                min-width: 30px;
+                min-height: 30px;
+                max-width: 30px;
+                max-height: 30px;
+                border: none;
+                border-radius: 15px;
                 background-color: transparent;
                 color: white;
                 font-size: 14px;
+                font-weight: bold;
             }
-            QPushButton#closeBtn:hover {
+            QPushButton#maxBtn:hover {
                 background-color: rgba(255, 255, 255, 0.2);
             }
-            QToolBar {
+            QToolBar#navBar {
                 background-color: white;
-                border: 1px solid #dee2e6;
-                border-radius: 8px;
-                padding: 8px;
-            }
-            QToolBar QPushButton {
                 border: none;
-                background-color: transparent;
+                border-bottom: 1px solid #e8e8e8;
                 padding: 6px 10px;
-                border-radius: 4px;
-                color: #333333;
+                spacing: 4px;
             }
-            QToolBar QPushButton:hover {
-                background-color: #e6f7ff;
-            }
-            QWidget#pathWidget {
-                background-color: white;
-                border: 1px solid #dee2e6;
-                border-radius: 8px;
-                padding: 10px 12px;
-            }
-            QLabel#pathLabel {
+            QToolBar#navBar QToolButton {
+                border: 1px solid transparent;
+                border-radius: 6px;
+                padding: 6px 12px;
+                background-color: transparent;
+                color: #555;
                 font-size: 13px;
-                font-weight: 500;
-                color: #666666;
+            }
+            QToolBar#navBar QToolButton:hover {
+                background-color: #e6f7ff;
+                border-color: #91d5ff;
+                color: #409eff;
+            }
+            QToolBar#navBar QToolButton:pressed {
+                background-color: #bae7ff;
+            }
+            QWidget#pathBox {
+                background-color: white;
+                border: 1px solid #d9d9d9;
+                border-radius: 8px;
+                padding: 8px 12px;
             }
             QLineEdit#pathEdit {
-                font-family: 'Consolas', 'Courier New', monospace;
+                border: none;
+                background: transparent;
                 font-size: 13px;
-                border: 1px solid #dee2e6;
-                border-radius: 6px;
-                padding: 8px 10px;
-                background-color: white;
+                font-family: \'Consolas\', \'Microsoft YaHei\', monospace;
+                padding: 4px 0;
+            }
+            QLineEdit#pathEdit:focus {
+                border: none;
+                outline: none;
             }
             QSplitter {
-                background-color: #f8f9fa;
+                background-color: #f5f5f5;
             }
             QSplitter::handle {
-                background-color: #dee2e6;
-                min-width: 2px;
+                background-color: #e0e0e0;
+                width: 2px;
             }
             QSplitter::handle:hover {
                 background-color: #409eff;
             }
-            QTreeView {
-                border: 1px solid #dee2e6;
+            QTreeView#dirTree {
+                border: 1px solid #e8e8e8;
                 border-radius: 8px;
                 background-color: white;
+                alternate-background-color: #fafafa;
+                show-decoration-selected: 1;
             }
-            QTreeView::item:hover {
+            QTreeView#dirTree::item {
+                padding: 4px 8px;
+                height: 26px;
+            }
+            QTreeView#dirTree::item:hover {
                 background-color: #e6f7ff;
-            }
-            QTreeView::item:selected {
-                background-color: #409eff;
-                color: white;
-            }
-            QListWidget {
-                border: 1px solid #dee2e6;
-                border-radius: 8px;
-                background-color: white;
-            }
-            QListWidget::item {
-                padding: 12px;
-                margin: 4px;
                 border-radius: 4px;
-                text-align: center;
             }
-            QListWidget::item:hover {
-                background-color: #e6f7ff;
-            }
-            QListWidget::item:selected {
+            QTreeView#dirTree::item:selected {
                 background-color: #409eff;
                 color: white;
+                border-radius: 4px;
+            }
+            QListWidget#fileList {
+                border: 1px solid #e8e8e8;
+                border-radius: 8px;
+                background-color: white;
+                outline: none;
+            }
+            QListWidget#fileList::item {
+                padding: 10px 14px;
+                margin: 3px;
+                border-radius: 6px;
+                font-size: 13px;
+            }
+            QListWidget#fileList::item:hover {
+                background-color: #e6f7ff;
+            }
+            QListWidget#fileList::item:selected {
+                background-color: #409eff;
+                color: white;
+            }
+            QTreeView#dirTree QScrollBar, QListWidget#fileList QScrollBar {
+                height: 10px;
+                width: 10px;
+                background-color: #f5f5f5;
+                border: none;
+                border-radius: 5px;
+            }
+            QTreeView#dirTree QScrollBar::handle, QListWidget#fileList QScrollBar::handle {
+                background-color: #c0c4cc;
+                border-radius: 5px;
+                min-height: 30px;
+                min-width: 30px;
+            }
+            QTreeView#dirTree QScrollBar::handle:hover, QListWidget#fileList QScrollBar::handle:hover {
+                background-color: #909399;
+            }
+            QTreeView#dirTree QScrollBar::handle:pressed, QListWidget#fileList QScrollBar::handle:pressed {
+                background-color: #409eff;
+            }
+            QTreeView#dirTree QScrollBar::add-line, QTreeView#dirTree QScrollBar::sub-line,
+            QListWidget#fileList QScrollBar::add-line, QListWidget#fileList QScrollBar::sub-line {
+                height: 0;
+                width: 0;
             }
             QPushButton#okBtn {
-                background-color: #409eff;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #409eff, stop:1 #3a8ee6);
                 color: white;
-                padding: 10px 24px;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 32px;
+                font-size: 14px;
+                font-weight: bold;
+                min-width: 90px;
             }
             QPushButton#okBtn:hover {
-                background-color: #66b1ff;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #66b1ff, stop:1 #409eff);
+            }
+            QPushButton#okBtn:pressed {
+                background: #3a8ee6;
             }
             QPushButton#cancelBtn {
-                background-color: #f56c6c;
-                color: white;
-                padding: 10px 24px;
+                background-color: white;
+                color: #666;
+                border: 1px solid #dcdfe6;
+                border-radius: 8px;
+                padding: 10px 28px;
+                font-size: 14px;
+                min-width: 90px;
             }
             QPushButton#cancelBtn:hover {
-                background-color: #f78989;
+                color: #409eff;
+                border-color: #c6e2ff;
+                background-color: #ecf5ff;
             }
-            QComboBox {
-                border: 1px solid #dee2e6;
-                border-radius: 8px;
-                padding: 8px 12px;
-                background-color: white;
-            }
-            QComboBox:hover {
-                border-color: #409eff;
-            }
-        """)
-        dialog.setStyleSheet(custom_style)
-        
+        """))
         
         main_layout = QVBoxLayout(dialog)
-        main_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
-        main_layout.setSpacing(scale(0))
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
         
-        
-        title_bar = QWidget()
+        title_bar = QWidget(objectName="titleBar")
         title_bar.setObjectName("titleBar")
         title_layout = QHBoxLayout(title_bar)
-        title_layout.setContentsMargins(scale(20), scale(10), scale(12), scale(10))
-        title_layout.setSpacing(scale(8))
+        title_layout.setContentsMargins(16, 0, 8, 0)
+        title_layout.setSpacing(0)
         
         title_label = QLabel(title)
         title_label.setObjectName("titleLabel")
-        title_layout.addWidget(title_label, stretch=1)
+        title_layout.addWidget(title_label)
         
-        close_btn = QPushButton("×")
+        title_layout.addStretch()
+        
+        max_btn = QPushButton("□")
+        max_btn.setObjectName("maxBtn")
+        max_btn.setCursor(Qt.PointingHandCursor)
+        max_btn.clicked.connect(dialog.toggle_maximize)
+        title_layout.addWidget(max_btn)
+        
+        close_btn = QPushButton("\u00d7")
         close_btn.setObjectName("closeBtn")
+        close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.clicked.connect(dialog.reject)
         title_layout.addWidget(close_btn)
         
         main_layout.addWidget(title_bar)
         
+        content = QWidget()
+        content.setObjectName("content")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(16, 14, 16, 14)
+        content_layout.setSpacing(10)
         
-        content_widget = QWidget()
-        content_widget.setObjectName("contentWidget")
-        content_layout = QVBoxLayout(content_widget)
-        content_layout.setContentsMargins(scale(16), scale(16), scale(16), scale(16))
-        content_layout.setSpacing(scale(12))
+        nav_bar = QToolBar()
+        nav_bar.setObjectName("navBar")
+        nav_bar.setMovable(False)
+        nav_bar.setFloatable(False)
         
+        def create_nav_action(text, icon_type, callback):
+            action = QAction(text, dialog)
+            action.setIcon(QApplication.style().standardIcon(icon_type))
+            action.triggered.connect(callback)
+            btn = nav_bar.addAction(action)
+            return action
         
-        toolbar = QToolBar()
-        toolbar.setObjectName("toolbar")
+        style = QApplication.style()
         
+        history_stack = []
+        history_pos = -1
         
-        back_action = QAction("返回", dialog)
-        back_action.setIcon(QApplication.style().standardIcon(QStyle.SP_ArrowBack))
-        toolbar.addAction(back_action)
-        
-        forward_action = QAction("前进", dialog)
-        forward_action.setIcon(QApplication.style().standardIcon(QStyle.SP_ArrowForward))
-        toolbar.addAction(forward_action)
-        
-        toolbar.addSeparator()
-        
-        
-        home_action = QAction("主页", dialog)
-        home_action.setIcon(QApplication.style().standardIcon(QStyle.SP_DirHomeIcon))
-        def go_home():
-            home_path = os.path.expanduser("~")
-            path_edit.setText(home_path)
-            load_file_list(home_path)
+        def navigate_to(path, add_history=True):
+            nonlocal history_pos, history_stack
+            if add_history:
+                if history_pos < len(history_stack) - 1:
+                    history_stack = history_stack[:history_pos + 1]
+                history_stack.append(path)
+                history_pos = len(history_stack) - 1
             
-            index = file_system_model.index(home_path)
-            if index.isValid():
-                tree_view.setCurrentIndex(index)
+            back_action.setEnabled(history_pos > 0)
+            forward_action.setEnabled(history_pos < len(history_stack) - 1)
+            
+            path_edit.setText(path)
+            
+            list_widget.clear()
+            
+            if not select_folder and path != "/":
+                up_item = QListWidgetItem(".. (\u4e0a\u7ea7\u76ee\u5f55)")
+                up_item.setIcon(style.standardIcon(QStyle.SP_FileDialogToParent))
+                up_item.setData(Qt.UserRole, os.path.dirname(path))
+                up_item.setForeground(QColor("#999"))
+                list_widget.addItem(up_item)
+            
+            try:
+                entries = os.listdir(path)
+                folders = []
+                files = []
                 
-                temp_index = index
-                while temp_index.isValid():
-                    tree_view.expand(temp_index)
-                    temp_index = temp_index.parent()
-        home_action.triggered.connect(go_home)
-        toolbar.addAction(home_action)
-        
-        desktop_action = QAction("桌面", dialog)
-        desktop_action.setIcon(QApplication.style().standardIcon(QStyle.SP_ComputerIcon))
-        def go_desktop():
-            desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
-            if os.path.exists(desktop_path):
-                path_edit.setText(desktop_path)
-                load_file_list(desktop_path)
-                
-                index = file_system_model.index(desktop_path)
-                if index.isValid():
-                    tree_view.setCurrentIndex(index)
-                    
-                    temp_index = index
-                    while temp_index.isValid():
-                        tree_view.expand(temp_index)
-                        temp_index = temp_index.parent()
-        desktop_action.triggered.connect(go_desktop)
-        toolbar.addAction(desktop_action)
-        
-        downloads_action = QAction("下载", dialog)
-        downloads_action.setIcon(QApplication.style().standardIcon(QStyle.SP_DriveNetIcon))
-        def go_downloads():
-            downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
-            if os.path.exists(downloads_path):
-                path_edit.setText(downloads_path)
-                load_file_list(downloads_path)
-                
-                index = file_system_model.index(downloads_path)
-                if index.isValid():
-                    tree_view.setCurrentIndex(index)
-                    
-                    temp_index = index
-                    while temp_index.isValid():
-                        tree_view.expand(temp_index)
-                        temp_index = temp_index.parent()
-        downloads_action.triggered.connect(go_downloads)
-        toolbar.addAction(downloads_action)
-        
-        toolbar.addSeparator()
-        
-        
-        view_mode_combo = QComboBox()
-        view_mode_combo.addItems(["图标视图", "列表视图"])
-        toolbar.addWidget(QLabel("视图："))
-        toolbar.addWidget(view_mode_combo)
-        
-        
-        search_edit = QLineEdit()
-        search_edit.setPlaceholderText("搜索文件...")
-        search_edit.setMaximumWidth(scale(200))
-        def on_search():
-            search_text = search_edit.text().strip()
-            if search_text:
-                
-                current_path = path_edit.text()
-                if os.path.exists(current_path) and os.path.isdir(current_path):
-                    list_view.clear()
-                    
-                    if current_path != "/":
-                        parent_item = QListWidgetItem("..")
-                        up_icon = style.standardIcon(QStyle.SP_FileDialogToParent)
-                        parent_item.setIcon(up_icon)
-                        parent_item.setData(Qt.UserRole, os.path.dirname(current_path))
-                        list_view.addItem(parent_item)
-                    
-                    
+                for name in entries:
+                    full_path = os.path.join(path, name)
                     try:
-                        for item in os.listdir(current_path):
-                            item_path = os.path.join(current_path, item)
-                            
-                            match = False
-                            
-                            
-                            if search_text.lower() in item.lower():
-                                match = True
-                            
-                            
-                            if not match and search_text.startswith('.'):
-                                ext = os.path.splitext(item)[1].lower()
-                                if ext == search_text.lower():
-                                    match = True
-                            
-                            
-                            if not match:
-                                
-                                keywords = search_text.lower().split()
-                                item_lower = item.lower()
-                                if all(keyword in item_lower for keyword in keywords):
-                                    match = True
-                            
-                            if match:
-                                list_item = QListWidgetItem(item)
-                                list_item.setData(Qt.UserRole, item_path)
-                                
-                                
-                                if os.path.isdir(item_path):
-                                    folder_icon = style.standardIcon(QStyle.SP_DirIcon)
-                                    list_item.setIcon(folder_icon)
-                                else:
-                                    
-                                    ext = os.path.splitext(item)[1].lower()
-                                    if ext in ['.txt', '.log']:
-                                        file_icon = style.standardIcon(QStyle.SP_FileIcon)
-                                    elif ext in ['.jpg', '.jpeg', '.png', '.gif']:
-                                        file_icon = style.standardIcon(QStyle.SP_FileDialogContentsView)
-                                    elif ext in ['.mp4', '.avi', '.mkv']:
-                                        file_icon = style.standardIcon(QStyle.SP_MediaPlay)
-                                    elif ext in ['.mp3', '.wav', '.flac']:
-                                        file_icon = style.standardIcon(QStyle.SP_MediaPlay)
-                                    elif ext in ['.zip', '.rar', '.7z']:
-                                        file_icon = style.standardIcon(QStyle.SP_FileIcon)
-                                    elif ext in ['.exe', '.msi']:
-                                        file_icon = style.standardIcon(QStyle.SP_FileIcon)
-                                    else:
-                                        file_icon = style.standardIcon(QStyle.SP_FileIcon)
-                                    list_item.setIcon(file_icon)
-                                
-                                list_view.addItem(list_item)
-                    except Exception as e:
-                        print(f"搜索文件失败: {e}")
-                        pass
-        search_edit.returnPressed.connect(on_search)
-        toolbar.addWidget(QLabel("搜索："))
-        toolbar.addWidget(search_edit)
-        
-        content_layout.addWidget(toolbar)
-        
-        
-        path_widget = QWidget()
-        path_widget.setObjectName("pathWidget")
-        path_layout = QHBoxLayout(path_widget)
-        path_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
-        path_layout.setSpacing(scale(8))
-        
-        path_label = QLabel("路径：")
-        path_label.setObjectName("pathLabel")
-        path_edit = QLineEdit()
-        path_edit.setObjectName("pathEdit")
-        path_edit.setPlaceholderText("输入路径或点击浏览...")
-        
-        
-        def on_path_edited():
-            path = path_edit.text().strip()
-            if os.path.exists(path) and os.path.isdir(path):
-                load_file_list(path)
+                        if os.path.isdir(full_path):
+                            folders.append((name, full_path))
+                        elif not select_folder:
+                            if not file_filters or any(name.lower().endswith(filt.lower()) for filt in file_filters):
+                                files.append((name, full_path))
+                    except OSError:
+                        continue
                 
-                index = file_system_model.index(path)
-                if index.isValid():
-                    tree_view.setCurrentIndex(index)
-                    
-                    temp_index = index
-                    while temp_index.isValid():
-                        tree_view.expand(temp_index)
-                        temp_index = temp_index.parent()
+                folders.sort(key=lambda x: x[0].lower())
+                files.sort(key=lambda x: x[0].lower())
+                
+                for name, fpath in folders:
+                    item = QListWidgetItem(name)
+                    item.setIcon(style.standardIcon(QStyle.SP_DirIcon))
+                    item.setData(Qt.UserRole, fpath)
+                    item.setToolTip(fpath)
+                    list_widget.addItem(item)
+                
+                if not select_folder:
+                    for name, fpath in files:
+                        ext = os.path.splitext(name)[1].lower()
+                        icon_map = {
+                            ('.txt', '.log', '.md'): QStyle.SP_FileIcon,
+                            ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'): QStyle.SP_FileDialogContentsView,
+                            ('.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv'): QStyle.SP_MediaPlay,
+                            ('.mp3', '.wav', '.flac', '.aac', '.ogg'): QStyle.SP_MediaPlay,
+                            ('.zip', '.rar', '.7z', '.tar', '.gz'): QStyle.SP_FileDialogContentsView,
+                            ('.exe', '.msi', '.bat', '.cmd'): QStyle.SP_ComputerIcon,
+                        }
+                        
+                        icon_type = QStyle.SP_FileIcon
+                        for exts, ic in icon_map.items():
+                            if ext in exts:
+                                icon_type = ic
+                                break
+                        
+                        item = QListWidgetItem(name)
+                        item.setIcon(style.standardIcon(icon_type))
+                        item.setData(Qt.UserRole, fpath)
+                        item.setToolTip(fpath)
+                        list_widget.addItem(item)
+                
+                status_label.setText(f"\u5171 {len(folders)} \u4e2a\u6587\u4ef6\u5939" + (f"\uff0c{len(files)} \u4e2a\u6587\u4ef6" if not select_folder else ""))
+                
+            except PermissionError:
+                status_label.setText("\u65e0\u6743\u9650\u8bbf\u95ee\u6b64\u76ee\u5f55")
+            except Exception as e:
+                status_label.setText(f"\u8bfb\u53d6\u5931\u8d25: {str(e)}")
+            
+            idx = dir_model.index(path)
+            if idx.isValid():
+                dir_tree.setCurrentIndex(idx)
+                p = idx
+                while p.isValid():
+                    dir_tree.expand(p)
+                    p = p.parent()
         
-        path_edit.editingFinished.connect(on_path_edited)
+        def go_back():
+            nonlocal history_pos
+            if history_pos > 0:
+                history_pos -= 1
+                navigate_to(history_stack[history_pos], add_history=False)
         
-        path_layout.addWidget(path_label)
-        path_layout.addWidget(path_edit, stretch=1)
-        content_layout.addWidget(path_widget)
+        def go_forward():
+            nonlocal history_pos
+            if history_pos < len(history_stack) - 1:
+                history_pos += 1
+                navigate_to(history_stack[history_pos], add_history=False)
         
+        def go_home():
+            navigate_to(os.path.expanduser("~"))
+        
+        def go_desktop():
+            desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+            if os.path.exists(desktop):
+                navigate_to(desktop)
+        
+        def go_downloads():
+            downloads = os.path.join(os.path.expanduser("~"), "Downloads")
+            if os.path.exists(downloads):
+                navigate_to(downloads)
+        
+        back_action = create_nav_action("\u25c0 \u8fd4\u56de", QStyle.SP_ArrowBack, go_back)
+        forward_action = create_nav_action("\u524d\u8fdb \u25b6", QStyle.SP_ArrowForward, go_forward)
+        nav_bar.addSeparator()
+        create_nav_action("\U0001f3e0 \u4e3b\u9875", QStyle.SP_DirHomeIcon, go_home)
+        create_nav_action("\U0001f5a5 \u684c\u9762", QStyle.SP_DesktopIcon, go_desktop)
+        create_nav_action("\u2b07 \u4e0b\u8f7d", QStyle.SP_DriveHDIcon, go_downloads)
+        
+        content_layout.addWidget(nav_bar)
+        
+        path_box = QWidget(objectName="pathBox")
+        path_box.setObjectName("pathBox")
+        path_box_layout = QHBoxLayout(path_box)
+        path_box_layout.setContentsMargins(0, 0, 0, 0)
+        path_box_layout.setSpacing(8)
+        
+        path_box_layout.addWidget(QLabel("\U0001f4cd \u8def\u5f84:"))
+        path_edit = QLineEdit(objectName="pathEdit")
+        path_edit.setObjectName("pathEdit")
+        path_edit.setPlaceholderText("\u8f93\u5165\u8def\u5f84\u540e\u6309\u56de\u8f66...")
+        
+        def on_path_enter():
+            p = path_edit.text().strip()
+            if p and os.path.isdir(p):
+                navigate_to(p)
+        
+        path_edit.returnPressed.connect(on_path_enter)
+        path_box_layout.addWidget(path_edit)
+        content_layout.addWidget(path_box)
         
         splitter = QSplitter(Qt.Horizontal)
         splitter.setHandleWidth(2)
         
+        dir_tree = QTreeView(objectName="dirTree")
+        dir_tree.setObjectName("dirTree")
+        dir_tree.setHeaderHidden(True)
+        dir_tree.setMinimumWidth(220)
+        dir_tree.setMaximumWidth(320)
+        dir_tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        dir_tree.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        dir_tree.setWordWrap(False)
+        dir_tree.setTextElideMode(Qt.ElideNone)
+        dir_tree.setHeaderHidden(True)
         
-        tree_view = QTreeView()
-        tree_view.setMinimumWidth(scale(280))
+        dir_model = QFileSystemModel()
+        dir_model.setRootPath("/")
+        dir_model.setFilter(QDir.AllDirs | QDir.NoDotAndDotDot)
+        dir_model.setReadOnly(True)
         
+        dir_tree.setModel(dir_model)
+        for i in range(1, dir_model.columnCount()):
+            dir_tree.hideColumn(i)
         
-        file_system_model = QFileSystemModel()
-        file_system_model.setRootPath("/")
-        file_system_model.setFilter(QDir.AllDirs | QDir.NoDotAndDotDot | QDir.Files)
-        file_system_model.setReadOnly(True)
+        header = dir_tree.header()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setMinimumSectionSize(150)
         
+        splitter.addWidget(dir_tree)
         
-        tree_view.setModel(file_system_model)
-        for i in range(1, file_system_model.columnCount()):
-            tree_view.hideColumn(i)
+        list_widget = QListWidget(objectName="fileList")
+        list_widget.setObjectName("fileList")
+        list_widget.setViewMode(QListWidget.ListMode)
+        list_widget.setIconSize(QSize(24, 24))
+        list_widget.setUniformItemSizes(True)
+        list_widget.setSpacing(2)
+        list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        list_widget.setTextElideMode(Qt.ElideNone)
         
-        splitter.addWidget(tree_view)
-        splitter.setStretchFactor(0, 1)
+        mode_combo = QComboBox()
+        mode_combo.addItems(["\U0001f4cb \u5217\u8868\u89c6\u56fe", "\U0001f532 \u56fe\u6807\u89c6\u56fe"])
+        mode_combo.setStyleSheet("""
+            QComboBox {
+                border: 1px solid #d9d9d9;
+                border-radius: 6px;
+                padding: 5px 10px;
+                background-color: white;
+                font-size: 12px;
+                min-width: 110px;
+            }
+            QComboBox:hover { border-color: #409eff; }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox QAbstractItemView {
+                border: 1px solid #d9d9d9;
+                selection-background-color: #409eff;
+            }
+        """)
         
+        def change_view(idx):
+            if idx == 0:
+                list_widget.setViewMode(QListWidget.ListMode)
+                list_widget.setIconSize(QSize(24, 24))
+                list_widget.setGridSize(QSize())
+            else:
+                list_widget.setViewMode(QListWidget.IconMode)
+                list_widget.setIconSize(QSize(56, 56))
+                list_widget.setGridSize(QSize(90, 90))
         
-        list_view = QListWidget()
-        list_view.setViewMode(QListWidget.IconMode)
-        list_view.setIconSize(QSize(scale(64), scale(64)))
-        list_view.setUniformItemSizes(True)
-        list_view.setSpacing(scale(16))
-        list_view.setMinimumWidth(scale(500))
-        list_view.setGridSize(QSize(scale(100), scale(100)))
-        splitter.addWidget(list_view)
-        splitter.setStretchFactor(1, 3)
+        mode_combo.currentIndexChanged.connect(change_view)
+        nav_bar.addWidget(QLabel("   \u89c6\u56fe:"))
+        nav_bar.addWidget(mode_combo)
         
+        search_edit = QLineEdit()
+        search_edit.setPlaceholderText("\U0001f50d \u641c\u7d22...")
+        search_edit.setMaximumWidth(180)
+        search_edit.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #d9d9d9;
+                border-radius: 6px;
+                padding: 5px 10px;
+                background-color: white;
+                font-size: 12px;
+            }
+            QLineEdit:hover { border-color: #409eff; }
+        """)
         
-        splitter.setSizes([300, 750])
+        def do_search():
+            query = search_edit.text().strip().lower()
+            if not query:
+                current = path_edit.text()
+                if os.path.isdir(current):
+                    navigate_to(current, add_history=False)
+                return
+            
+            current_dir = path_edit.text()
+            if not os.path.isdir(current_dir):
+                return
+            
+            list_widget.clear()
+            
+            found = []
+            try:
+                for entry in os.listdir(current_dir):
+                    full = os.path.join(current_dir, entry)
+                    if query in entry.lower():
+                        if (select_folder and os.path.isdir(full)) or \
+                           (not select_folder and os.path.isfile(full)):
+                            if not file_filters or any(entry.lower().endswith(f.lower()) for f in file_filters):
+                                found.append((entry, full))
+            except Exception:
+                pass
+            
+            found.sort(key=lambda x: x[0].lower())
+            
+            for name, fp in found:
+                is_dir = os.path.isdir(fp)
+                if is_dir:
+                    item = QListWidgetItem(name)
+                    item.setIcon(style.standardIcon(QStyle.SP_DirIcon))
+                else:
+                    item = QListWidgetItem(name)
+                    item.setIcon(style.standardIcon(QStyle.SP_FileIcon))
+                item.setData(Qt.UserRole, fp)
+                item.setToolTip(fp)
+                list_widget.addItem(item)
+            
+            status_label.setText(f"\u641c\u7d22\u7ed3\u679c: \u627e\u5230 {len(found)} \u9879")
+        
+        search_edit.returnPressed.connect(do_search)
+        nav_bar.addWidget(QLabel("  "))
+        nav_bar.addWidget(search_edit)
+        
+        splitter.addWidget(list_widget)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([240, 560])
         
         content_layout.addWidget(splitter, stretch=1)
         
+        status_label = QLabel("")
+        status_label.setStyleSheet("color: #888; font-size: 12px; padding: 4px 0;")
+        content_layout.addWidget(status_label)
         
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(scale(12))
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(12)
+        btn_row.addStretch()
         
-        ok_btn = QPushButton("确定")
-        ok_btn.setObjectName("okBtn")
-        cancel_btn = QPushButton("取消")
+        cancel_btn = QPushButton("\u53d6\u6d88")
         cancel_btn.setObjectName("cancelBtn")
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.clicked.connect(dialog.reject)
         
-        btn_layout.addStretch(1)
-        btn_layout.addWidget(cancel_btn)
-        btn_layout.addWidget(ok_btn)
-        content_layout.addLayout(btn_layout)
+        ok_btn = QPushButton("\u786e\u5b9a")
+        ok_btn.setObjectName("okBtn")
+        ok_btn.setCursor(Qt.PointingHandCursor)
         
-        main_layout.addWidget(content_widget, stretch=1)
-        
-        
-        style = QApplication.style()
-        
-        
-        history = []
-        history_index = -1
-        
-        
-        def load_file_list(path):
-            list_view.clear()
-            try:
-                
-                nonlocal history, history_index
-                if history and history_index >= 0 and history[history_index] == path:
-                    pass
-                else:
-                    history = history[:history_index+1] if history_index >= 0 else []
-                    history.append(path)
-                    history_index = len(history) - 1
-                
-                
-                back_action.setEnabled(history_index > 0)
-                forward_action.setEnabled(history_index < len(history) - 1)
-                
-                
-                path_edit.setText(path)
-                
-                
-                if path != "/":
-                    parent_item = QListWidgetItem("..")
-                    up_icon = style.standardIcon(QStyle.SP_FileDialogToParent)
-                    parent_item.setIcon(up_icon)
-                    parent_item.setData(Qt.UserRole, os.path.dirname(path))
-                    list_view.addItem(parent_item)
-                
-                
-                folders = []
-                files = []
-                
-                for item in os.listdir(path):
-                    item_path = os.path.join(path, item)
-                    if os.path.isdir(item_path):
-                        folders.append(item)
-                    else:
-                        
-                        if not file_filters or any(item.lower().endswith(filter.lower()) for filter in file_filters):
-                            files.append(item)
-                
-                
-                folders.sort()
-                files.sort()
-                
-                
-                for item in folders:
-                    item_path = os.path.join(path, item)
-                    list_item = QListWidgetItem(item)
-                    list_item.setData(Qt.UserRole, item_path)
-                    folder_icon = style.standardIcon(QStyle.SP_DirIcon)
-                    list_item.setIcon(folder_icon)
-                    list_view.addItem(list_item)
-                
-                
-                if not select_folder:
-                    for item in files:
-                        item_path = os.path.join(path, item)
-                        list_item = QListWidgetItem(item)
-                        list_item.setData(Qt.UserRole, item_path)
-                        
-                        
-                        ext = os.path.splitext(item)[1].lower()
-                        if ext in ['.txt', '.log']:
-                            file_icon = style.standardIcon(QStyle.SP_FileIcon)
-                        elif ext in ['.jpg', '.jpeg', '.png', '.gif']:
-                            file_icon = style.standardIcon(QStyle.SP_FileDialogContentsView)
-                        elif ext in ['.mp4', '.avi', '.mkv']:
-                            file_icon = style.standardIcon(QStyle.SP_MediaPlay)
-                        elif ext in ['.mp3', '.wav', '.flac']:
-                            file_icon = style.standardIcon(QStyle.SP_MediaPlay)
-                        elif ext in ['.zip', '.rar', '.7z']:
-                            file_icon = style.standardIcon(QStyle.SP_FileIcon)
-                        elif ext in ['.exe', '.msi']:
-                            file_icon = style.standardIcon(QStyle.SP_FileIcon)
-                        else:
-                            file_icon = style.standardIcon(QStyle.SP_FileIcon)
-                        list_item.setIcon(file_icon)
-                        list_view.addItem(list_item)
-            except Exception as e:
-                print(f"加载文件列表失败: {e}")
-                pass
-        
-        
-        def on_tree_clicked(index):
-            path = file_system_model.filePath(index)
-            if os.path.isdir(path):
-                path_edit.setText(path)
-                load_file_list(path)
-        
-        tree_view.clicked.connect(on_tree_clicked)
-        
-        
-        def on_list_double_clicked(item):
-            path = item.data(Qt.UserRole)
-            if path and os.path.isdir(path):
-                
-                index = file_system_model.index(path)
-                if index.isValid():
-                    tree_view.setCurrentIndex(index)
-                    tree_view.expand(index)
-                    path_edit.setText(path)
-                    load_file_list(path)
-            else:
-                
-                if not select_folder:
-                    
-                    if not file_filters or any(path.lower().endswith(filter.lower()) for filter in file_filters):
-                        path_edit.setText(path)
-                        selected_path = path
-                        dialog.accept()
-                
-        
-        list_view.itemDoubleClicked.connect(on_list_double_clicked)
-        
-        
-        def on_list_clicked(item):
-            path = item.data(Qt.UserRole)
-            if path:
-                path_edit.setText(path)
-        
-        
-        if select_folder or not allow_multiselect:
-            
-            list_view.setSelectionMode(QListWidget.SingleSelection)
-        else:
-            
-            list_view.setSelectionMode(QListWidget.ExtendedSelection)
-        list_view.itemClicked.connect(on_list_clicked)
-        
-        
-        def on_view_mode_changed(index):
-            if index == 0:  
-                list_view.setViewMode(QListWidget.IconMode)
-                list_view.setIconSize(QSize(scale(64), scale(64)))
-                list_view.setGridSize(QSize(scale(100), scale(100)))
-            else:  
-                list_view.setViewMode(QListWidget.ListMode)
-                list_view.setIconSize(QSize(scale(24), scale(24)))
-                list_view.setGridSize(QSize())
-        
-        view_mode_combo.currentIndexChanged.connect(on_view_mode_changed)
-        
-        
-        def on_back():
-            nonlocal history, history_index
-            if history_index > 0:
-                history_index -= 1
-                path = history[history_index]
-                path_edit.setText(path)
-                load_file_list(path)
-                
-                index = file_system_model.index(path)
-                if index.isValid():
-                    tree_view.setCurrentIndex(index)
-                    
-                    temp_index = index
-                    while temp_index.isValid():
-                        tree_view.expand(temp_index)
-                        temp_index = temp_index.parent()
-        
-        def on_forward():
-            nonlocal history, history_index
-            if history_index < len(history) - 1:
-                history_index += 1
-                path = history[history_index]
-                path_edit.setText(path)
-                load_file_list(path)
-                
-                index = file_system_model.index(path)
-                if index.isValid():
-                    tree_view.setCurrentIndex(index)
-                    
-                    temp_index = index
-                    while temp_index.isValid():
-                        tree_view.expand(temp_index)
-                        temp_index = temp_index.parent()
-        
-        back_action.triggered.connect(on_back)
-        forward_action.triggered.connect(on_forward)
-        
-        
-        selected_path = None
-        selected_paths = []
+        selected_result = [None]
+        selected_results = []
         
         def on_ok():
-            nonlocal selected_path, selected_paths
             if allow_multiselect and not select_folder:
-                
-                selected_items = list_view.selectedItems()
-                if not selected_items:
-                    
-                    QMessageBox.warning(dialog, "错误", "请选择至少一个文件")
+                items = list_widget.selectedItems()
+                valid = [i.data(Qt.UserRole) for i in items if i and os.path.isfile(i.data(Qt.UserRole))]
+                if not valid:
+                    QMessageBox.warning(dialog, "\u63d0\u793a", "\u8bf7\u81f3\u5c11\u9009\u62e9\u4e00\u4e2a\u6587\u4ef6")
                     return
-                
-                
-                valid_paths = []
-                for item in selected_items:
-                    path = item.data(Qt.UserRole)
-                    if os.path.isfile(path):
-                        if not file_filters or any(path.lower().endswith(filter.lower()) for filter in file_filters):
-                            valid_paths.append(path)
-                
-                if not valid_paths:
-                    
-                    QMessageBox.warning(dialog, "错误", "选择的文件不符合筛选条件")
-                    return
-                
-                selected_paths = valid_paths
+                selected_results.clear()
+                selected_results.extend(valid)
                 dialog.accept()
             else:
-                
-                path = path_edit.text()
+                p = path_edit.text().strip()
                 if select_folder:
-                    
-                    if os.path.isdir(path):
-                        selected_path = path
+                    if os.path.isdir(p):
+                        selected_result[0] = p
                         dialog.accept()
                     else:
-                        
-                        QMessageBox.warning(dialog, "错误", "请选择一个文件夹")
+                        QMessageBox.warning(dialog, "\u63d0\u793a", "\u8bf7\u9009\u62e9\u4e00\u4e2a\u6709\u6548\u7684\u6587\u4ef6\u5939")
                 else:
-                    
-                    if os.path.isfile(path):
-                        if not file_filters or any(path.lower().endswith(filter.lower()) for filter in file_filters):
-                            selected_path = path
-                            dialog.accept()
-                        else:
-                            
-                            QMessageBox.warning(dialog, "错误", "选择的文件不符合筛选条件")
+                    if os.path.isfile(p):
+                        selected_result[0] = p
+                        dialog.accept()
                     else:
-                        
-                        QMessageBox.warning(dialog, "错误", "请选择一个文件")
-        
-        def on_cancel():
-            dialog.reject()
+                        QMessageBox.warning(dialog, "\u63d0\u793a", "\u8bf7\u9009\u62e9\u4e00\u4e2a\u6709\u6548\u7684\u6587\u4ef6")
         
         ok_btn.clicked.connect(on_ok)
-        cancel_btn.clicked.connect(on_cancel)
         
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(ok_btn)
+        content_layout.addLayout(btn_row)
         
-        if os.name == 'nt':
-            drives = []
-            bitmask = ctypes.windll.kernel32.GetLogicalDrives()
-            for i in range(26):
-                if bitmask & (1 << i):
-                    drive = chr(65 + i) + ':/'
-                    drives.append(drive)
-        else:
-            drives = ['/']
+        main_layout.addWidget(content, stretch=1)
         
+        def on_tree_click(idx):
+            p = dir_model.filePath(idx)
+            if os.path.isdir(p):
+                navigate_to(p)
         
-        initial_path = QDir.currentPath()
-        path_edit.setText(initial_path)
-        load_file_list(initial_path)
+        dir_tree.clicked.connect(on_tree_click)
         
+        def on_list_click(item):
+            if item:
+                p = item.data(Qt.UserRole)
+                if p:
+                    path_edit.setText(p)
         
-        index = file_system_model.index(initial_path)
-        if index.isValid():
-            tree_view.setCurrentIndex(index)
-            
-            while index.isValid():
-                tree_view.expand(index)
-                index = index.parent()
+        def on_list_dblclick(item):
+            if item:
+                p = item.data(Qt.UserRole)
+                if p and os.path.isdir(p):
+                    navigate_to(p)
+                elif p and not select_folder:
+                    path_edit.setText(p)
+                    selected_result[0] = p
+                    dialog.accept()
         
+        sel_mode = QListWidget.ExtendedSelection if (allow_multiselect and not select_folder) else QListWidget.SingleSelection
+        list_widget.setSelectionMode(sel_mode)
+        list_widget.itemClicked.connect(on_list_click)
+        list_widget.itemDoubleClicked.connect(on_list_dblclick)
+        
+        start_path = QDir.currentPath()
+        navigate_to(start_path, add_history=True)
+        back_action.setEnabled(False)
+        forward_action.setEnabled(False)
         
         if dialog.exec_() == QDialog.Accepted:
             if allow_multiselect and not select_folder:
-                return selected_paths
-            else:
-                return selected_path
-        else:
-            return None
+                return selected_results
+            return selected_result[0]
+        return None
 
     def open_task_manager(self):
         if self.task_manager and self.download_manager:
@@ -15562,12 +16878,46 @@ class BilibiliDownloader(BaseWindow):
             QMessageBox.warning(self, "提示", "任务管理器初始化失败")
 
     def on_login_click(self, event):
+        if hasattr(self, 'parser') and self.parser and hasattr(self.parser, 'cookies') and self.parser.cookies:
+            user_info = getattr(self.parser, 'user_info', None)
+            if user_info and user_info.get("success"):
+                self.on_user_info_click(event)
+                return
+
+            self.show_notification("正在检查登录状态...", "info")
+
+            def _do_check():
+                try:
+                    return self.parser.get_user_info()
+                except Exception:
+                    return None
+
+            def _on_check_done(ui):
+                if ui and ui.get("success"):
+                    self.parser.user_info = ui
+                    self.update_login_info_display()
+                    self.on_user_info_click(event)
+                else:
+                    self._show_login_dialog()
+
+            if not hasattr(self, 'parser') or not self.parser:
+                self.show_notification("解析器未初始化，请重启应用", "error")
+                return
+
+            def _run_check():
+                result = _do_check()
+                run_on_main_thread(lambda: _on_check_done(result))
+
+            threading.Thread(target=_run_check, daemon=True).start()
+            return
         
         if not hasattr(self, 'parser') or not self.parser:
             self.show_notification("解析器未初始化，请重启应用", "error")
             return
         
-        
+        self._show_login_dialog()
+    
+    def _show_login_dialog(self):
         if hasattr(self, 'login_dialog') and self.login_dialog:
             self.login_dialog.show()
             self.login_dialog.raise_()
@@ -15747,8 +17097,8 @@ class BilibiliDownloader(BaseWindow):
                     self.qrcode_ready.emit(qrcode_video_info, qr_data)
                 except Exception as e:
                     error_msg = str(e)
-                    print(f"获取二维码失败：{error_msg}")
-                    traceback.print_exc()
+                    logger.warning(f"\1")
+                    logger.debug("traceback", exc_info=True)
                     self.error.emit(str(e))
         
         
@@ -15769,7 +17119,7 @@ class BilibiliDownloader(BaseWindow):
                     self.parser.user_info = user_info
                     self.show_notification("登录成功！", "success")
                     
-                    self.update_login_info_display()
+                    self._on_login_success_refresh(user_info)
                 else:
                     self.show_notification(f"登录成功但获取用户信息失败：{user_info.get('msg')}", "warning")
                 
@@ -15787,38 +17137,184 @@ class BilibiliDownloader(BaseWindow):
                     
                     url = video_info.get("url", "")
                     def show_risk_message():
-                        msg_box = QMessageBox()
-                        msg_box.setWindowTitle("登录风险")
-                        msg_box.setText(f"{message}\n\n请使用手机号进行验证或绑定。")
-                        msg_box.setIcon(QMessageBox.Warning)
-                        if url:
-                            msg_box.addButton("打开验证链接", QMessageBox.ActionRole)
-                        msg_box.addButton("取消", QMessageBox.RejectRole)
+                        risk_dlg = QDialog(login_dialog)
+                        risk_dlg.setWindowTitle("手机号验证")
+                        risk_dlg.setMinimumSize(scale(380), scale(320))
+                        risk_dlg.setStyleSheet("QDialog { background-color: white; }")
                         
-                        reply = msg_box.exec_()
-                        if reply == 0 and url:
-                            
-                            
-                            
-                            verify_dialog = QDialog(login_dialog)
-                            verify_dialog.setWindowTitle("登录验证")
-                            screen = QApplication.primaryScreen()
-                            if screen:
-                                sg = screen.availableGeometry()
-                                verify_dialog.setMinimumSize(max(scale(500), int(sg.width() * 0.3)), max(scale(400), int(sg.height() * 0.3)))
-                            else:
-                                verify_dialog.setMinimumSize(scale(500), scale(400))
-                            
-                            
-                            web_view = QWebEngineView()
-                            web_view.setUrl(QUrl(url))
-                            
-                            
-                            layout = QVBoxLayout(verify_dialog)
-                            layout.addWidget(web_view)
-                            
-                            
-                            verify_dialog.exec_()
+                        rl = QVBoxLayout(risk_dlg)
+                        rl.setSpacing(scale(12))
+                        rl.setContentsMargins(scale(24), scale(24), scale(24), scale(24))
+                        
+                        rl_title = QLabel("登录环境存在风险，请验证手机号")
+                        rl_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #1f2937;")
+                        rl_title.setWordWrap(True)
+                        rl.addWidget(rl_title)
+                        
+                        rl_phone_layout = QHBoxLayout()
+                        rl_cid = QComboBox()
+                        rl_cid.addItem("+86", 86)
+                        rl_cid.addItem("+852", 852)
+                        rl_cid.addItem("+853", 853)
+                        rl_cid.addItem("+886", 886)
+                        rl_cid.addItem("+1", 1)
+                        rl_cid.setFixedWidth(scale(80))
+                        rl_tel = QLineEdit()
+                        rl_tel.setPlaceholderText("请输入手机号")
+                        rl_tel.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;")
+                        rl_send = QPushButton("发送验证码")
+                        rl_send.setFixedWidth(scale(100))
+                        rl_send.setStyleSheet("background-color: #409eff; color: white; border-radius: 4px; padding: 8px;")
+                        rl_phone_layout.addWidget(rl_cid)
+                        rl_phone_layout.addWidget(rl_tel)
+                        rl_phone_layout.addWidget(rl_send)
+                        rl.addLayout(rl_phone_layout)
+                        
+                        rl_code = QLineEdit()
+                        rl_code.setPlaceholderText("请输入短信验证码")
+                        rl_code.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;")
+                        rl.addWidget(rl_code)
+                        
+                        rl_login = QPushButton("验证并登录")
+                        rl_login.setMinimumHeight(scale(40))
+                        rl_login.setStyleSheet("background-color: #409eff; color: white; font-weight: bold; border-radius: 4px; font-size: 14px;")
+                        rl_login.setEnabled(False)
+                        rl.addWidget(rl_login)
+                        
+                        rl_status = QLabel("")
+                        rl_status.setStyleSheet("color: #6b7280; font-size: 12px;")
+                        rl_status.setWordWrap(True)
+                        rl.addWidget(rl_status)
+                        rl.addStretch()
+                        
+                        _rk = [None]
+                        _rcd = [0]
+                        _qr_tmp_token = [video_info.get("tmp_token", "")]
+                        
+                        def rl_on_send():
+                            tel = rl_tel.text().strip()
+                            if not tel:
+                                rl_status.setText("请输入手机号")
+                                rl_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                return
+                            rl_send.setEnabled(False)
+                            rl_status.setText("正在获取人机验证...")
+                            rl_status.setStyleSheet("color: #6b7280; font-size: 12px;")
+
+                            def _do_ci():
+                                try:
+                                    return self.parser.get_captcha()
+                                except Exception as ex:
+                                    return {"success": False, "error": str(ex)}
+
+                            def _on_ci_ready(ci):
+                                if not ci.get("success"):
+                                    rl_status.setText(f"获取验证码失败：{ci.get('error')}")
+                                    rl_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                    rl_send.setEnabled(True)
+                                    return
+                                rl_status.setText("请完成人机验证...")
+                                def rl_ccb(validate, seccode, challenge):
+                                    if not validate:
+                                        rl_status.setText("人机验证已取消")
+                                        rl_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                        rl_send.setEnabled(True)
+                                        return
+                                    rl_status.setText("正在发送短信验证码...")
+
+                                    def _do_send():
+                                        try:
+                                            return self.parser.send_sms_code(rl_cid.currentData() or 86, tel, ci.get("token"), challenge, validate)
+                                        except Exception as ex:
+                                            return {"success": False, "error": str(ex)}
+
+                                    def _on_send_done(r):
+                                        if r.get('success'):
+                                            ck = r.get('data', {}).get('captcha_key', '')
+                                            if ck:
+                                                _rk[0] = ck
+                                            rl_login.setEnabled(True)
+                                            rl_status.setText("验证码已发送，请查收短信")
+                                            rl_status.setStyleSheet("color: #10b981; font-size: 12px;")
+                                            _rcd[0] = 60
+                                            rl_send.setEnabled(False)
+                                            def rl_ucd():
+                                                if _rcd[0] > 0:
+                                                    _rcd[0] -= 1
+                                                    rl_send.setText(f"{_rcd[0]}s")
+                                                    QTimer.singleShot(1000, rl_ucd)
+                                                else:
+                                                    rl_send.setEnabled(True)
+                                                    rl_send.setText("重新发送")
+                                            QTimer.singleShot(0, rl_ucd)
+                                        else:
+                                            rl_status.setText(f"发送失败：{r.get('error', '失败')}")
+                                            rl_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                            rl_send.setEnabled(True)
+
+                                    def _run_send():
+                                        result = _do_send()
+                                        run_on_main_thread(lambda: _on_send_done(result))
+
+                                    threading.Thread(target=_run_send, daemon=True).start()
+
+                                show_captcha_dialog(ci.get("gt"), ci.get("challenge"), rl_ccb, risk_dlg)
+
+                            def _run_ci():
+                                result = _do_ci()
+                                run_on_main_thread(lambda: _on_ci_ready(result))
+
+                            threading.Thread(target=_run_ci, daemon=True).start()
+                        
+                        def rl_on_login():
+                            code = rl_code.text().strip()
+                            if not code or not _rk[0]:
+                                rl_status.setText("请先发送验证码并输入")
+                                rl_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                return
+                            rl_login.setEnabled(False)
+                            rl_status.setText("正在验证登录...")
+                            cur_qr_tmp_token = _qr_tmp_token[0]
+
+                            def _do_verify():
+                                try:
+                                    if cur_qr_tmp_token:
+                                        return self.parser.verify_risk_sms(cur_qr_tmp_token, rl_cid.currentData() or 86, rl_tel.text().strip(), code, _rk[0])
+                                    else:
+                                        return self.parser.login_with_sms(rl_cid.currentData() or 86, rl_tel.text().strip(), code, _rk[0])
+                                except Exception as ex:
+                                    return {"success": False, "error": str(ex)}
+
+                            def _on_verify_done(lr):
+                                if lr.get("success"):
+                                    ui = lr.get("user_info", {})
+                                    if ui.get("success"):
+                                        self.parser.user_info = ui
+                                    self.show_notification("登录成功！", "success")
+                                    self._on_login_success_refresh(ui)
+                                    login_dialog.hide()
+                                    risk_dlg.accept()
+                                else:
+                                    rl_status.setText(f"验证失败：{lr.get('error', '失败')}")
+                                    rl_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                    rl_login.setEnabled(True)
+                                    if lr.get("risk"):
+                                        new_tt = lr.get("tmp_token", "")
+                                        if new_tt:
+                                            _qr_tmp_token[0] = new_tt
+                                        _rk[0] = None
+                                        rl_login.setEnabled(False)
+
+                            def _run_verify():
+                                result = _do_verify()
+                                run_on_main_thread(lambda: _on_verify_done(result))
+
+                            threading.Thread(target=_run_verify, daemon=True).start()
+                        
+                        rl_send.clicked.connect(rl_on_send)
+                        rl_login.clicked.connect(rl_on_login)
+                        rl_code.returnPressed.connect(rl_on_login)
+                        risk_dlg.exec_()
                     
                     show_risk_message()
                 elif video_info.get("status") == "二维码已失效" or "过期" in message:
@@ -15869,8 +17365,8 @@ class BilibiliDownloader(BaseWindow):
                 
             except Exception as e:
                 error_msg = str(e)
-                print(f"获取二维码失败：{error_msg}")
-                traceback.print_exc()
+                logger.warning(f"\1")
+                logger.debug("traceback", exc_info=True)
                 qr_status.setText(f"错误：{error_msg}")
                 qr_status.setStyleSheet(scale_style("font-size: 14px; color: #f56c6c; text-align: center;"))
         
@@ -15899,8 +17395,8 @@ class BilibiliDownloader(BaseWindow):
                     qr_status.setText("二维码加载失败")
             except Exception as e:
                 error_msg = str(e)
-                print(f"显示二维码失败：{error_msg}")
-                traceback.print_exc()
+                logger.warning(f"\1")
+                logger.debug("traceback", exc_info=True)
                 qr_status.setText(f"错误：{error_msg}")
         
         def on_qr_error(error_msg):
@@ -16200,20 +17696,20 @@ class BilibiliDownloader(BaseWindow):
                         finally:
                             
                             cid_combo.lineEdit().textChanged.connect(on_search_text_changed)
-                    QTimer.singleShot(0, update_country_combo)
+                    run_on_main_thread(update_country_combo)
                 else:
                     
                     def add_default_country():
                         if cid_combo.count() == 0:
-                            cid_combo.addItem("中国大陆 (+86)", 1)
-                    QTimer.singleShot(0, add_default_country)
+                            cid_combo.addItem("中国大陆 (+86)", 86)
+                    run_on_main_thread(add_default_country)
             except Exception as e:
                 logger.error(f"获取国家代码列表失败：{str(e)}")
                 
                 def add_default_country():
                     if cid_combo.count() == 0:
-                        cid_combo.addItem("中国大陆 (+86)", 1)
-                QTimer.singleShot(0, add_default_country)
+                        cid_combo.addItem("中国大陆 (+86)", 86)
+                run_on_main_thread(add_default_country)
         
         
         import threading
@@ -16222,7 +17718,7 @@ class BilibiliDownloader(BaseWindow):
         thread.start()
         
         
-        cid_combo.addItem("中国大陆 (+86)", 1)
+        cid_combo.addItem("中国大陆 (+86)", 86)
         
         cid_combo.setCurrentIndex(0)
         cid_combo.lineEdit().setText("中国大陆 (+86)")
@@ -16387,150 +17883,304 @@ class BilibiliDownloader(BaseWindow):
             if not username or not password:
                 self.show_notification("请输入账号和密码", "warning")
                 return
-            
-            
-            self.show_notification("开始账号密码登录，请稍候...", "info")
-            
-            
-            try:
-                
-                self.show_notification("正在获取验证码参数...", "info")
-                captcha_video_info = self.parser.get_captcha()
+
+            login_btn.setEnabled(False)
+            self.show_notification("正在获取验证码参数...", "info")
+
+            def _do_get_captcha():
+                try:
+                    return self.parser.get_captcha()
+                except Exception as e:
+                    return {"success": False, "error": str(e)}
+
+            def _on_captcha_ready(captcha_video_info):
+                login_btn.setEnabled(True)
                 if not captcha_video_info.get("success"):
                     self.show_notification(f"获取验证码失败：{captcha_video_info.get('error')}", "error")
                     return
-                
+
                 gt = captcha_video_info.get("gt")
                 challenge = captcha_video_info.get("challenge")
                 token = captcha_video_info.get("token")
-                print(f"获取验证码参数成功: gt={gt}, challenge={challenge}, token={token}")
                 self.show_notification("获取验证码参数成功，准备显示人机验证...", "info")
-                
-                
+
                 username_value = username
                 password_value = password
                 token_value = token
                 login_dialog_ref = login_dialog
-                
-                
+
                 def captcha_callback(validate, seccode, challenge):
                     if not validate:
                         self.show_notification("验证码验证取消", "info")
                         return
-                    print(f"验证码验证成功: validate={validate}")
                     self.show_notification("人机验证成功，正在执行登录...", "info")
-                    
-                    
-                    import threading
-                    
-                    
-                    try:
-                        
-                        print("开始执行登录...")
-                        video_info = self.parser.login_with_password(username_value, password_value, token_value, challenge, validate)
-                        print(f"登录结果：{video_info}")
-                        
-                        if video_info.get("success"):
-                            user_info = video_info.get("user_info", {})
-                            if user_info.get("success"):
-                                self.parser.user_info = user_info
-                            self.show_notification("登录成功！", "success")
-                            
-                            self.update_login_info_display()
-                            login_dialog_ref.hide()
-                        else:
-                            
-                            error_msg = video_info.get("error", "登录失败")
-                            self.show_notification(f"登录失败：{error_msg}", "error")
-                            
-                            
-                            if video_info.get("risk"):
-                                status = video_info.get("status", "未知风险")
-                                url = video_info.get("url", "")
-                                
-                                self.show_notification(f"{status}\n\n请使用手机号进行验证或绑定。", "warning")
-                                
-                                
-                                password_form.risk_banner.show()
-                                password_form.risk_label.setText(status)
-                                
-                                
-                                def on_verify_click():
-                                    if url:
-                                        
-                                        
-                                        
-                                        verify_dialog = QDialog(login_dialog)
-                                        verify_dialog.setWindowTitle("登录验证")
-                                        screen = QApplication.primaryScreen()
-                                        if screen:
-                                            sg = screen.availableGeometry()
-                                            verify_dialog.setMinimumSize(max(scale(500), int(sg.width() * 0.3)), max(scale(400), int(sg.height() * 0.3)))
-                                        else:
-                                            verify_dialog.setMinimumSize(scale(500), scale(400))
-                                        
-                                        
-                                        web_view = QWebEngineView()
-                                        web_view.setUrl(QUrl(url))
-                                        
-                                        
-                                        layout = QVBoxLayout(verify_dialog)
-                                        layout.addWidget(web_view)
-                                        
-                                        
-                                        verify_dialog.exec_()
-                                        
-                                        
-                                        self.show_notification("验证完成，正在重新尝试登录...", "info")
-                                        
-                                        
+
+                    def _do_login():
+                        try:
+                            video_info = self.parser.login_with_password(username_value, password_value, token_value, challenge, validate)
+
+                            def _handle_result():
+                                if video_info.get("success"):
+                                    user_info = video_info.get("user_info", {})
+                                    if user_info.get("success"):
+                                        self.parser.user_info = user_info
+                                    self.show_notification("登录成功！", "success")
+                                    self._on_login_success_refresh(user_info)
+                                    login_dialog_ref.hide()
+                                else:
+                                    error_msg = video_info.get("error", "登录失败")
+                                    self.show_notification(f"登录失败：{error_msg}", "error")
+
+                                    if video_info.get("risk"):
+                                        tmp_token = video_info.get("tmp_token", "")
+                                        status = video_info.get("status", "未知风险")
+                                        url = video_info.get("url", "")
+
+                                        self.show_notification(f"{status}\n\n请使用手机号进行验证或绑定。", "warning")
+
+                                        password_form.risk_banner.show()
+                                        password_form.risk_label.setText(status)
+
+                                        def on_verify_click():
+                                            risk_sms_dialog = QDialog(login_dialog)
+                                            risk_sms_dialog.setWindowTitle("手机号验证")
+                                            risk_sms_dialog.setMinimumSize(scale(380), scale(320))
+                                            risk_sms_dialog.setStyleSheet("QDialog { background-color: white; }")
+
+                                            r_layout = QVBoxLayout(risk_sms_dialog)
+                                            r_layout.setSpacing(scale(12))
+                                            r_layout.setContentsMargins(scale(24), scale(24), scale(24), scale(24))
+
+                                            r_title = QLabel("登录环境存在风险，请验证手机号")
+                                            r_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #1f2937;")
+                                            r_title.setWordWrap(True)
+                                            r_layout.addWidget(r_title)
+
+                                            r_phone_layout = QHBoxLayout()
+                                            r_cid_combo = QComboBox()
+                                            r_cid_combo.addItem("+86", 86)
+                                            r_cid_combo.addItem("+852", 852)
+                                            r_cid_combo.addItem("+853", 853)
+                                            r_cid_combo.addItem("+886", 886)
+                                            r_cid_combo.addItem("+1", 1)
+                                            r_cid_combo.addItem("+81", 81)
+                                            r_cid_combo.addItem("+82", 82)
+                                            r_cid_combo.setFixedWidth(scale(80))
+                                            r_phone_edit = QLineEdit()
+                                            r_phone_edit.setPlaceholderText("请输入手机号")
+                                            r_phone_edit.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;")
+                                            r_send_btn = QPushButton("发送验证码")
+                                            r_send_btn.setFixedWidth(scale(100))
+                                            r_send_btn.setStyleSheet("background-color: #409eff; color: white; border-radius: 4px; padding: 8px;")
+                                            r_phone_layout.addWidget(r_cid_combo)
+                                            r_phone_layout.addWidget(r_phone_edit)
+                                            r_phone_layout.addWidget(r_send_btn)
+                                            r_layout.addLayout(r_phone_layout)
+
+                                            r_code_edit = QLineEdit()
+                                            r_code_edit.setPlaceholderText("请输入短信验证码")
+                                            r_code_edit.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;")
+                                            r_layout.addWidget(r_code_edit)
+
+                                            r_login_btn = QPushButton("验证并登录")
+                                            r_login_btn.setMinimumHeight(scale(40))
+                                            r_login_btn.setStyleSheet("background-color: #409eff; color: white; font-weight: bold; border-radius: 4px; font-size: 14px;")
+                                            r_login_btn.setEnabled(False)
+                                            r_layout.addWidget(r_login_btn)
+
+                                            r_status_label = QLabel("")
+                                            r_status_label.setStyleSheet("color: #6b7280; font-size: 12px;")
+                                            r_status_label.setWordWrap(True)
+                                            r_layout.addWidget(r_status_label)
+
+                                            r_layout.addStretch()
+
+                                            _risk_captcha_key = [None]
+                                            _risk_countdown = [0]
+                                            _risk_tmp_token = [tmp_token]
+
+                                            def r_on_send():
+                                                tel = r_phone_edit.text().strip()
+                                                if not tel:
+                                                    r_status_label.setText("请输入手机号")
+                                                    r_status_label.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                                    return
+
+                                                r_send_btn.setEnabled(False)
+                                                r_status_label.setText("正在获取人机验证...")
+                                                r_status_label.setStyleSheet("color: #6b7280; font-size: 12px;")
+
+                                                def _do_get_captcha():
+                                                    try:
+                                                        return self.parser.get_captcha()
+                                                    except Exception as ex:
+                                                        return {"success": False, "error": str(ex)}
+
+                                                def _on_risk_captcha_ready(ci):
+                                                    if not ci.get("success"):
+                                                        r_status_label.setText(f"获取验证码失败：{ci.get('error')}")
+                                                        r_status_label.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                                        r_send_btn.setEnabled(True)
+                                                        return
+
+                                                    r_gt = ci.get("gt")
+                                                    r_challenge = ci.get("challenge")
+                                                    r_token = ci.get("token")
+                                                    r_cid = r_cid_combo.currentData() or 86
+                                                    r_tel = tel
+
+                                                    r_status_label.setText("请完成人机验证...")
+
+                                                    def r_captcha_callback(validate, seccode, challenge):
+                                                        if not validate:
+                                                            r_status_label.setText("人机验证已取消")
+                                                            r_status_label.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                                            r_send_btn.setEnabled(True)
+                                                            return
+
+                                                        r_status_label.setText("正在发送短信验证码...")
+                                                        r_status_label.setStyleSheet("color: #6b7280; font-size: 12px;")
+
+                                                        def _do_send_sms():
+                                                            try:
+                                                                return self.parser.send_sms_code(r_cid, r_tel, r_token, challenge, validate)
+                                                            except Exception as ex:
+                                                                return {"success": False, "error": str(ex)}
+
+                                                        def _on_sms_sent(result):
+                                                            if result.get('success'):
+                                                                ck = result.get('data', {}).get('captcha_key', '')
+                                                                if ck:
+                                                                    _risk_captcha_key[0] = ck
+
+                                                                r_login_btn.setEnabled(True)
+                                                                r_status_label.setText("验证码已发送，请查收短信")
+                                                                r_status_label.setStyleSheet("color: #10b981; font-size: 12px;")
+
+                                                                _risk_countdown[0] = 60
+                                                                r_send_btn.setEnabled(False)
+
+                                                                def r_update_countdown():
+                                                                    if _risk_countdown[0] > 0:
+                                                                        _risk_countdown[0] -= 1
+                                                                        r_send_btn.setText(f"{_risk_countdown[0]}s")
+                                                                        QTimer.singleShot(1000, r_update_countdown)
+                                                                    else:
+                                                                        r_send_btn.setEnabled(True)
+                                                                        r_send_btn.setText("重新发送")
+
+                                                                QTimer.singleShot(0, r_update_countdown)
+                                                            else:
+                                                                err = result.get('error', '发送失败')
+                                                                r_status_label.setText(f"发送失败：{err}")
+                                                                r_status_label.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                                                r_send_btn.setEnabled(True)
+
+                                                        def _run_sms():
+                                                            result = _do_send_sms()
+                                                            run_on_main_thread(lambda: _on_sms_sent(result))
+
+                                                        threading.Thread(target=_run_sms, daemon=True).start()
+
+                                                    show_captcha_dialog(r_gt, r_challenge, r_captcha_callback, risk_sms_dialog)
+
+                                                def _run_risk_captcha():
+                                                    result = _do_get_captcha()
+                                                    run_on_main_thread(lambda: _on_risk_captcha_ready(result))
+
+                                                threading.Thread(target=_run_risk_captcha, daemon=True).start()
+
+                                            def r_on_login():
+                                                code = r_code_edit.text().strip()
+                                                if not code:
+                                                    r_status_label.setText("请输入验证码")
+                                                    r_status_label.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                                    return
+                                                if not _risk_captcha_key[0]:
+                                                    r_status_label.setText("请先发送验证码")
+                                                    r_status_label.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                                    return
+
+                                                r_login_btn.setEnabled(False)
+                                                r_status_label.setText("正在验证登录...")
+                                                r_status_label.setStyleSheet("color: #6b7280; font-size: 12px;")
+
+                                                r_cid = r_cid_combo.currentData() or 86
+                                                r_tel = r_phone_edit.text().strip()
+                                                cur_tmp_token = _risk_tmp_token[0]
+
+                                                def _do_verify():
+                                                    try:
+                                                        if cur_tmp_token:
+                                                            return self.parser.verify_risk_sms(cur_tmp_token, r_cid, r_tel, code, _risk_captcha_key[0])
+                                                        else:
+                                                            return self.parser.login_with_sms(r_cid, r_tel, code, _risk_captcha_key[0])
+                                                    except Exception as ex:
+                                                        return {"success": False, "error": str(ex)}
+
+                                                def _on_verify_done(login_result):
+                                                    if login_result.get("success"):
+                                                        user_info = login_result.get("user_info", {})
+                                                        if user_info.get("success"):
+                                                            self.parser.user_info = user_info
+                                                        self.show_notification("登录成功！", "success")
+                                                        self._on_login_success_refresh(user_info)
+                                                        login_dialog_ref.hide()
+                                                        risk_sms_dialog.accept()
+                                                    else:
+                                                        err = login_result.get("error", "验证失败")
+                                                        r_status_label.setText(f"验证失败：{err}")
+                                                        r_status_label.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                                        r_login_btn.setEnabled(True)
+
+                                                        if login_result.get("risk"):
+                                                            new_tmp_token = login_result.get("tmp_token", "")
+                                                            if new_tmp_token:
+                                                                _risk_tmp_token[0] = new_tmp_token
+                                                            r_status_label.setText("仍存在风险，请重新发送验证码再试")
+                                                            r_status_label.setStyleSheet("color: #f59e0b; font-size: 12px;")
+                                                            _risk_captcha_key[0] = None
+                                                            r_login_btn.setEnabled(False)
+
+                                                def _run_risk_verify():
+                                                    result = _do_verify()
+                                                    run_on_main_thread(lambda: _on_verify_done(result))
+
+                                                threading.Thread(target=_run_risk_verify, daemon=True).start()
+
+                                            r_send_btn.clicked.connect(r_on_send)
+                                            r_login_btn.clicked.connect(r_on_login)
+                                            r_code_edit.returnPressed.connect(r_on_login)
+
+                                            risk_sms_dialog.exec_()
+
                                         try:
-                                            video_info = self.parser.login_with_password(username_value, password_value, token_value, challenge, validate)
-                                            print(f"验证后登录结果：{video_info}")
-                                            
-                                            if video_info.get("success"):
-                                                user_info = video_info.get("user_info", {})
-                                                if user_info.get("success"):
-                                                    self.parser.user_info = user_info
-                                                self.show_notification("登录成功！", "success")
-                                                
-                                                self.update_login_info_display()
-                                                login_dialog_ref.hide()
-                                            else:
-                                                
-                                                error_msg = video_info.get("error", "登录失败")
-                                                self.show_notification(f"登录失败：{error_msg}", "error")
-                                        except Exception as e:
-                                            print(f"验证后登录失败：{str(e)}")
-                                            self.show_notification(f"登录失败：{str(e)}", "error")
-                                
-                                
-                                try:
-                                    password_form.verify_btn.clicked.disconnect()
-                                except:
-                                    pass
-                                
-                                
-                                password_form.verify_btn.clicked.connect(on_verify_click)
-                                
-                                
-                                switch_tab(1)
-                            else:
-                                
-                                if "环境" in error_msg or "异常" in error_msg:
-                                    
-                                    self.show_notification(f"{error_msg}\n\n请检查网络环境或尝试使用其他登录方式。", "warning")
-                                    
-                                    switch_tab(1)
-                    except Exception as e:
-                        logger.error(f"账号密码登录失败：{str(e)}")
-                        self.show_notification(f"登录失败：{str(e)}", "error")
-                
-                
+                                            password_form.verify_btn.clicked.disconnect()
+                                        except:
+                                            pass
+
+                                        password_form.verify_btn.clicked.connect(on_verify_click)
+
+                                        switch_tab(1)
+                                    else:
+                                        if "环境" in error_msg or "异常" in error_msg:
+                                            self.show_notification(f"{error_msg}\n\n请检查网络环境或尝试使用其他登录方式。", "warning")
+                                            switch_tab(1)
+
+                            run_on_main_thread(_handle_result)
+                        except Exception as e:
+                            logger.error(f"账号密码登录失败：{str(e)}")
+                            run_on_main_thread(lambda: self.show_notification(f"登录失败：{str(e)}", "error"))
+
+                    threading.Thread(target=_do_login, daemon=True).start()
+
                 show_captcha_dialog(gt, challenge, captcha_callback, login_dialog)
-            except Exception as e:
-                logger.error(f"获取验证码失败：{str(e)}")
-                self.show_notification(f"获取验证码失败：{str(e)}", "error")
+
+            def _run_captcha():
+                result = _do_get_captcha()
+                run_on_main_thread(lambda: _on_captcha_ready(result))
+
+            threading.Thread(target=_run_captcha, daemon=True).start()
         
         
         def on_send_code():
@@ -16550,22 +18200,24 @@ class BilibiliDownloader(BaseWindow):
                 self.show_notification("请输入正确的手机号", "warning")
                 return
             
-            
-            self.show_notification("开始发送验证码，请稍候...", "info")
-            
-            
-            try:
-                
-                self.show_notification("正在获取验证码参数...", "info")
-                captcha_video_info = self.parser.get_captcha()
+            send_code_btn.setEnabled(False)
+            self.show_notification("正在获取验证码参数...", "info")
+
+            def _do_get_captcha():
+                try:
+                    return self.parser.get_captcha()
+                except Exception as e:
+                    return {"success": False, "error": str(e)}
+
+            def _on_captcha_ready(captcha_video_info):
                 if not captcha_video_info.get("success"):
                     self.show_notification(f"获取验证码失败：{captcha_video_info.get('error')}", "error")
+                    send_code_btn.setEnabled(True)
                     return
-                
+
                 gt = captcha_video_info.get("gt")
                 challenge = captcha_video_info.get("challenge")
                 token = captcha_video_info.get("token")
-                print(f"获取验证码参数成功: gt={gt}, challenge={challenge}, token={token}")
                 self.show_notification("获取验证码参数成功，准备显示人机验证...", "info")
                 
                 
@@ -16573,7 +18225,6 @@ class BilibiliDownloader(BaseWindow):
                 
                 if cid_value is None:
                     cid_value = 86
-                    print("cid值为None，使用默认值86")
                 tel_value = tel
                 token_value = token
                 send_code_btn_ref = send_code_btn
@@ -16582,36 +18233,28 @@ class BilibiliDownloader(BaseWindow):
                 def captcha_callback(validate, seccode, challenge):
                     if not validate:
                         self.show_notification("验证码验证取消", "info")
+                        send_code_btn_ref.setEnabled(True)
                         return
-                    print(f"验证码验证成功: validate={validate}")
                     self.show_notification("人机验证成功，正在发送验证码...", "info")
-                    
-                    
-                    try:
-                        
-                        print("开始发送验证码...")
-                        video_info = self.parser.send_sms_code(cid_value, tel_value, token_value, challenge, validate)
-                        print(f"发送验证码结果：{video_info}")
-                        
-                        
+
+                    def _do_send():
+                        try:
+                            return self.parser.send_sms_code(cid_value, tel_value, token_value, challenge, validate)
+                        except Exception as e:
+                            return {"success": False, "error": str(e)}
+
+                    def _on_sms_sent(video_info):
                         if video_info.get('success'):
-                            
                             captcha_key = video_info.get('data', {}).get('captcha_key', '')
                             if captcha_key:
-                                
                                 self.sms_captcha_key = captcha_key
-                                print(f"保存captcha_key成功: {captcha_key}")
-                            
-                            
+
                             self.show_notification("验证码发送成功！", "success")
-                            
-                            
-                            print("开始60秒倒计时...")
-                            
+
                             self.sms_countdown_seconds = 60
                             self.sms_send_btn = send_code_btn_ref
                             send_code_btn_ref.setEnabled(False)
-                            
+
                             def update_countdown():
                                 if hasattr(self, 'sms_countdown_seconds') and self.sms_countdown_seconds > 0:
                                     self.sms_countdown_seconds -= 1
@@ -16622,29 +18265,31 @@ class BilibiliDownloader(BaseWindow):
                                     if hasattr(self, 'sms_send_btn') and self.sms_send_btn:
                                         self.sms_send_btn.setEnabled(True)
                                         self.sms_send_btn.setText("发送验证码")
-                                        
                                         if hasattr(self, 'sms_countdown_seconds'):
                                             delattr(self, 'sms_countdown_seconds')
                                         if hasattr(self, 'sms_send_btn'):
                                             delattr(self, 'sms_send_btn')
-                            
-                            
+
                             QTimer.singleShot(0, update_countdown)
-                            print("发送验证码执行完成")
                         else:
-                            
                             error_msg = video_info.get('error', '发送失败')
                             logger.error(f"发送验证码失败：{error_msg}")
                             self.show_notification(f"发送验证码失败：{error_msg}", "error")
-                    except Exception as e:
-                        logger.error(f"发送验证码失败：{str(e)}")
-                        self.show_notification(f"发送验证码失败：{str(e)}", "error")
-                
-                
+                            send_code_btn_ref.setEnabled(True)
+
+                    def _run_sms_send():
+                        result = _do_send()
+                        run_on_main_thread(lambda: _on_sms_sent(result))
+
+                    threading.Thread(target=_run_sms_send, daemon=True).start()
+
                 show_captcha_dialog(gt, challenge, captcha_callback, login_dialog)
-            except Exception as e:
-                logger.error(f"获取验证码失败：{str(e)}")
-                self.show_notification(f"获取验证码失败：{str(e)}", "error")
+
+            def _run_sms_captcha():
+                result = _do_get_captcha()
+                run_on_main_thread(lambda: _on_captcha_ready(result))
+
+            threading.Thread(target=_run_sms_captcha, daemon=True).start()
         
         
         def on_sms_login():
@@ -16654,63 +18299,232 @@ class BilibiliDownloader(BaseWindow):
                 self.show_notification("请输入手机号和验证码", "warning")
                 return
             
-            
             if not hasattr(self, 'sms_captcha_key') or not self.sms_captcha_key:
                 self.show_notification("请先发送验证码", "warning")
                 return
-            
-            
+
+            sms_login_btn.setEnabled(False)
             self.show_notification("开始验证码登录，请稍候...", "info")
-            
-            try:
-                
-                cid_value = cid_combo.currentData()
-                
-                if cid_value is None:
-                    cid_value = 86
-                    print("cid值为None，使用默认值86")
-                tel_value = tel
-                code_value = code
-                captcha_key_value = self.sms_captcha_key
-                login_dialog_ref = login_dialog
-                
-                
+
+            cid_value = cid_combo.currentData()
+            if cid_value is None:
+                cid_value = 86
+            tel_value = tel
+            code_value = code
+            captcha_key_value = self.sms_captcha_key
+            login_dialog_ref = login_dialog
+
+            def _do_login():
                 try:
-                    
-                    print("开始执行短信验证码登录...")
-                    video_info = self.parser.login_with_sms(cid_value, tel_value, code_value, captcha_key_value)
-                    print(f"登录结果：{video_info}")
-                    
-                    if video_info.get("success"):
-                        user_info = video_info.get("user_info", {})
-                        if user_info.get("success"):
-                            self.parser.user_info = user_info
-                        self.show_notification("登录成功！", "success")
-                        
-                        self.update_login_info_display()
-                        login_dialog_ref.hide()
-                    else:
-                        
-                        error_msg = video_info.get("error", "登录失败")
-                        self.show_notification(f"登录失败：{error_msg}", "error")
-                        
-                        
-                        if video_info.get("risk"):
-                            status = video_info.get("status", "未知风险")
-                            url = video_info.get("url", "")
-                            
-                            self.show_notification(f"{status}\n\n请使用手机号进行验证或绑定。", "warning")
-                        else:
-                            
-                            if "环境" in error_msg or "异常" in error_msg:
-                                
-                                self.show_notification(f"{error_msg}\n\n请检查网络环境或尝试使用其他登录方式。", "warning")
+                    return self.parser.login_with_sms(cid_value, tel_value, code_value, captcha_key_value)
                 except Exception as e:
-                    logger.error(f"验证码登录失败：{str(e)}")
-                    self.show_notification(f"登录失败：{str(e)}", "error")
-            except Exception as e:
-                logger.error(f"登录失败：{str(e)}")
-                self.show_notification(f"登录失败：{str(e)}", "error")
+                    return {"success": False, "error": str(e)}
+
+            def _on_login_done(video_info):
+                sms_login_btn.setEnabled(True)
+                if video_info.get("success"):
+                    user_info = video_info.get("user_info", {})
+                    if user_info.get("success"):
+                        self.parser.user_info = user_info
+                    self.show_notification("登录成功！", "success")
+                    self._on_login_success_refresh(user_info)
+                    login_dialog_ref.hide()
+                else:
+                    error_msg = video_info.get("error", "登录失败")
+                    self.show_notification(f"登录失败：{error_msg}", "error")
+
+                    if video_info.get("risk"):
+                        tmp_token2 = video_info.get("tmp_token", "")
+                        status = video_info.get("status", "未知风险")
+                        self.show_notification(f"{status}，请重新验证手机号", "warning")
+
+                        risk_dlg2 = QDialog(login_dialog_ref)
+                        risk_dlg2.setWindowTitle("手机号验证")
+                        risk_dlg2.setMinimumSize(scale(380), scale(320))
+                        risk_dlg2.setStyleSheet("QDialog { background-color: white; }")
+
+                        rl2 = QVBoxLayout(risk_dlg2)
+                        rl2.setSpacing(scale(12))
+                        rl2.setContentsMargins(scale(24), scale(24), scale(24), scale(24))
+
+                        rl2_title = QLabel("登录环境存在风险，请验证手机号")
+                        rl2_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #1f2937;")
+                        rl2_title.setWordWrap(True)
+                        rl2.addWidget(rl2_title)
+
+                        rl2_phone_layout = QHBoxLayout()
+                        rl2_cid = QComboBox()
+                        rl2_cid.addItem("+86", 86)
+                        rl2_cid.addItem("+852", 852)
+                        rl2_cid.addItem("+853", 853)
+                        rl2_cid.addItem("+886", 886)
+                        rl2_cid.addItem("+1", 1)
+                        rl2_cid.setFixedWidth(scale(80))
+                        rl2_tel = QLineEdit()
+                        rl2_tel.setPlaceholderText("请输入手机号")
+                        rl2_tel.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;")
+                        rl2_send = QPushButton("发送验证码")
+                        rl2_send.setFixedWidth(scale(100))
+                        rl2_send.setStyleSheet("background-color: #409eff; color: white; border-radius: 4px; padding: 8px;")
+                        rl2_phone_layout.addWidget(rl2_cid)
+                        rl2_phone_layout.addWidget(rl2_tel)
+                        rl2_phone_layout.addWidget(rl2_send)
+                        rl2.addLayout(rl2_phone_layout)
+
+                        rl2_code = QLineEdit()
+                        rl2_code.setPlaceholderText("请输入短信验证码")
+                        rl2_code.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;")
+                        rl2.addWidget(rl2_code)
+
+                        rl2_login = QPushButton("验证并登录")
+                        rl2_login.setMinimumHeight(scale(40))
+                        rl2_login.setStyleSheet("background-color: #409eff; color: white; font-weight: bold; border-radius: 4px; font-size: 14px;")
+                        rl2_login.setEnabled(False)
+                        rl2.addWidget(rl2_login)
+
+                        rl2_status = QLabel("")
+                        rl2_status.setStyleSheet("color: #6b7280; font-size: 12px;")
+                        rl2_status.setWordWrap(True)
+                        rl2.addWidget(rl2_status)
+                        rl2.addStretch()
+
+                        _rk2 = [None]
+                        _rcd2 = [0]
+                        _tmp_token2 = [tmp_token2]
+
+                        def rl2_on_send():
+                            tel2 = rl2_tel.text().strip()
+                            if not tel2:
+                                rl2_status.setText("请输入手机号")
+                                rl2_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                return
+                            rl2_send.setEnabled(False)
+                            rl2_status.setText("正在获取人机验证...")
+                            rl2_status.setStyleSheet("color: #6b7280; font-size: 12px;")
+
+                            def _do_ci2():
+                                try:
+                                    return self.parser.get_captcha()
+                                except Exception as ex2:
+                                    return {"success": False, "error": str(ex2)}
+
+                            def _on_ci2_ready(ci2):
+                                if not ci2.get("success"):
+                                    rl2_status.setText(f"获取验证码失败：{ci2.get('error')}")
+                                    rl2_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                    rl2_send.setEnabled(True)
+                                    return
+                                rl2_status.setText("请完成人机验证...")
+                                def rl2_ccb(validate, seccode, challenge):
+                                    if not validate:
+                                        rl2_status.setText("人机验证已取消")
+                                        rl2_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                        rl2_send.setEnabled(True)
+                                        return
+                                    rl2_status.setText("正在发送短信验证码...")
+
+                                    def _do_send2():
+                                        try:
+                                            return self.parser.send_sms_code(rl2_cid.currentData() or 86, tel2, ci2.get("token"), challenge, validate)
+                                        except Exception as ex2:
+                                            return {"success": False, "error": str(ex2)}
+
+                                    def _on_send2_done(r2):
+                                        if r2.get('success'):
+                                            ck2 = r2.get('data', {}).get('captcha_key', '')
+                                            if ck2:
+                                                _rk2[0] = ck2
+                                            rl2_login.setEnabled(True)
+                                            rl2_status.setText("验证码已发送，请查收短信")
+                                            rl2_status.setStyleSheet("color: #10b981; font-size: 12px;")
+                                            _rcd2[0] = 60
+                                            rl2_send.setEnabled(False)
+                                            def rl2_ucd():
+                                                if _rcd2[0] > 0:
+                                                    _rcd2[0] -= 1
+                                                    rl2_send.setText(f"{_rcd2[0]}s")
+                                                    QTimer.singleShot(1000, rl2_ucd)
+                                                else:
+                                                    rl2_send.setEnabled(True)
+                                                    rl2_send.setText("重新发送")
+                                            QTimer.singleShot(0, rl2_ucd)
+                                        else:
+                                            rl2_status.setText(f"发送失败：{r2.get('error', '失败')}")
+                                            rl2_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                            rl2_send.setEnabled(True)
+
+                                    def _run_send2():
+                                        result = _do_send2()
+                                        run_on_main_thread(lambda: _on_send2_done(result))
+
+                                    threading.Thread(target=_run_send2, daemon=True).start()
+
+                                show_captcha_dialog(ci2.get("gt"), ci2.get("challenge"), rl2_ccb, risk_dlg2)
+
+                            def _run_ci2():
+                                result = _do_ci2()
+                                run_on_main_thread(lambda: _on_ci2_ready(result))
+
+                            threading.Thread(target=_run_ci2, daemon=True).start()
+
+                        def rl2_on_login():
+                            code2 = rl2_code.text().strip()
+                            if not code2 or not _rk2[0]:
+                                rl2_status.setText("请先发送验证码并输入")
+                                rl2_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                return
+                            rl2_login.setEnabled(False)
+                            rl2_status.setText("正在验证登录...")
+                            cur_tmp_token2 = _tmp_token2[0]
+
+                            def _do_verify2():
+                                try:
+                                    if cur_tmp_token2:
+                                        return self.parser.verify_risk_sms(cur_tmp_token2, rl2_cid.currentData() or 86, rl2_tel.text().strip(), code2, _rk2[0])
+                                    else:
+                                        return self.parser.login_with_sms(rl2_cid.currentData() or 86, rl2_tel.text().strip(), code2, _rk2[0])
+                                except Exception as ex2:
+                                    return {"success": False, "error": str(ex2)}
+
+                            def _on_verify2_done(lr2):
+                                if lr2.get("success"):
+                                    ui2 = lr2.get("user_info", {})
+                                    if ui2.get("success"):
+                                        self.parser.user_info = ui2
+                                    self.show_notification("登录成功！", "success")
+                                    self._on_login_success_refresh(ui2)
+                                    login_dialog_ref.hide()
+                                    risk_dlg2.accept()
+                                else:
+                                    rl2_status.setText(f"验证失败：{lr2.get('error', '失败')}")
+                                    rl2_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                    rl2_login.setEnabled(True)
+                                    if lr2.get("risk"):
+                                        new_tt = lr2.get("tmp_token", "")
+                                        if new_tt:
+                                            _tmp_token2[0] = new_tt
+                                        _rk2[0] = None
+                                        rl2_login.setEnabled(False)
+
+                            def _run_verify2():
+                                result = _do_verify2()
+                                run_on_main_thread(lambda: _on_verify2_done(result))
+
+                            threading.Thread(target=_run_verify2, daemon=True).start()
+
+                        rl2_send.clicked.connect(rl2_on_send)
+                        rl2_login.clicked.connect(rl2_on_login)
+                        rl2_code.returnPressed.connect(rl2_on_login)
+                        risk_dlg2.exec_()
+                    else:
+                        if "环境" in error_msg or "异常" in error_msg:
+                            self.show_notification(f"{error_msg}\n\n请检查网络环境或尝试使用其他登录方式。", "warning")
+
+            def _run_login():
+                result = _do_login()
+                run_on_main_thread(lambda: _on_login_done(result))
+
+            threading.Thread(target=_run_login, daemon=True).start()
         
         
         def on_cookie_login():
@@ -16971,8 +18785,11 @@ class BilibiliDownloader(BaseWindow):
         # 获取用户登录状态
         is_vip = False
         if self.parser:
-            user_info = self.parser.get_user_info()
-            is_vip = user_info.get('is_vip', False)
+            user_info = getattr(self.parser, 'user_info', None)
+            if user_info and user_info.get("success"):
+                is_vip = user_info.get('is_vip', False)
+            elif hasattr(self.parser, 'cookies') and self.parser.cookies:
+                is_vip = False
         
         # 根据VIP状态设置可用的质量选项
         quality_options = [
@@ -17275,6 +19092,124 @@ class BilibiliDownloader(BaseWindow):
         
         other_layout.addLayout(other_checkbox_layout)
 
+        # 日志管理组
+        log_group = QGroupBox("日志管理")
+        log_group.setStyleSheet(scale_style("""
+            QGroupBox {
+                font-weight: 600;
+                color: #2563eb;
+                border: 1px solid #e9ecef;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }
+            QLabel { font-size: 13px; color: #6b7280; }
+            QPushButton {
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-size: 12px;
+                font-weight: 500;
+            }
+        """))
+        log_layout = QVBoxLayout(log_group)
+        log_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
+        log_layout.setSpacing(scale(10))
+
+        log_info_label = QLabel()
+        log_info_label.setWordWrap(True)
+
+        def refresh_log_info():
+            try:
+                from logger_config import get_log_files, get_log_total_size
+                files = get_log_files()
+                total_size = get_log_total_size()
+                count = len(files)
+                if total_size < 1024 * 1024:
+                    size_str = f"{total_size / 1024:.1f} KB"
+                else:
+                    size_str = f"{total_size / (1024*1024):.2f} MB"
+                log_info_label.setText(f"当前日志文件：{count} 个，共占 {size_str}")
+            except Exception as e:
+                log_info_label.setText(f"日志信息获取失败: {str(e)}")
+
+        refresh_log_info()
+
+        log_layout.addWidget(log_info_label)
+
+        log_btn_layout = QHBoxLayout()
+        log_btn_layout.setSpacing(scale(10))
+
+        package_log_btn = QPushButton("打包日志")
+        package_log_btn.setStyleSheet(scale_style("""
+            QPushButton { background-color: #409eff; color: white; border: none; }
+            QPushButton:hover { background-color: #66b1ff; }
+            QPushButton:pressed { background-color: #3a8ee6; }
+        """))
+
+        clear_log_btn = QPushButton("清理日志")
+        clear_log_btn.setStyleSheet(scale_style("""
+            QPushButton { background-color: #f56c6c; color: white; border: none; }
+            QPushButton:hover { background-color: #f78989; }
+            QPushButton:pressed { background-color: #dd6b6b; }
+        """))
+
+        copy_log_btn = QPushButton("复制到剪贴板")
+        copy_log_btn.setStyleSheet(scale_style("""
+            QPushButton { background-color: #67c23a; color: white; border: none; }
+            QPushButton:hover { background-color: #85ce61; }
+            QPushButton:pressed { background-color: #529b2e; }
+        """))
+
+        def on_package_logs():
+            try:
+                from logger_config import package_logs, get_log_total_size
+                path = package_logs()
+                if path and os.path.exists(path):
+                    size = os.path.getsize(path) / 1024
+                    self.show_notification(f"日志已打包 ({size:.0f} KB)", "success")
+                    refresh_log_info()
+                else:
+                    self.show_notification("打包失败，没有可用的日志文件", "error")
+            except Exception as e:
+                self.show_notification(f"打包失败: {str(e)}", "error")
+
+        def on_clear_logs():
+            try:
+                from logger_config import clear_old_logs
+                msg_box = QMessageBox(dialog)
+                msg_box.setWindowTitle("确认清理")
+                msg_box.setText("确定要清理30天前的旧日志吗？")
+                msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+                msg_box.setDefaultButton(QMessageBox.No)
+                if msg_box.exec_() == QMessageBox.Yes:
+                    removed, freed = clear_old_logs()
+                    self.show_notification(f"已清理 {removed} 个日志文件，释放 {freed/(1024*1024):.2f} MB", "success")
+                    refresh_log_info()
+            except Exception as e:
+                self.show_notification(f"清理失败: {str(e)}", "error")
+
+        def on_copy_logs():
+            try:
+                from logger_config import copy_logs_to_clipboard
+                ok = copy_logs_to_clipboard()
+                if ok:
+                    self.show_notification("日志压缩包路径已复制到剪贴板，可直接粘贴发送", "success")
+                else:
+                    self.show_notification("复制失败，请手动复制日志文件夹", "error")
+            except Exception as e:
+                self.show_notification(f"复制失败: {str(e)}", "error")
+
+        package_log_btn.clicked.connect(on_package_logs)
+        clear_log_btn.clicked.connect(on_clear_logs)
+        copy_log_btn.clicked.connect(on_copy_logs)
+
+        log_btn_layout.addWidget(package_log_btn)
+        log_btn_layout.addWidget(clear_log_btn)
+        log_btn_layout.addWidget(copy_log_btn)
+        log_btn_layout.addStretch(1)
+        log_layout.addLayout(log_btn_layout)
+
         page1_scroll = QScrollArea()
         page1_scroll.setWidgetResizable(True)
         page1_scroll.setStyleSheet("QScrollArea { border: none; }")
@@ -17322,6 +19257,7 @@ class BilibiliDownloader(BaseWindow):
         page4_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
         page4_layout.setSpacing(scale(15))
         page4_layout.addWidget(other_group)
+        page4_layout.addWidget(log_group)
         page4_layout.addStretch(1)
         page4_scroll.setWidget(page4_widget)
         stacked_widget.addWidget(page4_scroll)
@@ -17420,26 +19356,31 @@ class BilibiliDownloader(BaseWindow):
             line_edit.setText(path)
     
     def on_user_info_click(self, event=None):
-        print("on_user_info_click被调用")
-        try:
-            print("开始获取用户信息")
-            # 先获取基本用户信息
-            user_info = self.parser.get_user_info()
-            if not user_info.get("success"):
-                print("获取用户基本信息失败")
-                self.show_notification("获取用户信息失败：未登录或Cookie失效", "error")
-                return
-            
-            # 尝试获取详细用户信息
+        self.show_notification("正在获取用户信息...", "info")
+
+        def _do_fetch():
             try:
-                user_detail = self.parser.get_user_detail()
-                print(f"获取用户详情结果：{user_detail}")
-                if user_detail.get("success"):
-                    print("用户详情获取成功，显示用户信息窗口")
-                    self.show_user_info_window(user_detail)
-                else:
-                    # 如果获取详细信息失败，使用基本信息创建用户详情对象
-                    print("用户详情获取失败，使用基本信息")
+                user_info = self.parser.get_user_info()
+                if not user_info.get("success"):
+                    return {"fetch_error": "获取用户信息失败：未登录或Cookie失效"}
+                try:
+                    user_detail = self.parser.get_user_detail()
+                    if user_detail.get("success"):
+                        return {"user_detail": user_detail, "user_info": user_info}
+                    else:
+                        user_detail = {
+                            "success": True,
+                            "mid": user_info.get("mid", ""),
+                            "name": user_info.get("uname", "未知用户"),
+                            "sex": "保密",
+                            "face": user_info.get("face", ""),
+                            "sign": "无签名",
+                            "level": user_info.get("level", 0),
+                            "coins": 0,
+                            "vip": {"status": 1 if user_info.get("is_vip") else 0}
+                        }
+                        return {"user_detail": user_detail, "user_info": user_info}
+                except Exception:
                     user_detail = {
                         "success": True,
                         "mid": user_info.get("mid", ""),
@@ -17451,27 +19392,21 @@ class BilibiliDownloader(BaseWindow):
                         "coins": 0,
                         "vip": {"status": 1 if user_info.get("is_vip") else 0}
                     }
-                    self.show_user_info_window(user_detail)
+                    return {"user_detail": user_detail, "user_info": user_info}
             except Exception as e:
-                # 如果发生异常，使用基本信息
-                print(f"获取用户详情异常：{e}")
-                user_detail = {
-                    "success": True,
-                    "mid": user_info.get("mid", ""),
-                    "name": user_info.get("uname", "未知用户"),
-                    "sex": "保密",
-                    "face": user_info.get("face", ""),
-                    "sign": "无签名",
-                    "level": user_info.get("level", 0),
-                    "coins": 0,
-                    "vip": {"status": 1 if user_info.get("is_vip") else 0}
-                }
-                self.show_user_info_window(user_detail)
-        except Exception as e:
-            print(f"获取用户信息失败：{e}")
-            import traceback
-            traceback.print_exc()
-            self.show_notification(f"获取用户信息失败：{str(e)}", "error")
+                return {"fetch_error": str(e)}
+
+        def _on_fetch_done(result):
+            if "fetch_error" in result:
+                self.show_notification(result["fetch_error"], "error")
+                return
+            self.show_user_info_window(result["user_detail"])
+
+        def _run_fetch():
+            result = _do_fetch()
+            run_on_main_thread(lambda: _on_fetch_done(result))
+
+        threading.Thread(target=_run_fetch, daemon=True).start()
     
     def show_user_info_window(self, user_detail):
         try:
@@ -17811,9 +19746,9 @@ class BilibiliDownloader(BaseWindow):
             dialog.raise_()
             dialog.activateWindow()
         except Exception as e:
-            print(f"显示用户信息窗口失败：{e}")
+            logger.warning(f"\1")
             import traceback
-            traceback.print_exc()
+            logger.debug("traceback", exc_info=True)
             self.show_notification(f"打开个人中心失败：{str(e)}", "error")
 
 
@@ -17866,7 +19801,6 @@ class CookieTestDialog(QDialog):
         self.result_text.append("="*60)
         
         try:
-            # 步骤1：检查parser
             self.result_text.append("\n【步骤1】检查parser是否存在...")
             if self.parser:
                 self.result_text.append("   ✓ parser存在")
@@ -17875,7 +19809,6 @@ class CookieTestDialog(QDialog):
                 self.progress_label.setText("测试失败：parser不存在")
                 return
             
-            # 步骤2：检查cookies
             self.result_text.append("\n【步骤2】检查cookies是否存在...")
             if hasattr(self.parser, 'cookies') and self.parser.cookies:
                 self.result_text.append(f"   ✓ cookies存在，共 {len(self.parser.cookies)} 个cookie")
@@ -17886,7 +19819,6 @@ class CookieTestDialog(QDialog):
                 self.progress_label.setText("测试失败：cookie不存在")
                 return
             
-            # 步骤3：检查SESSDATA
             self.result_text.append("\n【步骤3】检查关键Cookie (SESSDATA)...")
             if 'SESSDATA' in self.parser.cookies:
                 sessdata = self.parser.cookies['SESSDATA']
@@ -17899,33 +19831,55 @@ class CookieTestDialog(QDialog):
                 self.progress_label.setText("测试失败：缺少SESSDATA")
                 return
             
-            # 步骤4：调用verify_cookie
             self.result_text.append("\n【步骤4】调用verify_cookie方法...")
             self.result_text.append("   正在验证，请稍候...")
+            self.progress_label.setText("正在验证Cookie...")
             
-            success, msg = self.parser.verify_cookie()
+            def _do_test():
+                try:
+                    success, msg = self.parser.verify_cookie()
+                    
+                    def _update_ui():
+                        try:
+                            self.result_text.append(f"   verify_cookie返回: success={success}, msg={msg}")
+                            
+                            if success:
+                                self.result_text.append("\n【结果】✓ Cookie验证成功！")
+                                self.progress_label.setText("测试成功！")
+                                self.cookie_info_label.setText("Cookie状态: 有效")
+                                
+                                self.result_text.append("\n【步骤5】获取用户信息...")
+                                user_info = self.parser.get_user_info()
+                                if user_info.get("success"):
+                                    self.result_text.append(f"   ✓ 用户名: {user_info.get('uname', '未知')}")
+                                    self.result_text.append(f"   ✓ 用户ID: {user_info.get('uid', user_info.get('mid', '未知'))}")
+                                    self.result_text.append(f"   ✓ 头像URL: {user_info.get('face', '无')[:50]}...")
+                                else:
+                                    self.result_text.append(f"   ✗ 获取用户信息失败: {user_info.get('msg', '未知错误')}")
+                            else:
+                                self.result_text.append(f"\n【结果】✗ Cookie验证失败!")
+                                self.result_text.append(f"   失败原因: {msg}")
+                                self.progress_label.setText(f"测试失败: {msg}")
+                                self.cookie_info_label.setText(f"Cookie状态: 无效 - {msg}")
+                        except Exception as e:
+                            import traceback
+                            self.result_text.append(f"\n【错误】发生异常: {str(e)}")
+                            self.result_text.append(traceback.format_exc())
+                            self.progress_label.setText(f"测试出错: {str(e)}")
+                            self.cookie_info_label.setText("Cookie状态: 错误")
+                    
+                    run_on_main_thread(_update_ui)
+                except Exception as e:
+                    import traceback
+                    def _show_error():
+                        self.result_text.append(f"\n【错误】发生异常: {str(e)}")
+                        self.result_text.append(traceback.format_exc())
+                        self.progress_label.setText(f"测试出错: {str(e)}")
+                        self.cookie_info_label.setText("Cookie状态: 错误")
+                    run_on_main_thread(_show_error)
             
-            self.result_text.append(f"   verify_cookie返回: success={success}, msg={msg}")
-            
-            if success:
-                self.result_text.append("\n【结果】✓ Cookie验证成功！")
-                self.progress_label.setText("测试成功！")
-                self.cookie_info_label.setText("Cookie状态: 有效")
-                
-                # 步骤5：获取用户信息
-                self.result_text.append("\n【步骤5】获取用户信息...")
-                user_info = self.parser.get_user_info()
-                if user_info.get("success"):
-                    self.result_text.append(f"   ✓ 用户名: {user_info.get('uname', '未知')}")
-                    self.result_text.append(f"   ✓ 用户ID: {user_info.get('uid', user_info.get('mid', '未知'))}")
-                    self.result_text.append(f"   ✓ 头像URL: {user_info.get('face', '无')[:50]}...")
-                else:
-                    self.result_text.append(f"   ✗ 获取用户信息失败: {user_info.get('msg', '未知错误')}")
-            else:
-                self.result_text.append(f"\n【结果】✗ Cookie验证失败!")
-                self.result_text.append(f"   失败原因: {msg}")
-                self.progress_label.setText(f"测试失败: {msg}")
-                self.cookie_info_label.setText(f"Cookie状态: 无效 - {msg}")
+            import threading
+            threading.Thread(target=_do_test, daemon=True).start()
         except Exception as e:
             import traceback
             self.result_text.append(f"\n【错误】发生异常: {str(e)}")
@@ -17944,7 +19898,7 @@ if __name__ == "__main__":
     config = ConfigLoader()
 
     app = QApplication(sys.argv)
-    app.setFont(QFont("PingFang SC" if IS_MACOS else "Microsoft YaHei", scale(10)))
+    app.setFont(QFont("Microsoft YaHei", scale(10)))
     ui = BilibiliDownloader(config)
     ui.show()
     sys.exit(app.exec_())
