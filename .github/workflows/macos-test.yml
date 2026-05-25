@@ -115,6 +115,7 @@ jobs:
 
       - name: Test video parsing (real Bilibili API)
         timeout-minutes: 3
+        continue-on-error: true
         run: |
           python -c "
           import sys
