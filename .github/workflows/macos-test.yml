@@ -10,7 +10,7 @@ on:
 jobs:
   macos-test:
     runs-on: macos-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -31,96 +31,19 @@ jobs:
           pip install PyQt5 PyQtWebEngine || echo "PyQt5 install had issues"
           pip install browser-cookie3 || echo "browser-cookie3 install skipped"
 
-      - name: Test platform_utils
-        run: |
-          python -c "
-          import sys
-          print(f'Platform: {sys.platform}')
-          assert sys.platform == 'darwin'
-
-          from platform_utils import IS_MACOS, IS_WINDOWS, exe, is_admin, illegal_filename_chars, platform_font, get_bento4_sdk_dirname, subprocess_no_window_kwargs, app_data_dir, program_files_dir, get_system_proxy
-
-          assert IS_MACOS == True
-          assert IS_WINDOWS == False
-          assert exe('ffmpeg') == 'ffmpeg'
-          assert exe('mp4decrypt') == 'mp4decrypt'
-          assert 'apple-macosx' in get_bento4_sdk_dirname()
-          assert '/' in illegal_filename_chars()
-          assert ':' in illegal_filename_chars()
-          assert '*' not in illegal_filename_chars()
-          font_family, font_size = platform_font()
-          assert font_family == 'PingFang SC'
-          assert font_size == 13
-          assert subprocess_no_window_kwargs() == {}
-          data_dir = app_data_dir()
-          print(f'Data dir: {data_dir}')
-          assert 'Library/Application Support' in data_dir
-          print('platform_utils ALL TESTS PASSED')
-          "
-
-      - name: Test tool_manager
-        run: |
-          python -c "
-          from tool_manager import ToolManager
-          tm = ToolManager()
-          print(f'Install dir: {tm.install_dir}')
-          print(f'FFmpeg path: {tm.ffmpeg_path}')
-          print(f'mp4decrypt path: {tm.mp4decrypt_path}')
-          assert 'ffmpeg' in tm.ffmpeg_path
-          assert 'mp4decrypt' in tm.mp4decrypt_path
-          assert not tm.ffmpeg_path.endswith('.exe')
-          assert not tm.mp4decrypt_path.endswith('.exe')
-          result = tm.check_tools_installed()
-          print(f'Tool check: {result}')
-          print('tool_manager OK')
-          "
-
-      - name: Test config
-        run: |
-          python -c "
-          from config import ConfigLoader
-          c = ConfigLoader()
-          print(f'Config file: {c.config_file}')
-          assert 'Library/Application Support' in c.config_file
-          print('config OK')
-          "
-
-      - name: Test env_checker
-        run: |
-          python -c "
-          from platform_utils import exe
-          assert exe('ffmpeg') == 'ffmpeg'
-          assert exe('ffprobe') == 'ffprobe'
-          print('env_checker platform helpers OK')
-          "
-
       - name: Verify FFmpeg
         run: |
           ffmpeg -version | head -1
           which mp4decrypt || echo "mp4decrypt not in PATH"
 
-      - name: Test PyQt5 font
-        run: |
-          python -c "
-          import os
-          os.environ['QT_QPA_PLATFORM'] = 'offscreen'
-          from PyQt5.QtWidgets import QApplication
-          app = QApplication([])
-          from main import _get_platform_font
-          font = _get_platform_font()
-          print(f'Font: {font.family()}, size: {font.pointSize()}')
-          assert font.family() == 'PingFang SC', f'Expected PingFang SC, got {font.family()}'
-          print('PyQt5 font OK')
-          " || echo "PyQt5 test skipped"
-
-      - name: Test end-to-end download and merge
-        timeout-minutes: 10
+      - name: Run comprehensive tests (17 modules)
+        timeout-minutes: 18
         run: |
           python test_e2e_download.py
 
   windows-test:
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
