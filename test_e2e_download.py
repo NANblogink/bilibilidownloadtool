@@ -307,7 +307,7 @@ def test_hevc():
 
     def t_hevc_download_skip():
         from utils import HEVCDownloadThread
-        thread = HEVCDownloadThread()
+        thread = HEVCDownloadThread(save_path='/tmp', hevc_url='')
         thread.finish_signal = _MockSignal()
         thread.run()
         ok, msg = thread.finish_signal.last_value
@@ -571,6 +571,7 @@ def _bili_headers():
 
 
 if __name__ == '__main__':
+    exit_code = 0
     try:
         test_platform_utils()
         test_tool_manager()
@@ -600,11 +601,11 @@ if __name__ == '__main__':
                 logger.error(f"  ❌ {name}: {err}")
 
         if failed > 0:
-            sys.exit(1)
+            exit_code = 1
     except Exception as e:
         logger.error(f"测试执行异常: {e}")
         import traceback
         traceback.print_exc()
-        sys.exit(1)
+        exit_code = 1
     finally:
-        os._exit(0)
+        os._exit(exit_code)
