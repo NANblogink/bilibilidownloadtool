@@ -39,7 +39,22 @@ jobs:
       - name: Run comprehensive tests (17 modules)
         timeout-minutes: 18
         run: |
-          python test_e2e_download.py
+          python test_e2e_download.py 2>&1 | tee test_output.txt
+
+      - name: Upload test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output
+          path: test_output.txt
+
+      - name: Write test summary
+        if: always()
+        run: |
+          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat test_output.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
   windows-test:
     runs-on: windows-latest
