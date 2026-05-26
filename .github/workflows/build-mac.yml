@@ -1,0 +1,98 @@
+name: Build macOS App
+
+on:
+  push:
+    branches: [ mac ]
+    paths-ignore:
+      - 'README.md'
+      - 'macOS_README.txt'
+  workflow_dispatch:
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Homebrew dependencies
+        run: |
+          brew install ffmpeg
+          brew install bento4 || echo "bento4 not available"
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install PyQt5 PyQtWebEngine
+          pip install requests aiohttp pycryptodome brotli orjson qrcode Pillow
+          pip install browser-cookie3 || echo "browser-cookie3 skipped"
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller BilibiliDownloader.spec \
+            --clean \
+            --noconfirm \
+            --distpath dist \
+            --workpath build
+
+      - name: Copy FFmpeg to app bundle
+        run: |
+          APP_MACOS="dist/BilibiliDownloader.app/Contents/MacOS"
+          mkdir -p "$APP_MACOS/ffmpeg/bin"
+          cp "$(which ffmpeg)" "$APP_MACOS/ffmpeg/bin/"
+          if [ -f "$(dirname $(which ffmpeg))/ffprobe" ]; then
+            cp "$(dirname $(which ffmpeg))/ffprobe" "$APP_MACOS/ffmpeg/bin/"
+          fi
+
+      - name: Copy Bento4 to app bundle
+        run: |
+          APP_MACOS="dist/BilibiliDownloader.app/Contents/MacOS"
+          if command -v mp4decrypt &> /dev/null; then
+            mkdir -p "$APP_MACOS/bento4/bin"
+            cp "$(which mp4decrypt)" "$APP_MACOS/bento4/bin/"
+          fi
+
+      - name: Verify app bundle
+        run: |
+          ls -la dist/
+          if [ -d "dist/BilibiliDownloader.app" ]; then
+            echo "✅ .app bundle created successfully"
+            ls -la "dist/BilibiliDownloader.app/Contents/MacOS/"
+          else
+            echo "❌ .app bundle not found"
+            exit 1
+          fi
+
+      - name: Create DMG
+        run: |
+          hdiutil create -volname "BilibiliDownloader" \
+            -srcfolder "dist/BilibiliDownloader.app" \
+            -ov -format UDZO \
+            "dist/BilibiliDownloader_macOS.dmg"
+
+      - name: Generate SHA256
+        run: |
+          shasum -a 256 dist/BilibiliDownloader_macOS.dmg > dist/BilibiliDownloader_macOS.dmg.sha256
+          cat dist/BilibiliDownloader_macOS.dmg.sha256
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BilibiliDownloader-macOS
+          path: |
+            dist/BilibiliDownloader_macOS.dmg
+            dist/BilibiliDownloader_macOS.dmg.sha256
+
+      - name: Upload app bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BilibiliDownloader-app
+          path: dist/BilibiliDownloader.app

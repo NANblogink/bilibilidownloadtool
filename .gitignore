@@ -2,6 +2,7 @@
 dist/
 build/
 *.spec
+!BilibiliDownloader.spec
 __pycache__/
 *.pyc
 *.pyo
