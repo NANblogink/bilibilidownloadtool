@@ -2,32 +2,13 @@ import os
 import sys
 import subprocess
 import shutil
-import ctypes
-
-def is_admin():
-    try:
-        return ctypes.windll.shell32.IsUserAnAdmin()
-    except:
-        return False
+from platform_utils import IS_MACOS, IS_WINDOWS, exe, is_admin, add_to_system_path, subprocess_no_window_kwargs
 
 def add_to_path(path):
     if not os.path.exists(path):
         return False
-    if is_admin():
-        import winreg
-        try:
-            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 'SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment', 0, winreg.KEY_ALL_ACCESS)
-            current_path, _ = winreg.QueryValueEx(key, 'PATH')
-            if path not in current_path:
-                new_path = current_path + ';' + path
-                winreg.SetValueEx(key, 'PATH', 0, winreg.REG_EXPAND_SZ, new_path)
-                winreg.CloseKey(key)
-                return True
-            return False
-        except Exception:
-            return False
-    else:
-        return False
+    success, _ = add_to_system_path([path])
+    return success
 
 def check_ffmpeg():
     print("开始检查FFmpeg...")
@@ -36,7 +17,7 @@ def check_ffmpeg():
     if ffmpeg_exec and os.path.exists(ffmpeg_exec):
         try:
             print(f"尝试执行系统ffmpeg: {ffmpeg_exec}")
-            result = subprocess.run([ffmpeg_exec, '-version'], capture_output=True, text=False, timeout=10)
+            result = subprocess.run([ffmpeg_exec, '-version'], capture_output=True, text=False, timeout=10, **subprocess_no_window_kwargs())
             stdout = result.stdout.decode('utf-8', errors='replace')
             stderr = result.stderr.decode('utf-8', errors='replace')
             print(f"系统ffmpeg执行返回码: {result.returncode}")
@@ -52,10 +33,12 @@ def check_ffmpeg():
     if getattr(sys, 'frozen', False):
         exe_dir = os.path.dirname(sys.executable)
         parent_dir = os.path.dirname(exe_dir)
-        ffmpeg_candidates.append(os.path.join(parent_dir, 'ffmpeg', 'bin', 'ffmpeg.exe'))
-        ffmpeg_candidates.append(os.path.join(exe_dir, 'ffmpeg', 'bin', 'ffmpeg.exe'))
+        internal_dir = os.path.join(exe_dir, '_internal')
+        ffmpeg_candidates.append(os.path.join(internal_dir, 'ffmpeg', 'bin', exe('ffmpeg')))
+        ffmpeg_candidates.append(os.path.join(parent_dir, 'ffmpeg', 'bin', exe('ffmpeg')))
+        ffmpeg_candidates.append(os.path.join(exe_dir, 'ffmpeg', 'bin', exe('ffmpeg')))
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    ffmpeg_candidates.append(os.path.join(current_dir, 'ffmpeg', 'bin', 'ffmpeg.exe'))
+    ffmpeg_candidates.append(os.path.join(current_dir, 'ffmpeg', 'bin', exe('ffmpeg')))
     
     for ffmpeg_local in ffmpeg_candidates:
         print(f"检查本地ffmpeg路径: {ffmpeg_local}")
@@ -63,7 +46,7 @@ def check_ffmpeg():
         if os.path.exists(ffmpeg_local):
             try:
                 print(f"尝试执行本地ffmpeg: {ffmpeg_local}")
-                result = subprocess.run([ffmpeg_local, '-version'], capture_output=True, text=False, timeout=10)
+                result = subprocess.run([ffmpeg_local, '-version'], capture_output=True, text=False, timeout=10, **subprocess_no_window_kwargs())
                 stdout = result.stdout.decode('utf-8', errors='replace')
                 stderr = result.stderr.decode('utf-8', errors='replace')
                 print(f"本地ffmpeg执行返回码: {result.returncode}")
@@ -83,13 +66,15 @@ def fix_ffmpeg():
     if getattr(sys, 'frozen', False):
         exe_dir = os.path.dirname(sys.executable)
         parent_dir = os.path.dirname(exe_dir)
+        internal_dir = os.path.join(exe_dir, '_internal')
+        ffmpeg_candidates.append(os.path.join(internal_dir, 'ffmpeg', 'bin'))
         ffmpeg_candidates.append(os.path.join(parent_dir, 'ffmpeg', 'bin'))
         ffmpeg_candidates.append(os.path.join(exe_dir, 'ffmpeg', 'bin'))
     current_dir = os.path.dirname(os.path.abspath(__file__))
     ffmpeg_candidates.append(os.path.join(current_dir, 'ffmpeg', 'bin'))
     
     for ffmpeg_bin_path in ffmpeg_candidates:
-        if os.path.exists(os.path.join(ffmpeg_bin_path, 'ffmpeg.exe')):
+        if os.path.exists(os.path.join(ffmpeg_bin_path, exe('ffmpeg'))):
             add_to_path(ffmpeg_bin_path)
             return check_ffmpeg()
     return False, None
@@ -139,7 +124,7 @@ def install_dependencies():
             install_pkg = pkg
             if pkg == 'browser-cookie3':
                 install_pkg = 'browser_cookie3'
-            subprocess.run([sys.executable, '-m', 'pip', 'install', install_pkg], check=True, capture_output=True, text=True)
+            subprocess.run([sys.executable, '-m', 'pip', 'install', install_pkg], check=True, capture_output=True, text=True, **subprocess_no_window_kwargs())
         except Exception as e:
             print(f"安装 {pkg} 失败: {str(e)}")
             pass

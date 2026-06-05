@@ -5,6 +5,7 @@ import time
 import json
 import traceback
 import logging
+from platform_utils import IS_MACOS, IS_WINDOWS, platform_font
 
 if sys.platform == 'win32' and getattr(sys, 'frozen', False):
     try:
@@ -17,19 +18,20 @@ if sys.platform == 'win32' and getattr(sys, 'frozen', False):
             ctypes.windll.user32.ShowWindow(_console_hwnd, 0)
     except Exception:
         pass
-    
+
+if IS_WINDOWS:
     try:
         _internal_dir = os.path.join(os.path.dirname(sys.executable), '_internal')
         _qt_bin_dir = os.path.join(_internal_dir, 'PyQt5', 'Qt5', 'bin')
         _qt_resources_dir = os.path.join(_internal_dir, 'PyQt5', 'Qt5', 'resources')
-        
+
         _webengine_process = os.path.join(_qt_bin_dir, 'QtWebEngineProcess.exe')
         if os.path.exists(_webengine_process):
             os.environ['QTWEBENGINEPROCESS_PATH'] = _webengine_process
-        
+
         if os.path.isdir(_qt_resources_dir):
             os.environ['QTWEBENGINE_RESOURCES_PATH'] = _qt_resources_dir
-        
+
         if os.path.isdir(_qt_bin_dir):
             os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = '--disable-gpu'
     except Exception:
@@ -121,6 +123,11 @@ def load_version_info():
         "description": "B站视频解析下载工具"
     }
 version_info = load_version_info()
+
+def _get_platform_font():
+    font_family, font_size = platform_font()
+    return QFont(font_family, font_size)
+
 class SplashScreen(QWidget):
     def __init__(self):
         super().__init__()
@@ -199,11 +206,33 @@ class SplashScreen(QWidget):
                     pass
         fade_out()
 if __name__ == "__main__":
+    # Windows: 启动时自动申请管理员权限（UAC提权）
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            if not ctypes.windll.shell32.IsUserAnAdmin():
+                # 不是管理员，用runas方式以管理员权限重启自身
+                ctypes.windll.shell32.ShellExecuteW(
+                    None, "runas", sys.executable, " ".join(sys.argv), None, 1
+                )
+                sys.exit(0)
+        except Exception:
+            pass
+
     try:
         import time
         start_time = time.time()
+        # 尝试导入PyQt5，如果失败则降级到CLI模式
+        try:
+            from PyQt5.QtCore import Qt, qInstallMessageHandler
+        except ImportError as e:
+            _fallback_reason = f"PyQt5导入失败: {e}"
+            print(f"\n[降级模式] {_fallback_reason}")
+            print("[降级模式] 已自动降级为命令行模式\n")
+            from cli import main as cli_main
+            cli_main(fallback_reason=_fallback_reason)
+            sys.exit(0)
         stage_times = {}
-        from PyQt5.QtCore import Qt, qInstallMessageHandler
         QApplication.setAttribute(Qt.AA_DisableHighDpiScaling)
         QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
         QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
@@ -213,7 +242,8 @@ if __name__ == "__main__":
         qInstallMessageHandler(message_handler)
         requests.packages.urllib3.disable_warnings()
         app = SafeQApplication(sys.argv)
-        font = QFont("Microsoft YaHei", 9)
+        font_family, font_size = platform_font()
+        font = QFont(font_family, font_size)
         app.setFont(font)
         app.setStyle('Fusion')
         from ui import init_dpi_scale
@@ -677,6 +707,13 @@ if __name__ == "__main__":
             input("按回车键退出...")
     except Exception as e:
         import traceback
-        logger.error(f"\1")
-        print(logger.debug("traceback", exc_info=True))
-        input("按回车键退出...")
+        error_msg = traceback.format_exc()
+        logger.error(f"GUI启动失败: {error_msg}")
+        print(f"\n[降级模式] GUI启动失败: {e}")
+        print("[降级模式] 已自动降级为命令行模式\n")
+        try:
+            from cli import main as cli_main
+            cli_main(fallback_reason=str(e))
+        except Exception as cli_err:
+            print(f"[错误] CLI模式也启动失败: {cli_err}")
+            input("按回车键退出...")

@@ -7,8 +7,18 @@ from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+from platform_utils import IS_MACOS, IS_WINDOWS, subprocess_no_window_kwargs
 
-LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'log')
+
+def _get_app_dir():
+    try:
+        if getattr(sys, 'frozen', False):
+            return os.path.dirname(sys.executable)
+    except Exception:
+        pass
+    return os.path.dirname(os.path.abspath(__file__))
+
+LOG_DIR = os.path.join(_get_app_dir(), 'log')
 LOG_FORMAT = '%(asctime)s | %(levelname)-7s | %(name)-20s | %(message)s'
 LOG_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
 MAX_LOG_SIZE = 10 * 1024 * 1024
@@ -208,18 +218,91 @@ def copy_logs_to_clipboard():
     except Exception as e:
         logger.warning("PyQt5剪贴板操作失败: %s", str(e))
     
-    try:
-        import subprocess
-        safe_path = abs_path.replace('\\', '/')
-        ps_cmd = f'Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::SetText("{safe_path}")'
-        
-        proc = subprocess.Popen(
-            ['powershell', '-NoProfile', '-Command', ps_cmd],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            creationflags=subprocess.CREATE_NO_WINDOW
-        )
+    if IS_WINDOWS:
         try:
+            import subprocess
+            safe_path = abs_path.replace('\\', '/')
+            ps_cmd = f'Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::SetText("{safe_path}")'
+            
+            proc = subprocess.Popen(
+                ['powershell', '-NoProfile', '-Command', ps_cmd],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                **subprocess_no_window_kwargs()
+            )
+            try:
+                stdout, stderr = proc.communicate(timeout=5)
+                if proc.returncode == 0:
+                    logger.info("日志路径已通过PowerShell复制到剪贴板")
+                    return True
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                logger.warning("PowerShell执行超时")
+        except Exception as e:
+            logger.debug("PowerShell剪贴板操作失败: %s", str(e))
+    elif IS_MACOS:
+        try:
+            import subprocess
+            proc = subprocess.Popen(
+                ['pbcopy'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            proc.communicate(input=abs_path.encode('utf-8'), timeout=5)
+            if proc.returncode == 0:
+                logger.info("日志路径已通过pbcopy复制到剪贴板")
+                return True
+        except Exception as e:
+            logger.debug("pbcopy剪贴板操作失败: %s", str(e))
+    
+    logger.error("所有复制方式均失败，请手动复制: %s", abs_path)
+    return False
+
+
+def _copy_path_to_clipboard(file_path):
+    """将文件路径复制到剪贴板（仅剪切板操作，必须在主线程调用）"""
+    abs_path = os.path.abspath(file_path)
+    logger = logging.getLogger(__name__)
+
+    # 方式1：Qt 文件URL方式（粘贴时可直接作为文件）
+    try:
+        from PyQt5.QtWidgets import QApplication
+        from PyQt5.QtCore import QMimeData, QUrl
+        app = QApplication.instance()
+        if app:
+            clipboard = app.clipboard()
+            mime_data = QMimeData()
+            url = QUrl.fromLocalFile(abs_path)
+            mime_data.setUrls([url])
+            clipboard.setMimeData(mime_data)
+            logger.info("日志压缩包已复制到剪贴板(文件URL): %s", file_path)
+            return True
+    except Exception as e:
+        logger.debug("QClipboard文件URL复制失败: %s", str(e))
+
+    # 方式2：纯文本路径
+    try:
+        from PyQt5.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        clipboard.setText(abs_path)
+        logger.info("日志路径已复制到剪贴板(文本): %s", abs_path)
+        return True
+    except Exception as e:
+        logger.warning("PyQt5剪贴板操作失败: %s", str(e))
+
+    # 方式3：Windows PowerShell
+    if IS_WINDOWS:
+        try:
+            import subprocess
+            safe_path = abs_path.replace('\\', '/')
+            ps_cmd = f'Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::SetText("{safe_path}")'
+            proc = subprocess.Popen(
+                ['powershell', '-NoProfile', '-Command', ps_cmd],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                **subprocess_no_window_kwargs()
+            )
             stdout, stderr = proc.communicate(timeout=5)
             if proc.returncode == 0:
                 logger.info("日志路径已通过PowerShell复制到剪贴板")
@@ -227,9 +310,24 @@ def copy_logs_to_clipboard():
         except subprocess.TimeoutExpired:
             proc.kill()
             logger.warning("PowerShell执行超时")
-    except Exception as e:
-        logger.debug("PowerShell剪贴板操作失败: %s", str(e))
-    
+        except Exception as e:
+            logger.debug("PowerShell剪贴板操作失败: %s", str(e))
+    elif IS_MACOS:
+        try:
+            import subprocess
+            proc = subprocess.Popen(
+                ['pbcopy'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            proc.communicate(input=abs_path.encode('utf-8'), timeout=5)
+            if proc.returncode == 0:
+                logger.info("日志路径已通过pbcopy复制到剪贴板")
+                return True
+        except Exception as e:
+            logger.debug("pbcopy剪贴板操作失败: %s", str(e))
+
     logger.error("所有复制方式均失败，请手动复制: %s", abs_path)
     return False
 

@@ -7,6 +7,7 @@ from functools import partial
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from PyQt5.QtCore import QThread, pyqtSignal, QObject, Qt, QMutex, QWaitCondition
 from utils import get_unique_filename
+from platform_utils import IS_MACOS, IS_WINDOWS, illegal_filename_chars
 
 try:
     from logger_config import logger
@@ -140,7 +141,7 @@ class EpisodeDownloadThread(QThread):
                     self.ep_title = actual_title
                 else:
                     self.ep_title = f"第{self.ep_index+1}集"
-            for c in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
+            for c in illegal_filename_chars():
                 self.ep_title = self.ep_title.replace(c, '_')
             self.ep_title = self.ep_title[:30]
         except Exception as e:
@@ -371,10 +372,24 @@ class EpisodeDownloadThread(QThread):
             elif speed > 0:
                 speed_str = f"{speed:.2f} B/s"
             
+            eta_str = ""
+            if speed > 0 and p > 0 and p < 100:
+                elapsed = current_time - start_time
+                if elapsed > 0:
+                    remaining_pct = 100 - p
+                    eta_seconds = elapsed * remaining_pct / p
+                    if eta_seconds > 3600:
+                        eta_str = f" 剩余{int(eta_seconds // 3600)}时{int((eta_seconds % 3600) // 60)}分"
+                    elif eta_seconds > 60:
+                        eta_str = f" 剩余{int(eta_seconds // 60)}分{int(eta_seconds % 60)}秒"
+                    else:
+                        eta_str = f" 剩余{int(eta_seconds)}秒"
 
             status = f"下载{media_type}流：{p}%"
             if speed_str:
                 status += f" ({speed_str})"
+            if eta_str:
+                status += eta_str
             self.progress_updated.emit(self.ep_index, self._calc_total_progress(p), status)
             
             if not self.is_running:
@@ -437,9 +452,9 @@ class EpisodeDownloadThread(QThread):
 
         try:
             if audio_path:
-                merge_success = self.parser.merge_media(video_path, audio_path, output_path, kid)
-                if not merge_success:
-                    raise Exception("合并失败")
+                merge_result, merge_error = self.parser.merge_media(video_path, audio_path, output_path, kid)
+                if not merge_result:
+                    raise Exception(f"合并失败：{merge_error}" if merge_error else "合并失败")
             else:
                 if os.path.exists(output_path):
                     try:
@@ -449,16 +464,18 @@ class EpisodeDownloadThread(QThread):
                 try:
                     os.rename(video_path, output_path)
                 except Exception as e:
-                    
-                    if "系统无法将文件移到不同的磁盘驱动器" in str(e):
-                        import shutil
-                        shutil.move(video_path, output_path)
-                    else:
-                        raise Exception(f"重命名文件失败：{str(e)}")
+                    import shutil
+                    shutil.move(video_path, output_path)
             
 
             if not os.path.exists(output_path):
-                raise Exception("合并后文件不存在")
+                from utils import verify_and_ensure_save
+                actual_path, saved = verify_and_ensure_save(output_path, source_path=video_path if not audio_path else None)
+                if saved and actual_path != output_path:
+                    output_path = actual_path
+                    logger.warning(f"合并后文件不在目标路径，已备用保存到：{output_path}")
+                elif not saved:
+                    raise Exception("合并后文件不存在且备用保存失败")
             
             self.progress_updated.emit(self.ep_index, 100, "合并完成")
             self.merge_finished.emit(self.ep_index)
@@ -915,22 +932,34 @@ class DownloadManager(QObject):
                     ]
                     actual_title = next((t for t in title_candidates if t), '')
                     if actual_title:
-                        ep_title = f"{season}_{ep_idx}_{actual_title}"
+                        ep_title = f"第{ep_idx}集_{actual_title}"
                     else:
-                        ep_title = f"{season}_{ep_idx}"
-                else:
-                    # 检查课程视频的ep_title字段
+                        ep_title = f"第{ep_idx}集"
+                elif task_info['video_info'].get('is_cheese'):
                     title_candidates = [
                         ep_info.get('ep_title', ''),
                         ep_info.get('title', ''),
                         ep_info.get('name', '')
                     ]
                     actual_title = next((t for t in title_candidates if t), '')
+                    ep_idx = ep_info.get('ep_index', ep_index + 1)
                     if actual_title:
-                        ep_title = actual_title
+                        ep_title = f"第{ep_idx}集_{actual_title}"
                     else:
-                        ep_title = f"第{ep_index+1}集"
-                for c in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
+                        ep_title = f"第{ep_idx}集"
+                else:
+                    title_candidates = [
+                        ep_info.get('ep_title', ''),
+                        ep_info.get('title', ''),
+                        ep_info.get('name', '')
+                    ]
+                    actual_title = next((t for t in title_candidates if t), '')
+                    page = ep_info.get('page', ep_index + 1)
+                    if actual_title:
+                        ep_title = f"第{page}集_{actual_title}"
+                    else:
+                        ep_title = f"第{page}集"
+                for c in illegal_filename_chars():
                     ep_title = ep_title.replace(c, '_')
                 ep_title = ep_title[:30]
             except Exception as e:
@@ -1034,21 +1063,27 @@ class DownloadManager(QObject):
 
                 try:
                     if audio_path:
-                        merge_success = task_info['parser'].merge_media(video_path, audio_path, output_path, kid)
-                        if not merge_success:
-                            raise Exception("合并失败")
+                        merge_result, merge_error = task_info['parser'].merge_media(video_path, audio_path, output_path, kid)
+                        if not merge_result:
+                            raise Exception(f"合并失败：{merge_error}" if merge_error else "合并失败")
                     else:
                         if os.path.exists(output_path):
                             os.remove(output_path)
                         try:
                             os.rename(video_path, output_path)
                         except Exception as e:
-                            
-                            if "系统无法将文件移到不同的磁盘驱动器" in str(e):
-                                import shutil
-                                shutil.move(video_path, output_path)
-                            else:
-                                raise Exception(f"重命名文件失败：{str(e)}")
+                            import shutil
+                            shutil.move(video_path, output_path)
+
+                    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+                        from utils import verify_and_ensure_save
+                        actual_path, saved = verify_and_ensure_save(output_path, source_path=video_path if not audio_path else None)
+                        if saved and actual_path != output_path:
+                            output_path = actual_path
+                            logger.warning(f"任务{task_id}：合并后文件不在目标路径，已备用保存到：{output_path}")
+                        elif not saved:
+                            raise Exception("合并后文件不存在且备用保存失败")
+
                     self.episode_progress_updated.emit(task_id, ep_index, 100, "合并完成")
                     self.merge_finished.emit(task_id, ep_index)
                     logger.info(f"任务{task_id}：第{ep_index+1}集视频下载完成")
@@ -1082,6 +1117,11 @@ class DownloadManager(QObject):
                                     danmaku_path = os.path.join(task_info['save_path'], f"{clean_title}{danmaku_ext}")
                                     with open(danmaku_path, 'w', encoding='utf-8') as f:
                                         f.write(danmaku_content)
+                                    if not os.path.exists(danmaku_path) or os.path.getsize(danmaku_path) == 0:
+                                        from utils import verify_and_ensure_save
+                                        danmaku_path, danmaku_saved = verify_and_ensure_save(danmaku_path, content=danmaku_content)
+                                        if not danmaku_saved:
+                                            logger.warning(f"任务{task_id}：第{ep_index+1}集弹幕保存验证失败")
                                     logger.info(f"任务{task_id}：第{ep_index+1}集弹幕下载完成，保存为{danmaku_format}格式")
                                 else:
                                     logger.warning(f"任务{task_id}：第{ep_index+1}集弹幕格式转换失败")
@@ -1439,10 +1479,24 @@ class DownloadManager(QObject):
                 elif speed > 0:
                     speed_str = f"{speed:.2f} B/s"
                 
+                eta_str = ""
+                if speed > 0 and p > 0 and p < 100:
+                    elapsed = current_time - start_time
+                    if elapsed > 0:
+                        remaining_pct = 100 - p
+                        eta_seconds = elapsed * remaining_pct / p
+                        if eta_seconds > 3600:
+                            eta_str = f" 剩余{int(eta_seconds // 3600)}时{int((eta_seconds % 3600) // 60)}分"
+                        elif eta_seconds > 60:
+                            eta_str = f" 剩余{int(eta_seconds // 60)}分{int(eta_seconds % 60)}秒"
+                        else:
+                            eta_str = f" 剩余{int(eta_seconds)}秒"
     
                 status = f"下载{media_type}流：{p}%"
                 if speed_str:
                     status += f" ({speed_str})"
+                if eta_str:
+                    status += eta_str
                 
                 if p % 10 == 0:
                     logger.debug(f"任务{task_id}：{status}")
@@ -1897,7 +1951,7 @@ class DownloadManager(QObject):
                                 title_candidates = [ep.get('ep_title', ''), ep.get('title', ''), ep.get('name', '')]
                                 actual_title = next((t for t in title_candidates if t), '')
                                 check_title = actual_title if actual_title else f"第{idx+1}集"
-                            for c in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
+                            for c in illegal_filename_chars():
                                 check_title = check_title.replace(c, '_')
                             check_title = check_title[:30]
                             check_title = check_title.replace("正片_", "")

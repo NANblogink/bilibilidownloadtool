@@ -52,18 +52,15 @@ class TaskManager:
             return False
 
     def add_task(self, task_info):
-        video_info = task_info.get("video_info", {})
-        task_type = task_info.get("task_type", "video")
-        
         task = {
-            "id": task_info["id"],
+            "id": task_info["id"],  
             "url": task_info.get("url", ""),
             "title": task_info.get("title", ""),
             "save_path": task_info.get("save_path", ""),
             "progress": task_info.get("progress", 0),
-            "status": task_info.get("status", "pending"),
+            "status": task_info.get("status", "pending"),  
             "error_message": task_info.get("error_message", ""),
-            "video_info": video_info,
+            "video_info": task_info.get("video_info", {}),
             "qn": task_info.get("qn", ""),
             "episodes": task_info.get("episodes", []),
             "created_at": datetime.now().isoformat(),
@@ -72,22 +69,7 @@ class TaskManager:
             "temp_files": task_info.get("temp_files", []),
             "download_video": task_info.get("download_video", True),
             "download_danmaku": task_info.get("download_danmaku", False),
-            "danmaku_format": task_info.get("danmaku_format", "XML"),
-            "task_type": task_type,
-            "bvid": video_info.get("bvid", "") or task_info.get("bvid", ""),
-            "aid": video_info.get("aid", "") or task_info.get("aid", ""),
-            "up_name": video_info.get("up_name", "") or video_info.get("owner", {}).get("name", "") or task_info.get("up_name", ""),
-            "duration": video_info.get("duration", 0) or task_info.get("duration", 0),
-            "cover_url": video_info.get("pic", "") or video_info.get("cover", "") or task_info.get("cover_url", ""),
-            "file_size": task_info.get("file_size", 0),
-            "file_path": task_info.get("file_path", ""),
-            "video_format": task_info.get("video_format", "mp4"),
-            "audio_format": task_info.get("audio_format", "mp3"),
-            "audio_quality": task_info.get("audio_quality", 0),
-            "total_episodes": task_info.get("total_episodes", len(task_info.get("episodes", []))),
-            "completed_episodes": task_info.get("completed_episodes", 0),
-            "task_start_time": task_info.get("task_start_time", ""),
-            "task_end_time": task_info.get("task_end_time", ""),
+            "danmaku_format": task_info.get("danmaku_format", "XML")
         }
         self.tasks.append(task)
         self.save_tasks()

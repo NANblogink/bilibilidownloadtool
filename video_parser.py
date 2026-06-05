@@ -66,9 +66,10 @@ class VideoParser:
                 logger.info(f"解析成功: 类型=cheese, ID=ep{ep_id}")
                 return {"type": "cheese", "id": f"ep{ep_id}", "error": ""}
 
-        av_match = re.search(r'av(\d+)', final_url, re.IGNORECASE)
+        av_match = re.search(r'av(\d+)|/video/(\d+)', final_url, re.IGNORECASE)
         if av_match:
-            av_id = av_match.group(1)
+            # 优先取av前缀的数字，否则取/video/后的纯数字（兼容旧格式URL）
+            av_id = av_match.group(1) or av_match.group(2)
             logger.info(f"解析成功: 类型=av, ID={av_id}")
             return {"type": "av", "id": av_id, "error": ""}
 
