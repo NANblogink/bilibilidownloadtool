@@ -30,9 +30,9 @@ class WbiSign:
     
     def _generate_wbi_sign(self, params):
         if not self.wbi_img_key or not self.wbi_sub_key:
-            logger.warning("WBI 密钥未设置，使用默认值")
-            self.wbi_img_key = "img_key"
-            self.wbi_sub_key = "sub_key"
+            logger.warning("WBI 密钥未设置，跳过签名（仅添加 wts 时间戳）")
+            params['wts'] = int(time.time())
+            return params
         
         mixin_key = self._get_mixin_key(self.wbi_img_key + self.wbi_sub_key)
         curr_time = int(time.time())

@@ -6,6 +6,7 @@ import os
 import sys
 import time
 import threading
+import uuid
 from platform_utils import IS_MACOS, IS_WINDOWS, exe
 
 logger = logging.getLogger(__name__)
@@ -15,12 +16,82 @@ GITHUB_API = "https://api.github.com/repos/NANblogink/bilibilidownloadtool/relea
 
 
 class CloudService:
-    def __init__(self, current_version="2.0.2"):
-        self.current_version = current_version
+    def __init__(self, current_version="2.0.3"):
+        self.current_version = self._normalize_version(current_version)
         self.platform = "macos" if IS_MACOS else ("windows" if IS_WINDOWS else "linux")
         self.session = requests.Session()
         self.session.timeout = 10
         self._dismissed_file = self._get_dismissed_file_path()
+        self._is_new_install = False
+        self._client_id = self._load_or_create_client_id()
+
+    @staticmethod
+    def _get_client_id_file_path():
+        try:
+            if hasattr(sys, '_MEIPASS'):
+                base_dir = os.path.dirname(sys.executable)
+            else:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+            return os.path.join(base_dir, "client_id.txt")
+        except Exception:
+            return os.path.join(os.path.expanduser("~"), "bilidown_client_id.txt")
+
+    def _load_or_create_client_id(self):
+        try:
+            id_file = self._get_client_id_file_path()
+            if os.path.exists(id_file):
+                with open(id_file, 'r', encoding='utf-8') as f:
+                    cid = f.read().strip()
+                if cid and len(cid) >= 16:
+                    return cid
+            self._is_new_install = True
+            cid = uuid.uuid4().hex
+            try:
+                with open(id_file, 'w', encoding='utf-8') as f:
+                    f.write(cid)
+            except Exception as e:
+                logger.debug(f"保存client_id失败: {e}")
+            return cid
+        except Exception as e:
+            logger.debug(f"加载client_id失败: {e}")
+            self._is_new_install = True
+            return uuid.uuid4().hex
+
+    @property
+    def client_id(self):
+        return self._client_id
+
+    @property
+    def is_first_launch(self):
+        return self._is_new_install
+
+    def report_event(self, event_type, extra=""):
+        def _do_report():
+            try:
+                resp = self.session.post(
+                    f"{API_BASE}/stats/",
+                    json={
+                        "action": "report",
+                        "event": event_type,
+                        "platform": self.platform,
+                        "version": self.current_version,
+                        "client_id": self._client_id,
+                        "extra": extra,
+                    },
+                    timeout=5,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get("code") == 0:
+                        logger.debug(f"统计上报成功: {event_type}")
+                    else:
+                        logger.debug(f"统计上报返回非0: {data}")
+                else:
+                    logger.debug(f"统计上报HTTP错误: {resp.status_code}")
+            except Exception as e:
+                logger.debug(f"统计上报失败(不影响使用): {e}")
+
+        threading.Thread(target=_do_report, daemon=True).start()
 
     @staticmethod
     def _get_dismissed_file_path():
@@ -33,22 +104,54 @@ class CloudService:
         except Exception:
             return os.path.join(os.path.expanduser("~"), "bilidown_dismissed.json")
 
+    @staticmethod
+    def _normalize_version(version_str):
+        try:
+            v = str(version_str).strip().lstrip("Vv")
+            import re
+            match = re.search(r'(\d+(?:\.\d+)*)', v)
+            if match:
+                return match.group(1)
+            return version_str
+        except Exception:
+            return version_str
+
     def _parse_version(self, version_str):
         try:
-            parts = version_str.strip().lstrip("Vv").split(".")
-            return tuple(int(p) for p in parts if p.isdigit())
+            import re
+            match = re.search(r'(\d+(?:\.\d+)*)', str(version_str).strip().lstrip("Vv"))
+            if not match:
+                return (0, 0, 0)
+            parts = match.group(1).split(".")
+            return tuple(int(p) for p in parts)
         except Exception:
             return (0, 0, 0)
 
+    def _should_show_update(self, latest_version_str):
+        current_parsed = self._parse_version(self.current_version)
+        latest_parsed = self._parse_version(latest_version_str)
+        if latest_parsed == (0, 0, 0):
+            logger.info(f"最新版本号无效: {latest_version_str}，不提示更新")
+            return False
+        if current_parsed >= latest_parsed:
+            logger.info(f"当前版本 {self.current_version}({current_parsed}) >= 最新版本 {latest_version_str}({latest_parsed})，无需更新")
+            return False
+        return True
+
     def check_update(self, channel="stable"):
+        logger.debug(f"检查更新: current_version={self.current_version}")
         try:
             result = self._check_custom_api(channel)
             if result is not None:
                 if not result.get("has_update", False):
+                    logger.debug("自建API返回无更新")
                     return result
                 latest = result.get("latest_version", "")
-                if latest and self._parse_version(self.current_version) >= self._parse_version(latest):
+                if not self._should_show_update(latest):
                     result["has_update"] = False
+                    result["force_update"] = False
+                else:
+                    logger.info(f"自建API发现新版本: {latest}")
                 return result
         except Exception as e:
             logger.debug(f"自建API检查失败，回退到GitHub: {e}")
@@ -57,8 +160,11 @@ class CloudService:
             result = self._check_github_api()
             if result.get("has_update", False):
                 latest = result.get("latest_version", "")
-                if latest and self._parse_version(self.current_version) >= self._parse_version(latest):
+                if not self._should_show_update(latest):
                     result["has_update"] = False
+                    result["force_update"] = False
+                else:
+                    logger.info(f"GitHub API发现新版本: {latest}")
             return result
         except Exception as e:
             logger.error(f"GitHub API检查也失败: {e}")
@@ -115,7 +221,7 @@ class CloudService:
             current = self._parse_version(self.current_version)
             latest = self._parse_version(latest_version)
 
-            has_update = latest > current
+            has_update = latest > current and latest != (0, 0, 0)
 
             download_url = ""
             file_size = 0
@@ -255,10 +361,118 @@ class CloudService:
         except Exception:
             return False
 
+    @staticmethod
+    def _calc_chunk_count(file_size):
+        if file_size <= 0:
+            return 1
+        if file_size < 10 * 1024 * 1024:
+            return 1
+        if file_size < 50 * 1024 * 1024:
+            return 2
+        if file_size < 150 * 1024 * 1024:
+            return 4
+        if file_size < 500 * 1024 * 1024:
+            return 6
+        return 8
+
+    def _download_chunk(self, url, start, end, chunk_path, chunk_idx, progress_state, lock, progress_callback, total_size):
+        try:
+            headers = {"Range": f"bytes={start}-{end}"}
+            resp = self.session.get(url, headers=headers, stream=True, timeout=60)
+            if resp.status_code not in (200, 206):
+                raise Exception(f"分片{chunk_idx}下载失败: HTTP {resp.status_code}")
+            downloaded = 0
+            with open(chunk_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        with lock:
+                            progress_state["downloaded"] += len(chunk)
+                            if progress_callback and total_size > 0:
+                                pct = int(progress_state["downloaded"] * 100 / total_size)
+                                progress_callback(pct, progress_state["downloaded"], total_size)
+        except Exception as e:
+            with lock:
+                progress_state["errors"].append(f"分片{chunk_idx}: {e}")
+            raise
+
     def download_update(self, download_url, save_path, progress_callback=None):
         try:
             if download_url.startswith('/'):
                 download_url = f"https://www.bilidown.cn{download_url}"
+
+            head_resp = self.session.head(download_url, timeout=10, allow_redirects=True)
+            total_size = int(head_resp.headers.get("content-length", 0))
+            accept_ranges = head_resp.headers.get("accept-ranges", "").lower()
+            supports_range = accept_ranges == "bytes" and total_size > 0
+
+            chunk_count = self._calc_chunk_count(total_size) if supports_range else 1
+
+            if chunk_count <= 1 or not supports_range:
+                logger.info(f"使用单线程下载 (supports_range={supports_range}, total={total_size})")
+                return self._download_single(download_url, save_path, progress_callback)
+
+            logger.info(f"使用{chunk_count}线程分片下载 (total={total_size / 1048576:.1f}MB)")
+            chunk_size = total_size // chunk_count
+            temp_dir = os.path.join(os.path.dirname(save_path), "_chunks")
+            os.makedirs(temp_dir, exist_ok=True)
+
+            progress_state = {"downloaded": 0, "errors": []}
+            lock = threading.Lock()
+            threads = []
+
+            for i in range(chunk_count):
+                start = i * chunk_size
+                if i == chunk_count - 1:
+                    end = total_size - 1
+                else:
+                    end = start + chunk_size - 1
+                chunk_path = os.path.join(temp_dir, f"chunk_{i}")
+                t = threading.Thread(
+                    target=self._download_chunk,
+                    args=(download_url, start, end, chunk_path, i, progress_state, lock, progress_callback, total_size),
+                    daemon=True,
+                )
+                threads.append(t)
+                t.start()
+
+            for t in threads:
+                t.join(timeout=600)
+
+            if progress_state["errors"]:
+                logger.error(f"分片下载出错: {progress_state['errors']}")
+                self._cleanup_chunks(temp_dir)
+                return False
+
+            with open(save_path, "wb") as out_f:
+                for i in range(chunk_count):
+                    chunk_path = os.path.join(temp_dir, f"chunk_{i}")
+                    if not os.path.exists(chunk_path):
+                        self._cleanup_chunks(temp_dir)
+                        return False
+                    with open(chunk_path, "rb") as cf:
+                        while True:
+                            data = cf.read(65536)
+                            if not data:
+                                break
+                            out_f.write(data)
+
+            self._cleanup_chunks(temp_dir)
+
+            if not os.path.exists(save_path) or os.path.getsize(save_path) == 0:
+                logger.warning(f"更新文件保存验证失败：{save_path}")
+                return False
+            actual_size = os.path.getsize(save_path)
+            if total_size > 0 and actual_size != total_size:
+                logger.warning(f"更新文件大小不匹配: 期望{total_size}, 实际{actual_size}")
+            return True
+        except Exception as e:
+            logger.error(f"下载更新失败: {e}")
+            return False
+
+    def _download_single(self, download_url, save_path, progress_callback=None):
+        try:
             resp = self.session.get(download_url, stream=True, timeout=30)
             total = int(resp.headers.get("content-length", 0))
             downloaded = 0
@@ -270,7 +484,19 @@ class CloudService:
                         if progress_callback and total > 0:
                             progress = int(downloaded * 100 / total)
                             progress_callback(progress, downloaded, total)
+            if not os.path.exists(save_path) or os.path.getsize(save_path) == 0:
+                logger.warning(f"更新文件保存验证失败：{save_path}")
+                return False
             return True
         except Exception as e:
-            logger.error(f"下载更新失败: {e}")
+            logger.error(f"单线程下载失败: {e}")
             return False
+
+    @staticmethod
+    def _cleanup_chunks(temp_dir):
+        try:
+            if os.path.exists(temp_dir):
+                import shutil
+                shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception:
+            pass

@@ -10,7 +10,15 @@ from pathlib import Path
 from platform_utils import IS_MACOS, IS_WINDOWS, subprocess_no_window_kwargs
 
 
-LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'log')
+def _get_app_dir():
+    try:
+        if getattr(sys, 'frozen', False):
+            return os.path.dirname(sys.executable)
+    except Exception:
+        pass
+    return os.path.dirname(os.path.abspath(__file__))
+
+LOG_DIR = os.path.join(_get_app_dir(), 'log')
 LOG_FORMAT = '%(asctime)s | %(levelname)-7s | %(name)-20s | %(message)s'
 LOG_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
 MAX_LOG_SIZE = 10 * 1024 * 1024

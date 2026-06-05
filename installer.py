@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-B站视频解析工具 V2.0.1 安装程序
+B站视频解析工具 V2.0.3 安装程序
 注意: 此安装程序仅适用于 Windows 平台
 macOS 用户请直接运行 python main.py 或使用 Homebrew 安装依赖
 """
@@ -15,6 +15,7 @@ if sys.platform != 'win32':
 import os
 import sys
 import tempfile
+import shutil
 import traceback
 import webbrowser
 import zipfile
@@ -31,11 +32,17 @@ from PyQt5.QtGui import QFont, QTextCursor, QIcon
 
 
 APP_NAME = "B站视频解析工具"
-APP_VERSION = "V2.0.1"
-APP_EXE = "V2.0.1_main.exe"
-UNINSTALLER_EXE = "V2.0_uninstaller.exe"
+APP_VERSION = "V2.0.3"
+APP_EXE = "BilibiliDownloader.exe"
+UNINSTALLER_EXE = "uninstaller.exe"
 REG_KEY = r"Software\BilibiliDownloadTool"
 SHORTCUT_NAME = APP_NAME + APP_VERSION
+
+# 云端安装包下载地址（优先自建API，回退GitHub）
+CLOUD_DOWNLOAD_URLS = [
+    "https://www.bilidown.cn/api/v1/download/package?version=2.0.3&platform=windows",
+    "https://github.com/NANblogink/bilibilidownloadtool/releases/latest",
+]
 
 
 def markdown_to_html(text):
@@ -84,13 +91,139 @@ class InstallerThread(QThread):
             self.log_signal.emit("正在准备安装...")
             self.progress_signal.emit(0, 100)
             if self.package_path and os.path.exists(self.package_path):
+                # 有内嵌包，直接使用（离线模式）
+                self.log_signal.emit("使用本地安装包...")
                 self.extract_package(self.package_path)
             else:
-                self.log_signal.emit("错误：未找到安装包")
-                self.finished_signal.emit(False, "未找到安装包")
+                # 无内嵌包，从云端下载
+                self.log_signal.emit("本地未找到安装包，将从云端下载...")
+                zip_path = self.download_from_cloud()
+                if zip_path:
+                    self.extract_package(zip_path)
+                    # 下载的临时文件，安装后清理
+                    try:
+                        os.remove(zip_path)
+                    except Exception:
+                        pass
+                else:
+                    self.finished_signal.emit(False, "无法获取安装包：云端下载失败且本地无安装包")
         except Exception as e:
             self.log_signal.emit("安装失败：" + str(e))
             self.finished_signal.emit(False, str(e))
+
+    def download_from_cloud(self):
+        """从云端下载安装包，返回本地zip路径，失败返回None"""
+        import requests as req
+        import hashlib
+
+        for url in CLOUD_DOWNLOAD_URLS:
+            try:
+                self.log_signal.emit(f"正在从云端获取下载链接...")
+                self.progress_signal.emit(2, 100)
+
+                # GitHub release 页面需要先获取实际下载URL
+                actual_url = url
+                if 'github.com' in url and '/releases/' in url:
+                    actual_url = self._resolve_github_download_url(url)
+                    if not actual_url:
+                        self.log_signal.emit("GitHub: 无法获取下载链接，尝试下一个源")
+                        continue
+
+                self.log_signal.emit(f"正在下载安装包...")
+                self.progress_signal.emit(5, 100)
+
+                # 流式下载，支持进度回调
+                resp = req.get(actual_url, stream=True, timeout=30, allow_redirects=True)
+                resp.raise_for_status()
+
+                total_size = int(resp.headers.get('content-length', 0))
+                if total_size > 0:
+                    self.log_signal.emit(f"安装包大小: {total_size / 1024 / 1024:.1f} MB")
+
+                # 保存到临时文件
+                temp_dir = tempfile.gettempdir()
+                zip_path = os.path.join(temp_dir, f"BilibiliDownloader_{APP_VERSION}.zip")
+                downloaded = 0
+                chunk_size = 8192
+                last_progress = 5
+
+                with open(zip_path, 'wb') as f:
+                    for chunk in resp.iter_content(chunk_size=chunk_size):
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total_size > 0:
+                                # 下载占 5%-50% 的进度
+                                pct = int(5 + 45 * downloaded / total_size)
+                                if pct != last_progress:
+                                    last_progress = pct
+                                    self.progress_signal.emit(pct, 100)
+                                    if downloaded % (5 * 1024 * 1024) < chunk_size:
+                                        self.log_signal.emit(
+                                            f"下载进度: {downloaded / 1024 / 1024:.1f}/{total_size / 1024 / 1024:.1f} MB"
+                                        )
+
+                # 验证下载文件
+                file_size = os.path.getsize(zip_path)
+                if file_size < 1024 * 1024:  # 小于1MB可能是错误页面
+                    self.log_signal.emit(f"下载文件过小({file_size}字节)，可能不是有效安装包")
+                    try:
+                        os.remove(zip_path)
+                    except Exception:
+                        pass
+                    continue
+
+                # 验证是否为有效zip
+                try:
+                    with zipfile.ZipFile(zip_path, 'r') as zf:
+                        file_count = len(zf.namelist())
+                        if file_count < 10:
+                            raise Exception("zip文件内容过少")
+                        self.log_signal.emit(f"下载完成，验证通过（{file_count} 个文件）")
+                except Exception as ze:
+                    self.log_signal.emit(f"下载文件不是有效的zip: {ze}")
+                    try:
+                        os.remove(zip_path)
+                    except Exception:
+                        pass
+                    continue
+
+                return zip_path
+
+            except req.exceptions.Timeout:
+                self.log_signal.emit(f"下载超时，尝试下一个源...")
+                continue
+            except req.exceptions.ConnectionError:
+                self.log_signal.emit(f"连接失败，尝试下一个源...")
+                continue
+            except Exception as e:
+                self.log_signal.emit(f"下载失败: {e}")
+                continue
+
+        return None
+
+    def _resolve_github_download_url(self, release_url):
+        """从GitHub Release页面解析出实际下载链接"""
+        import requests as req
+        try:
+            api_url = "https://api.github.com/repos/NANblogink/bilibilidownloadtool/releases/latest"
+            headers = {"Accept": "application/vnd.github.v3+json"}
+            resp = req.get(api_url, headers=headers, timeout=10)
+            if resp.status_code != 200:
+                return None
+            release = resp.json()
+            # 优先找 BilibiliDownloader.zip
+            for asset in release.get("assets", []):
+                name = asset.get("name", "").lower()
+                if name.endswith(".zip") and "bilibili" in name:
+                    return asset.get("browser_download_url")
+            # 回退：找任意zip
+            for asset in release.get("assets", []):
+                if asset.get("name", "").lower().endswith(".zip"):
+                    return asset.get("browser_download_url")
+            return None
+        except Exception:
+            return None
 
     def extract_package(self, package_path):
         try:
@@ -98,17 +231,90 @@ class InstallerThread(QThread):
             self.progress_signal.emit(5, 100)
             if not os.path.exists(self.install_path):
                 os.makedirs(self.install_path)
+
+            # 覆盖安装：先备份用户数据
+            is_overwrite = os.path.isdir(self.install_path) and any(
+                os.path.exists(os.path.join(self.install_path, f))
+                for f in PRESERVE_FILES + PRESERVE_DIRS
+            )
+            temp_backup = None
+            if is_overwrite:
+                temp_backup = tempfile.mkdtemp(prefix='bdt_backup_')
+                self.log_signal.emit("检测到覆盖安装，正在备份用户数据...")
+                for fname in PRESERVE_FILES:
+                    src = os.path.join(self.install_path, fname)
+                    if os.path.isfile(src):
+                        shutil.copy2(src, os.path.join(temp_backup, fname))
+                        self.log_signal.emit(f"  备份: {fname}")
+                for dname in PRESERVE_DIRS:
+                    src = os.path.join(self.install_path, dname)
+                    if os.path.isdir(src):
+                        dst = os.path.join(temp_backup, dname)
+                        shutil.copytree(src, dst)
+                        self.log_signal.emit(f"  备份目录: {dname}/")
+
+            # 清空安装目录（保留的用户数据已备份）
+            if is_overwrite:
+                self.log_signal.emit("正在清理旧版本文件...")
+                for item in os.listdir(self.install_path):
+                    item_path = os.path.join(self.install_path, item)
+                    # 跳过保留的文件/目录（它们会被新文件覆盖，之后从备份恢复）
+                    try:
+                        if os.path.isdir(item_path):
+                            shutil.rmtree(item_path)
+                        else:
+                            os.remove(item_path)
+                    except Exception as e:
+                        self.log_signal.emit(f"  清理跳过: {item} ({e})")
+
             file_size = os.path.getsize(package_path)
             self.log_signal.emit("安装包大小: %.1f MB" % (file_size / 1024 / 1024))
             with zipfile.ZipFile(package_path, 'r') as z:
                 total_files = len(z.namelist())
                 self.log_signal.emit("共 %d 个文件" % total_files)
                 for i, name in enumerate(z.namelist()):
-                    z.extract(name, self.install_path)
+                    target = os.path.join(self.install_path, name)
+                    # 跳过保留文件（不解压覆盖，后面从备份恢复）
+                    basename = os.path.basename(name)
+                    skip = False
+                    for pf in PRESERVE_FILES:
+                        if name.endswith(pf) or basename == pf:
+                            skip = True
+                            break
+                    for pd in PRESERVE_DIRS:
+                        if name.startswith(pd + '/') or name.startswith(pd + '\\') or name == pd:
+                            skip = True
+                            break
+                    if not skip:
+                        z.extract(name, self.install_path)
                     if i % 200 == 0:
                         progress = 5 + int((i / total_files) * 50)
                         self.progress_signal.emit(progress, 100)
                         self.log_signal.emit("解压: %d/%d" % (i, total_files))
+
+            # 恢复用户数据备份
+            if temp_backup and os.path.isdir(temp_backup):
+                self.log_signal.emit("正在恢复用户数据...")
+                for fname in PRESERVE_FILES:
+                    src = os.path.join(temp_backup, fname)
+                    if os.path.isfile(src):
+                        dst = os.path.join(self.install_path, fname)
+                        shutil.copy2(src, dst)
+                        self.log_signal.emit(f"  恢复: {fname}")
+                for dname in PRESERVE_DIRS:
+                    src = os.path.join(temp_backup, dname)
+                    if os.path.isdir(src):
+                        dst = os.path.join(self.install_path, dname)
+                        if os.path.exists(dst):
+                            shutil.rmtree(dst)
+                        shutil.copytree(src, dst)
+                        self.log_signal.emit(f"  恢复目录: {dname}/")
+                # 清理临时备份
+                try:
+                    shutil.rmtree(temp_backup)
+                except Exception:
+                    pass
+
             self.log_signal.emit("解压完成")
             self.progress_signal.emit(55, 100)
             self.save_install_path()
@@ -242,6 +448,16 @@ class InstallerThread(QThread):
             self.log_signal.emit("添加环境变量失败：" + str(e))
 
 
+# 需要保留的用户数据（覆盖安装时不删除不解压）
+PRESERVE_FILES = [
+    'cookie.txt',
+    'download_history.json',
+]
+PRESERVE_DIRS = [
+    'log',
+]
+
+
 class WelcomePage(QWizardPage):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -258,22 +474,27 @@ class WelcomePage(QWizardPage):
         )
         desc_label.setStyleSheet("color: #555; font-size: 13px; margin-top: 8px;")
         layout.addWidget(desc_label)
-        layout.addSpacing(20)
-        update_label = QLabel("V2.0.1 更新内容：")
-        update_label.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))
-        layout.addWidget(update_label)
-        updates = [
-            "修复 ffmpeg/ffprobe 调用错误导致视频编码检测失败",
-            "修复批量下载不开始的问题",
-            "修复线程设置无效",
-            "新增下载失败自动重新解析链接静默重试",
-            "新增完全模式多线程并发解析",
-            "修复悬浮窗提示背景不透明问题",
-        ]
-        for u in updates:
-            lbl = QLabel("  - " + u)
-            lbl.setStyleSheet("color: #666; font-size: 12px;")
-            layout.addWidget(lbl)
+        layout.addSpacing(10)
+        # 更新日志用 QTextBrowser 渲染 Markdown
+        update_md = """### V2.0.3 更新内容：
+
+- 新增综合下载Tab，视频/弹幕/封面/字幕一站式下载
+- 新增CLI命令行工具，CMD输入bilibilidownloadtool即可使用
+- 新增程序启动自动申请管理员权限（UAC提权）
+- 修复HEVC/AV1视频花屏，自动检测编码并转H.264
+- 修复DRM解密失败导致花屏，增加解密验证
+- 修复收藏夹课程/番剧不显示（去掉type硬编码限制）
+- 修复收藏夹内容为空（API返回null正确处理）
+- 修复纯数字视频ID无法解析
+- 修复日志压缩后复制不到剪贴板
+- 修复Tab切换错位、卡片尺寸跳动等问题
+- 优化安装流程，覆盖安装自动保留用户数据"""
+        update_browser = QTextBrowser()
+        update_browser.setReadOnly(True)
+        update_browser.setOpenExternalLinks(True)
+        update_browser.setMaximumHeight(220)
+        update_browser.setHtml(markdown_to_html(update_md.strip()))
+        layout.addWidget(update_browser)
         layout.addStretch()
         self.setLayout(layout)
 
@@ -433,18 +654,27 @@ class InstallPage(QWizardPage):
     def start_install(self):
         self.is_installing = True
         wizard = self.wizard()
-        install_path = wizard.path_page.path_edit.text()
+        install_path = wizard.path_page.path_edit.text().strip()
         create_desktop = wizard.options_page.desktop_check.isChecked()
         create_startmenu = wizard.options_page.startmenu_check.isChecked()
         self.log_text.append("开始安装 " + APP_NAME + " " + APP_VERSION)
         self.log_text.append("安装目录：" + install_path)
-        wizard.button(QWizard.CancelButton).setEnabled(False)
-        wizard.button(QWizard.BackButton).setEnabled(False)
-        is_installed, installed_path = self.is_already_installed()
-        if is_installed:
+        # 安装过程中隐藏所有导航按钮，只留取消
+        wizard.button(QWizard.CancelButton).setEnabled(True)
+        wizard.button(QWizard.BackButton).setVisible(False)
+        wizard.button(QWizard.NextButton).setVisible(False)
+        wizard.button(QWizard.FinishButton).setVisible(False)
+
+        # 只有当目标安装路径下已有程序文件时才提示覆盖（不管注册表）
+        target_has_files = os.path.isdir(install_path) and any(
+            os.path.exists(os.path.join(install_path, f))
+            for f in [APP_EXE, UNINSTALLER_EXE, 'logo.ico'] + PRESERVE_FILES
+        )
+        if target_has_files:
             reply = QMessageBox.question(
                 self, "检测到已有安装",
-                "检测到软件已安装在：\n" + installed_path + "\n\n是否覆盖安装？",
+                "目标目录已存在文件：\n" + install_path +
+                "\n\n是否覆盖安装？\n（Cookie、下载历史、日志等个人数据将被保留）",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No
             )
             if reply == QMessageBox.Yes:
@@ -452,10 +682,17 @@ class InstallPage(QWizardPage):
             else:
                 wizard.reject()
                 return
+        else:
+            # 用户选了新路径或空目录，直接安装
+            _, old_path = self.is_already_installed()
+            if old_path and old_path != install_path:
+                self.log_text.append(f"检测到旧版本在: {old_path}（将安装到新路径）")
         package_path = self.get_embedded_package()
         if not package_path:
-            QMessageBox.critical(self, "错误", "未找到安装包！\n请确认安装程序完整。")
+            QMessageBox.critical(self, "错误", "未找到安装包且云端下载失败！\n请检查网络连接后重试，或从官网下载完整安装包。")
             wizard.button(QWizard.CancelButton).setEnabled(True)
+            wizard.button(QWizard.BackButton).setVisible(True)
+            wizard.button(QWizard.NextButton).setVisible(True)
             return
         self.install_thread = InstallerThread(install_path, create_desktop, create_startmenu, package_path)
         self.install_thread.log_signal.connect(self.append_log)
@@ -464,25 +701,26 @@ class InstallPage(QWizardPage):
         self.install_thread.start()
 
     def get_embedded_package(self):
+        zip_name = "BilibiliDownloader.zip"
         if getattr(sys, 'frozen', False):
             base_dir = os.path.dirname(sys.executable)
             if hasattr(sys, '_MEIPASS'):
                 meipass_dir = sys._MEIPASS
                 for candidate in [
-                    os.path.join(meipass_dir, "V2.0.1_main.zip"),
+                    os.path.join(meipass_dir, zip_name),
                 ]:
                     if os.path.exists(candidate):
                         return candidate
             for candidate in [
-                os.path.join(base_dir, "V2.0.1_main.zip"),
+                os.path.join(base_dir, zip_name),
             ]:
                 if os.path.exists(candidate):
                     return candidate
         else:
             script_dir = os.path.dirname(os.path.abspath(__file__))
             for candidate in [
-                os.path.join(script_dir, "dist", "V2.0.1_main.zip"),
-                os.path.join(script_dir, "V2.0.1_main.zip"),
+                os.path.join(script_dir, "dist", zip_name),
+                os.path.join(script_dir, zip_name),
             ]:
                 if os.path.exists(candidate):
                     return candidate
@@ -515,13 +753,19 @@ class InstallPage(QWizardPage):
             self.log_text.append("\n安装完成")
             self.status_label.setText("安装完成")
             self.status_label.setStyleSheet("color: #27ae60; font-weight: bold;")
-            wizard.button(QWizard.NextButton).setEnabled(True)
+            # 安装成功后只显示完成按钮，隐藏取消和其他导航
+            wizard.button(QWizard.CancelButton).setVisible(False)
+            wizard.button(QWizard.FinishButton).setVisible(True)
+            wizard.button(QWizard.FinishButton).setEnabled(True)
+            wizard.button(QWizard.FinishButton).setFocus()
             wizard.next()
         else:
             self.log_text.append("\n安装失败：" + message)
             self.status_label.setText("安装失败")
             self.status_label.setStyleSheet("color: #e74c3c; font-weight: bold;")
             wizard.button(QWizard.CancelButton).setEnabled(True)
+            wizard.button(QWizard.BackButton).setVisible(True)
+            wizard.button(QWizard.NextButton).setVisible(True)
             QMessageBox.critical(self, "安装失败", message)
 
 
@@ -550,6 +794,15 @@ class FinishPage(QWizardPage):
         layout.addWidget(self.visit_repo_check)
         layout.addStretch()
         self.setLayout(layout)
+
+    def initializePage(self):
+        # 完成页只显示"完成"按钮，隐藏其他导航
+        wizard = self.wizard()
+        wizard.button(QWizard.BackButton).setVisible(False)
+        wizard.button(QWizard.NextButton).setVisible(False)
+        wizard.button(QWizard.CancelButton).setVisible(False)
+        wizard.button(QWizard.FinishButton).setVisible(True)
+        wizard.button(QWizard.FinishButton).setFocus()
 
 
 class InstallerWizard(QWizard):
@@ -691,7 +944,73 @@ class InstallerWizard(QWizard):
             subprocess.Popen([exe_path], cwd=os.path.dirname(exe_path), creationflags=subprocess.CREATE_NO_WINDOW)
 
 
+def build_zip(source_dir, output_zip=None):
+    """打包安装zip，自动排除用户数据文件（cookie/日志/历史等）
+
+    用法: python installer.py --build-zip dist/BilibiliDownloader
+         python installer.py --build-zip dist/BilibiliDownloader output/BilibiliDownloader.zip
+    """
+    if output_zip is None:
+        output_zip = os.path.join(os.path.dirname(source_dir), 'BilibiliDownloader.zip')
+
+    # 排除列表
+    exclude_files = set(PRESERVE_FILES)
+    exclude_dirs = set(PRESERVE_DIRS)
+    # 额外排除不需要打包的文件
+    exclude_files.update([
+        'uninstaller.exe',  # 卸载程序单独处理
+        'uninstaller.py',
+        'installer.py',
+        'cli.py',
+        '*.pyc', '__pycache__',
+    ])
+
+    def should_exclude(arcname):
+        basename = os.path.basename(arcname)
+        if basename in exclude_files:
+            return True
+        for d in exclude_dirs:
+            if arcname.startswith(d + '/') or arcname.startswith(d + '\\'):
+                return True
+        # 排除 __pycache__
+        parts = arcname.replace('\\', '/').split('/')
+        if '__pycache__' in parts:
+            return True
+        return False
+
+    print(f"正在打包: {source_dir}")
+    print(f"输出: {output_zip}")
+    print(f"排除文件: {exclude_files}")
+    print(f"排除目录: {exclude_dirs}")
+
+    count = 0
+    with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for root, dirs, files in os.walk(source_dir):
+            # 跳过排除目录（不遍历进去）
+            dirs[:] = [d for d in dirs if d not in exclude_dirs and d != '__pycache__']
+            for f in files:
+                fpath = os.path.join(root, f)
+                arcname = os.path.relpath(fpath, source_dir)
+                if should_exclude(arcname):
+                    print(f"  跳过: {arcname}")
+                    continue
+                zf.write(fpath, arcname)
+                count += 1
+
+    zip_size = os.path.getsize(output_zip)
+    print(f"\n打包完成! 共 {count} 个文件, 大小: {zip_size / 1024 / 1024:.1f} MB")
+    print(f"路径: {os.path.abspath(output_zip)}")
+    return output_zip
+
+
 def main():
+    # 支持 --build-zip 命令行参数直接打包
+    if len(sys.argv) >= 3 and sys.argv[1] == '--build-zip':
+        source = sys.argv[2]
+        output = sys.argv[3] if len(sys.argv) > 3 else None
+        build_zip(source, output)
+        return
+
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
     wizard = InstallerWizard()

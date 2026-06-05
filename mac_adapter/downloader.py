@@ -372,10 +372,24 @@ class EpisodeDownloadThread(QThread):
             elif speed > 0:
                 speed_str = f"{speed:.2f} B/s"
             
+            eta_str = ""
+            if speed > 0 and p > 0 and p < 100:
+                elapsed = current_time - start_time
+                if elapsed > 0:
+                    remaining_pct = 100 - p
+                    eta_seconds = elapsed * remaining_pct / p
+                    if eta_seconds > 3600:
+                        eta_str = f" 剩余{int(eta_seconds // 3600)}时{int((eta_seconds % 3600) // 60)}分"
+                    elif eta_seconds > 60:
+                        eta_str = f" 剩余{int(eta_seconds // 60)}分{int(eta_seconds % 60)}秒"
+                    else:
+                        eta_str = f" 剩余{int(eta_seconds)}秒"
 
             status = f"下载{media_type}流：{p}%"
             if speed_str:
                 status += f" ({speed_str})"
+            if eta_str:
+                status += eta_str
             self.progress_updated.emit(self.ep_index, self._calc_total_progress(p), status)
             
             if not self.is_running:
@@ -438,9 +452,9 @@ class EpisodeDownloadThread(QThread):
 
         try:
             if audio_path:
-                merge_success = self.parser.merge_media(video_path, audio_path, output_path, kid)
-                if not merge_success:
-                    raise Exception("合并失败")
+                merge_result, merge_error = self.parser.merge_media(video_path, audio_path, output_path, kid)
+                if not merge_result:
+                    raise Exception(f"合并失败：{merge_error}" if merge_error else "合并失败")
             else:
                 if os.path.exists(output_path):
                     try:
@@ -1031,9 +1045,9 @@ class DownloadManager(QObject):
 
                 try:
                     if audio_path:
-                        merge_success = task_info['parser'].merge_media(video_path, audio_path, output_path, kid)
-                        if not merge_success:
-                            raise Exception("合并失败")
+                        merge_result, merge_error = task_info['parser'].merge_media(video_path, audio_path, output_path, kid)
+                        if not merge_result:
+                            raise Exception(f"合并失败：{merge_error}" if merge_error else "合并失败")
                     else:
                         if os.path.exists(output_path):
                             os.remove(output_path)
@@ -1432,10 +1446,24 @@ class DownloadManager(QObject):
                 elif speed > 0:
                     speed_str = f"{speed:.2f} B/s"
                 
+                eta_str = ""
+                if speed > 0 and p > 0 and p < 100:
+                    elapsed = current_time - start_time
+                    if elapsed > 0:
+                        remaining_pct = 100 - p
+                        eta_seconds = elapsed * remaining_pct / p
+                        if eta_seconds > 3600:
+                            eta_str = f" 剩余{int(eta_seconds // 3600)}时{int((eta_seconds % 3600) // 60)}分"
+                        elif eta_seconds > 60:
+                            eta_str = f" 剩余{int(eta_seconds // 60)}分{int(eta_seconds % 60)}秒"
+                        else:
+                            eta_str = f" 剩余{int(eta_seconds)}秒"
     
                 status = f"下载{media_type}流：{p}%"
                 if speed_str:
                     status += f" ({speed_str})"
+                if eta_str:
+                    status += eta_str
                 
                 if p % 10 == 0:
                     logger.debug(f"任务{task_id}：{status}")

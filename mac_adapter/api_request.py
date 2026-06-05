@@ -47,6 +47,9 @@ class ApiRequest:
                         url_parts = list(urllib.parse.urlparse(url))
                         query = dict(urllib.parse.parse_qsl(url_parts[4]))
 
+                        query.pop('wts', None)
+                        query.pop('w_rid', None)
+
                         for key, value in params.items():
                             if key not in query:
                                 query[key] = value
@@ -55,7 +58,7 @@ class ApiRequest:
                             signed_params = self.wbi_sign._generate_wbi_sign(query)
                             query = signed_params
 
-                        url_parts[4] = urllib.parse.urlencode(query)
+                        url_parts[4] = urllib.parse.urlencode(query, quote_via=urllib.parse.quote)
                         url = urllib.parse.urlunparse(url_parts)
                     
                     logger.debug(f"发送API请求: {url}")
@@ -98,8 +101,9 @@ class ApiRequest:
                                 return False, {"error": "访问权限不足"}
                             
                             elif code == -352:
-                                logger.warning(f"风控校验失败：{error_message}")
-                                
+                                logger.warning(f"风控校验失败(-352)：{error_message}，等待后重试")
+                                import time as _t
+                                _t.sleep(2 + retry * 2)
                                 if retry < max_retries - 1:
                                     continue
                             return False, {"error": f"API返回错误：{error_message}（code={code}）"}
@@ -160,6 +164,9 @@ class ApiRequest:
                         url_parts = list(urllib.parse.urlparse(url))
                         query = dict(urllib.parse.parse_qsl(url_parts[4]))
 
+                        query.pop('wts', None)
+                        query.pop('w_rid', None)
+
                         for key, value in params.items():
                             if key not in query:
                                 query[key] = value
@@ -168,7 +175,7 @@ class ApiRequest:
                             signed_params = self.wbi_sign._generate_wbi_sign(query)
                             query = signed_params
 
-                        url_parts[4] = urllib.parse.urlencode(query)
+                        url_parts[4] = urllib.parse.urlencode(query, quote_via=urllib.parse.quote)
                         url = urllib.parse.urlunparse(url_parts)
                     
                     logger.debug(f"发送异步API请求: {url}")
@@ -211,12 +218,15 @@ class ApiRequest:
                                 return False, {"error": "访问权限不足"}
                             
                             elif code == -352:
-                                logger.warning(f"风控校验失败：{error_message}")
+                                logger.warning(f"风控校验失败(-352)：{error_message}，等待后重试")
+                                import time as _t
+                                await asyncio.sleep(2 + retry * 2)
                                 if retry < max_retries - 1:
                                     continue
                             return False, {"error": f"API返回错误：{error_message}（code={code}）"}
                         return True, data
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"解析API响应异常: {str(e)}")
                         if resp.status_code == 403:
                             return False, {"error": "访问权限不足"}
                         

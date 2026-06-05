@@ -1,4 +1,4 @@
-﻿import os
+import os
 import re
 import json
 import time
@@ -759,6 +759,9 @@ class BilibiliParser:
                         import urllib.parse
                         url_parts = list(urllib.parse.urlparse(url))
                         query = dict(urllib.parse.parse_qsl(url_parts[4]))
+                        
+                        query.pop('wts', None)
+                        query.pop('w_rid', None)
 
                         for key, value in params.items():
                             if key not in query:
@@ -3884,8 +3887,8 @@ class BilibiliParser:
                 logger.error(f"API错误信息：{error_msg}")
                 raise Exception(f"获取收藏夹列表失败：{error_msg}")
 
-            data = api_data.get('data', {})
-            folders = data.get('list', [])
+            data = api_data.get('data') or {}
+            folders = data.get('list') or []
             logger.info(f"获取到 {len(folders)} 个收藏夹")
             
             return folders
@@ -3960,24 +3963,31 @@ class BilibiliParser:
             def _parse_medias(medias):
                 items = []
                 for item in medias:
-                    if item.get('type') == 2:
-                        items.append({
-                            'id': item.get('id'),
-                            'type': 'video',
-                            'title': item.get('title', '未知内容'),
-                            'cover': item.get('cover'),
-                            'bvid': item.get('bv_id') or item.get('bvid'),
-                            'aid': item.get('id'),
-                            'up_name': item.get('upper', {}).get('name', '未知UP主'),
-                            'duration': item.get('duration', 0),
-                            'fav_time': item.get('fav_time', 0)
-                        })
+                    # 收藏夹可能包含多种类型：视频(2)、番剧(12)、课程(21)等
+                    # 只要有 bvid 或 id 就当作可下载内容处理
+                    bvid = item.get('bv_id') or item.get('bvid')
+                    aid = item.get('id')
+                    if not (bvid or aid):
+                        continue
+                    media_type = int(item.get('type', 2))
+                    # type=2 视频, type=12 番剧, type=21 课程, 其他也尝试兼容
+                    items.append({
+                        'id': aid,
+                        'type': 'video',
+                        'title': item.get('title', '未知内容'),
+                        'cover': item.get('cover'),
+                        'bvid': bvid,
+                        'aid': aid,
+                        'up_name': (item.get('upper', {}) or {}).get('name', '未知UP主'),
+                        'duration': item.get('duration', 0),
+                        'fav_time': item.get('fav_time', 0)
+                    })
                 return items
             
             api_data = _fetch_page(base_params, page)
-            
-            result_data = api_data.get('data', {})
-            medias = result_data.get('medias', [])
+
+            result_data = api_data.get('data') or {}
+            medias = result_data.get('medias') or []
             has_more = result_data.get('has_more', False)
             total_count = result_data.get('info', {}).get('media_count', 0)
             
@@ -4008,9 +4018,9 @@ class BilibiliParser:
                     }
                     
                     page_data = _fetch_page(params, current_page)
-                    
-                    page_result = page_data.get('data', {})
-                    page_medias = page_result.get('medias', [])
+
+                    page_result = page_data.get('data') or {}
+                    page_medias = page_result.get('medias') or []
                     has_more = page_result.get('has_more', False)
                     
                     logger.info(f"第{current_page}页获取到 {len(page_medias)} 个收藏内容")
@@ -4361,6 +4371,7 @@ class BilibiliParser:
                     'qn': 112,
                     'fnval': fnval,
                     'fnver': fnver,
+                    'drm_tech_type': 2,
                     'otype': 'json'
                 }
                 
@@ -6157,13 +6168,15 @@ class BilibiliParser:
             # 将临时文件移动到最终保存路径
             import shutil
             try:
-                # 确保目标文件不存在
-                if os.path.exists(save_path):
-                    # 尝试删除文件，最多重试3次
+                if os.path.isdir(save_path):
+                    actual_save_path = os.path.join(save_path, os.path.basename(temp_path))
+                else:
+                    actual_save_path = save_path
+                if os.path.exists(actual_save_path):
                     max_retries = 3
                     for attempt in range(max_retries):
                         try:
-                            os.remove(save_path)
+                            os.remove(actual_save_path)
                             break
                         except Exception as remove_e:
                             logger.warning(f"删除文件失败（尝试{attempt+1}/{max_retries}）：{str(remove_e)}")
@@ -6171,13 +6184,27 @@ class BilibiliParser:
                                 time.sleep(1)
                             else:
                                 raise
-                # 移动文件
-                shutil.move(temp_path, save_path)
-                logger.info(f"文件已保存到：{save_path}")
-                return save_path
+                shutil.move(temp_path, actual_save_path)
+                logger.info(f"文件已保存到：{actual_save_path}")
+
+                if not os.path.exists(actual_save_path) or os.path.getsize(actual_save_path) == 0:
+                    from utils import verify_and_ensure_save
+                    actual_path, saved = verify_and_ensure_save(actual_save_path, source_path=temp_path if os.path.exists(temp_path) else None)
+                    if saved:
+                        logger.info(f"文件保存验证修复成功：{actual_path}")
+                        return actual_path
+                    else:
+                        logger.error(f"文件保存验证失败，目标路径：{actual_save_path}")
+
+                return actual_save_path
             except Exception as e:
                 logger.error(f"移动文件失败：{str(e)}")
-                # 尝试直接返回临时文件路径
+                if os.path.exists(temp_path):
+                    from utils import verify_and_ensure_save
+                    actual_path, saved = verify_and_ensure_save(actual_save_path, source_path=temp_path)
+                    if saved:
+                        logger.info(f"移动失败后备用保存成功：{actual_path}")
+                        return actual_path
                 logger.warning("返回临时文件路径")
                 return temp_path
         except requests.exceptions.Timeout as e:
@@ -6336,6 +6363,10 @@ class BilibiliParser:
             return None
 
     async def _decrypt_with_bento4(self, input_file, output_file, kid=None):
+        """使用Bento4 mp4decrypt解密DRM保护的m4s文件
+        返回: 解密后的文件路径
+        异常: 解密失败时抛出异常（不再静默复制加密文件）
+        """
         try:
             if not kid:
                 # 没有提供kid，尝试提取
@@ -6344,18 +6375,15 @@ class BilibiliParser:
                     logger.info(f"提取到KID：{kid}")
                 except Exception as e:
                     logger.warning(f"提取KID时发生异常：{str(e)}")
-                
+
                 if not kid:
-                    # 未提供kid且提取失败，直接复制文件，尝试直接合并
-                    logger.info("未提供KID且提取失败，直接复制文件尝试合并")
-                    shutil.copy2(input_file, output_file)
-                    return output_file
-            
+                    raise Exception("无法获取DRM KID，无法解密")
+
             # 尝试获取DRM密钥
             key = None
             retry_count = 0
             max_retries = 3
-            
+
             while retry_count < max_retries:
                 try:
                     async with SimpleBiliDRM() as drm:
@@ -6366,14 +6394,10 @@ class BilibiliParser:
                     logger.warning(f"获取DRM密钥失败，尝试重试 ({retry_count+1}/{max_retries})：{str(e)}")
                     retry_count += 1
                     await asyncio.sleep(2)
-            
+
             if not key:
-                logger.error("多次尝试后仍然无法获取DRM密钥")
-                # 尝试直接复制文件，可能是未加密的视频
-                logger.info("尝试直接复制文件，可能是未加密的视频")
-                shutil.copy2(input_file, output_file)
-                return output_file
-            
+                raise Exception("多次尝试后仍然无法获取DRM密钥")
+
             logger.info(f"使用KID {kid} 和密钥 {key} 解密文件")
             
             if not os.path.exists(input_file):
@@ -6386,13 +6410,25 @@ class BilibiliParser:
             input_file = os.path.abspath(input_file)
             output_file = os.path.abspath(output_file)
             
-            # 确保输出文件有正确的扩展名
             base_name = os.path.basename(output_file)
             if not base_name.endswith('.mp4'):
                 output_file = os.path.join(os.path.dirname(output_file), f"{os.path.splitext(base_name)[0]}.mp4")
             
             logger.info(f"输入文件绝对路径：{input_file}")
             logger.info(f"输出文件绝对路径：{output_file}")
+            
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            need_temp_copy = any(ord(c) > 127 for c in input_file) or any(ord(c) > 127 for c in output_file)
+            temp_input = input_file
+            temp_output = output_file
+            
+            if need_temp_copy:
+                logger.info("检测到路径含非ASCII字符，使用系统临时目录避免编码问题")
+                temp_input = os.path.join(temp_dir, f"decrypt_input_{os.path.basename(input_file)}")
+                temp_output = os.path.join(temp_dir, f"decrypt_output_{os.path.basename(output_file)}")
+                shutil.copy2(input_file, temp_input)
+                logger.info(f"复制输入文件到临时目录：{temp_input}")
             
             try:
                 ffmpeg_exec = shutil.which('ffmpeg')
@@ -6404,14 +6440,13 @@ class BilibiliParser:
                 cmd = [
                     ffmpeg_exec,
                     '-decryption_key', f'{key}',
-                    '-i', input_file,
+                    '-i', temp_input,
                     '-c', 'copy',
                     '-y',
-                    output_file
+                    temp_output
                 ]
                 logger.info(f"使用ffmpeg执行解密命令：{' '.join(cmd)}")
                 
-                # 异步执行ffmpeg命令
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
                     stdout=asyncio.subprocess.PIPE,
@@ -6426,6 +6461,10 @@ class BilibiliParser:
                     logger.error(f"标准输出：{stdout.decode('utf-8', errors='ignore')}")
                     raise Exception(f"ffmpeg解密失败：{error_msg}")
                 
+                if need_temp_copy and temp_output != output_file:
+                    shutil.copy2(temp_output, output_file)
+                    logger.info(f"复制解密结果到目标路径：{output_file}")
+                
                 logger.info(f"ffmpeg解密成功：{input_file} -> {output_file}")
                 return output_file
             except Exception as ffmpeg_e:
@@ -6435,14 +6474,13 @@ class BilibiliParser:
                 if not os.path.exists(bento4_path):
                     raise Exception(f"Bento4 mp4decrypt工具不存在：{bento4_path}")
                 
-                # 使用系统临时目录作为临时目录（避免中文路径问题）
-                import tempfile
-                temp_dir = tempfile.gettempdir()
-                simple_input = os.path.join(temp_dir, f"input_{os.path.basename(input_file)}")
+                if need_temp_copy and os.path.exists(temp_input):
+                    simple_input = temp_input
+                else:
+                    simple_input = os.path.join(temp_dir, f"input_{os.path.basename(input_file)}")
+                    shutil.copy2(input_file, simple_input)
+                    logger.info(f"复制文件到系统临时目录：{simple_input}")
                 simple_output = os.path.join(temp_dir, f"output_{os.path.basename(input_file)}.decrypted")
-                
-                shutil.copy2(input_file, simple_input)
-                logger.info(f"复制文件到系统临时目录：{simple_input}")
                 
                 # 异步执行Bento4命令
                 cmd = [bento4_path, '--key', f'{kid}:{key}', simple_input, simple_output]
@@ -6513,6 +6551,13 @@ class BilibiliParser:
             logger.error(f"解密时出错：{str(e)}")
             import traceback
             logger.debug("traceback", exc_info=True)
+            if need_temp_copy:
+                for tf in [temp_input, temp_output]:
+                    if tf and tf != input_file and tf != output_file and os.path.exists(tf):
+                        try:
+                            os.remove(tf)
+                        except Exception:
+                            pass
             raise
 
     def _check_encryption(self, video_path):
@@ -7127,9 +7172,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     def _get_video_codec(self, video_path, ffmpeg_exec):
         try:
-            if video_path and video_path.lower().endswith('.m4s'):
-                logger.debug(f"跳过m4s文件的编码检测：{video_path}")
-                return 'unknown'
             import subprocess
             ffprobe_exec = None
             ffmpeg_dir = os.path.dirname(ffmpeg_exec)
@@ -7165,7 +7207,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             data = json.loads(output)
             for stream in data.get('streams', []):
                 if stream.get('codec_type') == 'video':
-                    return stream.get('codec_name', 'unknown')
+                    codec = stream.get('codec_name', 'unknown')
+                    logger.info(f"检测到视频编码: {codec} (来自文件: {os.path.basename(video_path)})")
+                    return codec
             return 'unknown'
         except subprocess.TimeoutExpired:
             logger.warning("ffprobe检测视频编码超时")
@@ -7179,35 +7223,81 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         try:
             logger.debug(f"开始合并音视频：视频={video_path}, 音频={audio_path}, 输出={output_path}")
             
+            import tempfile
+            merge_temp_dir = tempfile.gettempdir()
+            has_non_ascii = any(ord(c) > 127 for c in output_path)
+            merge_temp_output = None
+            
             decrypted_video_path = video_path
             decrypted_audio_path = audio_path
-            
+
             is_encrypted, encryption_type = self._check_encryption(video_path)
             if is_encrypted:
                 logger.info(f"检测到视频被{encryption_type}加密，尝试解密")
                 decrypted_video_path = video_path + '.decrypted'
-                asyncio.run(self._decrypt_with_bento4(video_path, decrypted_video_path, kid))
+                try:
+                    asyncio.run(self._decrypt_with_bento4(video_path, decrypted_video_path, kid))
+                except Exception as decrypt_err:
+                    logger.error(f"视频解密失败: {decrypt_err}")
+                    # 清理可能产生的无效文件
+                    if os.path.exists(decrypted_video_path):
+                        try:
+                            os.remove(decrypted_video_path)
+                        except Exception:
+                            pass
+                    return False, f"视频DRM解密失败（{encryption_type}）: {decrypt_err}"
                 if not os.path.exists(decrypted_video_path):
                     return False, "视频解密后文件不存在"
                 decrypted_size = os.path.getsize(decrypted_video_path)
                 if decrypted_size < 1024:
-                    return False, f"视频解密后文件过小：{decrypted_size}字节"
-                logger.info(f"视频解密成功：{decrypted_video_path}")
+                    return False, f"视频解密后文件过小（{decrypted_size}字节），可能是密钥错误或文件损坏"
+                # 验证解密后的文件是否可以被ffmpeg读取
+                ffmpeg_exec = shutil.which('ffmpeg')
+                if not ffmpeg_exec or not os.path.exists(ffmpeg_exec):
+                    ffmpeg_exec = self.ffmpeg_local
+                if ffmpeg_exec and os.path.exists(ffmpeg_exec):
+                    ffprobe_exec = os.path.join(os.path.dirname(ffmpeg_exec), exe('ffprobe'))
+                    if not os.path.exists(ffprobe_exec):
+                        ffprobe_exec = shutil.which('ffprobe')
+                    if ffprobe_exec and os.path.exists(ffprobe_exec):
+                        import subprocess as sp
+                        try:
+                            probe_result = sp.run(
+                                [ffprobe_exec, '-v', 'quiet', '-print_format', 'json',
+                                 '-show_streams', decrypted_video_path],
+                                stdout=sp.PIPE, stderr=sp.PIPE,
+                                shell=False, **subprocess_no_window_kwargs(), timeout=15
+                            )
+                            if probe_result.returncode != 0:
+                                err_msg = probe_result.stderr.decode('utf-8', errors='ignore')[:200]
+                                logger.error(f"解密后文件仍无法被ffprobe读取: {err_msg}")
+                                return False, f"视频解密后文件仍然损坏（{err_msg[:80]}），请检查DRM密钥获取是否正常"
+                        except Exception as ve:
+                            logger.warning(f"验证解密文件时异常: {ve}")
+                logger.info(f"视频解密成功并验证通过：{decrypted_video_path}")
             else:
                 logger.info("视频未加密，直接使用原始文件")
-            
+
             if audio_path:
                 is_audio_encrypted, audio_encryption_type = self._check_encryption(audio_path)
                 if is_audio_encrypted:
                     logger.info(f"检测到音频被{audio_encryption_type}加密，尝试解密")
                     decrypted_audio_path = audio_path + '.decrypted'
-                    asyncio.run(self._decrypt_with_bento4(audio_path, decrypted_audio_path, kid))
+                    try:
+                        asyncio.run(self._decrypt_with_bento4(audio_path, decrypted_audio_path, kid))
+                    except Exception as decrypt_err:
+                        logger.error(f"音频解密失败: {decrypt_err}")
+                        if os.path.exists(decrypted_audio_path):
+                            try:
+                                os.remove(decrypted_audio_path)
+                            except Exception:
+                                pass
+                        return False, f"音频DRM解密失败（{audio_encryption_type}）: {decrypt_err}"
                     if not os.path.exists(decrypted_audio_path):
                         return False, "音频解密后文件不存在"
                     decrypted_size = os.path.getsize(decrypted_audio_path)
                     if decrypted_size < 1024:
                         return False, f"音频解密后文件过小：{decrypted_size}字节"
-                    logger.info(f"音频解密成功：{decrypted_audio_path}")
             
             ffmpeg_exec = shutil.which('ffmpeg')
             logger.debug(f"系统环境变量中的ffmpeg路径：{ffmpeg_exec}")
@@ -7221,7 +7311,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             logger.debug(f"使用的ffmpeg路径：{ffmpeg_exec}")
             
-            # 检测视频编码
+            if has_non_ascii:
+                merge_temp_output = os.path.join(merge_temp_dir, f"merge_output_{os.path.basename(output_path)}")
+                logger.info(f"输出路径含非ASCII字符，使用临时路径合并：{merge_temp_output}")
+            else:
+                merge_temp_output = output_path
+            
             video_codec = self._get_video_codec(decrypted_video_path, ffmpeg_exec)
             logger.info(f"视频编码：{video_codec}")
             
@@ -7229,8 +7324,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             output_ext = os.path.splitext(output_path)[1].lower()
             is_amv = output_ext == '.amv'
             
-            # 需要转换编码的情况：AV1或HEVC
-            need_conversion = video_codec in ['av1', 'hevc', 'h265']
+            # 需要转换编码的情况：AV1或HEVC 或 编码未知(安全转换防止花屏)
+            need_conversion = video_codec in ['av1', 'hevc', 'h265', 'unknown']
+            if video_codec == 'unknown':
+                logger.warning("无法检测视频编码，将转换为H.264以确保兼容性（防止HEVC/AV1花屏）")
             
             # 根据是否有音频文件构建不同的命令
             if decrypted_audio_path:
@@ -7249,11 +7346,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         '-shortest',
                         '-loglevel', 'error',
                         '-y',
-                        output_path
+                        merge_temp_output
                     ]
                 else:
                     if need_conversion:
-                        # 需要转换编码为H.264，确保Windows播放器支持
                         logger.info("检测到不支持的视频编码，自动转换为H.264")
                         cmd = [
                             ffmpeg_exec,
@@ -7266,10 +7362,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                             '-shortest',
                             '-loglevel', 'error',
                             '-y',
-                            output_path
+                            merge_temp_output
                         ]
                     else:
-                        # 其他格式可以直接复制编码
                         cmd = [
                             ffmpeg_exec,
                             '-i', decrypted_video_path,
@@ -7279,7 +7374,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                             '-shortest',
                             '-loglevel', 'error',
                             '-y',
-                            output_path
+                            merge_temp_output
                         ]
             else:
                 if is_amv:
@@ -7289,11 +7384,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         '-c:v', 'amv',
                         '-loglevel', 'error',
                         '-y',
-                        output_path
+                        merge_temp_output
                     ]
                 else:
                     if need_conversion:
-                        # 需要转换编码为H.264，确保Windows播放器支持
                         logger.info("检测到不支持的视频编码，自动转换为H.264")
                         cmd = [
                             ffmpeg_exec,
@@ -7303,7 +7397,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                             '-crf', '23',
                             '-loglevel', 'error',
                             '-y',
-                            output_path
+                            merge_temp_output
                         ]
                     else:
                         cmd = [
@@ -7312,7 +7406,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                             '-c:v', 'copy',
                             '-loglevel', 'error',
                             '-y',
-                            output_path
+                            merge_temp_output
                         ]
 
             logger.debug(f"执行ffmpeg命令：{' '.join(cmd)}")
@@ -7376,6 +7470,25 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 except Exception as shell_e:
                     logger.error(f"使用shell=True执行也失败：{str(shell_e)}")
                     return False, f"执行ffmpeg失败：{str(shell_e)}"
+            
+            if merge_temp_output and merge_temp_output != output_path and os.path.exists(merge_temp_output):
+                try:
+                    output_dir = os.path.dirname(output_path)
+                    if output_dir:
+                        os.makedirs(output_dir, exist_ok=True)
+                    shutil.copy2(merge_temp_output, output_path)
+                    logger.info(f"复制合并结果到目标路径：{output_path}")
+                    try:
+                        os.remove(merge_temp_output)
+                    except Exception:
+                        pass
+                except Exception as copy_e:
+                    logger.error(f"复制合并结果失败：{str(copy_e)}")
+                    if os.path.exists(merge_temp_output):
+                        try:
+                            os.rename(merge_temp_output, output_path)
+                        except Exception:
+                            pass
             
             if decrypted_video_path != video_path and os.path.exists(decrypted_video_path):
                 try:

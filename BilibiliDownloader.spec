@@ -12,6 +12,9 @@ a = Analysis(
     datas=[
         ('logo.png', '.'),
         ('logo.ico', '.'),
+        ('version_info.json', '.'),
+        ('ffmpeg', 'ffmpeg'),
+        ('bento4', 'bento4'),
     ],
     hiddenimports=[
         'PyQt5',
@@ -24,7 +27,9 @@ a = Analysis(
         'PyQt5.sip',
         'requests',
         'qrcode',
+        'qrcode.image.pil',
         'PIL',
+        'PIL.Image', 'PIL.ImageOps', 'PIL.ImageDraw', 'PIL.ImageFont',
         'Cryptodome',
         'Cryptodome.Cipher',
         'Cryptodome.Cipher.AES',
@@ -32,6 +37,7 @@ a = Analysis(
         'Cryptodome.Util.Padding',
         'aiohttp',
         'brotli',
+        'brotli.asgi',
         'orjson',
         'browser_cookie3',
     ],
@@ -50,6 +56,7 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# GUI主程序 (console=False)
 exe = EXE(
     pyz,
     a.scripts,
@@ -64,8 +71,24 @@ exe = EXE(
     icon='logo.ico',
 )
 
+# CLI命令行工具 (console=True，可通过 bilibilidownloadtool 命令启动)
+cli_exe = EXE(
+    pyz,
+    a.scripts + [('bilibilidownloadtool.py', 'cli.py', 'PYSOURCE')],
+    [],
+    exclude_binaries=True,
+    name='bilibilidownloadtool',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    console=True,
+    icon='logo.ico',
+)
+
 coll = COLLECT(
     exe,
+    cli_exe,
     a.binaries,
     a.zipfiles,
     a.datas,
@@ -83,8 +106,8 @@ app = BUNDLE(
     info_plist={
         'CFBundleName': 'BilibiliDownloader',
         'CFBundleDisplayName': 'B站视频解析下载工具',
-        'CFBundleVersion': '2.0.2',
-        'CFBundleShortVersionString': '2.0.2',
+        'CFBundleVersion': '2.0.3',
+        'CFBundleShortVersionString': '2.0.3',
         'NSHighResolutionCapable': True,
         'LSMinimumSystemVersion': '10.15',
         'NSAppleEventsUsageDescription': '需要访问浏览器以获取Cookie',

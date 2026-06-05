@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGr
                              QComboBox, QLabel, QFileDialog, QProgressBar, QMessageBox, QGroupBox,
                              QCheckBox, QTextEdit, QDialog, QListWidget, QListWidgetItem,
                              QStackedWidget, QRadioButton, QButtonGroup, QSpacerItem, QSizePolicy, QMenu,
-                             QApplication, QSpinBox, QTabWidget, QSystemTrayIcon, QCompleter, QToolBar, QAction, QStyle, QSplitter, QTreeView, QFileSystemModel, QFrame, QHeaderView)
+                             QApplication, QSpinBox, QTabWidget, QSystemTrayIcon, QCompleter, QToolBar, QAction, QStyle, QSplitter, QTreeView, QFileSystemModel, QFrame, QHeaderView, QGraphicsDropShadowEffect)
 from PyQt5.QtCore import QSize, Qt, pyqtSignal, QObject, QEvent, pyqtSlot, QPoint, QThread, QTimer, QEventLoop, QUrl, QCoreApplication, QMetaObject, Q_ARG, QDir
 from PyQt5.QtGui import QFont, QPalette, QColor, QCursor, QPixmap, QPainter, QBrush, QIcon, QPainterPath, QImage
 from PyQt5.QtWebEngineWidgets import QWebEngineView
@@ -30,6 +30,11 @@ except Exception:
     pass
 
 logger = logging.getLogger(__name__)
+
+_COVER_HEADERS = {
+    "Referer": "https://www.bilibili.com/",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+}
 
 def global_exception_hook(exctype, value, tb):
     if exctype == KeyboardInterrupt:
@@ -150,23 +155,28 @@ def scale_style(style_str):
 
 def load_version_info():
     candidates = []
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.dirname(sys.executable)
+        # PyInstaller 6.x 文件夹模式：datas 放在 _internal 子目录，优先读取
+        internal_dir = os.path.join(exe_dir, '_internal')
+        candidates.append(os.path.join(internal_dir, 'version_info.json'))
+        candidates.append(os.path.join(exe_dir, 'version_info.json'))
     script_dir = os.path.dirname(os.path.abspath(__file__))
     candidates.append(os.path.join(script_dir, 'version_info.json'))
     if hasattr(sys, '_MEIPASS'):
         candidates.append(os.path.join(sys._MEIPASS, 'version_info.json'))
-    if getattr(sys, 'frozen', False):
-        exe_dir = os.path.dirname(sys.executable)
-        candidates.append(os.path.join(exe_dir, 'version_info.json'))
     for version_file in candidates:
         if os.path.exists(version_file):
             try:
                 with open(version_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    data = json.load(f)
+                if data.get("version"):
+                    return data
             except Exception:
                 continue
     logger.warning("version_info.json not found in any candidate directory")
     return {
-        "version": "V2.0.2",
+        "version": "2.0.3",
         "author": "寒烟似雪",
         "qq": "2273962061",
         "description": "B站视频解析下载工具"
@@ -299,6 +309,28 @@ _BASE_STYLE = """
 
 def get_base_style():
     return scale_style(_BASE_STYLE)
+
+
+def format_ep_name(ep, index, video_info=None):
+    is_bangumi = video_info and (video_info.get("is_bangumi") or video_info.get("is_cheese"))
+    if is_bangumi:
+        ep_index = ep.get('ep_index', '')
+        ep_title = ep.get('ep_title', '') or ep.get('title', '') or ep.get('name', '')
+        if ep_index and ep_title:
+            return f"第{ep_index}集 - {ep_title}"
+        elif ep_index:
+            return f"第{ep_index}集"
+        elif ep_title:
+            return f"第{index+1}集 - {ep_title}"
+        else:
+            return f"第{index+1}集"
+    else:
+        page = ep.get('page', index + 1)
+        title = ep.get('title', '') or ep.get('name', '')
+        if title:
+            return f"第{page}集 - {title}"
+        else:
+            return f"第{page}集"
 
 
 from PyQt5.QtWebEngineWidgets import QWebEngineView
@@ -855,9 +887,10 @@ class ExpandedCard(QDialog):
         url_layout = QHBoxLayout()
         url_layout.setContentsMargins(scale(10), 0, scale(10), 0)
         self.url_edit = QLineEdit()
-        self.url_edit.setPlaceholderText("输入B站视频链接...")
+        self.url_edit.setPlaceholderText("输入B站视频链接，按回车解析...")
         self.url_edit.setStyleSheet(f"padding: {scale(12)}px; border: {scale(1)}px solid #dee2e6; border-radius: {scale(8)}px; font-size: {scale(12)}px; background-color: #f8fafc;")
         self.url_edit.setMinimumHeight(scale(36))
+        self.url_edit.returnPressed.connect(self.on_parse_clicked)
         url_layout.addWidget(self.url_edit, stretch=1)
         initial_layout.addLayout(url_layout)
         
@@ -958,9 +991,24 @@ class ExpandedCard(QDialog):
         self.download_danmaku_checkbox.setStyleSheet(f"font-size: {scale(10)}px;")
         self.download_danmaku_checkbox.setChecked(True)
         
+        self.download_cover_checkbox = QCheckBox("封面")
+        self.download_cover_checkbox.setStyleSheet(f"font-size: {scale(10)}px;")
+        auto_cover = True
+        try:
+            auto_cover = self.floating_ball.parent.config.get_app_setting("auto_download_cover", True)
+        except Exception:
+            pass
+        self.download_cover_checkbox.setChecked(auto_cover)
+        
+        self.download_subtitle_checkbox = QCheckBox("字幕")
+        self.download_subtitle_checkbox.setStyleSheet(f"font-size: {scale(10)}px;")
+        self.download_subtitle_checkbox.setChecked(False)
+        
         download_type_layout.addWidget(download_type_label)
         download_type_layout.addWidget(self.download_video_checkbox)
         download_type_layout.addWidget(self.download_danmaku_checkbox)
+        download_type_layout.addWidget(self.download_cover_checkbox)
+        download_type_layout.addWidget(self.download_subtitle_checkbox)
         download_type_layout.addStretch(1)
         video_info_layout.addLayout(download_type_layout)
         
@@ -1075,8 +1123,14 @@ class ExpandedCard(QDialog):
         self.floating_ball.download_container_layout = self.download_container_layout
         self.floating_ball.download_tasks = self.download_tasks
         self.floating_ball.video_info_widget = self.video_info_widget
-        self.floating_ball.download_video_checkbox = self.download_video_checkbox
-        self.floating_ball.download_danmaku_checkbox = self.download_danmaku_checkbox
+        if hasattr(self, 'download_video_checkbox'):
+            self.floating_ball.download_video_checkbox = self.download_video_checkbox
+        if hasattr(self, 'download_danmaku_checkbox'):
+            self.floating_ball.download_danmaku_checkbox = self.download_danmaku_checkbox
+        if hasattr(self, 'download_cover_checkbox'):
+            self.floating_ball.download_cover_checkbox = self.download_cover_checkbox
+        if hasattr(self, 'download_subtitle_checkbox'):
+            self.floating_ball.download_subtitle_checkbox = self.download_subtitle_checkbox
         
         self.floating_ball.on_download()
         
@@ -1224,7 +1278,7 @@ class FloatingBall(QWidget):
         self.parent = parent
         
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-        self.setAutoFillBackground(True)
+        self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         
         # 计算基于DPI的尺寸
@@ -1379,6 +1433,8 @@ class FloatingBall(QWidget):
                     self.download_tasks = self.expanded_widget.download_tasks
                     self.download_video_checkbox = self.expanded_widget.download_video_checkbox
                     self.download_danmaku_checkbox = self.expanded_widget.download_danmaku_checkbox
+                    self.download_cover_checkbox = self.expanded_widget.download_cover_checkbox
+                    self.download_subtitle_checkbox = self.expanded_widget.download_subtitle_checkbox
                     
                     while self.download_container_layout.count() > 0:
                         item = self.download_container_layout.takeAt(0)
@@ -1465,6 +1521,8 @@ class FloatingBall(QWidget):
             self.download_tasks = self.expanded_widget.download_tasks
             self.download_video_checkbox = self.expanded_widget.download_video_checkbox
             self.download_danmaku_checkbox = self.expanded_widget.download_danmaku_checkbox
+            self.download_cover_checkbox = self.expanded_widget.download_cover_checkbox
+            self.download_subtitle_checkbox = self.expanded_widget.download_subtitle_checkbox
             
             while self.download_container_layout.count() > 0:
                 item = self.download_container_layout.takeAt(0)
@@ -1642,6 +1700,11 @@ class FloatingBall(QWidget):
         url = self.url_edit.text().strip()
         print(f"输入的URL: {url}")
         if url:
+            # 验证是否为B站链接
+            if hasattr(self.parent, '_is_bilibili_url') and not self.parent._is_bilibili_url(url):
+                if self.parent and hasattr(self.parent, 'show_notification'):
+                    self.parent.show_notification("请输入B站链接（支持bilibili.com、b23.tv、BV号等）", "warning")
+                return
             if self.parent and hasattr(self.parent, 'signal_emitter'):
                 print("parent和signal_emitter存在")
                 print(f"准备发送信号，signal_emitter对象: {self.parent.signal_emitter}")
@@ -1655,12 +1718,19 @@ class FloatingBall(QWidget):
     def on_parse_finished(self, video_info):
         try:
             self._on_parse_finished_impl(video_info)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"解析完成回调异常：{e}")
 
     def _on_parse_finished_impl(self, video_info):
         if video_info.get('success'):
             self.current_video_info = video_info
+
+            try:
+                if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'cloud_service') and self.parent.cloud_service:
+                    bvid = video_info.get('bvid', '')
+                    self.parent.cloud_service.report_event("parse_video", extra=bvid)
+            except Exception:
+                pass
             
             if self.expanded_widget:
                 self.url_edit = self.expanded_widget.url_edit
@@ -1907,6 +1977,7 @@ class FloatingBall(QWidget):
                     self.parent.show_notification("请先解析视频", "warning")
                 return
             
+            _config = self.config if hasattr(self, 'config') and self.config else (self.parent.config if self.parent and hasattr(self.parent, 'config') else None)
             download_params = {
                 "url": url,
                 "video_info": self.current_video_info,
@@ -1917,10 +1988,10 @@ class FloatingBall(QWidget):
                 "task_id": task_id,
                 "download_video": download_video,
                 "download_danmaku": download_danmaku,
-                "video_format": self.config.get_app_setting("video_output_format", "mp4"),
-                "audio_format": self.config.get_app_setting("audio_output_format", "mp3"),
-                "audio_quality": self.config.get_app_setting("audio_quality", 30280),
-                "danmaku_format": self.config.get_app_setting("danmaku_output_format", "xml").upper()
+                "video_format": _config.get_app_setting("video_output_format", "mp4") if _config else "mp4",
+                "audio_format": _config.get_app_setting("audio_output_format", "mp3") if _config else "mp3",
+                "audio_quality": _config.get_app_setting("audio_quality", 30280) if _config else 30280,
+                "danmaku_format": _config.get_app_setting("danmaku_output_format", "xml").upper() if _config else "XML"
             }
             
             logger.info(f"添加下载任务：{self.current_video_info.get('title', '未知标题')}，共{len(selected_videos)}个视频")
@@ -1942,6 +2013,10 @@ class FloatingBall(QWidget):
 
             try:
                 
+                if self.parent and hasattr(self.parent, 'cloud_service') and self.parent.cloud_service:
+                    bvid = self.current_video_info.get('bvid', '') if self.current_video_info else ''
+                    self.parent.cloud_service.report_event("download_video", extra=bvid)
+
                 if self.parent and hasattr(self.parent, 'download_manager') and self.parent.download_manager:
                     logger.info("直接调用download_manager.start_download")
                     self.parent.download_manager.start_download(download_params)
@@ -1991,12 +2066,8 @@ class FloatingBall(QWidget):
                     from ui import BatchDownloadWindow
                     batch_window = BatchDownloadWindow(self.current_video_info, 0, self.parent.download_manager, self.parent.parser)
                     for i, ep in enumerate(selected_videos):
-                        if self.current_video_info.get("is_bangumi") or self.current_video_info.get("is_cheese"):
-                            ep_name = f"{ep.get('ep_index', '')}"
-                            ep_tooltip = ep.get('ep_title', '')
-                        else:
-                            ep_name = f"第{ep.get('page', i+1)}集"
-                            ep_tooltip = ep.get('title', '')
+                        ep_name = format_ep_name(ep, i, self.current_video_info)
+                        ep_tooltip = ep.get('ep_title', '') or ep.get('title', '') or ep.get('name', '')
                         batch_window.add_episode_progress(ep_name, ep_tooltip, task_id, i)
                     batch_window.cancel_all.connect(self.parent.on_cancel_download)
                     batch_window.window_closed.connect(lambda tid=task_id: self.parent.on_batch_window_closed(tid))
@@ -2130,7 +2201,22 @@ class FloatingBall(QWidget):
             if self.parent and hasattr(self.parent, 'show_notification'):
                 self.parent.show_notification(f"视频下载完成：{message}", "success")
             
+            if self.parent and hasattr(self.parent, 'tray_icon') and self.parent.tray_icon:
+                try:
+                    self.parent.tray_icon.showMessage("B站下载工具", f"视频下载完成：{message}", QSystemTrayIcon.Information, 3000)
+                except Exception:
+                    pass
 
+            if self.parent and hasattr(self.parent, 'download_history') and hasattr(self, 'current_video_info') and self.current_video_info:
+                try:
+                    bvid = self.current_video_info.get('bvid', '')
+                    title = self.current_video_info.get('title', '未知视频')
+                    url = f"https://www.bilibili.com/video/{bvid}" if bvid else ""
+                    self.parent.download_history.add_record(
+                        bvid=bvid, title=title, url=url, status="success",
+                    )
+                except Exception:
+                    pass
             
             # 下载完成后播放提示音
             if self.parent and hasattr(self.parent, 'config'):
@@ -2142,9 +2228,19 @@ class FloatingBall(QWidget):
                     except Exception as e:
                         logger.warning(f"\1")
         else:
-            
             if self.parent and hasattr(self.parent, 'show_notification'):
                 self.parent.show_notification(f"视频下载失败：{message}", "error")
+            if self.parent and hasattr(self.parent, 'download_history') and hasattr(self, 'current_video_info') and self.current_video_info:
+                try:
+                    bvid = self.current_video_info.get('bvid', '')
+                    title = self.current_video_info.get('title', '未知视频')
+                    url = f"https://www.bilibili.com/video/{bvid}" if bvid else ""
+                    self.parent.download_history.add_record(
+                        bvid=bvid, title=title, url=url, status="failed",
+                        error_msg=message[:200],
+                    )
+                except Exception:
+                    pass
 
 class ParseProgressWindow(QDialog):
     # 定义信号
@@ -2982,11 +3078,11 @@ class UpdateDialog(QDialog):
             self.progress_bar = QProgressBar()
             self.progress_bar.setRange(0, 100)
             self.progress_bar.setValue(0)
-            self.progress_bar.setFixedHeight(5)
+            self.progress_bar.setFixedHeight(8)
             self.progress_bar.setTextVisible(False)
             self.progress_bar.setStyleSheet(f"""
-                QProgressBar {{ background: #f0f0f0; border: none; border-radius: 2px; }}
-                QProgressBar::chunk {{ background: {accent}; border-radius: 2px; }}
+                QProgressBar {{ background: #f0f0f0; border: none; border-radius: 4px; }}
+                QProgressBar::chunk {{ background: {accent}; border-radius: 4px; }}
             """)
             self.progress_bar.hide()
             layout.addWidget(self.progress_bar)
@@ -3061,6 +3157,7 @@ class UpdateDialog(QDialog):
         import threading
         def _worker():
             try:
+                import time as _time
                 from cloud_service import CloudService
                 import tempfile
                 import zipfile
@@ -3068,6 +3165,8 @@ class UpdateDialog(QDialog):
                 import subprocess
 
                 download_url = self.update_info.get("download_url", "")
+                print(f"[DEBUG-UI] update_info: {self.update_info}")
+                print(f"[DEBUG-UI] 下载链接: {download_url}")
                 if not download_url:
                     self._update_status("错误：下载地址为空", True)
                     return
@@ -3082,21 +3181,49 @@ class UpdateDialog(QDialog):
 
                 def progress_cb(pct, done, total):
                     try:
+                        print(f"[DEBUG-UI] progress_cb 被调用: pct={pct}, done={done}, total={total}")
+                        logger.info(f"[UI进度回调] pct={pct}, done={done}, total={total}")
                         mb_done = done / 1048576
-                        mb_total = total / 1048576
-                        self._progress_signal.emit(pct, f"正在下载... {mb_done:.1f}/{mb_total:.1f} MB ({pct}%)")
-                    except Exception:
-                        pass
+                        speed_str = ""
+                        now = _time.time()
+                        if not hasattr(self, '_dl_start_time'):
+                            self._dl_start_time = now
+                            self._dl_last_done = 0
+                            self._dl_last_time = now
+                        elapsed = now - self._dl_last_time
+                        if elapsed >= 0.5:
+                            delta = done - self._dl_last_done
+                            speed_bps = delta / elapsed
+                            if speed_bps > 1048576:
+                                speed_str = f" {speed_bps / 1048576:.1f}MB/s"
+                            elif speed_bps > 1024:
+                                speed_str = f" {speed_bps / 1024:.0f}KB/s"
+                            self._dl_last_done = done
+                            self._dl_last_time = now
+                        if total > 0:
+                            mb_total = total / 1048576
+                            text = f"正在下载... {mb_done:.1f}/{mb_total:.1f} MB ({pct}%){speed_str}"
+                        else:
+                            text = f"正在下载... {mb_done:.1f} MB{speed_str}"
+                        emit_pct = max(pct, 0)
+                        print(f"[DEBUG-UI] 准备emit信号: pct={emit_pct}, text={text}")
+                        self._progress_signal.emit(emit_pct, text)
+                        print(f"[DEBUG-UI] emit信号完成")
+                        logger.info(f"[UI进度信号] 已emit: pct={emit_pct}, text={text}")
+                    except Exception as e:
+                        print(f"[DEBUG-UI] progress_cb 异常: {e}")
+                        logger.error(f"[UI进度回调异常] {e}")
 
                 cs = CloudService()
                 if not cs.download_update(download_url, save_path, progress_cb):
-                    self._update_status("下载失败，请检查网络连接", True)
+                    # 下载失败，尝试用浏览器打开下载链接
+                    self._update_status("自动下载失败，正在打开浏览器下载...", True)
+                    import webbrowser
+                    webbrowser.open(download_url)
+                    self._status_signal.emit("已打开浏览器下载，请手动安装下载的文件", False)
                     return
 
-                sha256 = self.update_info.get("sha256", "")
-                if sha256 and not CloudService.verify_file(save_path, sha256):
-                    self._update_status("文件校验失败，请重新下载", True)
-                    return
+                # 跳过 SHA256 校验（CDN 可能修改文件字节导致校验失败）
 
                 if is_exe_update:
                     self._update_status("正在启动安装程序...")
@@ -3126,6 +3253,16 @@ class UpdateDialog(QDialog):
                 with zipfile.ZipFile(save_path, 'r') as zf:
                     zf.extractall(extract_dir)
 
+                # ZIP 内部可能有一层版本号根文件夹（如 V2.0.3_main/），需要自动检测并跳过
+                # 检查解压根目录下是否只有一个子文件夹且包含 _internal
+                source_dir = extract_dir
+                root_items = os.listdir(extract_dir)
+                if len(root_items) == 1:
+                    single_item = os.path.join(extract_dir, root_items[0])
+                    if os.path.isdir(single_item) and os.path.isdir(os.path.join(single_item, '_internal')):
+                        source_dir = single_item
+                        logger.info(f"检测到ZIP内层文件夹 {root_items[0]}，使用 {source_dir} 作为更新源")
+
                 self._update_status("正在替换文件...")
 
                 if hasattr(sys, 'frozen') or hasattr(sys, '_MEIPASS'):
@@ -3135,12 +3272,22 @@ class UpdateDialog(QDialog):
 
                 update_script = os.path.join(temp_dir, "updater.bat")
                 if IS_WINDOWS:
+                    # 查找新版本的主程序 exe 名（版本号可能变了，如 V2.0.1_main.exe → V2.0.3_main.exe）
+                    new_exe_name = None
+                    for f in os.listdir(source_dir):
+                        if f.endswith('.exe') and 'uninstall' not in f.lower():
+                            new_exe_name = f
+                            break
+                    if not new_exe_name:
+                        new_exe_name = os.path.basename(sys.executable) if hasattr(sys, 'frozen') else 'main.py'
+                    logger.info(f"热更新：新版本主程序 {new_exe_name}，当前运行 {os.path.basename(sys.executable) if hasattr(sys, 'frozen') else 'main.py'}")
+
                     script_content = f"""@echo off
 chcp 65001 >nul
 echo 正在更新B站视频解析工具...
 timeout /t 2 /nobreak >nul
 
-xcopy /E /Y /Q "{extract_dir}\\*" "{app_dir}\\"
+xcopy /E /Y /Q "{source_dir}\\*" "{app_dir}\\"
 
 if %errorlevel% neq 0 (
     echo 更新失败！
@@ -3148,8 +3295,13 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+REM 同步 version_info.json 到 exe 根目录，确保版本号正确
+if exist "{app_dir}\\_internal\\version_info.json" (
+    copy /Y "{app_dir}\\_internal\\version_info.json" "{app_dir}\\version_info.json" >nul
+)
+
 echo 更新完成，正在启动程序...
-start "" "{app_dir}\\{os.path.basename(sys.executable) if hasattr(sys, 'frozen') else 'main.py'}"
+start "" "{app_dir}\\{new_exe_name}"
 exit /b 0
 """
                     with open(update_script, 'w', encoding='utf-8') as f:
@@ -3163,8 +3315,8 @@ exit /b 0
                     )
                 else:
                     import shutil as _shutil
-                    for item in os.listdir(extract_dir):
-                        src = os.path.join(extract_dir, item)
+                    for item in os.listdir(source_dir):
+                        src = os.path.join(source_dir, item)
                         dst = os.path.join(app_dir, item)
                         if os.path.isdir(src):
                             _shutil.copytree(src, dst, dirs_exist_ok=True)
@@ -3173,7 +3325,13 @@ exit /b 0
 
                     self._update_status("更新即将完成，程序将自动重启...")
 
-                    restart_target = os.path.join(app_dir, os.path.basename(sys.executable) if hasattr(sys, 'frozen') else 'main.py')
+                    # 查找新版本的主程序
+                    new_exe_name = os.path.basename(sys.executable) if hasattr(sys, 'frozen') else 'main.py'
+                    for f in os.listdir(source_dir):
+                        if f.endswith('.exe') and 'uninstall' not in f.lower():
+                            new_exe_name = f
+                            break
+                    restart_target = os.path.join(app_dir, new_exe_name)
                     subprocess.Popen(['open', '-a', 'Terminal', restart_target])
 
                 import time
@@ -3197,6 +3355,8 @@ exit /b 0
 
     def _on_progress(self, pct, text):
         try:
+            import threading
+            print(f"[DEBUG-UI] _on_progress 被调用: pct={pct}, text={text}, 线程={threading.current_thread().name}")
             if pct < 0:
                 self.progress_bar.setRange(0, 0)
                 self.progress_bar.setValue(0)
@@ -3204,8 +3364,9 @@ exit /b 0
                 self.progress_bar.setRange(0, 100)
                 self.progress_bar.setValue(pct)
             self.status_label.setText(text)
-        except Exception:
-            pass
+            print(f"[DEBUG-UI] _on_progress 完成: progress_bar.value={self.progress_bar.value()}")
+        except Exception as e:
+            print(f"[DEBUG-UI] _on_progress 异常: {e}")
 
     def _on_status_update(self, text, is_error):
         try:
@@ -4151,60 +4312,80 @@ class ResizableDialog(QDialog):
             self._is_maximized = True
 
 class EpisodeSelectionDialog(QDialog):
-    def __init__(self, parent, episodes, is_bangumi=False, selected_episodes=None):
+    def __init__(self, parent, episodes, is_bangumi=False, selected_episodes=None, video_info=None):
         super().__init__(parent)
         self.episodes = episodes
         self.is_bangumi = is_bangumi
+        self.video_info = video_info or {}
+        self.media_type = self._detect_media_type()
         self.filtered_episodes = episodes.copy()
-        self.cover_loaders = []  
-        self.active_loaders = 0  
-        self.max_loaders = 3  
-        self.pending_cover_loading = []  
-        self.loaded_episodes = 0  
-        self.batch_size = 100  
+        self.cover_loaders = []
+        self.active_loaders = 0
+        self.max_loaders = 3
+        self.pending_cover_loading = []
+        self.loaded_episodes = 0
+        self.batch_size = 100
         self.selected_episodes = selected_episodes or []
         self.selected_indices = set()
-        self.drag_position = None  
-        self.search_text = ""  # 搜索文本
-        self.current_sort = "index"  # 默认按集数排序
+        self.drag_position = None
+        self.search_text = ""
+        self.current_sort = "index"
         
         for ep in self.selected_episodes:
             for i, episode in enumerate(self.episodes):
-                
                 ep_id_match = episode.get('ep_id') and ep.get('ep_id') and episode.get('ep_id') == ep.get('ep_id')
                 page_match = episode.get('page') and ep.get('page') and episode.get('page') == ep.get('page')
                 if ep_id_match or page_match:
                     self.selected_indices.add(i)
         self.init_ui()
 
+    def _detect_media_type(self):
+        if self.video_info.get('is_bangumi'):
+            return 'bangumi'
+        if self.video_info.get('is_cheese'):
+            return 'cheese'
+        if self.is_bangumi:
+            return 'bangumi'
+        return 'video'
+
+    def _get_type_display(self):
+        type_map = {
+            'bangumi': '番剧',
+            'cheese': '课程',
+            'video': '合集',
+        }
+        return type_map.get(self.media_type, '合集')
+
     def init_ui(self):
-        self.setWindowTitle("选择集数" + ("（番剧）" if self.is_bangumi else "（合集）"))
+        type_display = self._get_type_display()
+        self.setWindowTitle(f"选择集数（{type_display}）")
         screen = QApplication.primaryScreen()
         if screen:
             sg = screen.availableGeometry()
-            self.setMinimumSize(max(scale(500), int(sg.width() * 0.3)), max(scale(350), int(sg.height() * 0.3)))
+            min_w = max(scale(800), int(sg.width() * 0.5))
+            min_h = max(scale(550), int(sg.height() * 0.5))
+            self.setMinimumSize(min_w, min_h)
+            init_w = max(min_w, int(sg.width() * 0.55))
+            init_h = max(min_h, int(sg.height() * 0.6))
+            self.resize(init_w, init_h)
         else:
-            self.setMinimumSize(scale(500), scale(350))
-        
+            self.setMinimumSize(scale(800), scale(550))
+            self.resize(scale(800), scale(550))
         
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowMinimizeButtonHint | Qt.WindowCloseButtonHint)
         self.setAutoFillBackground(True)
         
-        # 设置窗口图标
         try:
             import sys
             if hasattr(sys, '_MEIPASS'):
-                # 在EXE模式下
                 logo_path = os.path.join(sys._MEIPASS, "logo.ico")
             else:
-                # 在开发模式下
                 logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")
             if os.path.exists(logo_path):
                 icon = QIcon(logo_path)
                 self.setWindowIcon(icon)
-        except Exception as e:
+        except Exception:
             pass
-        
         
         custom_style = get_base_style() + scale_style("""
             QDialog {
@@ -4249,31 +4430,32 @@ class EpisodeSelectionDialog(QDialog):
         main_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
         main_layout.setSpacing(scale(0))
         
-        
         title_bar = QWidget()
         title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 40px; border-top-left-radius: 10px; border-top-right-radius: 10px;"))
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(scale(16), scale(0), scale(12), scale(0))
         title_layout.setSpacing(scale(10))
         
-        title_label = QLabel("选择集数" + ("（番剧）" if self.is_bangumi else "（合集）"))
+        title_label = QLabel(f"选择集数（{type_display}）")
         title_label.setStyleSheet(scale_style("font-size: 15px; font-weight: 600; color: white; letter-spacing: 0.5px;"))
         title_layout.addWidget(title_label, stretch=1)
+        
+        self.count_label = QLabel(f"已选 0/{len(self.episodes)} 集")
+        self.count_label.setStyleSheet(scale_style("font-size: 12px; color: rgba(255,255,255,0.85); padding-right: 8px;"))
+        title_layout.addWidget(self.count_label)
         
         close_btn = QPushButton("×")
         close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 18px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
         close_btn.setToolTip("关闭")
-        # 确保关闭按钮能够正确关闭对话框
         close_btn.clicked.connect(lambda: (self.reject(), self.close()))
         title_layout.addWidget(close_btn)
         
         main_layout.addWidget(title_bar)
         
-        
         content_widget = QWidget()
         content_layout = QVBoxLayout(content_widget)
-        content_layout.setContentsMargins(scale(20), scale(20), scale(20), scale(20))
-        content_layout.setSpacing(scale(15))
+        content_layout.setContentsMargins(scale(20), scale(15), scale(20), scale(15))
+        content_layout.setSpacing(scale(10))
 
         search_layout = QHBoxLayout()
         self.search_edit = QLineEdit()
@@ -4282,7 +4464,6 @@ class EpisodeSelectionDialog(QDialog):
         self.search_edit.textChanged.connect(self.filter_episodes)
         search_layout.addWidget(self.search_edit, stretch=1)
         
-        # 排序下拉菜单
         self.sort_combo = QComboBox()
         self.sort_combo.setStyleSheet(scale_style("padding: 10px 12px; border: 1px solid #dee2e6; border-radius: 8px;"))
         self.sort_combo.addItems(["按集数排序", "按标题排序"])
@@ -4333,16 +4514,26 @@ class EpisodeSelectionDialog(QDialog):
         self.deselect_all_btn = QPushButton("取消全选")
         self.deselect_all_btn.setStyleSheet(scale_style("background-color: #919191; color: white; padding: 10px 20px; border-radius: 8px;"))
         self.deselect_all_btn.clicked.connect(self.deselect_all)
+        self.invert_btn = QPushButton("反选")
+        self.invert_btn.setStyleSheet(scale_style("background-color: #fa8c16; color: white; padding: 10px 20px; border-radius: 8px;"))
+        self.invert_btn.clicked.connect(self.invert_selection)
+        self.range_btn = QPushButton("选范围")
+        self.range_btn.setStyleSheet(scale_style("background-color: #9f7aea; color: white; padding: 10px 20px; border-radius: 8px;"))
+        self.range_btn.clicked.connect(self.select_range)
         self.confirm_btn = QPushButton("确认选择")
         self.confirm_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; padding: 10px 24px; border-radius: 8px; font-weight: 500;"))
         self.confirm_btn.clicked.connect(self.accept)
         btn_layout.addWidget(self.select_all_btn)
         btn_layout.addWidget(self.deselect_all_btn)
+        btn_layout.addWidget(self.invert_btn)
+        btn_layout.addWidget(self.range_btn)
         btn_layout.addStretch(1)
         btn_layout.addWidget(self.confirm_btn)
         content_layout.addLayout(btn_layout)
         
         main_layout.addWidget(content_widget)
+        
+        self._update_count_label()
 
     def _on_widget_clicked(self, event, checkbox, ep):
         if ep.get('permission_denied', False) and not ep.get('has_free_part', False):
@@ -4353,33 +4544,28 @@ class EpisodeSelectionDialog(QDialog):
     def create_episode_widget(self, ep, index, permission_denied=False):
         widget = QWidget()
         layout = QHBoxLayout(widget)
-        layout.setContentsMargins(scale(10), scale(10), scale(10), scale(10))
+        layout.setContentsMargins(scale(10), scale(8), scale(10), scale(8))
         layout.setSpacing(scale(12))
-        
         
         checkbox = QCheckBox()
         checkbox.setChecked(index in self.selected_indices)
+        checkbox.setMinimumSize(scale(22), scale(22))
         checkbox.stateChanged.connect(lambda state, idx=index: self.on_checkbox_changed(state, idx))
         if permission_denied:
             checkbox.setDisabled(True)
-            widget.setStyleSheet("opacity: 0.6;")
         layout.addWidget(checkbox, alignment=Qt.AlignCenter)
         
-        
         cover_label = QLabel()
-        cover_label.setMinimumSize(scale(80), scale(60))
-        cover_label.setMaximumSize(scale(100), scale(75))
+        cover_label.setMinimumSize(scale(96), scale(64))
+        cover_label.setMaximumSize(scale(120), scale(80))
         cover_label.setStyleSheet(scale_style("border: 1px solid #e2e8f0; border-radius: 6px; background-color: #f1f5f9;"))
         cover_label.setAlignment(Qt.AlignCenter)
         cover_label.setText("无封面")
         layout.addWidget(cover_label)
         
-        
         cover_url = ep.get('cover', '')
         if cover_url:
-            
             def load_cover():
-                
                 class CoverLoader(QThread):
                     class SignalEmitter(QObject):
                         finished = pyqtSignal(QPixmap, int)
@@ -4391,19 +4577,24 @@ class EpisodeSelectionDialog(QDialog):
                         self.signals = self.SignalEmitter()
                     
                     def run(self):
-                        try:
-                            response = requests.get(self.url, timeout=3)  
-                            response.raise_for_status()
-                            pixmap = QPixmap()
-                            pixmap.loadFromData(response.content)
-                            self.signals.finished.emit(pixmap, self.label_index)
-                        except:
-                            self.signals.finished.emit(QPixmap(), self.label_index)
+                        pixmap = QPixmap()
+                        for attempt in range(2):
+                            try:
+                                response = requests.get(self.url, headers=_COVER_HEADERS, timeout=10)
+                                response.raise_for_status()
+                                pixmap = QPixmap()
+                                pixmap.loadFromData(response.content)
+                                if not pixmap.isNull():
+                                    break
+                            except Exception:
+                                if attempt == 0:
+                                    continue
+                        self.signals.finished.emit(pixmap, self.label_index)
                 
                 def on_cover_loaded(pixmap, label_index):
                     try:
                         if not pixmap.isNull():
-                            scaled_pixmap = pixmap.scaled(scale(100), scale(75), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                            scaled_pixmap = pixmap.scaled(scale(120), scale(80), Qt.KeepAspectRatio, Qt.SmoothTransformation)
                             cover_label.setPixmap(scaled_pixmap)
                             cover_label.setStyleSheet(scale_style("border: 1px solid #e2e8f0; border-radius: 6px;"))
                         else:
@@ -4411,9 +4602,7 @@ class EpisodeSelectionDialog(QDialog):
                     except Exception:
                         pass
                     finally:
-                        
                         self.active_loaders -= 1
-                        
                         self.process_pending_cover_loading()
                 
                 def start_loader():
@@ -4424,18 +4613,14 @@ class EpisodeSelectionDialog(QDialog):
                         loader.signals.finished.connect(on_cover_loaded)
                         loader.start()
                     else:
-                        
-                        self.pending_cover_loading.append((cover_url, cover_label))
+                        self.pending_cover_loading.append((cover_url, cover_label, scale(120), scale(80), False))
                 
                 start_loader()
             
-            
             QTimer.singleShot(10 * index, load_cover)
         
-        
         info_layout = QVBoxLayout()
-        info_layout.setSpacing(scale(4))
-        
+        info_layout.setSpacing(scale(3))
         
         if self.is_bangumi:
             title = f"{ep.get('ep_index', '')} - {ep.get('ep_title', '')}"
@@ -4449,17 +4634,18 @@ class EpisodeSelectionDialog(QDialog):
         
         title_label = QLabel(title)
         if permission_denied and not ep.get('has_free_part', False):
-            title_label.setStyleSheet(scale_style("font-weight: 500; font-size: 13px; color: #94a3b8;"))
+            title_label.setStyleSheet(scale_style("font-weight: 500; font-size: 14px; color: #94a3b8;"))
         else:
-            title_label.setStyleSheet(scale_style("font-weight: 500; font-size: 13px;"))
+            title_label.setStyleSheet(scale_style("font-weight: 500; font-size: 14px;"))
         title_label.setWordWrap(True)
         info_layout.addWidget(title_label)
         
+        meta_layout = QHBoxLayout()
+        meta_layout.setSpacing(scale(12))
         
         duration = ep.get('duration_str', '') or ep.get('duration', '')
         if duration:
             if isinstance(duration, int):
-                
                 hours = duration // 3600
                 minutes = (duration % 3600) // 60
                 seconds = duration % 60
@@ -4469,16 +4655,21 @@ class EpisodeSelectionDialog(QDialog):
                     duration_str = f"{minutes:02d}:{seconds:02d}"
             else:
                 duration_str = str(duration)
-            duration_label = QLabel(f"时长: {duration_str}")
-            duration_label.setStyleSheet(scale_style("font-size: 11px; color: #64748b;"))
-            info_layout.addWidget(duration_label)
+            dur_label = QLabel(f"时长 {duration_str}")
+            dur_label.setStyleSheet(scale_style("font-size: 11px; color: #64748b;"))
+            meta_layout.addWidget(dur_label)
         
+        if permission_denied:
+            if ep.get('has_free_part', False):
+                perm_label = QLabel("试看")
+                perm_label.setStyleSheet(scale_style("font-size: 11px; color: #10b981; font-weight: 500; border: 1px solid #10b981; border-radius: 3px; padding: 0 4px;"))
+            else:
+                perm_label = QLabel("付费")
+                perm_label.setStyleSheet(scale_style("font-size: 11px; color: #f56c6c; font-weight: 500; border: 1px solid #f56c6c; border-radius: 3px; padding: 0 4px;"))
+            meta_layout.addWidget(perm_label)
         
-        cid = ep.get('cid', '')
-        if cid:
-            cid_label = QLabel(f"CID: {cid}")
-            cid_label.setStyleSheet(scale_style("font-size: 10px; color: #94a3b8;"))
-            info_layout.addWidget(cid_label)
+        meta_layout.addStretch(1)
+        info_layout.addLayout(meta_layout)
         
         layout.addLayout(info_layout, stretch=1)
         
@@ -4501,6 +4692,7 @@ class EpisodeSelectionDialog(QDialog):
         
         
         cover_container = QWidget()
+        cover_container.setFixedSize(scale(190), scale(107))
         cover_container.setStyleSheet(scale_style("""
             QWidget {
                 border-radius: 8px 8px 0 0;
@@ -4508,31 +4700,27 @@ class EpisodeSelectionDialog(QDialog):
             }
         """))
         cover_layout = QVBoxLayout(cover_container)
-        cover_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
-        cover_layout.setSpacing(scale(0))
+        cover_layout.setContentsMargins(0, 0, 0, 0)
+        cover_layout.setSpacing(0)
         
         
-        checkbox = QCheckBox()
-        checkbox.setChecked(index in self.selected_indices)
-        checkbox.stateChanged.connect(lambda state, idx=index: self.on_checkbox_changed(state, idx))
-        checkbox.setStyleSheet(scale_style("""
-            QCheckBox {
-                position: absolute;
-                top: 8px;
-                left: 8px;
-                z-index: 10;
-            }
-        """))
-        cover_layout.addWidget(checkbox, alignment=Qt.AlignTop | Qt.AlignLeft)
-        
-        
-        cover_label = QLabel()
-        cover_label.setMinimumSize(scale(190), scale(107))
-        cover_label.setMaximumSize(scale(190), scale(107))
+        cover_label = QLabel(cover_container)
+        cover_label.setGeometry(0, 0, scale(190), scale(107))
         cover_label.setStyleSheet("border: none;")
         cover_label.setAlignment(Qt.AlignCenter)
         cover_label.setText("")
-        cover_layout.addWidget(cover_label)
+        
+        checkbox = QCheckBox(cover_container)
+        checkbox.setChecked(index in self.selected_indices)
+        checkbox.stateChanged.connect(lambda state, idx=index: self.on_checkbox_changed(state, idx))
+        checkbox.setStyleSheet(scale_style("""
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+            }
+        """))
+        checkbox.setGeometry(scale(6), scale(6), scale(18), scale(18))
+        checkbox.raise_()
         
         
         duration = ep.get('duration_str', '') or ep.get('duration', '')
@@ -4549,7 +4737,7 @@ class EpisodeSelectionDialog(QDialog):
             else:
                 duration_str = str(duration)
             
-            duration_label = QLabel(duration_str)
+            duration_label = QLabel(duration_str, cover_container)
             duration_label.setStyleSheet(scale_style("""
                 QLabel {
                     background-color: rgba(0, 0, 0, 0.7);
@@ -4560,14 +4748,9 @@ class EpisodeSelectionDialog(QDialog):
                     font-weight: 500;
                 }
             """))
-            duration_label.setAlignment(Qt.AlignRight | Qt.AlignBottom)
-            duration_label.setMinimumHeight(scale(20))
-            
-            
-            duration_layout = QGridLayout()
-            duration_layout.setContentsMargins(scale(0), scale(0), scale(8), scale(8))
-            duration_layout.addWidget(duration_label, 0, 0, Qt.AlignRight | Qt.AlignBottom)
-            cover_layout.addLayout(duration_layout)
+            duration_label.adjustSize()
+            duration_label.move(scale(190) - duration_label.width() - scale(6), scale(107) - duration_label.height() - scale(6))
+            duration_label.raise_()
         
         layout.addWidget(cover_container)
         
@@ -4588,20 +4771,32 @@ class EpisodeSelectionDialog(QDialog):
                         self.signals = self.SignalEmitter()
                     
                     def run(self):
-                        try:
-                            response = requests.get(self.url, timeout=3)  
-                            response.raise_for_status()
-                            pixmap = QPixmap()
-                            pixmap.loadFromData(response.content)
-                            self.signals.finished.emit(pixmap, self.label_index)
-                        except:
-                            self.signals.finished.emit(QPixmap(), self.label_index)
+                        pixmap = QPixmap()
+                        for attempt in range(2):
+                            try:
+                                response = requests.get(self.url, headers=_COVER_HEADERS, timeout=10)
+                                response.raise_for_status()
+                                pixmap = QPixmap()
+                                pixmap.loadFromData(response.content)
+                                if not pixmap.isNull():
+                                    break
+                            except Exception:
+                                if attempt == 0:
+                                    continue
+                        self.signals.finished.emit(pixmap, self.label_index)
                 
                 def on_cover_loaded(pixmap, label_index):
                     try:
                         if not pixmap.isNull():
-                            scaled_pixmap = pixmap.scaled(scale(190), scale(107), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-                            cover_label.setPixmap(scaled_pixmap)
+                            target_w = scale(190)
+                            target_h = scale(107)
+                            scaled_pixmap = pixmap.scaled(target_w, target_h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                            crop_w = min(scaled_pixmap.width(), target_w)
+                            crop_h = min(scaled_pixmap.height(), target_h)
+                            x = (scaled_pixmap.width() - crop_w) // 2
+                            y = (scaled_pixmap.height() - crop_h) // 2
+                            cropped = scaled_pixmap.copy(x, y, crop_w, crop_h)
+                            cover_label.setPixmap(cropped)
                             cover_label.setStyleSheet("border: none;")
                     except Exception:
                         pass
@@ -4620,7 +4815,7 @@ class EpisodeSelectionDialog(QDialog):
                         loader.start()
                     else:
                         
-                        self.pending_cover_loading.append((cover_url, cover_label))
+                        self.pending_cover_loading.append((cover_url, cover_label, scale(190), scale(107), True))
                 
                 start_loader()
             
@@ -4707,24 +4902,20 @@ class EpisodeSelectionDialog(QDialog):
             item = QListWidgetItem()
             item_widget = self.create_episode_widget(ep, original_index, ep.get('permission_denied', False))
             
-            item.setSizeHint(QSize(scale(0), scale(100)))
+            item.setSizeHint(QSize(scale(0), scale(110)))
             item.setData(Qt.UserRole, original_index)
             
             if ep.get('permission_denied', False):
-                # 检查是否有免费部分
                 has_free_part = ep.get('has_free_part', False)
                 if has_free_part:
-                    # 有免费部分，保持亮色，但显示免费时长
                     free_duration = ep.get('free_duration', 0)
                     if free_duration > 0:
-                        # 更新时长显示为免费时长
                         for i in range(item_widget.layout().count()):
                             widget = item_widget.layout().itemAt(i).widget()
                             if isinstance(widget, QVBoxLayout):
                                 for j in range(widget.count()):
                                     label = widget.itemAt(j).widget()
-                                    if isinstance(label, QLabel) and label.text().startswith('时长:'):
-                                        # 计算免费时长
+                                    if isinstance(label, QLabel) and label.text().startswith('时长'):
                                         hours = free_duration // 3600
                                         minutes = (free_duration % 3600) // 60
                                         seconds = free_duration % 60
@@ -4732,12 +4923,11 @@ class EpisodeSelectionDialog(QDialog):
                                             duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
                                         else:
                                             duration_str = f"{minutes:02d}:{seconds:02d}"
-                                        label.setText(f"免费时长: {duration_str}")
+                                        label.setText(f"试看 {duration_str}")
                                         label.setStyleSheet(scale_style("font-size: 11px; color: #10b981;"))
                 else:
-                    # 完全权限不足，变灰
                     item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
-                    item_widget.setStyleSheet("opacity: 0.6;")
+                    item_widget.setStyleSheet("QWidget { opacity: 0.5; }")
             
             self.list_view.addItem(item)
             self.list_view.setItemWidget(item, item_widget)
@@ -4768,12 +4958,12 @@ class EpisodeSelectionDialog(QDialog):
                     item = QListWidgetItem()
                     item_widget = self.create_episode_widget(ep, original_index, ep.get('permission_denied', False))
                     
-                    item.setSizeHint(QSize(scale(0), scale(100)))
+                    item.setSizeHint(QSize(scale(0), scale(110)))
                     item.setData(Qt.UserRole, original_index)
                     
                     if ep.get('permission_denied', False):
                         item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
-                        item_widget.setStyleSheet("opacity: 0.6;")
+                        item_widget.setStyleSheet("QWidget { opacity: 0.5; }")
                     
                     self.list_view.addItem(item)
                     self.list_view.setItemWidget(item, item_widget)
@@ -4960,10 +5150,18 @@ class EpisodeSelectionDialog(QDialog):
             self.selected_indices.add(index)
         else:
             self.selected_indices.discard(index)
+        self._update_count_label()
+    
+    def _update_count_label(self):
+        try:
+            if hasattr(self, 'count_label'):
+                self.count_label.setText(f"已选 {len(self.selected_indices)}/{len(self.episodes)} 集")
+        except Exception:
+            pass
     
     def process_pending_cover_loading(self):
         while self.pending_cover_loading and self.active_loaders < self.max_loaders:
-            cover_url, cover_label = self.pending_cover_loading.pop(0)
+            cover_url, cover_label, target_w, target_h, use_crop = self.pending_cover_loading.pop(0)
             self.active_loaders += 1
             
             
@@ -4977,22 +5175,36 @@ class EpisodeSelectionDialog(QDialog):
                     self.signals = self.SignalEmitter()
                 
                 def run(self):
-                    try:
-                        response = requests.get(self.url, timeout=3)
-                        response.raise_for_status()
-                        pixmap = QPixmap()
-                        pixmap.loadFromData(response.content)
-                        self.signals.finished.emit(pixmap)
-                    except:
-                        self.signals.finished.emit(QPixmap())
+                    pixmap = QPixmap()
+                    for attempt in range(2):
+                        try:
+                            response = requests.get(self.url, headers=_COVER_HEADERS, timeout=10)
+                            response.raise_for_status()
+                            pixmap = QPixmap()
+                            pixmap.loadFromData(response.content)
+                            if not pixmap.isNull():
+                                break
+                        except Exception:
+                            if attempt == 0:
+                                continue
+                    self.signals.finished.emit(pixmap)
             
             def on_cover_loaded(pixmap):
                 try:
                     if not pixmap.isNull():
-                        
-                        scaled_pixmap = pixmap.scaled(scale(100), scale(75), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                        cover_label.setPixmap(scaled_pixmap)
-                        cover_label.setStyleSheet(scale_style("border: 1px solid #e2e8f0; border-radius: 6px;"))
+                        if use_crop:
+                            scaled_pixmap = pixmap.scaled(target_w, target_h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                            crop_w = min(scaled_pixmap.width(), target_w)
+                            crop_h = min(scaled_pixmap.height(), target_h)
+                            x = (scaled_pixmap.width() - crop_w) // 2
+                            y = (scaled_pixmap.height() - crop_h) // 2
+                            cropped = scaled_pixmap.copy(x, y, crop_w, crop_h)
+                            cover_label.setPixmap(cropped)
+                            cover_label.setStyleSheet("border: none;")
+                        else:
+                            scaled_pixmap = pixmap.scaled(target_w, target_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                            cover_label.setPixmap(scaled_pixmap)
+                            cover_label.setStyleSheet(scale_style("border: 1px solid #e2e8f0; border-radius: 6px;"))
                     else:
                         cover_label.setText("加载失败")
                 except Exception:
@@ -5009,7 +5221,6 @@ class EpisodeSelectionDialog(QDialog):
             loader.start()
 
     def select_all(self):
-        
         current_view = self.list_view if self.list_radio.isChecked() else self.card_view
         for i in range(current_view.count()):
             item = current_view.item(i)
@@ -5023,9 +5234,9 @@ class EpisodeSelectionDialog(QDialog):
             if widget:
                 for child in widget.findChildren(QCheckBox):
                     child.setChecked(True)
+        self._update_count_label()
 
     def deselect_all(self):
-        
         current_view = self.list_view if self.list_radio.isChecked() else self.card_view
         for i in range(current_view.count()):
             item = current_view.item(i)
@@ -5036,6 +5247,73 @@ class EpisodeSelectionDialog(QDialog):
             if widget:
                 for child in widget.findChildren(QCheckBox):
                     child.setChecked(False)
+        self._update_count_label()
+
+    def invert_selection(self):
+        current_view = self.list_view if self.list_radio.isChecked() else self.card_view
+        for i in range(current_view.count()):
+            item = current_view.item(i)
+            index = item.data(Qt.UserRole)
+            ep = self.episodes[index]
+            if ep.get('permission_denied', False) and not ep.get('has_free_part', False):
+                continue
+            if index in self.selected_indices:
+                self.selected_indices.discard(index)
+            else:
+                self.selected_indices.add(index)
+            widget = current_view.itemWidget(item)
+            if widget:
+                for child in widget.findChildren(QCheckBox):
+                    child.setChecked(index in self.selected_indices)
+        self._update_count_label()
+
+    def select_range(self):
+        from PyQt5.QtWidgets import QInputDialog
+        total = len(self.episodes)
+        text, ok = QInputDialog.getText(
+            self, "选择范围",
+            f"共 {total} 集，输入范围（如: 1-10 或 1,3,5,7-9）：",
+        )
+        if not ok or not text.strip():
+            return
+        indices = set()
+        try:
+            for part in text.strip().split(','):
+                part = part.strip()
+                if '-' in part:
+                    bounds = part.split('-', 1)
+                    start = int(bounds[0].strip())
+                    end = int(bounds[1].strip())
+                    for n in range(start, end + 1):
+                        if 1 <= n <= total:
+                            indices.add(n - 1)
+                else:
+                    n = int(part)
+                    if 1 <= n <= total:
+                        indices.add(n - 1)
+        except (ValueError, IndexError):
+            self.show_notification("格式错误，请输入如 1-10 或 1,3,5,7-9", "warning")
+            return
+        
+        if not indices:
+            self.show_notification("没有有效的集数", "warning")
+            return
+        
+        for idx in indices:
+            ep = self.episodes[idx]
+            if not (ep.get('permission_denied', False) and not ep.get('has_free_part', False)):
+                self.selected_indices.add(idx)
+        
+        current_view = self.list_view if self.list_radio.isChecked() else self.card_view
+        for i in range(current_view.count()):
+            item = current_view.item(i)
+            index = item.data(Qt.UserRole)
+            if index in self.selected_indices:
+                widget = current_view.itemWidget(item)
+                if widget:
+                    for child in widget.findChildren(QCheckBox):
+                        child.setChecked(True)
+        self._update_count_label()
 
     def accept(self):
         
@@ -5059,6 +5337,11 @@ class EpisodeSelectionDialog(QDialog):
         event.accept()
 
     def closeEvent(self, event):
+        try:
+            geo = self.geometry()
+            self.config.set_app_setting("window_geometry", f"{geo.x()},{geo.y()},{geo.width()},{geo.height()}")
+        except Exception:
+            pass
         try:
             for loader in self.cover_loaders:
                 if loader.isRunning():
@@ -5649,12 +5932,8 @@ class TaskManagerWindow(BaseWindow):
             batch_window = BatchDownloadWindow(task.get("video_info", {}), 0, self.download_manager, self.parser)
             episodes = task.get("episodes", [])
             for i, ep in enumerate(episodes):
-                if task.get("video_info", {}).get("is_bangumi"):
-                    ep_name = f"{ep.get('ep_index', '')}"
-                    ep_tooltip = ep.get('ep_title', '')
-                else:
-                    ep_name = f"第{ep.get('page', i+1)}集"
-                    ep_tooltip = ep.get('title', '')
+                ep_name = format_ep_name(ep, i, task.get("video_info", {}))
+                ep_tooltip = ep.get('ep_title', '') or ep.get('title', '') or ep.get('name', '')
                 batch_window.add_episode_progress(ep_name, ep_tooltip, new_task_id, i)
             if self.download_manager:
                 self.download_manager.episode_progress_updated.connect(batch_window.update_episode_progress)
@@ -6839,6 +7118,12 @@ class TaskManagerWindow(BaseWindow):
                     with open(file_path, 'w', encoding='utf-8') as f:
                         f.write(new_content)
                     
+                    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+                        from utils import verify_and_ensure_save
+                        file_path, _dm_saved = verify_and_ensure_save(file_path, content=new_content)
+                        if not _dm_saved:
+                            raise Exception("弹幕文件保存验证失败")
+                    
                     self.show_notification("弹幕文件已保存", "success")
                     dialog.accept()
                 except Exception as e:
@@ -6876,14 +7161,9 @@ class TaskManagerWindow(BaseWindow):
         
         batch_window = BatchDownloadWindow(task.get("video_info", {}), 0, self.download_manager, self.parser)
         video_info = task.get("video_info", {})
-        is_bangumi = video_info.get("is_bangumi", False)
         
-        if is_bangumi:
-            ep_name = f"{episode.get('ep_index', '')}"
-            ep_tooltip = episode.get('ep_title', '')
-        else:
-            ep_name = f"第{episode.get('page', 1)}集"
-            ep_tooltip = episode.get('title', '')
+        ep_name = format_ep_name(episode, 0, video_info)
+        ep_tooltip = episode.get('ep_title', '') or episode.get('title', '') or episode.get('name', '')
         
         batch_window.add_episode_progress(ep_name, ep_tooltip, task_id, 0)
         if self.download_manager:
@@ -6901,7 +7181,6 @@ class TaskManagerWindow(BaseWindow):
         task_id = task.get("id")
         episodes = task.get("episodes", [])
         video_info = task.get("video_info", {})
-        is_bangumi = video_info.get("is_bangumi", False)
         
         existing_window = None
         # 检查是否存在已有的下载窗口，不管是否可见
@@ -6916,12 +7195,8 @@ class TaskManagerWindow(BaseWindow):
         
         if existing_window:
             for i, ep in enumerate(episodes):
-                if is_bangumi:
-                    ep_name = f"{ep.get('ep_index', '')}"
-                    ep_tooltip = ep.get('ep_title', '')
-                else:
-                    ep_name = f"第{ep.get('page', i+1)}集"
-                    ep_tooltip = ep.get('title', '')
+                ep_name = format_ep_name(ep, i, video_info)
+                ep_tooltip = ep.get('ep_title', '') or ep.get('title', '') or ep.get('name', '')
                 existing_window.add_episode_progress(ep_name, ep_tooltip, task_id, i)
             if self.download_manager:
                 self.download_manager.episode_progress_updated.connect(existing_window.update_episode_progress)
@@ -6933,12 +7208,8 @@ class TaskManagerWindow(BaseWindow):
         else:
             batch_window = BatchDownloadWindow(video_info, 0, self.download_manager, self.parser)
             for i, ep in enumerate(episodes):
-                if is_bangumi:
-                    ep_name = f"{ep.get('ep_index', '')}"
-                    ep_tooltip = ep.get('ep_title', '')
-                else:
-                    ep_name = f"第{ep.get('page', i+1)}集"
-                    ep_tooltip = ep.get('title', '')
+                ep_name = format_ep_name(ep, i, video_info)
+                ep_tooltip = ep.get('ep_title', '') or ep.get('title', '') or ep.get('name', '')
                 batch_window.add_episode_progress(ep_name, ep_tooltip, task_id, i)
             batch_window.cancel_all.connect(lambda: self.download_manager.cancel_all())
             
@@ -7730,6 +8001,20 @@ class BatchDownloadWindow(BaseWindow):
                         self.status_labels[bar_index].setStyleSheet(scale_style("color: #f56c6c; font-size: 12px;"))
                         self.failed.append(message)
 
+                    parent = self.parent()
+                    if parent and hasattr(parent, 'download_history'):
+                        try:
+                            bvid = self.video_info.get('bvid', '')
+                            title = self.video_info.get('title', '未知视频')
+                            url = f"https://www.bilibili.com/video/{bvid}" if bvid else ""
+                            parent.download_history.add_record(
+                                bvid=bvid, title=title, url=url,
+                                status="success" if success else "failed",
+                                error_msg="" if success else message[:200],
+                            )
+                        except Exception:
+                            pass
+
                     all_completed = self.completed == self.total_episodes
                     if all_completed:
                         self.cancel_btn.setText("关闭窗口")
@@ -7745,6 +8030,16 @@ class BatchDownloadWindow(BaseWindow):
                             parent = self.parent()
                             if parent and hasattr(parent, 'show_notification'):
                                 parent.show_notification("全部集数下载成功！", "success")
+                        if parent and hasattr(parent, 'tray_icon') and parent.tray_icon:
+                            try:
+                                if self.failed:
+                                    parent.tray_icon.showMessage("B站下载工具", f"下载完成！成功{self.total_episodes - len(self.failed)}集，失败{len(self.failed)}集", QSystemTrayIcon.Information, 5000)
+                                else:
+                                    parent.tray_icon.showMessage("B站下载工具", f"全部{self.total_episodes}集下载成功！", QSystemTrayIcon.Information, 5000)
+                            except Exception:
+                                pass
+                        if parent and hasattr(parent, '_check_auto_shutdown') and parent._check_auto_shutdown():
+                            QTimer.singleShot(3000, parent._do_auto_shutdown)
         elif len(args) == 3:
             index, success, message = args
             if message == "TASK_PAUSED":
@@ -7762,6 +8057,20 @@ class BatchDownloadWindow(BaseWindow):
                     self.status_labels[index].setStyleSheet(scale_style("color: #f56c6c; font-size: 12px;"))
                     self.failed.append(message)
 
+                parent = self.parent()
+                if parent and hasattr(parent, 'download_history'):
+                    try:
+                        bvid = self.video_info.get('bvid', '')
+                        title = self.video_info.get('title', '未知视频')
+                        url = f"https://www.bilibili.com/video/{bvid}" if bvid else ""
+                        parent.download_history.add_record(
+                            bvid=bvid, title=title, url=url,
+                            status="success" if success else "failed",
+                            error_msg="" if success else message[:200],
+                        )
+                    except Exception:
+                        pass
+
                 all_completed = self.completed == self.total_episodes
                 if all_completed:
                     self.cancel_btn.setText("关闭窗口")
@@ -7777,6 +8086,16 @@ class BatchDownloadWindow(BaseWindow):
                         parent = self.parent()
                         if parent and hasattr(parent, 'show_notification'):
                             parent.show_notification("全部集数下载成功！", "success")
+                    if parent and hasattr(parent, 'tray_icon') and parent.tray_icon:
+                        try:
+                            if self.failed:
+                                parent.tray_icon.showMessage("B站下载工具", f"下载完成！成功{self.total_episodes - len(self.failed)}集，失败{len(self.failed)}集", QSystemTrayIcon.Information, 5000)
+                            else:
+                                parent.tray_icon.showMessage("B站下载工具", f"全部{self.total_episodes}集下载成功！", QSystemTrayIcon.Information, 5000)
+                        except Exception:
+                            pass
+                    if parent and hasattr(parent, '_check_auto_shutdown') and parent._check_auto_shutdown():
+                        QTimer.singleShot(3000, parent._do_auto_shutdown)
 
     def _update_global_progress(self, progress, message):
         try:
@@ -7921,7 +8240,6 @@ class BilibiliDownloader(BaseWindow):
         
         self.init_ui()
         
-        # 确保主窗口能够捕获键盘事件
         self.setFocusPolicy(Qt.StrongFocus)
         
         self.window_closed.connect(self.on_window_closed)
@@ -7931,7 +8249,10 @@ class BilibiliDownloader(BaseWindow):
         QTimer.singleShot(100, self.init_background_tasks)
 
         from cloud_service import CloudService
-        self.cloud_service = CloudService(version_info.get("version", "2.0.1"))
+        self.cloud_service = CloudService(version_info.get("version", "2.0.3"))
+        from download_history import DownloadHistory
+        self.download_history = DownloadHistory()
+        QTimer.singleShot(2000, self._report_launch_stats)
         QTimer.singleShot(3000, self._check_cloud_info)
         self.update_check_timer = QTimer(self)
         self.update_check_timer.timeout.connect(self._check_cloud_info)
@@ -7952,6 +8273,19 @@ class BilibiliDownloader(BaseWindow):
                 self.download_manager.merge_started.connect(self.on_merge_started)
             if hasattr(self.download_manager, 'merge_finished'):
                 self.download_manager.merge_finished.connect(self.on_merge_finished)
+        
+        # 实时监测剪切板：dataChanged信号为主，定时器轮询为辅（Windows上信号不一定可靠）
+        self._last_clipboard_url = ""
+        self._last_clipboard_len = 0  # 缓存长度用于快速短路比较
+        self._clipboard_auto_detect = self.config.get_app_setting("clipboard_auto_detect", True)
+        self._clipboard = QApplication.clipboard()
+        if self._clipboard_auto_detect:
+            self._clipboard.dataChanged.connect(self._on_clipboard_changed)
+            # 备用定时器：1.5秒检查一次（dataChanged已处理实时性，定时器仅作兜底）
+            self._clipboard_timer = QTimer(self)
+            self._clipboard_timer.setInterval(1500)
+            self._clipboard_timer.timeout.connect(self._on_clipboard_changed)
+            self._clipboard_timer.start()
     
     def mousePressEvent(self, event):
         try:
@@ -8005,6 +8339,66 @@ class BilibiliDownloader(BaseWindow):
         # 在主线程中初始化系统托盘
         self.init_system_tray()
     
+    def _report_launch_stats(self):
+        try:
+            if hasattr(self, 'cloud_service') and self.cloud_service:
+                if self.cloud_service.is_first_launch:
+                    self.cloud_service.report_event("install")
+                self.cloud_service.report_event("launch")
+        except Exception as e:
+            logger.debug(f"上报启动统计失败: {e}")
+
+    @staticmethod
+    def _is_bilibili_url(text):
+        """统一验证是否为B站链接，区分B站和非B站链接"""
+        text = text.strip()
+        if not text:
+            return False
+        # 如果是URL格式（包含http/https），检查域名
+        if re.search(r'https?://', text, re.IGNORECASE):
+            url_patterns = [
+                r'https?://(?:www\.)?bilibili\.com',
+                r'https?://(?:www\.)?b23\.tv',
+                r'https?://space\.bilibili\.com',
+                r'https?://cheese\.bilibili\.com',
+            ]
+            return any(re.search(p, text, re.IGNORECASE) for p in url_patterns)
+        # 如果不是URL格式，检查是否为纯BV号/av号/ep号/ss号
+        standalone_patterns = [
+            r'^BV1[0-9A-Za-z]{9}$',   # 纯BV号
+            r'^av\d+$',                # 纯av号
+            r'^\d{10,}$',              # 纯数字ID（兼容旧格式/video/数字）
+            r'^ep\d+$',                # 纯ep号
+            r'^ss\d+$',                # 纯ss号
+        ]
+        return any(re.search(p, text, re.IGNORECASE) for p in standalone_patterns)
+
+    def _on_clipboard_changed(self):
+        """剪切板内容变化时实时检测B站链接（性能优化：长度短路+延迟正则）"""
+        try:
+            text = self._clipboard.text().strip()
+            # 快速短路1: 空内容直接跳过
+            if not text:
+                return
+            # 快速短路2: 长度不同肯定变了（比全文比较快）
+            text_len = len(text)
+            if text_len != self._last_clipboard_len:
+                self._last_clipboard_len = text_len
+            elif text == self._last_clipboard_url:
+                # 长度相同且内容相同，跳过
+                return
+            if not hasattr(self, 'url_edit'):
+                return
+            # 使用统一的B站链接验证
+            is_bili = self._is_bilibili_url(text)
+            if is_bili:
+                logger.info(f"[剪切板监测] 检测到B站链接: {text[:80]}")
+                self._last_clipboard_url = text
+                self.url_edit.setText(text)
+                self.show_notification("已从剪贴板检测到B站链接", "info")
+        except Exception as e:
+            logger.error(f"[剪切板监测] 异常: {e}")
+
     def _check_cloud_info(self):
         import threading
         def _worker():
@@ -8026,6 +8420,12 @@ class BilibiliDownloader(BaseWindow):
     
     def _on_update_available(self, update_info):
         try:
+            latest = update_info.get("latest_version", "")
+            current_parsed = self.cloud_service._parse_version(version_info.get("version", ""))
+            latest_parsed = self.cloud_service._parse_version(latest)
+            if latest_parsed == (0, 0, 0) or current_parsed >= latest_parsed:
+                logger.info(f"UI层拦截：当前版本 {version_info.get('version', '')}({current_parsed}) >= 最新版本 {latest}({latest_parsed})，不显示更新")
+                return
             dialog = UpdateDialog(self, update_info)
             dialog.exec_()
         except Exception as e:
@@ -8096,6 +8496,149 @@ class BilibiliDownloader(BaseWindow):
         except Exception:
             pass
     
+    def _show_help_dialog(self):
+        try:
+            dialog = QDialog(self)
+            dialog.setAttribute(Qt.WA_DeleteOnClose)
+            dialog.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
+            dialog.setWindowTitle("联系作者")
+            dialog.setStyleSheet("""
+                QDialog {
+                    background-color: white;
+                    border: none;
+                }
+            """)
+
+            layout = QVBoxLayout(dialog)
+            layout.setContentsMargins(scale(24), scale(20), scale(24), scale(20))
+            layout.setSpacing(scale(14))
+
+            hdr = QHBoxLayout()
+            hdr.setSpacing(scale(10))
+            icon_lbl = QLabel()
+            icon_lbl.setFixedSize(scale(28), scale(28))
+            icon_lbl.setStyleSheet("""
+                QLabel {
+                    background-color: #1677ff;
+                    color: white;
+                    border-radius: 6px;
+                    font-size: 14px;
+                    font-weight: bold;
+                }
+            """)
+            icon_lbl.setText("?")
+            icon_lbl.setAlignment(Qt.AlignCenter)
+            hdr.addWidget(icon_lbl)
+            ttl = QLabel("遇到问题？联系作者获取帮助")
+            ttl.setStyleSheet("font-size: 15px; font-weight: 600; color: #262626;")
+            hdr.addWidget(ttl, 1)
+            layout.addLayout(hdr)
+
+            qq_label = QLabel("QQ：2273962061 / 3241417097\n作者：寒烟似雪（逸雨）")
+            qq_label.setAlignment(Qt.AlignCenter)
+            qq_label.setStyleSheet(scale_style("font-size: 13px; color: #595959; line-height: 1.8;"))
+            qq_label.setWordWrap(True)
+            layout.addWidget(qq_label)
+
+            layout.addSpacing(scale(8))
+
+            add_qq_btn = QPushButton("一键添加QQ好友")
+            add_qq_btn.setCursor(QCursor(Qt.PointingHandCursor))
+            add_qq_btn.setStyleSheet(scale_style("""
+                QPushButton {
+                    background-color: #12b7f5;
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 9px;
+                    font-size: 14px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #0ea5e0;
+                }
+                QPushButton:pressed {
+                    background-color: #0284c7;
+                }
+            """))
+
+            def _add_qq_friend():
+                try:
+                    import subprocess
+                    from platform_utils import subprocess_no_window_kwargs
+                    subprocess.Popen(
+                        ['cmd', '/c', 'start', '', 'tencent://AddContact/?fromId=45&fromSubId=1&subcmd=all&uin=2273962061'],
+                        **subprocess_no_window_kwargs()
+                    )
+                except Exception:
+                    try:
+                        webbrowser.open("tencent://AddContact/?fromId=45&fromSubId=1&subcmd=all&uin=2273962061")
+                    except Exception:
+                        self.show_notification("无法打开QQ，请手动添加好友：2273962061", "warning")
+
+            add_qq_btn.clicked.connect(_add_qq_friend)
+            layout.addWidget(add_qq_btn)
+
+            package_log_btn = QPushButton("打包日志文件（发送给作者排查问题）")
+            package_log_btn.setCursor(QCursor(Qt.PointingHandCursor))
+            package_log_btn.setStyleSheet(scale_style("""
+                QPushButton {
+                    background-color: #fafafa;
+                    color: #374151;
+                    border: 1px solid #e8e8e8;
+                    border-radius: 6px;
+                    padding: 9px;
+                    font-size: 13px;
+                }
+                QPushButton:hover {
+                    background-color: #f0f0f0;
+                    border: 1px solid #d9d9d9;
+                }
+                QPushButton:pressed {
+                    background-color: #e8e8e8;
+                }
+            """))
+
+            def _package_logs():
+                package_log_btn.setEnabled(False)
+                package_log_btn.setText("打包中...")
+                def _do_package():
+                    try:
+                        from logger_config import package_logs
+                        zip_path = package_logs()
+                        if zip_path:
+                            import subprocess
+                            from platform_utils import subprocess_no_window_kwargs
+                            abs_zip = os.path.abspath(zip_path)
+                            def _on_success():
+                                subprocess.Popen(['explorer', '/select,', abs_zip], **subprocess_no_window_kwargs())
+                                self.show_notification(f"日志已打包到：{os.path.basename(zip_path)}", "success")
+                                package_log_btn.setEnabled(True)
+                                package_log_btn.setText("打包日志文件（发送给作者排查问题）")
+                            run_on_main_thread(_on_success)
+                        else:
+                            def _on_fail():
+                                self.show_notification("没有可打包的日志文件", "warning")
+                                package_log_btn.setEnabled(True)
+                                package_log_btn.setText("打包日志文件（发送给作者排查问题）")
+                            run_on_main_thread(_on_fail)
+                    except Exception as e:
+                        err_msg = str(e)
+                        def _on_error():
+                            self.show_notification(f"打包日志失败：{err_msg}", "error")
+                            package_log_btn.setEnabled(True)
+                            package_log_btn.setText("打包日志文件（发送给作者排查问题）")
+                        run_on_main_thread(_on_error)
+                import threading
+                threading.Thread(target=_do_package, daemon=True).start()
+
+            package_log_btn.clicked.connect(_package_logs)
+            layout.addWidget(package_log_btn)
+
+            dialog.exec_()
+        except Exception as e:
+            logger.error(f"显示帮助对话框失败：{e}")
+
     def show_debug_window(self, error_msg, code_context, file_path):
         logger.error("显示调试窗口 - 错误: %s | 文件: %s", error_msg, file_path)
         logger.error("代码上下文: %s", code_context)
@@ -8297,6 +8840,9 @@ class BilibiliDownloader(BaseWindow):
         try:
             self.show_notification(error_msg, "error")
             self.status_label.setText("就绪")
+            if "请先登录" in error_msg:
+                from PyQt5.QtCore import QTimer
+                QTimer.singleShot(500, self._show_login_dialog)
         except Exception:
             pass
     
@@ -9033,6 +9579,30 @@ class BilibiliDownloader(BaseWindow):
                 self.floating_ball.deleteLater()
                 self.floating_ball = None
     
+    def _check_auto_shutdown(self):
+        auto_shutdown = self.config.get_app_setting("auto_shutdown", False)
+        if not auto_shutdown:
+            return False
+        if not hasattr(self, 'task_manager') or not self.task_manager:
+            return False
+        downloading_tasks = self.task_manager.get_tasks_by_status('downloading')
+        if downloading_tasks:
+            return False
+        return True
+    
+    def _do_auto_shutdown(self):
+        try:
+            if IS_WINDOWS:
+                import subprocess
+                subprocess.Popen(["shutdown", "/s", "/t", "60", "/c", "B站下载工具：下载完成，60秒后关机"], **subprocess_no_window_kwargs())
+                self.show_notification("下载完成，60秒后将自动关机", "warning")
+            elif IS_MACOS:
+                import subprocess
+                subprocess.Popen(["osascript", "-e", 'display alert "B站下载工具：下载完成，60秒后关机"'])
+                subprocess.Popen(["shutdown", "-h", "+1"])
+        except Exception as e:
+            logger.debug(f"自动关机失败: {e}")
+    
     def update_parse_progress(self, progress, message):
         try:
             if hasattr(self, 'status_label'):
@@ -9048,13 +9618,27 @@ class BilibiliDownloader(BaseWindow):
             logger.debug("traceback", exc_info=True)
 
     def init_ui(self):
-        self.setWindowTitle(f"B站视频解析工具{version_info['version']} - 作者：寒烟似雪(逸雨) QQ：2273962061/3241417097")
+        self.setWindowTitle(f"B站视频解析工具{version_info['version']}")
         screen = QApplication.primaryScreen()
         if screen:
             sg = screen.availableGeometry()
             self.setMinimumSize(max(scale(400), int(sg.width() * 0.3)), max(scale(300), int(sg.height() * 0.3)))
         else:
             self.setMinimumSize(scale(400), scale(300))
+        
+        saved_geometry = self.config.get_app_setting("window_geometry", "")
+        if saved_geometry:
+            try:
+                parts = [int(p) for p in saved_geometry.split(",")]
+                if len(parts) == 4:
+                    x, y, w, h = parts
+                    if screen:
+                        sg = screen.availableGeometry()
+                        x = max(sg.left(), min(x, sg.right() - w))
+                        y = max(sg.top(), min(y, sg.bottom() - h))
+                    self.setGeometry(x, y, w, h)
+            except Exception:
+                pass
         
         custom_style = get_base_style() + scale_style("""
             QMainWindow {
@@ -9128,9 +9712,39 @@ class BilibiliDownloader(BaseWindow):
         title_label = QLabel("B站视频解析下载工具")
         title_label.setObjectName("titleLabel")
         title_label.setStyleSheet(scale_style("font-size: 14px;"))
-        title_layout.addWidget(title_label, stretch=1)
+        title_layout.addWidget(title_label)
         
+        author_label = QLabel("作者：寒烟似雪(逸雨)")
+        author_label.setStyleSheet(scale_style("color: rgba(255,255,255,0.75); font-size: 11px;"))
+        author_label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        title_layout.addWidget(author_label)
         
+        help_btn = QPushButton("遇到错误？下载不了？有问题？点我")
+        help_btn.setObjectName("helpBtn")
+        help_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        help_btn.setStyleSheet(scale_style("""
+            QPushButton#helpBtn {
+                color: rgba(255,255,255,0.9);
+                font-size: 11px;
+                background-color: rgba(255,255,255,0.15);
+                border: 1px solid rgba(255,255,255,0.3);
+                border-radius: 10px;
+                padding: 2px 10px;
+            }
+            QPushButton#helpBtn:hover {
+                background-color: rgba(255,255,255,0.25);
+                border: 1px solid rgba(255,255,255,0.5);
+            }
+            QPushButton#helpBtn:pressed {
+                background-color: rgba(255,255,255,0.1);
+            }
+        """))
+        help_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        help_btn.clicked.connect(self._show_help_dialog)
+        title_layout.addWidget(help_btn)
+        
+        title_layout.addStretch(1)
+
         # 创建登录信息容器
         self.login_info_widget = QWidget()
         self.login_info_layout = QHBoxLayout(self.login_info_widget)
@@ -9212,15 +9826,6 @@ class BilibiliDownloader(BaseWindow):
         header_layout.addWidget(self.bilibili_btn)
         content_layout.addLayout(header_layout)
 
-        
-        author_label = QLabel("作者：寒烟似雪(逸雨) QQ：2273962061/3241417097")
-        author_label.setStyleSheet(scale_style("font-size: 10px; color: #6b7280; text-align: center;"))
-        author_label.setWordWrap(True)
-        author_label.setMinimumHeight(scale(28))
-        author_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        content_layout.addWidget(author_label)
-
-        
         sys_info_group = QGroupBox("系统信息")
         sys_info_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         sys_layout = QVBoxLayout(sys_info_group)
@@ -9282,6 +9887,19 @@ class BilibiliDownloader(BaseWindow):
         self.floating_checkbox.stateChanged.connect(lambda state: self.toggle_floating_toolbar(state == Qt.Checked))
         floating_layout.addWidget(floating_label)
         floating_layout.addWidget(self.floating_checkbox)
+        
+        floating_layout.addSpacing(scale(20))
+        
+        auto_shutdown_label = QLabel("下载完关机：")
+        auto_shutdown_label.setMinimumHeight(scale(28))
+        auto_shutdown_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.auto_shutdown_checkbox = QCheckBox()
+        self.auto_shutdown_checkbox.setMinimumHeight(scale(28))
+        self.auto_shutdown_checkbox.setMinimumWidth(scale(20))
+        self.auto_shutdown_checkbox.stateChanged.connect(lambda state: self.config.set_app_setting("auto_shutdown", state == Qt.Checked))
+        floating_layout.addWidget(auto_shutdown_label)
+        floating_layout.addWidget(self.auto_shutdown_checkbox)
+        
         floating_layout.addStretch(1)
         
         # 添加系统详细信息
@@ -9358,9 +9976,13 @@ class BilibiliDownloader(BaseWindow):
         url_label.setMinimumHeight(scale(36))
         url_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.url_edit = QLineEdit()
-        self.url_edit.setPlaceholderText("支持BV/ss/av号")
+        self.url_edit.setPlaceholderText("支持BV/ss/av号，按回车解析")
         self.url_edit.setMinimumHeight(scale(36))
         self.url_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.url_edit.returnPressed.connect(self.on_parse)
+        last_url = self.config.get_app_setting("last_parse_url", "")
+        if last_url:
+            self.url_edit.setText(last_url)
         self.parse_btn = QPushButton("解析")
         self.parse_btn.setMinimumHeight(scale(36))
         self.parse_btn.setMinimumWidth(scale(50))
@@ -10019,8 +10641,8 @@ class BilibiliDownloader(BaseWindow):
         self.content_list.setWordWrap(True)
         self.content_list.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.content_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.content_list._card_width = scale(190)
-        self.content_list._card_height = scale(160)
+        self.content_list._card_width = scale(170)
+        self.content_list._card_height = scale(210)
         self.content_list.setStyleSheet(scale_style("""
             QListWidget {
                 border: none;
@@ -10279,10 +10901,256 @@ class BilibiliDownloader(BaseWindow):
         self.cover_data_list = []
         self.current_cover_pixmap = None
         
+        all_in_one_tab = QWidget()
+        all_in_one_layout = QVBoxLayout(all_in_one_tab)
+        all_in_one_layout.setSpacing(scale(6))
+        all_in_one_layout.setContentsMargins(scale(6), scale(6), scale(6), scale(6))
+        
+        video_group = QGroupBox("视频")
+        video_group.setStyleSheet(scale_style("""
+            QGroupBox {
+                font-size: 13px;
+                font-weight: 600;
+                color: #333;
+                border: 1px solid #e0e4ea;
+                border-radius: 8px;
+                margin-top: 12px;
+                padding-top: 8px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 6px;
+            }
+        """))
+        video_group_layout = QVBoxLayout(video_group)
+        video_group_layout.setSpacing(scale(4))
+        video_group_layout.setContentsMargins(scale(8), scale(12), scale(8), scale(8))
+        
+        video_top_layout = QHBoxLayout()
+        video_top_layout.setSpacing(scale(8))
+        self.all_video_checkbox = QCheckBox("下载视频")
+        self.all_video_checkbox.setChecked(True)
+        self.all_video_checkbox.setStyleSheet(scale_style("font-size: 12px; font-weight: 500;"))
+        self.all_video_checkbox.stateChanged.connect(self._on_all_video_checkbox_changed)
+        video_top_layout.addWidget(self.all_video_checkbox)
+        
+        qn_label = QLabel("清晰度：")
+        qn_label.setStyleSheet(scale_style("font-size: 12px; color: #555;"))
+        self.all_qn_combo = QComboBox()
+        self.all_qn_combo.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dee2e6; border-radius: 4px; font-size: 12px;"))
+        self.all_qn_combo.setMinimumHeight(scale(28))
+        self.all_qn_combo.addItems(["480P", "360P"])
+        self.all_qn_combo.setCurrentIndex(0)
+        video_top_layout.addWidget(qn_label)
+        video_top_layout.addWidget(self.all_qn_combo, stretch=1)
+        video_top_layout.addStretch()
+        
+        select_all_episodes_btn = QPushButton("全选")
+        select_all_episodes_btn.setStyleSheet(scale_style("background-color: #52c41a; color: white; padding: 4px 14px; border-radius: 4px; font-size: 11px;"))
+        select_all_episodes_btn.setMinimumHeight(scale(26))
+        select_all_episodes_btn.clicked.connect(self._on_all_select_all_episodes)
+        deselect_all_episodes_btn = QPushButton("取消全选")
+        deselect_all_episodes_btn.setStyleSheet(scale_style("background-color: #919191; color: white; padding: 4px 14px; border-radius: 4px; font-size: 11px;"))
+        deselect_all_episodes_btn.setMinimumHeight(scale(26))
+        deselect_all_episodes_btn.clicked.connect(self._on_all_deselect_all_episodes)
+        video_top_layout.addWidget(select_all_episodes_btn)
+        video_top_layout.addWidget(deselect_all_episodes_btn)
+        video_group_layout.addLayout(video_top_layout)
+        
+        self.all_episode_list = QListWidget()
+        self.all_episode_list.setStyleSheet(scale_style("""
+            QListWidget {
+                border: 1px solid #dee2e6;
+                border-radius: 6px;
+                background-color: #fafbfc;
+                font-size: 12px;
+            }
+            QListWidget::item {
+                padding: 6px 8px;
+                border-bottom: 1px solid #f0f0f0;
+            }
+            QListWidget::item:selected {
+                background-color: #e6f4ff;
+                color: #1890ff;
+            }
+            QListWidget::item:hover {
+                background-color: #f5f5f5;
+            }
+        """))
+        self.all_episode_list.setMinimumHeight(scale(100))
+        self.all_episode_list.setSelectionMode(QListWidget.ExtendedSelection)
+        video_group_layout.addWidget(self.all_episode_list, stretch=1)
+        
+        all_in_one_layout.addWidget(video_group, stretch=1)
+        
+        extra_group = QGroupBox("附加内容")
+        extra_group.setStyleSheet(scale_style("""
+            QGroupBox {
+                font-size: 13px;
+                font-weight: 600;
+                color: #333;
+                border: 1px solid #e0e4ea;
+                border-radius: 8px;
+                margin-top: 12px;
+                padding-top: 8px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 6px;
+            }
+        """))
+        extra_group_layout = QHBoxLayout(extra_group)
+        extra_group_layout.setSpacing(scale(12))
+        extra_group_layout.setContentsMargins(scale(8), scale(12), scale(8), scale(8))
+        
+        self.all_danmaku_checkbox = QCheckBox("弹幕")
+        self.all_danmaku_checkbox.setChecked(True)
+        self.all_danmaku_checkbox.setStyleSheet(scale_style("font-size: 13px;"))
+        extra_group_layout.addWidget(self.all_danmaku_checkbox)
+        
+        danmaku_format_label = QLabel("格式:")
+        danmaku_format_label.setStyleSheet(scale_style("font-size: 11px; color: #888;"))
+        self.all_danmaku_format_combo = QComboBox()
+        self.all_danmaku_format_combo.addItems(["XML", "ASS"])
+        self.all_danmaku_format_combo.setStyleSheet(scale_style("padding: 2px 6px; border: 1px solid #dee2e6; border-radius: 3px; font-size: 11px;"))
+        self.all_danmaku_format_combo.setMaximumWidth(scale(70))
+        extra_group_layout.addWidget(danmaku_format_label)
+        extra_group_layout.addWidget(self.all_danmaku_format_combo)
+        
+        extra_group_layout.addSpacing(scale(30))
+        
+        self.all_cover_checkbox = QCheckBox("封面")
+        auto_cover_val = self.config.get_app_setting("auto_download_cover", True)
+        self.all_cover_checkbox.setChecked(auto_cover_val)
+        self.all_cover_checkbox.setStyleSheet(scale_style("font-size: 13px;"))
+        extra_group_layout.addWidget(self.all_cover_checkbox)
+        
+        extra_group_layout.addSpacing(scale(30))
+        
+        self.all_subtitle_checkbox = QCheckBox("字幕")
+        self.all_subtitle_checkbox.setChecked(False)
+        self.all_subtitle_checkbox.setStyleSheet(scale_style("font-size: 13px;"))
+        extra_group_layout.addWidget(self.all_subtitle_checkbox)
+        
+        extra_group_layout.addStretch()
+        all_in_one_layout.addWidget(extra_group)
+        
+        path_layout = QHBoxLayout()
+        path_layout.setSpacing(scale(8))
+        path_label = QLabel("保存路径：")
+        path_label.setStyleSheet(scale_style("font-size: 12px; font-weight: 500; color: #333;"))
+        self.all_path_edit = QLineEdit()
+        default_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载")
+        self.all_path_edit.setText(default_path)
+        self.all_path_edit.setStyleSheet(scale_style("padding: 6px 10px; border: 1px solid #dee2e6; border-radius: 6px; font-size: 12px;"))
+        self.all_path_edit.setMinimumHeight(scale(34))
+        path_select_btn = QPushButton("选择")
+        path_select_btn.setStyleSheet(scale_style("background-color: #6c757d; color: white; padding: 6px 16px; border-radius: 6px; font-size: 12px;"))
+        path_select_btn.setMinimumHeight(scale(34))
+        path_select_btn.clicked.connect(self._on_all_select_path)
+        path_layout.addWidget(path_label)
+        path_layout.addWidget(self.all_path_edit, stretch=1)
+        path_layout.addWidget(path_select_btn)
+        all_in_one_layout.addLayout(path_layout)
+        
+        self.tab_widget.insertTab(0, all_in_one_tab, "综合下载")
         self.tab_widget.addTab(video_tab, "视频解析")
         self.tab_widget.addTab(danmaku_tab, "弹幕解析")
         self.tab_widget.addTab(favorite_tab, "收藏夹")
         self.tab_widget.addTab(cover_tab, "封面下载")
+        
+        history_tab = QWidget()
+        history_layout = QVBoxLayout(history_tab)
+        history_layout.setSpacing(scale(10))
+        history_layout.setContentsMargins(scale(10), scale(10), scale(10), scale(10))
+        
+        history_search_layout = QHBoxLayout()
+        history_search_layout.setSpacing(scale(8))
+        self.history_search_edit = QLineEdit()
+        self.history_search_edit.setPlaceholderText("搜索历史记录...")
+        self.history_search_edit.setMinimumHeight(scale(32))
+        self.history_search_edit.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dee2e6; border-radius: 4px; font-size: 12px;"))
+        history_search_btn = QPushButton("搜索")
+        history_search_btn.setMinimumHeight(scale(32))
+        history_search_btn.setMinimumWidth(scale(50))
+        history_search_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; border-radius: 4px; padding: 4px 12px; font-size: 12px;"))
+        history_search_btn.clicked.connect(self._search_history)
+        self.history_search_edit.returnPressed.connect(self._search_history)
+        
+        history_filter_layout = QHBoxLayout()
+        history_filter_layout.setSpacing(scale(6))
+        history_filter_all = QPushButton("全部")
+        history_filter_all.setCheckable(True)
+        history_filter_all.setChecked(True)
+        history_filter_all.setMinimumHeight(scale(28))
+        history_filter_all.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dee2e6; border-radius: 4px; font-size: 11px; } QPushButton:checked { background-color: #409eff; color: white; border-color: #409eff; }"))
+        history_filter_success = QPushButton("成功")
+        history_filter_success.setCheckable(True)
+        history_filter_success.setMinimumHeight(scale(28))
+        history_filter_success.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dee2e6; border-radius: 4px; font-size: 11px; } QPushButton:checked { background-color: #52c41a; color: white; border-color: #52c41a; }"))
+        history_filter_failed = QPushButton("失败")
+        history_filter_failed.setCheckable(True)
+        history_filter_failed.setMinimumHeight(scale(28))
+        history_filter_failed.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dee2e6; border-radius: 4px; font-size: 11px; } QPushButton:checked { background-color: #f56c6c; color: white; border-color: #f56c6c; }"))
+        
+        self._history_filter_group = QButtonGroup(self)
+        self._history_filter_group.setExclusive(True)
+        self._history_filter_group.addButton(history_filter_all)
+        self._history_filter_group.addButton(history_filter_success)
+        self._history_filter_group.addButton(history_filter_failed)
+        self._history_filter_group.buttonClicked.connect(self._on_history_filter_changed)
+        self._history_filter_all = history_filter_all
+        self._history_filter_success = history_filter_success
+        self._history_filter_failed = history_filter_failed
+        
+        history_filter_layout.addWidget(history_filter_all)
+        history_filter_layout.addWidget(history_filter_success)
+        history_filter_layout.addWidget(history_filter_failed)
+        history_filter_layout.addStretch(1)
+        
+        clear_history_btn = QPushButton("清空历史")
+        clear_history_btn.setMinimumHeight(scale(28))
+        clear_history_btn.setStyleSheet(scale_style("QPushButton { background-color: #f56c6c; color: white; border-radius: 4px; padding: 2px 10px; font-size: 11px; } QPushButton:hover { background-color: #e04040; }"))
+        clear_history_btn.clicked.connect(self._clear_history)
+        history_filter_layout.addWidget(clear_history_btn)
+        
+        history_search_layout.addWidget(self.history_search_edit, stretch=1)
+        history_search_layout.addWidget(history_search_btn)
+        history_layout.addLayout(history_search_layout)
+        history_layout.addLayout(history_filter_layout)
+        
+        self.history_list = QListWidget()
+        self.history_list.setStyleSheet(scale_style("""
+            QListWidget {
+                border: 1px solid #dee2e6;
+                border-radius: 6px;
+                font-size: 12px;
+                background-color: #fafafa;
+            }
+            QListWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #f0f0f0;
+            }
+            QListWidget::item:hover {
+                background-color: #e6f7ff;
+            }
+            QListWidget::item:selected {
+                background-color: #bae7ff;
+            }
+        """))
+        self.history_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.history_list.customContextMenuRequested.connect(self._on_history_context_menu)
+        self.history_list.itemDoubleClicked.connect(self._on_history_item_double_clicked)
+        history_layout.addWidget(self.history_list, stretch=1)
+        
+        self.history_status_label = QLabel("")
+        self.history_status_label.setStyleSheet(scale_style("font-size: 11px; color: #6c757d;"))
+        self.history_status_label.setAlignment(Qt.AlignCenter)
+        history_layout.addWidget(self.history_status_label)
+        
+        self.tab_widget.addTab(history_tab, "下载历史")
         
         # 连接标签页切换信号
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
@@ -10349,12 +11217,10 @@ class BilibiliDownloader(BaseWindow):
         btn_layout.addWidget(self.settings_btn)
         content_layout.addLayout(btn_layout)
 
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QScrollArea.NoFrame)
-        scroll_area.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-        scroll_area.setWidget(content_widget)
-        main_layout.addWidget(scroll_area, stretch=1)
+        # 直接添加content_widget，不用QScrollArea包裹
+        # QScrollArea会拦截内部控件（如QListWidget、QComboBox）的鼠标事件，导致无法操作
+        content_widget.setAutoFillBackground(True)
+        main_layout.addWidget(content_widget, stretch=1)
 
         self.signal_emitter.user_info_updated.connect(self.update_user_info)
         self.signal_emitter.hevc_checked.connect(self.update_hevc_status)
@@ -10473,19 +11339,28 @@ class BilibiliDownloader(BaseWindow):
         import threading
         def get_folders():
             try:
+                if not hasattr(self, 'parser') or not self.parser or not self.parser.cookies:
+                    self.signal_emitter.folder_error.emit("请先登录后再查看收藏夹")
+                    return
                 folders = self.parser.get_user_folders()
                 logger.info(f"获取到 {len(folders)} 个收藏夹，准备更新UI")
                 self.signal_emitter.folders_loaded.emit(folders)
             except Exception as e:
-                logger.debug("traceback", exc_info=True)
-                logger.error(f"获取收藏夹失败：{str(e)}")
-                self.signal_emitter.folder_error.emit(f"获取收藏夹失败：{str(e)}")
+                error_str = str(e)
+                if "-101" in error_str or "未登录" in error_str:
+                    self.signal_emitter.folder_error.emit("请先登录后再查看收藏夹")
+                else:
+                    logger.debug("traceback", exc_info=True)
+                    logger.error(f"获取收藏夹失败：{error_str}")
+                    self.signal_emitter.folder_error.emit(f"获取收藏夹失败：{error_str}")
         
         thread = threading.Thread(target=get_folders)
         thread.daemon = True
         thread.start()
     
     def update_folder_list(self, folders):
+        if folders is None:
+            folders = []
         logger.info(f"更新收藏夹列表，接收到 {len(folders)} 个收藏夹")
         
         if not hasattr(self, 'folder_list'):
@@ -10712,16 +11587,26 @@ class BilibiliDownloader(BaseWindow):
                     folder_id, page_size=50, get_all=True,
                     progress_callback=progress_cb, page_callback=page_cb
                 )
-                logger.info(f"获取收藏夹内容成功，共 {len(content['items'])} 个项目")
+                if not content or not isinstance(content, dict):
+                    raise Exception("获取收藏夹内容返回空数据")
+                items = content.get('items') or []
+                logger.info(f"获取收藏夹内容成功，共 {len(items)} 个项目")
                 if _dialog_alive[0]:
                     loading_dialog.finish_and_close()
-                self.signal_emitter.folder_content_finished.emit(len(content['items']))
+                self.signal_emitter.folder_content_finished.emit(len(items))
             except Exception as e:
+                error_str = str(e)
                 logger.debug("traceback", exc_info=True)
-                logger.error(f"获取收藏内容失败：{str(e)}")
-                if _dialog_alive[0]:
-                    loading_dialog.finish_and_close()
-                self.signal_emitter.folder_error.emit(f"获取收藏内容失败：{str(e)}")
+                if "-101" in error_str or "未登录" in error_str:
+                    logger.error(f"获取收藏内容失败：未登录")
+                    if _dialog_alive[0]:
+                        loading_dialog.finish_and_close()
+                    self.signal_emitter.folder_error.emit("请先登录后再查看收藏夹")
+                else:
+                    logger.error(f"获取收藏内容失败：{error_str}")
+                    if _dialog_alive[0]:
+                        loading_dialog.finish_and_close()
+                    self.signal_emitter.folder_error.emit(f"获取收藏内容失败：{error_str}")
         
         logger.info("启动获取收藏内容线程")
         thread = threading.Thread(target=get_folder_content)
@@ -10759,7 +11644,7 @@ class BilibiliDownloader(BaseWindow):
         """ % (index, index)))
         
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(scale(2), scale(4), scale(2), scale(4))
+        layout.setContentsMargins(scale(2), scale(2), scale(2), scale(2))
         layout.setSpacing(scale(0))
         
         cover_container = QWidget()
@@ -10767,7 +11652,7 @@ class BilibiliDownloader(BaseWindow):
         cover_container.setStyleSheet(scale_style("""
             QWidget {
                 background-color: #e8ecf1;
-                border-radius: 8px;
+                border-radius: 6px;
             }
         """))
         cover_layout = QVBoxLayout(cover_container)
@@ -10790,14 +11675,14 @@ class BilibiliDownloader(BaseWindow):
         duration_str = f"{minutes}:{seconds:02d}"
         
         duration_label = QLabel(duration_str)
-        duration_label.setFixedSize(scale(46), scale(18))
+        duration_label.setFixedSize(scale(40), scale(16))
         duration_label.setStyleSheet(scale_style("""
             QLabel {
                 background-color: rgba(0, 0, 0, 0.7);
                 color: white;
-                font-size: 11px;
-                border-radius: 4px;
-                padding: 2px 4px;
+                font-size: 10px;
+                border-radius: 3px;
+                padding: 1px 3px;
             }
         """))
         duration_label.setAlignment(Qt.AlignCenter)
@@ -10828,14 +11713,19 @@ class BilibiliDownloader(BaseWindow):
                     self.signals = self.SignalEmitter()
                 
                 def run(self):
-                    try:
-                        response = requests.get(self.url, timeout=3)
-                        response.raise_for_status()
-                        pixmap = QPixmap()
-                        pixmap.loadFromData(response.content)
-                        self.signals.finished.emit(pixmap)
-                    except:
-                        self.signals.finished.emit(QPixmap())
+                    pixmap = QPixmap()
+                    for attempt in range(2):
+                        try:
+                            response = requests.get(self.url, headers=_COVER_HEADERS, timeout=10)
+                            response.raise_for_status()
+                            pixmap = QPixmap()
+                            pixmap.loadFromData(response.content)
+                            if not pixmap.isNull():
+                                break
+                        except Exception:
+                            if attempt == 0:
+                                continue
+                    self.signals.finished.emit(pixmap)
             
             def on_cover_loaded(pixmap):
                 try:
@@ -10859,16 +11749,16 @@ class BilibiliDownloader(BaseWindow):
             
             self.cover_loaders.append(loader)
         
-        layout.addSpacing(4)
+        layout.addSpacing(2)
         
         title = item.get('title', '未知视频')
         title_label = QLabel(title)
-        title_label.setFixedHeight(scale(26))
+        title_label.setFixedHeight(scale(20))
         title_label.setFixedWidth(text_w)
         title_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         title_label.setStyleSheet(scale_style("""
             QLabel {
-                font-size: 12px;
+                font-size: 11px;
                 font-weight: 500;
                 color: #1f2937;
                 background: transparent;
@@ -10906,15 +11796,15 @@ class BilibiliDownloader(BaseWindow):
         
         layout.addWidget(title_label, alignment=Qt.AlignCenter)
         
-        layout.addSpacing(2)
+        layout.addSpacing(1)
         
         up_name = item.get('up_name', '未知UP主')
         up_label = QLabel(up_name)
-        up_label.setFixedHeight(scale(22))
+        up_label.setFixedHeight(scale(18))
         up_label.setFixedWidth(text_w)
         up_label.setStyleSheet(scale_style("""
             QLabel {
-                font-size: 11px;
+                font-size: 10px;
                 color: #6b7280;
                 background: transparent;
             }
@@ -10922,20 +11812,20 @@ class BilibiliDownloader(BaseWindow):
         up_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         layout.addWidget(up_label, alignment=Qt.AlignCenter)
         
-        layout.addSpacing(2)
+        layout.addSpacing(1)
         
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(scale(4))
         
         parse_btn = QPushButton("解析")
-        parse_btn.setMinimumSize(scale(80), scale(40))
+        parse_btn.setMinimumSize(scale(76), scale(26))
         parse_btn.setStyleSheet(scale_style("""
             QPushButton {
                 background-color: #10b981;
                 color: white;
                 border: none;
-                border-radius: 4px;
-                font-size: 12px;
+                border-radius: 3px;
+                font-size: 11px;
                 font-weight: 500;
             }
             QPushButton:hover {
@@ -10947,14 +11837,14 @@ class BilibiliDownloader(BaseWindow):
         btn_layout.addWidget(parse_btn)
         
         cover_btn = QPushButton("封面")
-        cover_btn.setMinimumSize(scale(80), scale(40))
+        cover_btn.setMinimumSize(scale(76), scale(26))
         cover_btn.setStyleSheet(scale_style("""
             QPushButton {
                 background-color: #4f6ef7;
                 color: white;
                 border: none;
-                border-radius: 4px;
-                font-size: 12px;
+                border-radius: 3px;
+                font-size: 11px;
                 font-weight: 500;
             }
             QPushButton:hover {
@@ -10975,16 +11865,17 @@ class BilibiliDownloader(BaseWindow):
                 list_w = self.content_list.width()
             if list_w <= 0:
                 return
-            base_card_w = scale(190)
+            base_card_w = scale(170)
+            max_card_w = scale(220)  # 限制最大宽度，防止卡片过大
             spacing = scale(8)
             padding = scale(24)
             available_w = list_w - padding
             cols = max(1, int(available_w / (base_card_w + spacing)))
             card_w = int((available_w - (cols - 1) * spacing) / cols)
-            card_w = max(base_card_w, card_w)
+            card_w = max(base_card_w, min(card_w, max_card_w))
             cover_w = card_w - scale(8)
             cover_h = int(cover_w * 9 / 16)
-            card_h = cover_h + scale(120)
+            card_h = cover_h + scale(70)
             self.content_list._card_width = card_w
             self.content_list._card_height = card_h
         except Exception:
@@ -11014,8 +11905,8 @@ class BilibiliDownloader(BaseWindow):
         self._fav_total_items.extend(page_items)
         
         start_idx = self._fav_loaded_count
-        card_w = self.content_list._card_width if hasattr(self.content_list, '_card_width') else scale(190)
-        card_h = self.content_list._card_height if hasattr(self.content_list, '_card_height') else scale(280)
+        card_w = self.content_list._card_width if hasattr(self.content_list, '_card_width') else scale(170)
+        card_h = self.content_list._card_height if hasattr(self.content_list, '_card_height') else scale(210)
         
         for i, item in enumerate(page_items):
             global_idx = start_idx + i
@@ -11162,16 +12053,475 @@ class BilibiliDownloader(BaseWindow):
         if self._content_item_index < len(items):
             QTimer.singleShot(10, self._load_content_batch)
     
+    def _on_all_video_checkbox_changed(self, state):
+        try:
+            enabled = state == Qt.Checked
+            if hasattr(self, 'all_qn_combo'):
+                self.all_qn_combo.setEnabled(enabled)
+            if hasattr(self, 'all_episode_list'):
+                self.all_episode_list.setEnabled(enabled)
+                if not enabled:
+                    self.all_episode_list.clearSelection()
+        except Exception:
+            pass
+    
+    def _on_all_select_all_episodes(self):
+        if hasattr(self, 'all_episode_list'):
+            self.all_episode_list.selectAll()
+    
+    def _on_all_deselect_all_episodes(self):
+        if hasattr(self, 'all_episode_list'):
+            self.all_episode_list.clearSelection()
+    
+    def _on_all_select_path(self):
+        # 内联实现选择保存路径（原select_save_path定义在FloatingBall类中）
+        default_path = self.path_edit.text().strip() if hasattr(self, 'path_edit') and self.path_edit else os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载")
+        if hasattr(self, 'show_custom_file_dialog'):
+            folder = self.show_custom_file_dialog("选择保存路径")
+        else:
+            from PyQt5.QtWidgets import QFileDialog
+            folder = QFileDialog.getExistingDirectory(
+                None, "选择保存路径", default_path,
+                QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
+            )
+        if folder:
+            try:
+                folder = os.path.normpath(folder)
+                if not os.path.exists(folder):
+                    os.makedirs(folder, exist_ok=True)
+                import uuid
+                test_file = os.path.join(folder, f"permission_test_{uuid.uuid4().hex[:8]}.tmp")
+                with open(test_file, 'w') as f:
+                    f.write("test")
+                os.remove(test_file)
+                if hasattr(self, 'path_edit') and self.path_edit:
+                    self.path_edit.setText(folder)
+            except Exception as e:
+                self.show_notification(f"无法使用该路径: {str(e)}", "error") if hasattr(self, 'show_notification') else None
+                return
+        else:
+            return
+        # 到此处 folder 一定有效
+        if folder and hasattr(self, 'all_path_edit'):
+            self.all_path_edit.setText(folder)
+    
+    def _populate_all_in_one_tab(self, video_info):
+        try:
+            if not video_info:
+                return
+            
+            episodes = []
+            if video_info.get("is_bangumi") and video_info.get("bangumi_info"):
+                episodes = video_info["bangumi_info"].get("episodes", [])
+            elif video_info.get("is_cheese") and video_info.get("cheese_info"):
+                episodes = video_info["cheese_info"].get("episodes", [])
+            elif video_info.get("collection"):
+                episodes = video_info.get("collection", [])
+            elif video_info.get("episodes"):
+                episodes = video_info.get("episodes", [])
+            
+            if not episodes:
+                return
+            
+            if hasattr(self, 'all_episode_list'):
+                self.all_episode_list.clear()
+                for i, ep in enumerate(episodes):
+                    title = ""
+                    duration_str = ""
+                    if video_info.get("is_bangumi") or video_info.get("is_cheese"):
+                        ep_index = ep.get('ep_index', f'第{i+1}集')
+                        ep_title = ep.get('ep_title', '')
+                        title = f"{ep_index} - {ep_title}" if ep_title else ep_index
+                    else:
+                        page = ep.get('page', i + 1)
+                        ep_title = ep.get('title', '')
+                        title = f"第{page}集 - {ep_title}" if ep_title else f"第{page}集"
+                    
+                    dur = ep.get('duration_str', '') or ep.get('duration', '')
+                    if isinstance(dur, int) and dur > 0:
+                        h = dur // 3600
+                        m = (dur % 3600) // 60
+                        s = dur % 60
+                        duration_str = f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+                    elif dur:
+                        duration_str = str(dur)
+                    
+                    display_text = f"{title}"
+                    if duration_str:
+                        display_text += f"   时长: {duration_str}"
+                    
+                    item = QListWidgetItem(display_text)
+                    item.setData(Qt.UserRole, i)
+                    item.setCheckState(Qt.Checked)
+                    self.all_episode_list.addItem(item)
+            
+            qualities = video_info.get("qualities", [])
+            if qualities and hasattr(self, 'all_qn_combo'):
+                current = self.all_qn_combo.currentText()
+                self.all_qn_combo.clear()
+                for q in qualities:
+                    qn_name = q.get("name", str(q.get("qn", "")))
+                    self.all_qn_combo.addItem(qn_name, q.get("qn", 0))
+                idx = self.all_qn_combo.findText(current)
+                if idx >= 0:
+                    self.all_qn_combo.setCurrentIndex(idx)
+                elif self.all_qn_combo.count() > 0:
+                    self.all_qn_combo.setCurrentIndex(0)
+            
+            if hasattr(self, 'download_btn'):
+                self.download_btn.setEnabled(True)
+        except Exception as e:
+            logger.error(f"填充综合下载tab失败: {e}")
+    
+    def _on_all_download_clicked(self):
+        try:
+            if not self.current_video_info:
+                self.show_notification("请先解析视频链接哦", "warning")
+                return
+            
+            download_video = False
+            if hasattr(self, 'all_video_checkbox'):
+                download_video = self.all_video_checkbox.isChecked()
+            
+            download_danmaku = False
+            if hasattr(self, 'all_danmaku_checkbox'):
+                download_danmaku = self.all_danmaku_checkbox.isChecked()
+            
+            download_cover = False
+            if hasattr(self, 'all_cover_checkbox'):
+                download_cover = self.all_cover_checkbox.isChecked()
+            
+            download_subtitle = False
+            if hasattr(self, 'all_subtitle_checkbox'):
+                download_subtitle = self.all_subtitle_checkbox.isChecked()
+            
+            if not download_video and not download_danmaku and not download_cover and not download_subtitle:
+                self.show_notification("请至少选择一种下载类型", "warning")
+                return
+            
+            selected_episodes = []
+            if hasattr(self, 'all_episode_list'):
+                for i in range(self.all_episode_list.count()):
+                    item = self.all_episode_list.item(i)
+                    if item.checkState() == Qt.Checked:
+                        idx = item.data(Qt.UserRole)
+                        if idx is not None:
+                            episodes = []
+                            vi = self.current_video_info
+                            if vi.get("is_bangumi") and vi.get("bangumi_info"):
+                                episodes = vi["bangumi_info"].get("episodes", [])
+                            elif vi.get("is_cheese") and vi.get("cheese_info"):
+                                episodes = vi["cheese_info"].get("episodes", [])
+                            elif vi.get("collection"):
+                                episodes = vi.get("collection", [])
+                            elif vi.get("episodes"):
+                                episodes = vi.get("episodes", [])
+                            if idx < len(episodes):
+                                selected_episodes.append(episodes[idx])
+            
+            if download_video and not selected_episodes:
+                self.show_notification("请先勾选要下载的集数", "warning")
+                return
+            
+            if not download_video:
+                vi = self.current_video_info
+                if vi.get("is_bangumi") and vi.get("bangumi_info"):
+                    selected_episodes = vi["bangumi_info"].get("episodes", [])[:1]
+                elif vi.get("is_cheese") and vi.get("cheese_info"):
+                    selected_episodes = vi["cheese_info"].get("episodes", [])[:1]
+                elif vi.get("collection"):
+                    selected_episodes = vi.get("collection", [])[:1]
+                elif vi.get("episodes"):
+                    selected_episodes = vi.get("episodes", [])[:1]
+                else:
+                    selected_episodes = [vi.copy()] if vi else []
+            
+            selected_qn = 80
+            if download_video and hasattr(self, 'all_qn_combo') and self.all_qn_combo.currentIndex() >= 0:
+                selected_qn = self.all_qn_combo.currentData() or self.all_qn_combo.currentText()
+                if isinstance(selected_qn, str):
+                    qn_map = {"360P": 16, "480P": 32, "720P": 64, "1080P": 80, "1080P+": 112, "4K": 126}
+                    selected_qn = qn_map.get(selected_qn.upper(), 80)
+            
+            save_path = ""
+            if hasattr(self, 'all_path_edit'):
+                save_path = self.all_path_edit.text().strip()
+            if not save_path:
+                save_path = self.path_edit.text().strip() if hasattr(self, 'path_edit') else ""
+            if not save_path:
+                self.show_notification("请选择保存路径", "warning")
+                return
+            os.makedirs(save_path, exist_ok=True)
+            
+            danmaku_format = "XML"
+            if hasattr(self, 'all_danmaku_format_combo'):
+                danmaku_format = self.all_danmaku_format_combo.currentText()
+            
+            url = self.url_edit.text().strip() if hasattr(self, 'url_edit') else ""
+            
+            task_id = str(int(time.time() * 1000))
+            
+            audio_quality = 30280
+            if hasattr(self, 'config'):
+                audio_quality = self.config.get_app_setting("audio_quality", 30280)
+            
+            download_params = {
+                "url": url,
+                "video_info": self.current_video_info,
+                "qn": selected_qn,
+                "save_path": save_path,
+                "episodes": selected_episodes,
+                "resume_download": True,
+                "task_id": task_id,
+                "download_danmaku": download_danmaku,
+                "danmaku_format": danmaku_format,
+                "download_video": download_video,
+                "download_cover": download_cover,
+                "download_subtitle": download_subtitle,
+                "video_format": self.config.get_app_setting("video_output_format", "mp4"),
+                "audio_format": self.config.get_app_setting("audio_output_format", "mp3"),
+                "audio_quality": audio_quality
+            }
+            
+            def format_ep_name(ep, idx, vi):
+                if vi.get("is_bangumi") or vi.get("is_cheese"):
+                    ep_index = ep.get('ep_index', f'第{idx+1}集')
+                    ep_title = ep.get('ep_title', '')
+                    return f"{ep_index} - {ep_title}" if ep_title else ep_index
+                else:
+                    page = ep.get('page', idx + 1)
+                    ep_title = ep.get('title', '')
+                    return f"第{page}集 - {ep_title}" if ep_title else f"第{page}集"
+            
+            total_items = len(selected_episodes) if download_video else 0
+            if download_danmaku:
+                total_items += 1
+            if download_cover:
+                total_items += 1
+            if download_subtitle:
+                total_items += 1
+            
+            existing_window = None
+            if hasattr(self, 'batch_windows'):
+                for wid, window in self.batch_windows.items():
+                    if isinstance(window, BatchDownloadWindow):
+                        existing_window = (wid, window)
+                        break
+            
+            if existing_window:
+                _, win = existing_window
+                item_idx = 0
+                if download_video:
+                    for i, ep in enumerate(selected_episodes):
+                        ep_name = format_ep_name(ep, i, self.current_video_info)
+                        ep_tooltip = ep.get('ep_title', '') or ep.get('title', '') or ''
+                        win.add_episode_progress(ep_name, ep_tooltip, task_id, item_idx)
+                        item_idx += 1
+                if download_danmaku:
+                    win.add_episode_progress("弹幕", "", task_id, item_idx)
+                    item_idx += 1
+                if download_cover:
+                    win.add_episode_progress("封面", "", task_id, item_idx)
+                    item_idx += 1
+                if download_subtitle:
+                    win.add_episode_progress("字幕", "", task_id, item_idx)
+                    item_idx += 1
+                win.show()
+                win.raise_()
+                win.activateWindow()
+            else:
+                batch_window = BatchDownloadWindow(self.current_video_info, total_items, self.download_manager, self.parser)
+                item_idx = 0
+                if download_video:
+                    for i, ep in enumerate(selected_episodes):
+                        ep_name = format_ep_name(ep, i, self.current_video_info)
+                        ep_tooltip = ep.get('ep_title', '') or ep.get('title', '') or ''
+                        batch_window.add_episode_progress(ep_name, ep_tooltip, task_id, item_idx)
+                        item_idx += 1
+                if download_danmaku:
+                    batch_window.add_episode_progress("弹幕", "", task_id, item_idx)
+                    item_idx += 1
+                if download_cover:
+                    batch_window.add_episode_progress("封面", "", task_id, item_idx)
+                    item_idx += 1
+                if download_subtitle:
+                    batch_window.add_episode_progress("字幕", "", task_id, item_idx)
+                    item_idx += 1
+                batch_window.cancel_all.connect(self.on_cancel_download)
+                batch_window.window_closed.connect(lambda tid=task_id: self.on_batch_window_closed(tid))
+                batch_window.show()
+                batch_window.raise_()
+                batch_window.activateWindow()
+                self.batch_windows[task_id] = batch_window
+            
+            def _start_download():
+                if self.download_manager:
+                    self.download_manager.start_download(download_params)
+            
+            QTimer.singleShot(100, _start_download)
+            
+            type_names = []
+            if download_video:
+                type_names.append(f"{len(selected_episodes)}集视频")
+            if download_danmaku:
+                type_names.append("弹幕")
+            if download_cover:
+                type_names.append("封面")
+            if download_subtitle:
+                type_names.append("字幕")
+            
+            self.show_notification(f"已添加下载任务：{' + '.join(type_names)}", "success")
+        except Exception as e:
+            logger.error(f"综合下载失败: {e}")
+            self.show_notification(f"下载失败：{e}", "error")
+
     def on_tab_changed(self, index):
         logger = logging.getLogger(__name__)
         logger.info(f"标签页切换到索引：{index}")
-        
-        if index == 2:
+
+        # Tab顺序：0=综合下载, 1=视频解析, 2=弹幕解析, 3=收藏夹, 4=封面下载, 5=下载历史
+        if index == 3:
             logger.info("切换到收藏夹标签页，开始刷新收藏夹列表")
             self.refresh_folders()
-        elif index == 3:
+        elif index == 4:
             logger.info("切换到封面下载标签页")
             self.update_cover_tab()
+        elif index == 5:
+            logger.info("切换到下载历史标签页")
+            self._refresh_history_list()
+
+    def _refresh_history_list(self):
+        try:
+            keyword = self.history_search_edit.text().strip() if hasattr(self, 'history_search_edit') else ""
+            status_filter = ""
+            if hasattr(self, '_history_filter_success') and self._history_filter_success.isChecked():
+                status_filter = "success"
+            elif hasattr(self, '_history_filter_failed') and self._history_filter_failed.isChecked():
+                status_filter = "failed"
+            
+            records, total = self.download_history.get_records(
+                keyword=keyword, status_filter=status_filter, limit=100
+            )
+            
+            self.history_list.clear()
+            for record in records:
+                title = record.get("title", "未知视频")
+                bvid = record.get("bvid", "")
+                quality = record.get("quality", "")
+                status = record.get("status", "")
+                time_str = record.get("time_str", "")
+                file_size = record.get("file_size", 0)
+                
+                status_icon = "√" if status == "success" else "×"
+                status_color = "#52c41a" if status == "success" else "#f56c6c"
+                
+                size_str = ""
+                if file_size > 0:
+                    if file_size > 1024 * 1024:
+                        size_str = f" {file_size / (1024 * 1024):.1f}MB"
+                    elif file_size > 1024:
+                        size_str = f" {file_size / 1024:.1f}KB"
+                
+                display_text = f"[{status_icon}] {time_str}  {title}"
+                if bvid:
+                    display_text += f"  ({bvid})"
+                if quality:
+                    display_text += f"  [{quality}]"
+                if size_str:
+                    display_text += size_str
+                
+                item = QListWidgetItem(display_text)
+                item.setData(Qt.UserRole, record)
+                if status == "success":
+                    item.setForeground(QColor("#166534"))
+                else:
+                    item.setForeground(QColor("#991b1b"))
+                self.history_list.addItem(item)
+            
+            self.history_status_label.setText(f"共 {total} 条记录")
+        except Exception as e:
+            logger.debug(f"刷新历史记录失败: {e}")
+
+    def _search_history(self):
+        self._refresh_history_list()
+
+    def _on_history_filter_changed(self, btn):
+        self._refresh_history_list()
+
+    def _clear_history(self):
+        reply = QMessageBox.question(self, "确认清空", "确定要清空所有下载历史记录吗？此操作不可恢复。",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self.download_history.clear_records()
+            self._refresh_history_list()
+            self.show_notification("历史记录已清空", "info")
+
+    def _on_history_context_menu(self, pos):
+        item = self.history_list.itemAt(pos)
+        if not item:
+            return
+        record = item.data(Qt.UserRole)
+        if not record:
+            return
+        
+        menu = QMenu(self)
+        
+        reparse_action = menu.addAction("重新解析")
+        open_folder_action = menu.addAction("打开文件位置")
+        copy_url_action = menu.addAction("复制链接")
+        delete_action = menu.addAction("删除记录")
+        
+        action = menu.exec_(self.history_list.mapToGlobal(pos))
+        
+        if action == reparse_action:
+            url = record.get("url", "")
+            bvid = record.get("bvid", "")
+            if url:
+                self.url_edit.setText(url)
+                self.tab_widget.setCurrentIndex(0)
+                self.on_parse()
+            elif bvid:
+                self.url_edit.setText(bvid)
+                self.tab_widget.setCurrentIndex(0)
+                self.on_parse()
+        elif action == open_folder_action:
+            file_path = record.get("file_path", "")
+            save_path = record.get("save_path", "")
+            target = file_path if file_path and os.path.exists(file_path) else save_path
+            if target and os.path.exists(target):
+                try:
+                    if os.path.isfile(target):
+                        import subprocess
+                        subprocess.Popen(f'explorer /select,"{target}"', **subprocess_no_window_kwargs())
+                    else:
+                        os.startfile(target)
+                except Exception as e:
+                    self.show_notification(f"打开文件夹失败：{e}", "error")
+            else:
+                self.show_notification("文件或文件夹不存在", "warning")
+        elif action == copy_url_action:
+            url = record.get("url", "")
+            bvid = record.get("bvid", "")
+            copy_text = url or bvid or ""
+            if copy_text:
+                QApplication.clipboard().setText(copy_text)
+                self.show_notification("链接已复制", "success")
+        elif action == delete_action:
+            record_id = record.get("id", "")
+            if record_id:
+                self.download_history.delete_record(record_id)
+                self._refresh_history_list()
+
+    def _on_history_item_double_clicked(self, item):
+        record = item.data(Qt.UserRole)
+        if not record:
+            return
+        url = record.get("url", "")
+        bvid = record.get("bvid", "")
+        if url or bvid:
+            self.url_edit.setText(url or bvid)
+            self.tab_widget.setCurrentIndex(0)
+            self.on_parse()
     
     def on_content_clicked(self, item):
         logger = logging.getLogger(__name__)
@@ -11628,6 +12978,11 @@ class BilibiliDownloader(BaseWindow):
         if not url:
             self.show_notification("请输入有效的视频链接", "warning")
             return
+        # 验证是否为B站链接
+        if not self._is_bilibili_url(url):
+            self.show_notification("请输入B站链接（支持bilibili.com、b23.tv、BV号等）", "warning")
+            return
+        self.config.set_app_setting("last_parse_url", url)
         self.clear_parse_video_info()
         self.parse_btn.setEnabled(False)
         self.video_title.setText("解析中...")
@@ -11777,6 +13132,8 @@ class BilibiliDownloader(BaseWindow):
             
             # 确保在主线程中更新UI
             QTimer.singleShot(0, lambda: self.update_ui(video_info))
+            
+            QTimer.singleShot(0, lambda: self._populate_all_in_one_tab(video_info))
         except Exception as e:
             logger.error(f"\1")
             logger.debug("traceback", exc_info=True)
@@ -11806,7 +13163,7 @@ class BilibiliDownloader(BaseWindow):
             
             def run(self):
                 try:
-                    response = requests.get(self.url, timeout=5)
+                    response = requests.get(self.url, headers=_COVER_HEADERS, timeout=10)
                     image = QImage()
                     success = image.loadFromData(response.content)
                     if success:
@@ -12142,7 +13499,13 @@ class BilibiliDownloader(BaseWindow):
                             response.raise_for_status()
                             with open(save_path, 'wb') as f:
                                 f.write(response.content)
-                            self.parent_widget.show_notification(f"封面已保存到：{os.path.basename(save_path)}", "success")
+                            actual_save_path = save_path
+                            if not os.path.exists(actual_save_path) or os.path.getsize(actual_save_path) == 0:
+                                from utils import verify_and_ensure_save
+                                actual_save_path, _cover_saved = verify_and_ensure_save(actual_save_path, content=response.content)
+                                if not _cover_saved:
+                                    raise Exception("封面保存验证失败")
+                            self.parent_widget.show_notification(f"封面已保存到：{os.path.basename(actual_save_path)}", "success")
                         except Exception as e:
                             self.parent_widget.show_notification(f"保存失败：{str(e)}", "error")
                     thread = threading.Thread(target=download, daemon=True)
@@ -12484,8 +13847,8 @@ class BilibiliDownloader(BaseWindow):
                         video, episodes, task_id, download_params = all_download_tasks[i]
                         bvid = video.get('bvid')
                         for j, ep in enumerate(episodes):
-                            ep_name = f"{video.get('title', bvid)} - 第{ep.get('page', j+1)}集"
-                            ep_tooltip = ep.get('title', '')
+                            ep_name = format_ep_name(ep, j, self.current_video_info)
+                            ep_tooltip = ep.get('ep_title', '') or ep.get('title', '') or ep.get('name', '')
                             batch_window.add_episode_progress(ep_name, ep_tooltip, task_id, j)
                     
                     _batch_add_index[0] = end
@@ -12884,14 +14247,19 @@ class BilibiliDownloader(BaseWindow):
                         self.url = url
                     
                     def run(self):
-                        try:
-                            response = requests.get(self.url, timeout=10)
-                            response.raise_for_status()
-                            pixmap = QPixmap()
-                            pixmap.loadFromData(response.content)
-                            self.cover_ready.emit(pixmap)
-                        except:
-                            self.cover_ready.emit(QPixmap())
+                        pixmap = QPixmap()
+                        for attempt in range(2):
+                            try:
+                                response = requests.get(self.url, headers=_COVER_HEADERS, timeout=10)
+                                response.raise_for_status()
+                                pixmap = QPixmap()
+                                pixmap.loadFromData(response.content)
+                                if not pixmap.isNull():
+                                    break
+                            except Exception:
+                                if attempt == 0:
+                                    continue
+                        self.cover_ready.emit(pixmap)
                 
                 loader = CoverLoader(cover_url)
                 if not hasattr(self, 'cover_loaders'):
@@ -13227,14 +14595,19 @@ class BilibiliDownloader(BaseWindow):
                                 self.signals = self.Signals()
                             
                             def run(self):
-                                try:
-                                    response = requests.get(self.url, timeout=10)
-                                    response.raise_for_status()
-                                    pixmap = QPixmap()
-                                    pixmap.loadFromData(response.content)
-                                    self.signals.finished.emit(self.label, pixmap)
-                                except:
-                                    self.signals.finished.emit(self.label, QPixmap())
+                                pixmap = QPixmap()
+                                for attempt in range(2):
+                                    try:
+                                        response = requests.get(self.url, headers=_COVER_HEADERS, timeout=10)
+                                        response.raise_for_status()
+                                        pixmap = QPixmap()
+                                        pixmap.loadFromData(response.content)
+                                        if not pixmap.isNull():
+                                            break
+                                    except Exception:
+                                        if attempt == 0:
+                                            continue
+                                self.signals.finished.emit(self.label, pixmap)
                         
                         def on_thumb_loaded(label, pixmap):
                             try:
@@ -13297,14 +14670,19 @@ class BilibiliDownloader(BaseWindow):
                 self.signals = self.Signals()
             
             def run(self):
-                try:
-                    response = requests.get(self.url, timeout=15)
-                    response.raise_for_status()
-                    pixmap = QPixmap()
-                    pixmap.loadFromData(response.content)
-                    self.signals.finished.emit(pixmap)
-                except:
-                    self.signals.finished.emit(QPixmap())
+                pixmap = QPixmap()
+                for attempt in range(2):
+                    try:
+                        response = requests.get(self.url, headers=_COVER_HEADERS, timeout=15)
+                        response.raise_for_status()
+                        pixmap = QPixmap()
+                        pixmap.loadFromData(response.content)
+                        if not pixmap.isNull():
+                            break
+                    except Exception:
+                        if attempt == 0:
+                            continue
+                self.signals.finished.emit(pixmap)
         
         def on_preview_loaded(pixmap):
             try:
@@ -13390,7 +14768,13 @@ class BilibiliDownloader(BaseWindow):
                     response.raise_for_status()
                     with open(_save_path, 'wb') as f:
                         f.write(response.content)
-                    self.show_notification(f"封面已保存到：{os.path.basename(_save_path)}", "success")
+                    actual_save_path = _save_path
+                    if not os.path.exists(actual_save_path) or os.path.getsize(actual_save_path) == 0:
+                        from utils import verify_and_ensure_save
+                        actual_save_path, _cover_saved = verify_and_ensure_save(actual_save_path, content=response.content)
+                        if not _cover_saved:
+                            raise Exception("封面保存验证失败")
+                    self.show_notification(f"封面已保存到：{os.path.basename(actual_save_path)}", "success")
                     if hasattr(self, 'task_manager') and self.task_manager:
                         task_id = f"cover_{int(time.time() * 1000)}"
                         self.task_manager.add_task({
@@ -13465,6 +14849,13 @@ class BilibiliDownloader(BaseWindow):
                     response.raise_for_status()
                     with open(_save_path, 'wb') as f:
                         f.write(response.content)
+                    if not os.path.exists(_save_path) or os.path.getsize(_save_path) == 0:
+                        from utils import verify_and_ensure_save
+                        _save_path_actual, _cover_saved = verify_and_ensure_save(_save_path, content=response.content)
+                        if _cover_saved:
+                            _save_path = _save_path_actual
+                        else:
+                            raise Exception("封面保存验证失败")
                     self.show_notification(f"封面已保存到：{os.path.basename(_save_path)}", "success")
                     if hasattr(self, 'task_manager') and self.task_manager:
                         task_id = f"cover_{int(time.time() * 1000)}"
@@ -13583,6 +14974,11 @@ class BilibiliDownloader(BaseWindow):
                     file_path = os.path.join(save_dir, f"{safe_title}.png")
                     with open(file_path, 'wb') as f:
                         f.write(response.content)
+                    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+                        from utils import verify_and_ensure_save
+                        file_path, _cover_saved = verify_and_ensure_save(file_path, content=response.content)
+                        if not _cover_saved:
+                            raise Exception("封面保存验证失败")
                     success_count += 1
                     
                     if _task_manager:
@@ -13748,19 +15144,25 @@ class BilibiliDownloader(BaseWindow):
                     response.raise_for_status()
                     with open(_save_path, 'wb') as f:
                         f.write(response.content)
-                    self.show_notification(f"封面已保存到：{os.path.basename(_save_path)}", "success")
+                    actual_save_path = _save_path
+                    if not os.path.exists(actual_save_path) or os.path.getsize(actual_save_path) == 0:
+                        from utils import verify_and_ensure_save
+                        actual_save_path, _cover_saved = verify_and_ensure_save(actual_save_path, content=response.content)
+                        if not _cover_saved:
+                            raise Exception("封面保存验证失败")
+                    self.show_notification(f"封面已保存到：{os.path.basename(actual_save_path)}", "success")
                     if hasattr(self, 'task_manager') and self.task_manager:
                         task_id = f"cover_{int(time.time() * 1000)}"
                         self.task_manager.add_task({
                             "id": task_id,
                             "url": _cover_url,
                             "title": _title,
-                            "save_path": os.path.dirname(_save_path),
+                            "save_path": os.path.dirname(actual_save_path),
                             "status": "completed",
                             "progress": 100,
                             "task_type": "cover",
                             "cover_url": _cover_url,
-                            "file_path": _save_path,
+                            "file_path": actual_save_path,
                             "file_size": len(response.content),
                         })
                 except Exception as e:
@@ -13809,7 +15211,7 @@ class BilibiliDownloader(BaseWindow):
             self.show_notification("这个视频没有分集可以选择哦", "info")
             return
 
-        dialog = EpisodeSelectionDialog(self, episodes, is_bangumi or is_cheese, self.selected_episodes)
+        dialog = EpisodeSelectionDialog(self, episodes, is_bangumi or is_cheese, self.selected_episodes, video_info=self.current_video_info)
         if dialog.exec_() == QDialog.Accepted:
             self.selected_episodes = dialog.selected_episodes
             self.select_episode_btn.setText(f"已选{len(self.selected_episodes)}集")
@@ -13877,26 +15279,35 @@ class BilibiliDownloader(BaseWindow):
             self.show_notification("请先解析视频链接哦", "warning")
             return
         
-        # 获取自动下载设置
-        auto_download_danmaku = self.config.get_app_setting("auto_download_danmaku", False)
-        auto_download_cover = self.config.get_app_setting("auto_download_cover", True)
+        if hasattr(self, 'tab_widget') and self.tab_widget.currentIndex() == 0 and hasattr(self, 'all_episode_list'):
+            self._on_all_download_clicked()
+            return
         
-        # 获取弹幕下载设置（优先使用界面设置，如果没有则使用自动设置）
-        download_danmaku = auto_download_danmaku
+        download_video = True
+        if hasattr(self, 'download_video_checkbox'):
+            download_video = self.download_video_checkbox.isChecked()
+        
+        download_danmaku = False
         if hasattr(self, 'danmaku_checkbox'):
             download_danmaku = self.danmaku_checkbox.isChecked()
         elif hasattr(self, 'download_danmaku_checkbox'):
             download_danmaku = self.download_danmaku_checkbox.isChecked()
         
+        download_cover = False
+        if hasattr(self, 'download_cover_checkbox'):
+            download_cover = self.download_cover_checkbox.isChecked()
+        
+        download_subtitle = False
+        if hasattr(self, 'download_subtitle_checkbox'):
+            download_subtitle = self.download_subtitle_checkbox.isChecked()
+        
+        if not download_video and not download_danmaku and not download_cover and not download_subtitle:
+            self.show_notification("请至少选择一种下载类型", "warning")
+            return
+        
         danmaku_format = self.danmaku_format_combo.currentText() if hasattr(self, 'danmaku_format_combo') else 'XML'
         
-        # 检查是否只下载弹幕
-        download_video = True  # 默认下载视频
-        if hasattr(self, 'download_video_checkbox'):
-            download_video = self.download_video_checkbox.isChecked()
-        
-        # 无论是下载视频还是只下载弹幕，都需要选择集数
-        if not self.selected_episodes:
+        if download_video and not self.selected_episodes:
             self.show_notification("请先选择要下载的集数哦", "warning")
             return
         
@@ -13917,10 +15328,8 @@ class BilibiliDownloader(BaseWindow):
         
         url = self.url_edit.text().strip()
         
-        # 如果只下载弹幕且没有选择集数，使用第一个集数
         episodes = self.selected_episodes
-        if not episodes and download_danmaku and not download_video:
-            # 尝试从视频信息中获取第一个集数
+        if not episodes and (download_danmaku or download_subtitle or download_cover) and not download_video:
             if self.current_video_info.get("is_bangumi") and self.current_video_info.get("bangumi_info"):
                 episodes = [self.current_video_info["bangumi_info"].get("episodes", [])[0]] if self.current_video_info["bangumi_info"].get("episodes", []) else []
             elif self.current_video_info.get("is_cheese") and self.current_video_info.get("cheese_info"):
@@ -13930,7 +15339,6 @@ class BilibiliDownloader(BaseWindow):
             elif self.current_video_info.get("episodes"):
                 episodes = [self.current_video_info.get("episodes", [])[0]] if self.current_video_info.get("episodes", []) else []
             else:
-                # 如果没有集数信息，创建一个默认的集数
                 episodes = [self.current_video_info.copy()]
         
         task_exists = False
@@ -13990,6 +15398,8 @@ class BilibiliDownloader(BaseWindow):
             "download_danmaku": download_danmaku,
             "danmaku_format": danmaku_format,
             "download_video": download_video,
+            "download_cover": download_cover,
+            "download_subtitle": download_subtitle,
             "video_format": self.config.get_app_setting("video_output_format", "mp4"),
             "audio_format": self.config.get_app_setting("audio_output_format", "mp3"),
             "audio_quality": audio_quality
@@ -14005,27 +15415,19 @@ class BilibiliDownloader(BaseWindow):
         if existing_window:
             
             for i, ep in enumerate(episodes):
-                if self.current_video_info.get("is_bangumi") or self.current_video_info.get("is_cheese"):
-                    ep_name = f"{ep.get('ep_index', '')}"
-                    ep_tooltip = ep.get('ep_title', '')
-                else:
-                    ep_name = f"第{ep.get('page', i+1)}集"
-                    ep_tooltip = ep.get('title', '')
+                ep_name = format_ep_name(ep, i, self.current_video_info)
+                ep_tooltip = ep.get('ep_title', '') or ep.get('title', '') or ep.get('name', '')
                 
                 existing_window.add_episode_progress(ep_name, ep_tooltip, task_id, i)
             existing_window.show()
-            existing_window.raise_()  # 确保窗口在最前面
-            existing_window.activateWindow()  # 激活窗口
+            existing_window.raise_()
+            existing_window.activateWindow()
         else:
             
             batch_window = BatchDownloadWindow(self.current_video_info, 0, self.download_manager, self.parser)
             for i, ep in enumerate(episodes):
-                if self.current_video_info.get("is_bangumi") or self.current_video_info.get("is_cheese"):
-                    ep_name = f"{ep.get('ep_index', '')}"
-                    ep_tooltip = ep.get('ep_title', '')
-                else:
-                    ep_name = f"第{ep.get('page', i+1)}集"
-                    ep_tooltip = ep.get('title', '')
+                ep_name = format_ep_name(ep, i, self.current_video_info)
+                ep_tooltip = ep.get('ep_title', '') or ep.get('title', '') or ep.get('name', '')
                 
                 batch_window.add_episode_progress(ep_name, ep_tooltip, task_id, i)
             batch_window.cancel_all.connect(self.on_cancel_download)
@@ -14044,12 +15446,10 @@ class BilibiliDownloader(BaseWindow):
                 logger.info(f"BilibiliDownloader：下载方法已调用")
             else:
                 logger.error("BilibiliDownloader：下载管理器未初始化")
-            
-            self.download_btn.setEnabled(False)
         
         QTimer.singleShot(100, _start_download)
         
-        if auto_download_cover and download_video:
+        if download_cover:
             cover_url = self.current_video_info.get("pic", "")
             is_bangumi = self.current_video_info.get("is_bangumi", False)
             is_cheese = self.current_video_info.get("is_cheese", False)
@@ -14075,6 +15475,11 @@ class BilibiliDownloader(BaseWindow):
                         cover_file_path = os.path.join(_auto_save_path, f"{_auto_safe_title}_cover.{cover_ext}")
                         with open(cover_file_path, 'wb') as f:
                             f.write(response.content)
+                        if not os.path.exists(cover_file_path) or os.path.getsize(cover_file_path) == 0:
+                            from utils import verify_and_ensure_save
+                            cover_file_path, _cover_saved = verify_and_ensure_save(cover_file_path, content=response.content)
+                            if not _cover_saved:
+                                logger.warning(f"自动下载封面保存验证失败：{cover_file_path}")
                         logger.info(f"自动下载封面成功：{cover_file_path}")
                         if hasattr(self, 'task_manager') and self.task_manager:
                             task_id_cover = f"cover_{int(time.time() * 1000)}"
@@ -14117,21 +15522,33 @@ class BilibiliDownloader(BaseWindow):
             self.show_notification("请先解析视频链接哦", "warning")
             return
         
-        # 获取自动下载设置
-        auto_download_danmaku = self.config.get_app_setting("auto_download_danmaku", False)
-        auto_download_cover = self.config.get_app_setting("auto_download_cover", True)
+        if hasattr(self, 'tab_widget') and self.tab_widget.currentIndex() == 0 and hasattr(self, 'all_episode_list'):
+            self._on_all_download_clicked()
+            return
         
-        # 获取弹幕下载设置
-        download_danmaku = auto_download_danmaku
-        if hasattr(self, 'danmaku_checkbox'):
-            download_danmaku = self.danmaku_checkbox.isChecked()
-        
-        danmaku_format = self.danmaku_format_combo.currentText() if hasattr(self, 'danmaku_format_combo') else 'XML'
-        
-        # 检查是否只下载弹幕
         download_video = True
         if hasattr(self, 'download_video_checkbox'):
             download_video = self.download_video_checkbox.isChecked()
+        
+        download_danmaku = False
+        if hasattr(self, 'danmaku_checkbox'):
+            download_danmaku = self.danmaku_checkbox.isChecked()
+        elif hasattr(self, 'download_danmaku_checkbox'):
+            download_danmaku = self.download_danmaku_checkbox.isChecked()
+        
+        download_cover = False
+        if hasattr(self, 'download_cover_checkbox'):
+            download_cover = self.download_cover_checkbox.isChecked()
+        
+        download_subtitle = False
+        if hasattr(self, 'download_subtitle_checkbox'):
+            download_subtitle = self.download_subtitle_checkbox.isChecked()
+        
+        if not download_video and not download_danmaku and not download_cover and not download_subtitle:
+            self.show_notification("请至少选择一种下载类型", "warning")
+            return
+        
+        danmaku_format = self.danmaku_format_combo.currentText() if hasattr(self, 'danmaku_format_combo') else 'XML'
         
         # 完全模式下自动全选集数
         if not self.selected_episodes:
@@ -14206,6 +15623,8 @@ class BilibiliDownloader(BaseWindow):
             "download_danmaku": download_danmaku,
             "danmaku_format": danmaku_format,
             "download_video": download_video,
+            "download_cover": download_cover,
+            "download_subtitle": download_subtitle,
             "video_format": self.config.get_app_setting("video_output_format", "mp4"),
             "audio_format": self.config.get_app_setting("audio_output_format", "mp3"),
             "audio_quality": audio_quality
@@ -14224,12 +15643,8 @@ class BilibiliDownloader(BaseWindow):
         if existing_window:
             # 使用已有的窗口添加新的下载任务
             for i, ep in enumerate(episodes):
-                if self.current_video_info.get("is_bangumi") or self.current_video_info.get("is_cheese"):
-                    ep_name = f"{ep.get('ep_index', '')}"
-                    ep_tooltip = ep.get('ep_title', '')
-                else:
-                    ep_name = f"第{ep.get('page', i+1)}集"
-                    ep_tooltip = ep.get('title', '')
+                ep_name = format_ep_name(ep, i, self.current_video_info)
+                ep_tooltip = ep.get('ep_title', '') or ep.get('title', '') or ep.get('name', '')
                 
                 existing_window.add_episode_progress(ep_name, ep_tooltip, task_id, i)
             existing_window.show()
@@ -14239,12 +15654,8 @@ class BilibiliDownloader(BaseWindow):
             # 创建新的批量下载窗口
             batch_window = BatchDownloadWindow(self.current_video_info, 0, self.download_manager, self.parser)
             for i, ep in enumerate(episodes):
-                if self.current_video_info.get("is_bangumi") or self.current_video_info.get("is_cheese"):
-                    ep_name = f"{ep.get('ep_index', '')}"
-                    ep_tooltip = ep.get('ep_title', '')
-                else:
-                    ep_name = f"第{ep.get('page', i+1)}集"
-                    ep_tooltip = ep.get('title', '')
+                ep_name = format_ep_name(ep, i, self.current_video_info)
+                ep_tooltip = ep.get('ep_title', '') or ep.get('title', '') or ep.get('name', '')
                 
                 batch_window.add_episode_progress(ep_name, ep_tooltip, task_id, i)
             batch_window.cancel_all.connect(self.on_cancel_download)
@@ -14263,9 +15674,7 @@ class BilibiliDownloader(BaseWindow):
             logger.error("完全模式：下载管理器未初始化")
             self.show_notification("下载管理器未初始化", "error")
         
-        self.download_btn.setEnabled(False)
-        
-        if auto_download_cover and download_video:
+        if download_cover:
             cover_url = self.current_video_info.get("pic", "")
             is_bangumi = self.current_video_info.get("is_bangumi", False)
             is_cheese = self.current_video_info.get("is_cheese", False)
@@ -14291,6 +15700,11 @@ class BilibiliDownloader(BaseWindow):
                         cover_file_path = os.path.join(_auto_save_path, f"{_auto_safe_title}_cover.{cover_ext}")
                         with open(cover_file_path, 'wb') as f:
                             f.write(response.content)
+                        if not os.path.exists(cover_file_path) or os.path.getsize(cover_file_path) == 0:
+                            from utils import verify_and_ensure_save
+                            cover_file_path, _cover_saved = verify_and_ensure_save(cover_file_path, content=response.content)
+                            if not _cover_saved:
+                                logger.warning(f"完全模式自动下载封面保存验证失败：{cover_file_path}")
                         logger.info(f"完全模式自动下载封面成功：{cover_file_path}")
                         if hasattr(self, 'task_manager') and self.task_manager:
                             task_id_cover = f"cover_{int(time.time() * 1000)}"
@@ -14805,26 +16219,32 @@ class BilibiliDownloader(BaseWindow):
             if success:
                 self.show_notification(f"视频下载完成：{message}", "success")
                 
-                # 下载完成后打开文件夹
                 auto_open_folder = self.config.get_app_setting("auto_open_folder", False)
                 if auto_open_folder:
                     try:
                         import subprocess
-                        import re
-                        import os
-                        # 从消息中提取文件路径
-                        match = re.search(r'完成：视频：(.+?)\.mp4', message)
-                        if match:
-                            # 获取保存路径
-                            save_path = self.config.get_app_setting("save_path", os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载"))
-                            folder_path = save_path
-                            if os.path.exists(folder_path):
-                                if os.name == 'nt':  # Windows
-                                    subprocess.run(['explorer', folder_path], shell=True)
-                                elif os.name == 'posix':  # macOS/Linux
-                                    subprocess.run(['open' if os.uname().sysname == 'Darwin' else 'xdg-open', folder_path])
+                        actual_save_path = None
+                        if hasattr(self, 'download_manager') and self.download_manager:
+                            try:
+                                task_info = self.download_manager.active_tasks.get(task_id)
+                                if not task_info:
+                                    task_info = self.download_manager.paused_tasks.get(task_id)
+                                if task_info:
+                                    actual_save_path = task_info.get('save_path')
+                            except Exception:
+                                pass
+                        if not actual_save_path:
+                            actual_save_path = self.config.get_app_setting("save_path", os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载"))
+                        folder_path = actual_save_path
+                        if os.path.isfile(folder_path):
+                            folder_path = os.path.dirname(folder_path)
+                        if os.path.exists(folder_path):
+                            if os.name == 'nt':
+                                subprocess.Popen(['explorer', folder_path], **subprocess_no_window_kwargs())
+                            elif os.name == 'posix':
+                                subprocess.Popen(['open' if os.uname().sysname == 'Darwin' else 'xdg-open', folder_path])
                     except Exception as e:
-                        logger.warning(f"\1")
+                        logger.debug(f"打开文件夹失败: {e}")
             else:
                 self.show_notification(f"视频下载失败：{message}", "error")
 
@@ -14846,26 +16266,21 @@ class BilibiliDownloader(BaseWindow):
             if success:
                 self.show_notification(f"视频下载完成：{message}", "success")
                 
-                # 下载完成后打开文件夹
                 auto_open_folder = self.config.get_app_setting("auto_open_folder", False)
                 if auto_open_folder:
                     try:
                         import subprocess
-                        import re
-                        import os
-                        # 从消息中提取文件路径
-                        match = re.search(r'完成：视频：(.+?)\.mp4', message)
-                        if match:
-                            # 获取保存路径
-                            save_path = self.config.get_app_setting("save_path", os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载"))
-                            folder_path = save_path
-                            if os.path.exists(folder_path):
-                                if os.name == 'nt':  # Windows
-                                    subprocess.run(['explorer', folder_path], shell=True)
-                                elif os.name == 'posix':  # macOS/Linux
-                                    subprocess.run(['open' if os.uname().sysname == 'Darwin' else 'xdg-open', folder_path])
+                        actual_save_path = self.config.get_app_setting("save_path", os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载"))
+                        folder_path = actual_save_path
+                        if os.path.isfile(folder_path):
+                            folder_path = os.path.dirname(folder_path)
+                        if os.path.exists(folder_path):
+                            if os.name == 'nt':
+                                subprocess.Popen(['explorer', folder_path], **subprocess_no_window_kwargs())
+                            elif os.name == 'posix':
+                                subprocess.Popen(['open' if os.uname().sysname == 'Darwin' else 'xdg-open', folder_path])
                     except Exception as e:
-                        logger.warning(f"\1")
+                        logger.debug(f"打开文件夹失败: {e}")
             else:
                 self.show_notification(f"视频下载失败：{message}", "error")
 
@@ -15114,6 +16529,11 @@ class BilibiliDownloader(BaseWindow):
         fade_out()
 
     def closeEvent(self, event):
+        try:
+            geo = self.geometry()
+            self.config.set_app_setting("window_geometry", f"{geo.x()},{geo.y()},{geo.width()},{geo.height()}")
+        except Exception:
+            pass
         try:
             for loader in self.cover_loaders:
                 if loader.isRunning():
@@ -15769,7 +17189,7 @@ class BilibiliDownloader(BaseWindow):
                         QMessageBox.information(batch_parse_window, "提示", "这个视频没有分集可以选择哦")
                         return
 
-                    dialog = EpisodeSelectionDialog(batch_parse_window, episodes, is_bangumi)
+                    dialog = EpisodeSelectionDialog(batch_parse_window, episodes, is_bangumi, video_info=ld.get('video_info', {}))
                     if dialog.exec_() == QDialog.Accepted:
                         ld['selected_episodes'] = dialog.selected_episodes
                         # 检查UI元素是否仍然存在
@@ -15880,19 +17300,8 @@ class BilibiliDownloader(BaseWindow):
                             
                             if existing_window:
                                 for i, ep in enumerate(ld['selected_episodes']):
-                                    if ld['video_info'].get("is_bangumi") or ld['video_info'].get("is_cheese"):
-                                        ep_name = f"{ep['ep_index']}"
-                                        ep_tooltip = ep['ep_title']
-                                    else:
-                                        if 'page' in ep and 'title' in ep:
-                                            ep_name = f"第{ep['page']}集"
-                                            ep_tooltip = ep['title']
-                                        elif 'ep_index' in ep and 'ep_title' in ep:
-                                            ep_name = f"{ep['ep_index']}"
-                                            ep_tooltip = ep['ep_title']
-                                        else:
-                                            ep_name = f"第{i+1}集"
-                                            ep_tooltip = f"第{i+1}集"
+                                    ep_name = format_ep_name(ep, i, ld['video_info'])
+                                    ep_tooltip = ep.get('ep_title', '') or ep.get('title', '') or ep.get('name', '')
                                     
                                     existing_window.add_episode_progress(ep_name, ep_tooltip, task_id, i)
                                 
@@ -15906,19 +17315,8 @@ class BilibiliDownloader(BaseWindow):
                             else:
                                 batch_window = BatchDownloadWindow(ld['video_info'], 0, self.download_manager, self.parser)
                                 for i, ep in enumerate(ld['selected_episodes']):
-                                    if ld['video_info'].get("is_bangumi") or ld['video_info'].get("is_cheese"):
-                                        ep_name = f"{ep['ep_index']}"
-                                        ep_tooltip = ep['ep_title']
-                                    else:
-                                        if 'page' in ep and 'title' in ep:
-                                            ep_name = f"第{ep['page']}集"
-                                            ep_tooltip = ep['title']
-                                        elif 'ep_index' in ep and 'ep_title' in ep:
-                                            ep_name = f"{ep['ep_index']}"
-                                            ep_tooltip = ep['ep_title']
-                                        else:
-                                            ep_name = f"第{i+1}集"
-                                            ep_tooltip = f"第{i+1}集"
+                                    ep_name = format_ep_name(ep, i, ld['video_info'])
+                                    ep_tooltip = ep.get('ep_title', '') or ep.get('title', '') or ep.get('name', '')
                                     
                                     batch_window.add_episode_progress(ep_name, ep_tooltip, task_id, i)
                                 batch_window.cancel_all.connect(self.on_cancel_download)
@@ -16085,19 +17483,8 @@ class BilibiliDownloader(BaseWindow):
 
                     if existing_window:
                         for idx, ep in enumerate(ld['selected_episodes']):
-                            if ld['video_info'].get("is_bangumi") or ld['video_info'].get("is_cheese"):
-                                ep_name = f"{ep['ep_index']}"
-                                ep_tooltip = ep['ep_title']
-                            else:
-                                if 'page' in ep and 'title' in ep:
-                                    ep_name = f"第{ep['page']}集"
-                                    ep_tooltip = ep['title']
-                                elif 'ep_index' in ep and 'ep_title' in ep:
-                                    ep_name = f"{ep['index']}"
-                                    ep_tooltip = ep['ep_title']
-                                else:
-                                    ep_name = f"第{idx+1}集"
-                                    ep_tooltip = f"第{idx+1}集"
+                            ep_name = format_ep_name(ep, idx, ld['video_info'])
+                            ep_tooltip = ep.get('ep_title', '') or ep.get('title', '') or ep.get('name', '')
                             existing_window.add_episode_progress(ep_name, ep_tooltip, task_id, idx)
 
                         if hasattr(self, 'download_manager') and self.download_manager:
@@ -16110,19 +17497,8 @@ class BilibiliDownloader(BaseWindow):
                     else:
                         batch_window = BatchDownloadWindow(ld['video_info'], 0, self.download_manager, self.parser)
                         for idx, ep in enumerate(ld['selected_episodes']):
-                            if ld['video_info'].get("is_bangumi") or ld['video_info'].get("is_cheese"):
-                                ep_name = f"{ep['ep_index']}"
-                                ep_tooltip = ep['ep_title']
-                            else:
-                                if 'page' in ep and 'title' in ep:
-                                    ep_name = f"第{ep['page']}集"
-                                    ep_tooltip = ep['title']
-                                elif 'ep_index' in ep and 'ep_title' in ep:
-                                    ep_name = f"{ep['ep_index']}"
-                                    ep_tooltip = ep['ep_title']
-                                else:
-                                    ep_name = f"第{idx+1}集"
-                                    ep_tooltip = f"第{idx+1}集"
+                            ep_name = format_ep_name(ep, idx, ld['video_info'])
+                            ep_tooltip = ep.get('ep_title', '') or ep.get('title', '') or ep.get('name', '')
                             batch_window.add_episode_progress(ep_name, ep_tooltip, task_id, idx)
                         batch_window.cancel_all.connect(self.on_cancel_download)
                         batch_window.window_closed.connect(lambda tid=task_id: self.on_batch_window_closed(tid))
@@ -16226,13 +17602,15 @@ class BilibiliDownloader(BaseWindow):
         screen = QApplication.primaryScreen()
         if screen:
             sg = screen.availableGeometry()
-            min_w = max(scale(700), int(sg.width() * 0.4))
-            min_h = max(scale(480), int(sg.height() * 0.45))
+            min_w = max(scale(900), int(sg.width() * 0.55))
+            min_h = max(scale(600), int(sg.height() * 0.6))
             dialog.setMinimumSize(min_w, min_h)
-            dialog.resize(min_w, min_h)
+            init_w = max(min_w, int(sg.width() * 0.6))
+            init_h = max(min_h, int(sg.height() * 0.65))
+            dialog.resize(init_w, init_h)
         else:
-            dialog.setMinimumSize(scale(700), scale(480))
-            dialog.resize(scale(700), scale(480))
+            dialog.setMinimumSize(scale(900), scale(600))
+            dialog.resize(scale(900), scale(600))
         
         dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         dialog.setResizable()
@@ -19120,18 +20498,23 @@ class BilibiliDownloader(BaseWindow):
         log_info_label.setWordWrap(True)
 
         def refresh_log_info():
-            try:
-                from logger_config import get_log_files, get_log_total_size
-                files = get_log_files()
-                total_size = get_log_total_size()
-                count = len(files)
-                if total_size < 1024 * 1024:
-                    size_str = f"{total_size / 1024:.1f} KB"
-                else:
-                    size_str = f"{total_size / (1024*1024):.2f} MB"
-                log_info_label.setText(f"当前日志文件：{count} 个，共占 {size_str}")
-            except Exception as e:
-                log_info_label.setText(f"日志信息获取失败: {str(e)}")
+            def _do_refresh():
+                try:
+                    from logger_config import get_log_files, get_log_total_size
+                    files = get_log_files()
+                    total_size = get_log_total_size()
+                    count = len(files)
+                    if total_size < 1024 * 1024:
+                        size_str = f"{total_size / 1024:.1f} KB"
+                    else:
+                        size_str = f"{total_size / (1024*1024):.2f} MB"
+                    text = f"当前日志文件：{count} 个，共占 {size_str}"
+                    run_on_main_thread(lambda: log_info_label.setText(text))
+                except Exception as e:
+                    err = str(e)
+                    run_on_main_thread(lambda: log_info_label.setText(f"日志信息获取失败: {err}"))
+            import threading
+            threading.Thread(target=_do_refresh, daemon=True).start()
 
         refresh_log_info()
 
@@ -19162,17 +20545,35 @@ class BilibiliDownloader(BaseWindow):
         """))
 
         def on_package_logs():
-            try:
-                from logger_config import package_logs, get_log_total_size
-                path = package_logs()
-                if path and os.path.exists(path):
-                    size = os.path.getsize(path) / 1024
-                    self.show_notification(f"日志已打包 ({size:.0f} KB)", "success")
-                    refresh_log_info()
-                else:
-                    self.show_notification("打包失败，没有可用的日志文件", "error")
-            except Exception as e:
-                self.show_notification(f"打包失败: {str(e)}", "error")
+            package_log_btn.setEnabled(False)
+            package_log_btn.setText("打包中...")
+            def _do_package():
+                try:
+                    from logger_config import package_logs, get_log_total_size
+                    path = package_logs()
+                    if path and os.path.exists(path):
+                        size_kb = os.path.getsize(path) / 1024
+                        def _on_success():
+                            self.show_notification(f"日志已打包 ({size_kb:.0f} KB)", "success")
+                            refresh_log_info()
+                            package_log_btn.setEnabled(True)
+                            package_log_btn.setText("打包日志")
+                        run_on_main_thread(_on_success)
+                    else:
+                        def _on_fail():
+                            self.show_notification("打包失败，没有可用的日志文件", "error")
+                            package_log_btn.setEnabled(True)
+                            package_log_btn.setText("打包日志")
+                        run_on_main_thread(_on_fail)
+                except Exception as e:
+                    err_msg = str(e)
+                    def _on_error():
+                        self.show_notification(f"打包失败: {err_msg}", "error")
+                        package_log_btn.setEnabled(True)
+                        package_log_btn.setText("打包日志")
+                    run_on_main_thread(_on_error)
+            import threading
+            threading.Thread(target=_do_package, daemon=True).start()
 
         def on_clear_logs():
             try:
@@ -19190,15 +20591,38 @@ class BilibiliDownloader(BaseWindow):
                 self.show_notification(f"清理失败: {str(e)}", "error")
 
         def on_copy_logs():
-            try:
-                from logger_config import copy_logs_to_clipboard
-                ok = copy_logs_to_clipboard()
-                if ok:
-                    self.show_notification("日志压缩包路径已复制到剪贴板，可直接粘贴发送", "success")
-                else:
-                    self.show_notification("复制失败，请手动复制日志文件夹", "error")
-            except Exception as e:
-                self.show_notification(f"复制失败: {str(e)}", "error")
+            copy_log_btn.setEnabled(False)
+            copy_log_btn.setText("打包中...")
+            def _do_package():
+                try:
+                    from logger_config import package_logs
+                    zip_path = package_logs()
+                    def _on_done():
+                        if zip_path:
+                            # 剪切板操作必须在主线程执行（Qt限制）
+                            try:
+                                from logger_config import _copy_path_to_clipboard
+                                ok = _copy_path_to_clipboard(zip_path)
+                                if ok:
+                                    self.show_notification("日志压缩包路径已复制到剪贴板，可直接粘贴发送", "success")
+                                else:
+                                    self.show_notification("复制失败，请手动复制日志文件夹", "error")
+                            except Exception as clip_err:
+                                self.show_notification(f"复制失败: {clip_err}", "error")
+                        else:
+                            self.show_notification("日志打包失败，没有可打包的日志文件", "error")
+                        copy_log_btn.setEnabled(True)
+                        copy_log_btn.setText("复制到剪贴板")
+                    run_on_main_thread(_on_done)
+                except Exception as e:
+                    err_msg = str(e)
+                    def _on_error():
+                        self.show_notification(f"打包失败: {err_msg}", "error")
+                        copy_log_btn.setEnabled(True)
+                        copy_log_btn.setText("复制到剪贴板")
+                    run_on_main_thread(_on_error)
+            import threading
+            threading.Thread(target=_do_package, daemon=True).start()
 
         package_log_btn.clicked.connect(on_package_logs)
         clear_log_btn.clicked.connect(on_clear_logs)

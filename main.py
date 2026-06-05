@@ -206,11 +206,33 @@ class SplashScreen(QWidget):
                     pass
         fade_out()
 if __name__ == "__main__":
+    # Windows: 启动时自动申请管理员权限（UAC提权）
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            if not ctypes.windll.shell32.IsUserAnAdmin():
+                # 不是管理员，用runas方式以管理员权限重启自身
+                ctypes.windll.shell32.ShellExecuteW(
+                    None, "runas", sys.executable, " ".join(sys.argv), None, 1
+                )
+                sys.exit(0)
+        except Exception:
+            pass
+
     try:
         import time
         start_time = time.time()
+        # 尝试导入PyQt5，如果失败则降级到CLI模式
+        try:
+            from PyQt5.QtCore import Qt, qInstallMessageHandler
+        except ImportError as e:
+            _fallback_reason = f"PyQt5导入失败: {e}"
+            print(f"\n[降级模式] {_fallback_reason}")
+            print("[降级模式] 已自动降级为命令行模式\n")
+            from cli import main as cli_main
+            cli_main(fallback_reason=_fallback_reason)
+            sys.exit(0)
         stage_times = {}
-        from PyQt5.QtCore import Qt, qInstallMessageHandler
         QApplication.setAttribute(Qt.AA_DisableHighDpiScaling)
         QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
         QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
@@ -685,6 +707,13 @@ if __name__ == "__main__":
             input("按回车键退出...")
     except Exception as e:
         import traceback
-        logger.error(f"\1")
-        print(logger.debug("traceback", exc_info=True))
-        input("按回车键退出...")
+        error_msg = traceback.format_exc()
+        logger.error(f"GUI启动失败: {error_msg}")
+        print(f"\n[降级模式] GUI启动失败: {e}")
+        print("[降级模式] 已自动降级为命令行模式\n")
+        try:
+            from cli import main as cli_main
+            cli_main(fallback_reason=str(e))
+        except Exception as cli_err:
+            print(f"[错误] CLI模式也启动失败: {cli_err}")
+            input("按回车键退出...")

@@ -81,6 +81,85 @@ def get_unique_filename(filename):
         counter += 1
     return f"{name}_{counter}{ext}"
 
+import shutil as _shutil
+import logging as _logging
+
+def verify_and_ensure_save(target_path, source_path=None, content=None):
+    _logger = _logging.getLogger(__name__)
+    if not target_path:
+        _logger.error("verify_and_ensure_save: 目标路径为空")
+        return target_path, False
+
+    if os.path.exists(target_path):
+        try:
+            file_size = os.path.getsize(target_path)
+            if file_size > 0:
+                _logger.info(f"文件保存验证通过：{target_path} ({file_size} 字节)")
+                return target_path, True
+            else:
+                _logger.warning(f"文件存在但大小为0：{target_path}")
+                try:
+                    os.remove(target_path)
+                except Exception:
+                    pass
+        except Exception as e:
+            _logger.warning(f"验证文件异常：{e}")
+
+    _logger.warning(f"目标路径文件不存在或无效：{target_path}，尝试备用保存")
+
+    target_dir = os.path.dirname(target_path)
+    target_name = os.path.basename(target_path)
+    fallback_dir = os.path.join(target_dir, "下载") if target_dir else "下载"
+
+    try:
+        os.makedirs(fallback_dir, exist_ok=True)
+    except Exception as e:
+        _logger.error(f"创建备用目录失败：{fallback_dir}，{e}")
+        return target_path, False
+
+    fallback_path = os.path.join(fallback_dir, target_name)
+    fallback_path = get_unique_filename(fallback_path)
+
+    saved = False
+
+    if source_path and os.path.exists(source_path):
+        try:
+            _shutil.copy2(source_path, fallback_path)
+            if os.path.exists(fallback_path) and os.path.getsize(fallback_path) > 0:
+                _logger.info(f"备用保存成功（从源文件复制）：{fallback_path}")
+                saved = True
+        except Exception as e:
+            _logger.error(f"备用保存失败（复制源文件）：{e}")
+
+    if not saved and content is not None:
+        try:
+            if isinstance(content, str):
+                with open(fallback_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+            else:
+                with open(fallback_path, 'wb') as f:
+                    f.write(content)
+            if os.path.exists(fallback_path) and os.path.getsize(fallback_path) > 0:
+                _logger.info(f"备用保存成功（写入内容）：{fallback_path}")
+                saved = True
+            else:
+                _logger.error(f"备用保存后文件无效：{fallback_path}")
+        except Exception as e:
+            _logger.error(f"备用保存失败（写入内容）：{e}")
+
+    if saved:
+        try:
+            _shutil.copy2(fallback_path, target_path)
+            if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
+                _logger.info(f"从备用目录复制回目标路径成功：{target_path}")
+                return target_path, True
+        except Exception as e:
+            _logger.warning(f"从备用目录复制回目标路径失败：{e}，文件保留在：{fallback_path}")
+        return fallback_path, True
+
+    _logger.error(f"所有保存尝试均失败，目标路径：{target_path}")
+    return target_path, False
+
 def generate_qrcode(url):
     try:
         import qrcode

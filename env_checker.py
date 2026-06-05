@@ -33,6 +33,8 @@ def check_ffmpeg():
     if getattr(sys, 'frozen', False):
         exe_dir = os.path.dirname(sys.executable)
         parent_dir = os.path.dirname(exe_dir)
+        internal_dir = os.path.join(exe_dir, '_internal')
+        ffmpeg_candidates.append(os.path.join(internal_dir, 'ffmpeg', 'bin', exe('ffmpeg')))
         ffmpeg_candidates.append(os.path.join(parent_dir, 'ffmpeg', 'bin', exe('ffmpeg')))
         ffmpeg_candidates.append(os.path.join(exe_dir, 'ffmpeg', 'bin', exe('ffmpeg')))
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -64,6 +66,8 @@ def fix_ffmpeg():
     if getattr(sys, 'frozen', False):
         exe_dir = os.path.dirname(sys.executable)
         parent_dir = os.path.dirname(exe_dir)
+        internal_dir = os.path.join(exe_dir, '_internal')
+        ffmpeg_candidates.append(os.path.join(internal_dir, 'ffmpeg', 'bin'))
         ffmpeg_candidates.append(os.path.join(parent_dir, 'ffmpeg', 'bin'))
         ffmpeg_candidates.append(os.path.join(exe_dir, 'ffmpeg', 'bin'))
     current_dir = os.path.dirname(os.path.abspath(__file__))

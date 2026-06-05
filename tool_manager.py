@@ -22,7 +22,12 @@ class ToolManager:
         if getattr(sys, 'frozen', False):
             self.install_dir = os.path.dirname(sys.executable)
             _parent_dir = os.path.dirname(self.install_dir)
-            if os.path.isdir(os.path.join(_parent_dir, 'ffmpeg')) and os.path.isdir(os.path.join(_parent_dir, 'bento4')):
+            # PyInstaller 6.x 文件夹模式：datas 放在 _internal 子目录
+            _internal_dir = os.path.join(self.install_dir, '_internal')
+            if os.path.isdir(os.path.join(_internal_dir, 'ffmpeg')) and os.path.isdir(os.path.join(_internal_dir, 'bento4')):
+                self.install_dir = _internal_dir
+                logger.info(f"检测到工具在 _internal 目录，使用: {self.install_dir}")
+            elif os.path.isdir(os.path.join(_parent_dir, 'ffmpeg')) and os.path.isdir(os.path.join(_parent_dir, 'bento4')):
                 self.install_dir = _parent_dir
                 logger.info(f"检测到工具在上级目录，使用: {self.install_dir}")
         else:
@@ -97,10 +102,13 @@ class ToolManager:
         if getattr(sys, 'frozen', False):
             exe_dir = os.path.dirname(sys.executable)
             parent_dir = os.path.dirname(exe_dir)
-            ffmpeg_candidates.insert(0, os.path.join(parent_dir, 'ffmpeg', 'bin', exe('ffmpeg')))
-            ffmpeg_candidates.insert(1, os.path.join(parent_dir, 'ffmpeg', 'bin'))
-            ffmpeg_candidates.insert(2, os.path.join(exe_dir, 'ffmpeg', 'bin', exe('ffmpeg')))
-            ffmpeg_candidates.insert(3, os.path.join(exe_dir, 'ffmpeg', 'bin'))
+            internal_dir = os.path.join(exe_dir, '_internal')
+            ffmpeg_candidates.insert(0, os.path.join(internal_dir, 'ffmpeg', 'bin', exe('ffmpeg')))
+            ffmpeg_candidates.insert(1, os.path.join(internal_dir, 'ffmpeg', 'bin'))
+            ffmpeg_candidates.insert(2, os.path.join(parent_dir, 'ffmpeg', 'bin', exe('ffmpeg')))
+            ffmpeg_candidates.insert(3, os.path.join(parent_dir, 'ffmpeg', 'bin'))
+            ffmpeg_candidates.insert(4, os.path.join(exe_dir, 'ffmpeg', 'bin', exe('ffmpeg')))
+            ffmpeg_candidates.insert(5, os.path.join(exe_dir, 'ffmpeg', 'bin'))
         for path in ffmpeg_candidates:
             if os.path.isfile(path):
                 local['ffmpeg'] = path
@@ -120,10 +128,13 @@ class ToolManager:
         if getattr(sys, 'frozen', False):
             exe_dir = os.path.dirname(sys.executable)
             parent_dir = os.path.dirname(exe_dir)
-            bento4_candidates.insert(0, os.path.join(parent_dir, 'bento4', get_bento4_sdk_dirname(), 'bin', exe('mp4decrypt')))
-            bento4_candidates.insert(1, os.path.join(parent_dir, 'bento4', 'bin', exe('mp4decrypt')))
-            bento4_candidates.insert(2, os.path.join(exe_dir, 'bento4', get_bento4_sdk_dirname(), 'bin', exe('mp4decrypt')))
-            bento4_candidates.insert(3, os.path.join(exe_dir, 'bento4', 'bin', exe('mp4decrypt')))
+            internal_dir = os.path.join(exe_dir, '_internal')
+            bento4_candidates.insert(0, os.path.join(internal_dir, 'bento4', get_bento4_sdk_dirname(), 'bin', exe('mp4decrypt')))
+            bento4_candidates.insert(1, os.path.join(internal_dir, 'bento4', 'bin', exe('mp4decrypt')))
+            bento4_candidates.insert(2, os.path.join(parent_dir, 'bento4', get_bento4_sdk_dirname(), 'bin', exe('mp4decrypt')))
+            bento4_candidates.insert(3, os.path.join(parent_dir, 'bento4', 'bin', exe('mp4decrypt')))
+            bento4_candidates.insert(4, os.path.join(exe_dir, 'bento4', get_bento4_sdk_dirname(), 'bin', exe('mp4decrypt')))
+            bento4_candidates.insert(5, os.path.join(exe_dir, 'bento4', 'bin', exe('mp4decrypt')))
         for path in bento4_candidates:
             if os.path.isfile(path):
                 local['mp4decrypt'] = path

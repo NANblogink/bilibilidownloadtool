@@ -1,4 +1,4 @@
-﻿import os
+import os
 import re
 import json
 import time
@@ -6157,13 +6157,15 @@ class BilibiliParser:
             # 将临时文件移动到最终保存路径
             import shutil
             try:
-                # 确保目标文件不存在
-                if os.path.exists(save_path):
-                    # 尝试删除文件，最多重试3次
+                if os.path.isdir(save_path):
+                    actual_save_path = os.path.join(save_path, os.path.basename(temp_path))
+                else:
+                    actual_save_path = save_path
+                if os.path.exists(actual_save_path):
                     max_retries = 3
                     for attempt in range(max_retries):
                         try:
-                            os.remove(save_path)
+                            os.remove(actual_save_path)
                             break
                         except Exception as remove_e:
                             logger.warning(f"删除文件失败（尝试{attempt+1}/{max_retries}）：{str(remove_e)}")
@@ -6171,13 +6173,27 @@ class BilibiliParser:
                                 time.sleep(1)
                             else:
                                 raise
-                # 移动文件
-                shutil.move(temp_path, save_path)
-                logger.info(f"文件已保存到：{save_path}")
-                return save_path
+                shutil.move(temp_path, actual_save_path)
+                logger.info(f"文件已保存到：{actual_save_path}")
+
+                if not os.path.exists(actual_save_path) or os.path.getsize(actual_save_path) == 0:
+                    from utils import verify_and_ensure_save
+                    actual_path, saved = verify_and_ensure_save(actual_save_path, source_path=temp_path if os.path.exists(temp_path) else None)
+                    if saved:
+                        logger.info(f"文件保存验证修复成功：{actual_path}")
+                        return actual_path
+                    else:
+                        logger.error(f"文件保存验证失败，目标路径：{actual_save_path}")
+
+                return actual_save_path
             except Exception as e:
                 logger.error(f"移动文件失败：{str(e)}")
-                # 尝试直接返回临时文件路径
+                if os.path.exists(temp_path):
+                    from utils import verify_and_ensure_save
+                    actual_path, saved = verify_and_ensure_save(actual_save_path, source_path=temp_path)
+                    if saved:
+                        logger.info(f"移动失败后备用保存成功：{actual_path}")
+                        return actual_path
                 logger.warning("返回临时文件路径")
                 return temp_path
         except requests.exceptions.Timeout as e:
@@ -6394,6 +6410,19 @@ class BilibiliParser:
             logger.info(f"输入文件绝对路径：{input_file}")
             logger.info(f"输出文件绝对路径：{output_file}")
             
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            need_temp_copy = any(ord(c) > 127 for c in input_file) or any(ord(c) > 127 for c in output_file)
+            temp_input = input_file
+            temp_output = output_file
+            
+            if need_temp_copy:
+                logger.info("检测到路径含非ASCII字符，使用系统临时目录避免编码问题")
+                temp_input = os.path.join(temp_dir, f"decrypt_input_{os.path.basename(input_file)}")
+                temp_output = os.path.join(temp_dir, f"decrypt_output_{os.path.basename(output_file)}")
+                shutil.copy2(input_file, temp_input)
+                logger.info(f"复制输入文件到临时目录：{temp_input}")
+            
             try:
                 ffmpeg_exec = shutil.which('ffmpeg')
                 if not ffmpeg_exec or not os.path.exists(ffmpeg_exec):
@@ -6404,10 +6433,10 @@ class BilibiliParser:
                 cmd = [
                     ffmpeg_exec,
                     '-decryption_key', f'{key}',
-                    '-i', input_file,
+                    '-i', temp_input,
                     '-c', 'copy',
                     '-y',
-                    output_file
+                    temp_output
                 ]
                 logger.info(f"使用ffmpeg执行解密命令：{' '.join(cmd)}")
                 
@@ -6426,6 +6455,10 @@ class BilibiliParser:
                     logger.error(f"标准输出：{stdout.decode('utf-8', errors='ignore')}")
                     raise Exception(f"ffmpeg解密失败：{error_msg}")
                 
+                if need_temp_copy and temp_output != output_file:
+                    shutil.copy2(temp_output, output_file)
+                    logger.info(f"复制解密结果到目标路径：{output_file}")
+                
                 logger.info(f"ffmpeg解密成功：{input_file} -> {output_file}")
                 return output_file
             except Exception as ffmpeg_e:
@@ -6435,14 +6468,13 @@ class BilibiliParser:
                 if not os.path.exists(bento4_path):
                     raise Exception(f"Bento4 mp4decrypt工具不存在：{bento4_path}")
                 
-                # 使用系统临时目录作为临时目录（避免中文路径问题）
-                import tempfile
-                temp_dir = tempfile.gettempdir()
-                simple_input = os.path.join(temp_dir, f"input_{os.path.basename(input_file)}")
+                if need_temp_copy and os.path.exists(temp_input):
+                    simple_input = temp_input
+                else:
+                    simple_input = os.path.join(temp_dir, f"input_{os.path.basename(input_file)}")
+                    shutil.copy2(input_file, simple_input)
+                    logger.info(f"复制文件到系统临时目录：{simple_input}")
                 simple_output = os.path.join(temp_dir, f"output_{os.path.basename(input_file)}.decrypted")
-                
-                shutil.copy2(input_file, simple_input)
-                logger.info(f"复制文件到系统临时目录：{simple_input}")
                 
                 # 异步执行Bento4命令
                 cmd = [bento4_path, '--key', f'{kid}:{key}', simple_input, simple_output]
@@ -6513,6 +6545,13 @@ class BilibiliParser:
             logger.error(f"解密时出错：{str(e)}")
             import traceback
             logger.debug("traceback", exc_info=True)
+            if need_temp_copy:
+                for tf in [temp_input, temp_output]:
+                    if tf and tf != input_file and tf != output_file and os.path.exists(tf):
+                        try:
+                            os.remove(tf)
+                        except Exception:
+                            pass
             raise
 
     def _check_encryption(self, video_path):
@@ -7179,6 +7218,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         try:
             logger.debug(f"开始合并音视频：视频={video_path}, 音频={audio_path}, 输出={output_path}")
             
+            import tempfile
+            merge_temp_dir = tempfile.gettempdir()
+            has_non_ascii = any(ord(c) > 127 for c in output_path)
+            merge_temp_output = None
+            
             decrypted_video_path = video_path
             decrypted_audio_path = audio_path
             
@@ -7221,6 +7265,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             logger.debug(f"使用的ffmpeg路径：{ffmpeg_exec}")
             
+            if has_non_ascii:
+                merge_temp_output = os.path.join(merge_temp_dir, f"merge_output_{os.path.basename(output_path)}")
+                logger.info(f"输出路径含非ASCII字符，使用临时路径合并：{merge_temp_output}")
+            else:
+                merge_temp_output = output_path
+            
             # 检测视频编码
             video_codec = self._get_video_codec(decrypted_video_path, ffmpeg_exec)
             logger.info(f"视频编码：{video_codec}")
@@ -7249,11 +7299,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         '-shortest',
                         '-loglevel', 'error',
                         '-y',
-                        output_path
+                        merge_temp_output
                     ]
                 else:
                     if need_conversion:
-                        # 需要转换编码为H.264，确保Windows播放器支持
                         logger.info("检测到不支持的视频编码，自动转换为H.264")
                         cmd = [
                             ffmpeg_exec,
@@ -7266,10 +7315,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                             '-shortest',
                             '-loglevel', 'error',
                             '-y',
-                            output_path
+                            merge_temp_output
                         ]
                     else:
-                        # 其他格式可以直接复制编码
                         cmd = [
                             ffmpeg_exec,
                             '-i', decrypted_video_path,
@@ -7279,7 +7327,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                             '-shortest',
                             '-loglevel', 'error',
                             '-y',
-                            output_path
+                            merge_temp_output
                         ]
             else:
                 if is_amv:
@@ -7289,11 +7337,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         '-c:v', 'amv',
                         '-loglevel', 'error',
                         '-y',
-                        output_path
+                        merge_temp_output
                     ]
                 else:
                     if need_conversion:
-                        # 需要转换编码为H.264，确保Windows播放器支持
                         logger.info("检测到不支持的视频编码，自动转换为H.264")
                         cmd = [
                             ffmpeg_exec,
@@ -7303,7 +7350,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                             '-crf', '23',
                             '-loglevel', 'error',
                             '-y',
-                            output_path
+                            merge_temp_output
                         ]
                     else:
                         cmd = [
@@ -7312,7 +7359,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                             '-c:v', 'copy',
                             '-loglevel', 'error',
                             '-y',
-                            output_path
+                            merge_temp_output
                         ]
 
             logger.debug(f"执行ffmpeg命令：{' '.join(cmd)}")
@@ -7376,6 +7423,25 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 except Exception as shell_e:
                     logger.error(f"使用shell=True执行也失败：{str(shell_e)}")
                     return False, f"执行ffmpeg失败：{str(shell_e)}"
+            
+            if merge_temp_output and merge_temp_output != output_path and os.path.exists(merge_temp_output):
+                try:
+                    output_dir = os.path.dirname(output_path)
+                    if output_dir:
+                        os.makedirs(output_dir, exist_ok=True)
+                    shutil.copy2(merge_temp_output, output_path)
+                    logger.info(f"复制合并结果到目标路径：{output_path}")
+                    try:
+                        os.remove(merge_temp_output)
+                    except Exception:
+                        pass
+                except Exception as copy_e:
+                    logger.error(f"复制合并结果失败：{str(copy_e)}")
+                    if os.path.exists(merge_temp_output):
+                        try:
+                            os.rename(merge_temp_output, output_path)
+                        except Exception:
+                            pass
             
             if decrypted_video_path != video_path and os.path.exists(decrypted_video_path):
                 try:
