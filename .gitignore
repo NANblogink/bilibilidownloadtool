@@ -55,9 +55,6 @@ client_id.txt
 软著材料Word/
 软著材料Word_v2/
 
-# 排除CI配置
-.github/
-
 # 排除辅助脚本
 create_release.py
 upload_release.py
