@@ -695,57 +695,71 @@ class LiveTab(QWidget):
     def _init_ui(self):
         """初始化UI"""
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(scale(8))
-        main_layout.setContentsMargins(scale(12), scale(12), scale(12), scale(12))
+        main_layout.setSpacing(scale(2))
+        main_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
 
-        # 子Tab页
         self.sub_tabs = QTabWidget()
         self.sub_tabs.setStyleSheet(scale_style("""
-            QTabWidget::pane { border: 1px solid #dee2e6; border-radius: 4px; }
+            QTabWidget { background-color: white; }
+            QTabBar { background-color: #f8f9fa; border-bottom: 1px solid #dee2e6; }
             QTabBar::tab {
-                background: #f8f9fa; padding: 6px 16px;
-                border: 1px solid #dee2e6; border-bottom: none;
-                border-top-left-radius: 4px; border-top-right-radius: 4px;
-                font-size: 13px; margin-right: 2px;
+                background-color: #f8f9fa; color: #6c757d;
+                padding: 3px 10px; border: 1px solid #dee2e6; border-bottom: none;
+                border-top-left-radius: 3px; border-top-right-radius: 3px;
+                margin-right: 1px; font-size: 11px;
             }
-            QTabBar::tab:selected { background: white; border-bottom: 2px solid #00a1d6; }
+            QTabBar::tab:hover { background-color: #e9ecef; color: #495057; }
+            QTabBar::tab:selected { background-color: white; color: #2563eb; border-color: #409eff; border-bottom-color: white; }
+            QTabWidget::pane {
+                background-color: white; border: 1px solid #dee2e6; border-top: none;
+                border-radius: 0 0 3px 3px; padding: 2px;
+            }
         """))
 
-        # Tab 1: 直播间信息
         self.sub_tabs.addTab(self._create_info_tab(), "直播间信息")
-        # Tab 2: 直播录制
         self.sub_tabs.addTab(self._create_record_tab(), "直播录制")
-        # Tab 3: 回放下载
         self.sub_tabs.addTab(self._create_replay_tab(), "回放下载")
 
         main_layout.addWidget(self.sub_tabs)
 
-        # 状态栏
         self.status_label = QLabel("就绪")
-        self.status_label.setStyleSheet(scale_style("font-size: 12px; color: #6c757d; padding: 4px;"))
+        self.status_label.setStyleSheet(scale_style("font-size: 11px; color: #6c757d; padding: 1px;"))
         main_layout.addWidget(self.status_label)
 
-    # ==================== Tab 1: 直播间信息 ====================
+    _GB = """
+        QGroupBox {
+            font-size: 11px; font-weight: 600; color: #555;
+            border: 1px solid #e0e4ea; border-radius: 3px;
+            margin-top: 8px; padding: 4px;
+        }
+        QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 3px; }
+    """
 
     def _create_info_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        layout.setSpacing(scale(10))
+        layout.setSpacing(scale(4))
+        layout.setContentsMargins(scale(4), scale(4), scale(4), scale(4))
 
         # 输入区
         input_group = QGroupBox("查询直播间")
+        input_group.setStyleSheet(scale_style(self._GB))
         input_layout = QHBoxLayout(input_group)
-        input_layout.setSpacing(scale(8))
+        input_layout.setSpacing(scale(4))
+        input_layout.setContentsMargins(scale(4), scale(8), scale(4), scale(4))
 
         input_layout.addWidget(QLabel("房间号:"))
         self.room_id_input = QLineEdit()
-        self.room_id_input.setPlaceholderText("输入直播间房间号（短号或长号）")
+        self.room_id_input.setPlaceholderText("输入房间号")
+        self.room_id_input.setMinimumHeight(scale(28))
+        self.room_id_input.setStyleSheet(scale_style("padding: 2px 6px;"))
         self.room_id_input.returnPressed.connect(self._query_room_info)
         input_layout.addWidget(self.room_id_input, stretch=1)
 
         self.query_btn = QPushButton("查询")
         self.query_btn.setStyleSheet(scale_style(
-            "padding: 6px 20px; background-color: #00a1d6; color: white; border: none; border-radius: 4px; font-size: 13px;"))
+            "padding: 2px 10px; background-color: #00a1d6; color: white; border: none; border-radius: 3px; font-size: 11px;"))
+        self.query_btn.setMinimumHeight(scale(24))
         self.query_btn.clicked.connect(self._query_room_info)
         input_layout.addWidget(self.query_btn)
 
@@ -753,18 +767,18 @@ class LiveTab(QWidget):
 
         # 信息展示区
         info_group = QGroupBox("直播间信息")
+        info_group.setStyleSheet(scale_style(self._GB))
         info_layout = QGridLayout(info_group)
-        info_layout.setSpacing(scale(8))
+        info_layout.setSpacing(scale(4))
+        info_layout.setContentsMargins(scale(4), scale(8), scale(4), scale(4))
 
-        # 封面
         self.cover_label = QLabel()
-        self.cover_label.setFixedSize(scale(160), scale(100))
-        self.cover_label.setStyleSheet("border: 1px solid #dee2e6; background: #f8f9fa;")
+        self.cover_label.setFixedSize(scale(100), scale(66))
+        self.cover_label.setStyleSheet(scale_style("border: 1px solid #dee2e6; border-radius: 3px; background: #f8f9fa;"))
         self.cover_label.setAlignment(Qt.AlignCenter)
         self.cover_label.setText("封面")
         info_layout.addWidget(self.cover_label, 0, 0, 4, 1)
 
-        # 信息字段
         self.info_labels = {}
         fields = [
             ("title", "标题"), ("uname", "主播"), ("room_id", "房间号"),
@@ -775,9 +789,11 @@ class LiveTab(QWidget):
         for i, (key, label) in enumerate(fields):
             row = i % 4
             col = (i // 4) * 2 + 1
-            info_layout.addWidget(QLabel(f"{label}:"), row, col)
+            lbl = QLabel(f"{label}:")
+            lbl.setStyleSheet(scale_style("font-size: 11px;"))
+            info_layout.addWidget(lbl, row, col)
             val_label = QLabel("-")
-            val_label.setStyleSheet("font-size: 13px;")
+            val_label.setStyleSheet(scale_style("font-size: 11px;"))
             self.info_labels[key] = val_label
             info_layout.addWidget(val_label, row, col + 1)
 
@@ -785,41 +801,47 @@ class LiveTab(QWidget):
 
         # 直播流信息
         stream_group = QGroupBox("直播流")
+        stream_group.setStyleSheet(scale_style(self._GB))
         stream_layout = QVBoxLayout(stream_group)
+        stream_layout.setSpacing(scale(4))
+        stream_layout.setContentsMargins(scale(4), scale(8), scale(4), scale(4))
 
-        # 画质选择
         q_layout = QHBoxLayout()
+        q_layout.setSpacing(scale(4))
         q_layout.addWidget(QLabel("画质:"))
         self.quality_combo = QComboBox()
-        self.quality_combo.setMinimumWidth(scale(120))
+        self.quality_combo.setMinimumWidth(scale(80))
+        self.quality_combo.setMinimumHeight(scale(26))
         q_layout.addWidget(self.quality_combo)
         q_layout.addStretch()
 
         self.get_stream_btn = QPushButton("获取直播流")
         self.get_stream_btn.setStyleSheet(scale_style(
-            "padding: 6px 16px; background-color: #28a745; color: white; border: none; border-radius: 4px; font-size: 13px;"))
+            "padding: 2px 8px; background-color: #28a745; color: white; border: none; border-radius: 3px; font-size: 11px;"))
+        self.get_stream_btn.setMinimumHeight(scale(26))
         self.get_stream_btn.clicked.connect(self._get_live_stream)
         q_layout.addWidget(self.get_stream_btn)
 
         self.copy_url_btn = QPushButton("复制URL")
         self.copy_url_btn.setStyleSheet(scale_style(
-            "padding: 6px 16px; background-color: #6c757d; color: white; border: none; border-radius: 4px; font-size: 13px;"))
+            "padding: 2px 8px; background-color: #6c757d; color: white; border: none; border-radius: 3px; font-size: 11px;"))
+        self.copy_url_btn.setMinimumHeight(scale(26))
         self.copy_url_btn.clicked.connect(self._copy_stream_url)
         q_layout.addWidget(self.copy_url_btn)
 
         self.play_in_player_btn = QPushButton("播放器查看")
         self.play_in_player_btn.setStyleSheet(scale_style(
-            "padding: 6px 16px; background-color: #e6a23c; color: white; border: none; border-radius: 4px; font-size: 13px;"))
+            "padding: 2px 8px; background-color: #e6a23c; color: white; border: none; border-radius: 3px; font-size: 11px;"))
+        self.play_in_player_btn.setMinimumHeight(scale(26))
         self.play_in_player_btn.clicked.connect(self._play_in_stream_player)
         q_layout.addWidget(self.play_in_player_btn)
 
         stream_layout.addLayout(q_layout)
 
-        # 流URL展示
         self.stream_url_text = QTextEdit()
         self.stream_url_text.setReadOnly(True)
-        self.stream_url_text.setMaximumHeight(scale(80))
-        self.stream_url_text.setStyleSheet(scale_style("font-size: 12px; background: #f8f9fa;"))
+        self.stream_url_text.setMaximumHeight(scale(50))
+        self.stream_url_text.setStyleSheet(scale_style("font-size: 10px; background: #f8f9fa;"))
         stream_layout.addWidget(self.stream_url_text)
 
         layout.addWidget(stream_group)
@@ -1090,27 +1112,30 @@ class LiveTab(QWidget):
     def _create_record_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        layout.setSpacing(scale(10))
+        layout.setSpacing(scale(4))
+        layout.setContentsMargins(scale(4), scale(4), scale(4), scale(4))
 
         # 录制设置
         settings_group = QGroupBox("录制设置")
+        settings_group.setStyleSheet(scale_style(self._GB))
         settings_layout = QGridLayout(settings_group)
-        settings_layout.setSpacing(scale(8))
+        settings_layout.setSpacing(scale(4))
+        settings_layout.setContentsMargins(scale(4), scale(8), scale(4), scale(4))
 
-        # 房间号
         settings_layout.addWidget(QLabel("房间号:"), 0, 0)
         self.record_room_input = QLineEdit()
         self.record_room_input.setPlaceholderText("直播间房间号")
+        self.record_room_input.setMinimumHeight(scale(28))
+        self.record_room_input.setStyleSheet(scale_style("padding: 2px 6px;"))
         settings_layout.addWidget(self.record_room_input, 0, 1)
 
-        # 格式选择
         settings_layout.addWidget(QLabel("流格式:"), 0, 2)
         self.format_combo = QComboBox()
         self.format_combo.addItem("HLS (m3u8)", "hls")
         self.format_combo.addItem("FLV (http-flv)", "flv")
+        self.format_combo.setMinimumHeight(scale(26))
         settings_layout.addWidget(self.format_combo, 0, 3)
 
-        # 画质
         settings_layout.addWidget(QLabel("画质:"), 1, 0)
         self.record_quality_combo = QComboBox()
         self.record_quality_combo.addItem("原画（最高）", 10000)
@@ -1118,30 +1143,33 @@ class LiveTab(QWidget):
         self.record_quality_combo.addItem("超清", 250)
         self.record_quality_combo.addItem("高清", 150)
         self.record_quality_combo.addItem("流畅", 80)
+        self.record_quality_combo.setMinimumHeight(scale(26))
         settings_layout.addWidget(self.record_quality_combo, 1, 1)
 
-        # 录制时长
         settings_layout.addWidget(QLabel("录制时长:"), 1, 2)
         duration_layout = QHBoxLayout()
         self.duration_spin = QSpinBox()
         self.duration_spin.setRange(0, 86400)
         self.duration_spin.setSuffix(" 秒")
         self.duration_spin.setValue(0)
+        self.duration_spin.setMinimumHeight(scale(26))
         self.duration_spin.setToolTip("0 = 一直录制直到手动停止")
         duration_layout.addWidget(self.duration_spin)
         self.duration_label = QLabel("(0=手动停止)")
-        self.duration_label.setStyleSheet("font-size: 11px; color: #6c757d;")
+        self.duration_label.setStyleSheet(scale_style("font-size: 10px; color: #6c757d;"))
         duration_layout.addWidget(self.duration_label)
         settings_layout.addLayout(duration_layout, 1, 3)
 
-        # 保存路径
         settings_layout.addWidget(QLabel("保存到:"), 2, 0)
         self.save_path_input = QLineEdit()
         default_path = os.path.join(os.getcwd(), "直播录制")
         self.save_path_input.setText(default_path)
+        self.save_path_input.setMinimumHeight(scale(28))
+        self.save_path_input.setStyleSheet(scale_style("padding: 2px 6px;"))
         settings_layout.addWidget(self.save_path_input, 2, 1, 1, 2)
 
         self.browse_btn = QPushButton("浏览...")
+        self.browse_btn.setMinimumHeight(scale(26))
         self.browse_btn.clicked.connect(self._browse_save_path)
         settings_layout.addWidget(self.browse_btn, 2, 3)
 
@@ -1149,22 +1177,26 @@ class LiveTab(QWidget):
 
         # 录制控制
         control_layout = QHBoxLayout()
+        control_layout.setSpacing(scale(4))
         self.start_record_btn = QPushButton("开始录制")
         self.start_record_btn.setStyleSheet(scale_style(
-            "padding: 10px 30px; background-color: #dc3545; color: white; border: none; border-radius: 4px; font-size: 14px; font-weight: bold;"))
+            "padding: 4px 14px; background-color: #dc3545; color: white; border: none; border-radius: 3px; font-size: 12px; font-weight: bold;"))
+        self.start_record_btn.setMinimumHeight(scale(28))
         self.start_record_btn.clicked.connect(self._start_recording)
         control_layout.addWidget(self.start_record_btn)
 
         self.pause_record_btn = QPushButton("暂停")
         self.pause_record_btn.setStyleSheet(scale_style(
-            "padding: 10px 20px; background-color: #ffc107; color: #333; border: none; border-radius: 4px; font-size: 14px;"))
+            "padding: 4px 10px; background-color: #ffc107; color: #333; border: none; border-radius: 3px; font-size: 12px;"))
+        self.pause_record_btn.setMinimumHeight(scale(28))
         self.pause_record_btn.clicked.connect(self._pause_recording)
         self.pause_record_btn.setEnabled(False)
         control_layout.addWidget(self.pause_record_btn)
 
         self.stop_record_btn = QPushButton("停止录制")
         self.stop_record_btn.setStyleSheet(scale_style(
-            "padding: 10px 30px; background-color: #6c757d; color: white; border: none; border-radius: 4px; font-size: 14px;"))
+            "padding: 4px 14px; background-color: #6c757d; color: white; border: none; border-radius: 3px; font-size: 12px;"))
+        self.stop_record_btn.setMinimumHeight(scale(28))
         self.stop_record_btn.clicked.connect(self._stop_recording)
         self.stop_record_btn.setEnabled(False)
         control_layout.addWidget(self.stop_record_btn)
@@ -1174,15 +1206,18 @@ class LiveTab(QWidget):
 
         # 录制状态
         status_group = QGroupBox("录制状态")
+        status_group.setStyleSheet(scale_style(self._GB))
         status_layout = QVBoxLayout(status_group)
+        status_layout.setSpacing(scale(4))
+        status_layout.setContentsMargins(scale(4), scale(8), scale(4), scale(4))
 
         self.record_status_label = QLabel("未开始录制")
-        self.record_status_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #6c757d;")
+        self.record_status_label.setStyleSheet(scale_style("font-size: 12px; font-weight: bold; color: #6c757d;"))
         self.record_status_label.setAlignment(Qt.AlignCenter)
         status_layout.addWidget(self.record_status_label)
 
         self.record_time_label = QLabel("00:00:00")
-        self.record_time_label.setStyleSheet("font-size: 28px; font-weight: bold; color: #00a1d6;")
+        self.record_time_label.setStyleSheet(scale_style("font-size: 20px; font-weight: bold; color: #00a1d6;"))
         self.record_time_label.setAlignment(Qt.AlignCenter)
         status_layout.addWidget(self.record_time_label)
 
@@ -1304,7 +1339,7 @@ class LiveTab(QWidget):
         self.pause_record_btn.setEnabled(False)
         self.stop_record_btn.setEnabled(False)
         self.record_status_label.setText(f"错误: {msg}")
-        self.record_status_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #dc3545;")
+        self.record_status_label.setStyleSheet(scale_style("font-size: 14px; font-weight: bold; color: #dc3545;"))
         self.status_label.setText(msg)
         # 清理托盘会话
         self._cleanup_recording_session()
@@ -1358,7 +1393,7 @@ class LiveTab(QWidget):
 
         # 更新UI状态
         self.record_status_label.setText("录制中（后台持续录制）")
-        self.record_status_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #28a745;")
+        self.record_status_label.setStyleSheet(scale_style("font-size: 14px; font-weight: bold; color: #28a745;"))
 
     def _register_recording_to_parent(self, room_id, title, output_path):
         """通过父窗口注册到录播工具托盘，并发送气泡通知"""
@@ -1395,7 +1430,7 @@ class LiveTab(QWidget):
 
     def _on_record_status(self, status):
         self.record_status_label.setText(status)
-        self.record_status_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #00a1d6;")
+        self.record_status_label.setStyleSheet(scale_style("font-size: 14px; font-weight: bold; color: #00a1d6;"))
         self.status_label.setText(status)
 
     def _on_record_progress(self, seconds, time_str):
@@ -1413,10 +1448,10 @@ class LiveTab(QWidget):
         self.stop_record_btn.setEnabled(False)
         if success:
             self.record_status_label.setText(msg)
-            self.record_status_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #28a745;")
+            self.record_status_label.setStyleSheet(scale_style("font-size: 14px; font-weight: bold; color: #28a745;"))
         else:
             self.record_status_label.setText(msg)
-            self.record_status_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #dc3545;")
+            self.record_status_label.setStyleSheet(scale_style("font-size: 14px; font-weight: bold; color: #dc3545;"))
         self.status_label.setText(msg)
         # 清理托盘会话
         self._cleanup_recording_session()
@@ -1441,7 +1476,7 @@ class LiveTab(QWidget):
             self.pause_record_btn.setStyleSheet(scale_style(
                 "padding: 10px 20px; background-color: #28a745; color: white; border: none; border-radius: 4px; font-size: 14px;"))
             self.record_status_label.setText("已暂停")
-            self.record_status_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffc107;")
+            self.record_status_label.setStyleSheet(scale_style("font-size: 14px; font-weight: bold; color: #ffc107;"))
             # 同步托盘状态
             sid = self._recording_session_id
             parent = self.parent_window
@@ -1455,7 +1490,7 @@ class LiveTab(QWidget):
             self.pause_record_btn.setStyleSheet(scale_style(
                 "padding: 10px 20px; background-color: #ffc107; color: #333; border: none; border-radius: 4px; font-size: 14px;"))
             self.record_status_label.setText("录制中（后台持续录制）")
-            self.record_status_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #28a745;")
+            self.record_status_label.setStyleSheet(scale_style("font-size: 14px; font-weight: bold; color: #28a745;"))
             # 同步托盘状态
             sid = self._recording_session_id
             parent = self.parent_window
@@ -1483,7 +1518,7 @@ class LiveTab(QWidget):
                 self.pause_record_btn.setStyleSheet(scale_style(
                     "padding: 10px 20px; background-color: #28a745; color: white; border: none; border-radius: 4px; font-size: 14px;"))
                 self.record_status_label.setText("已暂停")
-                self.record_status_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffc107;")
+                self.record_status_label.setStyleSheet(scale_style("font-size: 14px; font-weight: bold; color: #ffc107;"))
 
     def handle_tray_resume(self, session_id):
         """父窗口转发的：托盘请求继续录制"""
@@ -1494,37 +1529,42 @@ class LiveTab(QWidget):
                 self.pause_record_btn.setStyleSheet(scale_style(
                     "padding: 10px 20px; background-color: #ffc107; color: #333; border: none; border-radius: 4px; font-size: 14px;"))
                 self.record_status_label.setText("录制中（后台持续录制）")
-                self.record_status_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #28a745;")
+                self.record_status_label.setStyleSheet(scale_style("font-size: 14px; font-weight: bold; color: #28a745;"))
 
     # ==================== Tab 3: 回放下载 ====================
 
     def _create_replay_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        layout.setSpacing(scale(10))
+        layout.setSpacing(scale(4))
+        layout.setContentsMargins(scale(4), scale(4), scale(4), scale(4))
 
         # 回放列表
         list_group = QGroupBox("直播回放列表")
+        list_group.setStyleSheet(scale_style(self._GB))
         list_layout = QVBoxLayout(list_group)
+        list_layout.setSpacing(scale(4))
+        list_layout.setContentsMargins(scale(4), scale(8), scale(4), scale(4))
 
-        # 操作按钮
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(scale(4))
         self.refresh_replay_btn = QPushButton("刷新回放列表")
         self.refresh_replay_btn.setStyleSheet(scale_style(
-            "padding: 6px 16px; background-color: #00a1d6; color: white; border: none; border-radius: 4px; font-size: 13px;"))
+            "padding: 2px 8px; background-color: #00a1d6; color: white; border: none; border-radius: 3px; font-size: 11px;"))
+        self.refresh_replay_btn.setMinimumHeight(scale(26))
         self.refresh_replay_btn.clicked.connect(self._load_replay_list)
         btn_layout.addWidget(self.refresh_replay_btn)
 
         self.load_other_replay_btn = QPushButton("查询他人回放")
         self.load_other_replay_btn.setStyleSheet(scale_style(
-            "padding: 6px 16px; background-color: #17a2b8; color: white; border: none; border-radius: 4px; font-size: 13px;"))
+            "padding: 2px 8px; background-color: #17a2b8; color: white; border: none; border-radius: 3px; font-size: 11px;"))
+        self.load_other_replay_btn.setMinimumHeight(scale(26))
         self.load_other_replay_btn.clicked.connect(self._load_other_replay)
         btn_layout.addWidget(self.load_other_replay_btn)
 
         btn_layout.addStretch()
         list_layout.addLayout(btn_layout)
 
-        # 回放表格
         self.replay_table = QTableWidget(0, 6)
         self.replay_table.setHorizontalHeaderLabels(["标题", "直播时间", "时长", "状态", "回放ID", "操作"])
         self.replay_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
@@ -1541,17 +1581,23 @@ class LiveTab(QWidget):
 
         # 下载设置
         dl_settings_group = QGroupBox("下载设置")
+        dl_settings_group.setStyleSheet(scale_style(self._GB))
         dl_settings_layout = QHBoxLayout(dl_settings_group)
+        dl_settings_layout.setSpacing(scale(4))
+        dl_settings_layout.setContentsMargins(scale(4), scale(8), scale(4), scale(4))
 
         dl_settings_layout.addWidget(QLabel("保存到:"))
         self.replay_save_path_input = QLineEdit()
         default_replay_path = os.path.join(os.getcwd(), "回放下载")
         self.replay_save_path_input.setText(default_replay_path)
+        self.replay_save_path_input.setMinimumHeight(scale(28))
+        self.replay_save_path_input.setStyleSheet(scale_style("padding: 2px 6px;"))
         dl_settings_layout.addWidget(self.replay_save_path_input, stretch=1)
 
         self.replay_browse_btn = QPushButton("浏览...")
         self.replay_browse_btn.setStyleSheet(scale_style(
-            "padding: 4px 12px; background-color: #6c757d; color: white; border: none; border-radius: 3px; font-size: 12px;"))
+            "padding: 2px 8px; background-color: #6c757d; color: white; border: none; border-radius: 3px; font-size: 11px;"))
+        self.replay_browse_btn.setMinimumHeight(scale(26))
         self.replay_browse_btn.clicked.connect(self._browse_replay_save_path)
         dl_settings_layout.addWidget(self.replay_browse_btn)
 
@@ -1559,10 +1605,13 @@ class LiveTab(QWidget):
 
         # 下载状态
         dl_group = QGroupBox("下载状态")
+        dl_group.setStyleSheet(scale_style(self._GB))
         dl_layout = QVBoxLayout(dl_group)
+        dl_layout.setSpacing(scale(4))
+        dl_layout.setContentsMargins(scale(4), scale(8), scale(4), scale(4))
 
         self.replay_dl_status = QLabel("就绪")
-        self.replay_dl_status.setStyleSheet("font-size: 13px; color: #6c757d;")
+        self.replay_dl_status.setStyleSheet(scale_style("font-size: 11px; color: #6c757d;"))
         dl_layout.addWidget(self.replay_dl_status)
 
         progress_layout = QHBoxLayout()
@@ -1571,7 +1620,8 @@ class LiveTab(QWidget):
 
         self.replay_cancel_btn = QPushButton("取消下载")
         self.replay_cancel_btn.setStyleSheet(scale_style(
-            "padding: 4px 12px; background-color: #dc3545; color: white; border: none; border-radius: 3px; font-size: 12px;"))
+            "padding: 2px 8px; background-color: #dc3545; color: white; border: none; border-radius: 3px; font-size: 11px;"))
+        self.replay_cancel_btn.setMinimumHeight(scale(26))
         self.replay_cancel_btn.clicked.connect(self._cancel_replay_download)
         self.replay_cancel_btn.setEnabled(False)
         progress_layout.addWidget(self.replay_cancel_btn)
@@ -1634,8 +1684,8 @@ class LiveTab(QWidget):
             # 操作按钮（下载 + 播放）
             btn_widget = QWidget()
             btn_layout_cell = QHBoxLayout(btn_widget)
-            btn_layout_cell.setContentsMargins(2, 2, 2, 2)
-            btn_layout_cell.setSpacing(4)
+            btn_layout_cell.setContentsMargins(scale(2), scale(2), scale(2), scale(2))
+            btn_layout_cell.setSpacing(scale(4))
 
             dl_video_btn = QPushButton("下载画面")
             dl_video_btn.setStyleSheet(scale_style(

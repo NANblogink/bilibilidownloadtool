@@ -12505,9 +12505,9 @@ class BilibiliDownloader(BaseWindow):
         screen = QApplication.primaryScreen()
         if screen:
             sg = screen.availableGeometry()
-            self.setMinimumSize(max(scale(800), int(sg.width() * 0.4)), max(scale(550), int(sg.height() * 0.4)))
+            self.setMinimumSize(max(scale(900), int(sg.width() * 0.4)), max(scale(600), int(sg.height() * 0.4)))
         else:
-            self.setMinimumSize(scale(800), scale(550))
+            self.setMinimumSize(scale(900), scale(600))
         
         saved_geometry = self.config.get_app_setting("window_geometry", "")
         if saved_geometry:
