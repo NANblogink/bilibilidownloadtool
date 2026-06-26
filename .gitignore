@@ -1,0 +1,62 @@
+# ==================== Python ====================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+
+# ==================== 虚拟环境 & 依赖 ====================
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg
+
+# ==================== IDE / 编辑器 ====================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ==================== 运行时数据（不上传） ====================
+log/
+download_history.json
+download_tasks.json
+app_config.json
+wbi_cache.json
+dismissed_announcements.json
+client_id.txt
+
+# ==================== 打包构建产物（不上传） ====================
+build_*.py
+*.spec
+version_info_*.win
+patch_pyinstaller.py
+
+# ==================== 测试 / 调试（不上传） ====================
+_test_*.py
+check_class.py
+_fix_*.py
+_patch_*.py (不含 patch_pyinstaller.py)
+_refactor_*.py
+*_do_mod.py
+*_probe.py
+
+# ==================== 下载的视频文件（不上传） ====================
+B站下载/
+*.mp4
+*.xml
+*.jpg (非 logo)
+
+# ==================== 杂项（不上传） ====================
+软著材料/
+runs/
+temp/
+dist_nuitka/
+mac_adapter/
+.DS_Store
+Thumbs.db
