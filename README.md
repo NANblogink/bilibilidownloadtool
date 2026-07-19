@@ -7,8 +7,12 @@
 一款功能强大的B站视频解析与下载工具，支持多种视频类型和下载模式，为用户提供便捷的视频内容获取体验。
 
 ![Version](https://img.shields.io/badge/版本-V2.1.1-blue)
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python)
+![PyQt](https://img.shields.io/badge/PyQt-5-41CD52?logo=qt)
+![Platform](https://img.shields.io/badge/平台-Windows-0078D6?logo=windows)
 ![License](https://img.shields.io/badge/许可证-MIT-yellow)
-![Platform](https://img.shields.io/badge/平台-Windows-green)
+![Download](https://img.shields.io/badge/支持下载-视频/音频/直播-green)
+![DRM](https://img.shields.io/badge/支持-DRM%20解密-orange)
 
 </div>
 
