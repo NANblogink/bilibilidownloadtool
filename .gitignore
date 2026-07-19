@@ -47,6 +47,9 @@ build_*.py
 version_info_*.win
 patch_pyinstaller.py
 output/
+sign_exes.ps1
+setup.iss
+*.iss
 
 # ==================== 第三方工具（不上传，用户自行下载） ====================
 ffmpeg/
