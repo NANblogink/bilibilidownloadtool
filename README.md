@@ -9,13 +9,8 @@
 <a href='https://github.com/NANblogink/bilibilidownloadtool/issues'><img src='https://img.shields.io/github/issues/NANblogink/bilibilidownloadtool'></a>
 <img src='https://img.shields.io/github/stars/NANblogink/bilibilidownloadtool?style=social'>
 <a href='https://github.com/NANblogink/bilibilidownloadtool/network/members'><img src='https://img.shields.io/github/forks/NANblogink/bilibilidownloadtool?style=social&label=Forks'></a>
-<a href='https://github.com/NANblogink/bilibilidownloadtool/actions'><img src='https://img.shields.io/github/actions/workflow/status/NANblogink/bilibilidownloadtool/Build.yml'></a>
-<img src='https://img.shields.io/badge/version-V2.1.1-blue'>
-<img src='https://img.shields.io/badge/python-3.8+-green'>
-<img src='https://img.shields.io/badge/PyQt5-green'>
-<img src='https://img.shields.io/badge/FFmpeg-green'>
-<img src='https://img.shields.io/badge/Windows-blue'>
-<img src='https://img.shields.io/badge/License-MIT-yellow.svg'>
+<a href='https://github.com/NANblogink/bilibilidownloadtool/actions'><img src='https://github.com/NANblogink/bilibilidownloadtool/actions/workflows/Build.yml/badge.svg'></a>
+<a href='http://www.bilidown.cn'><img src='https://img.shields.io/badge/License-MIT-yellow.svg'></a>
 
 </div>
 
