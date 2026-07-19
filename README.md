@@ -6,11 +6,16 @@
 
 一款功能强大的B站视频解析与下载工具，支持多种视频类型和下载模式，为用户提供便捷的视频内容获取体验。
 
-<a href='https://github.com/NANblogink/bilibilidownloadtool/issues'><img src='https://img.shields.io/github/issues/NANblogink/bilibilidownloadtool'></a>
-<img src='https://img.shields.io/github/stars/NANblogink/bilibilidownloadtool?style=social'>
-<a href='https://github.com/NANblogink/bilibilidownloadtool/network/members'><img src='https://img.shields.io/github/forks/NANblogink/bilibilidownloadtool?style=social&label=Forks'></a>
-<a href='https://github.com/NANblogink/bilibilidownloadtool/actions'><img src='https://img.shields.io/github/actions/workflow/status/NANblogink/bilibilidownloadtool/Build.yml'></a>
-<a href='http://www.bilidown.cn'><img src='https://img.shields.io/badge/License-MIT-yellow.svg'></a>
+<a href='https://github.com/NANblogink/bilibilidownloadtool/issues'><img src='https://img.shields.io/github/issues/NANblogink/bilibilidownloadtool?style=flat-square&logo=github&logoColor=white'></a>
+<a href='https://github.com/NANblogink/bilibilidownloadtool/stargazers'><img src='https://img.shields.io/github/stars/NANblogink/bilibilidownloadtool?style=flat-square&logo=github&logoColor=white&color=yellow'></a>
+<a href='https://github.com/NANblogink/bilibilidownloadtool/network/members'><img src='https://img.shields.io/github/forks/NANblogink/bilibilidownloadtool?style=flat-square&logo=github&logoColor=white&color=blue'></a>
+<a href='https://github.com/NANblogink/bilibilidownloadtool/actions'><img src='https://img.shields.io/github/actions/workflow/status/NANblogink/bilibilidownloadtool/Build.yml?style=flat-square&logo=githubactions&logoColor=white'></a>
+<img src='https://img.shields.io/badge/version-V2.1.1-blue?style=flat-square&logo=git&logoColor=white'>
+<img src='https://img.shields.io/badge/python-3.8+-green?style=flat-square&logo=python&logoColor=white'>
+<img src='https://img.shields.io/badge/PyQt5-41CD52?style=flat-square&logo=qt&logoColor=white'>
+<img src='https://img.shields.io/badge/FFmpeg-007808?style=flat-square&logo=ffmpeg&logoColor=white'>
+<img src='https://img.shields.io/badge/Windows-0078D4?style=flat-square&logo=windows11&logoColor=white'>
+<img src='https://img.shields.io/badge/License-MIT-yellow?style=flat-square&logo=opensourceinitiative&logoColor=white'>
 
 </div>
 
