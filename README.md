@@ -6,11 +6,12 @@
 
 一款功能强大的B站视频解析与下载工具，支持多种视频类型和下载模式，为用户提供便捷的视频内容获取体验。
 
-<a href='https://github.com/NANblogink/bilibilidownloadtool/issues'><img src='https://img.shields.io/github/issues/NANblogink/bilibilidownloadtool'></a>
-<img src='https://img.shields.io/github/stars/NANblogink/bilibilidownloadtool?style=social'>
-<a href='https://github.com/NANblogink/bilibilidownloadtool/network/members'><img src='https://img.shields.io/github/forks/NANblogink/bilibilidownloadtool?style=social&label=Forks'></a>
-<a href='https://github.com/NANblogink/bilibilidownloadtool/actions'><img src='https://github.com/NANblogink/bilibilidownloadtool/actions/workflows/Build.yml/badge.svg'></a>
-<a href='http://www.bilidown.cn'><img src='https://img.shields.io/badge/License-MIT-yellow.svg'></a>
+<img src='./assets/badges/version.svg'>
+<img src='./assets/badges/python.svg'>
+<img src='./assets/badges/pyqt5.svg'>
+<img src='./assets/badges/ffmpeg.svg'>
+<img src='./assets/badges/windows.svg'>
+<a href='http://www.bilidown.cn'><img src='./assets/badges/license.svg'></a>
 
 </div>
 
