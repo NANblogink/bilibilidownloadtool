@@ -6,6 +6,8 @@ __pycache__/
 .Python
 *.egg-info/
 .eggs/
+.pytest_cache/
+.cache/
 
 # ==================== 虚拟环境 & 依赖 ====================
 .venv/
@@ -24,6 +26,9 @@ build/
 
 # ==================== 运行时数据（不上传） ====================
 log/
+data/
+sessions/
+temp/
 download_history.json
 download_tasks.json
 app_config.json
@@ -33,6 +38,7 @@ client_id.txt
 cookie.txt
 cookies.json
 data_consent.json
+beta_bind.json
 *.log
 
 # ==================== 打包构建产物（不上传） ====================
@@ -47,20 +53,33 @@ ffmpeg/
 mpv/
 bento4/
 
+# ==================== 证书文件（不上传，敏感） ====================
+*.cer
+*.pfx
+*.p12
+*.key
+
 # ==================== 测试 / 调试（不上传） ====================
 _test_*.py
 check_class.py
 _fix_*.py
-_patch_*.py (不含 patch_pyinstaller.py)
+_patch_*.py
 _refactor_*.py
 *_do_mod.py
 *_probe.py
+_rebuild_*.py
 
 # ==================== 下载的视频文件（不上传） ====================
 B站下载/
 *.mp4
+*.m4a
+*.flv
 *.xml
-*.jpg (非 logo)
+*.jpg
+*.png
+!logo.png
+!logo.ico
+!logo_alt_kaisui.ico
 
 # ==================== 杂项（不上传） ====================
 软著材料/
