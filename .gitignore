@@ -50,6 +50,11 @@ output/
 sign_exes.ps1
 setup.iss
 *.iss
+build.py
+installer.py
+uninstaller.py
+cert_installer.py
+version_info.win
 
 # ==================== 第三方工具（不上传，用户自行下载） ====================
 ffmpeg/
