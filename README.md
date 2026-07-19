@@ -369,7 +369,7 @@ bilibilidownloadtool-master/
 
 视频教程：
 
-<iframe src="//player.bilibili.com/player.html?isOutside=true&aid=116190861072570&bvid=BV1pZNTzsEd2&cid=36539338427&p=1" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true"></iframe>
+👉 [点击查看 B 站视频教程](https://www.bilibili.com/video/BV1pZNTzsEd2)
 
 图文步骤：
 
@@ -397,7 +397,6 @@ bilibilidownloadtool-master/
 - **合集中分P获取不到的问题**：修复了批量解析合集/剧集类视频时，部分分P视频无法正确获取的问题
 - **ffmpeg 路径处理**：统一使用 normpath 处理路径斜杠，避免混合斜杠导致的崩溃
 - **加密视频解密**：优化中文路径下的临时目录处理，避免 Bento4 解密失败
-- **logo 图标显示**：修复 logo.ico 尺寸不标准导致显示全黑的问题
 
 优化：
 - **收藏夹解析速度**：page_size=20 + 0.1秒分页间隔，并发分页请求提升解析速度
