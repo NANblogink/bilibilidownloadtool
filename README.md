@@ -6,11 +6,9 @@
 
 一款功能强大的B站视频解析与下载工具，支持多种视频类型和下载模式，为用户提供便捷的视频内容获取体验。
 
-<a href='https://github.com/NANblogink/bilibilidownloadtool/issues'><img src='https://img.shields.io/github/issues/NANblogink/bilibilidownloadtool'></a>
-<img src='https://img.shields.io/github/stars/NANblogink/bilibilidownloadtool?style=social'>
-<a href='https://github.com/NANblogink/bilibilidownloadtool/network/members'><img src='https://img.shields.io/github/forks/NANblogink/bilibilidownloadtool?style=social&label=Forks'></a>
-<a href='https://github.com/NANblogink/bilibilidownloadtool/actions'><img src='https://img.shields.io/github/actions/workflow/status/NANblogink/bilibilidownloadtool/Build.yml'></a>
-<a href='http://www.bilidown.cn'><img src='https://img.shields.io/badge/License-MIT-yellow.svg'></a>
+![Version](https://img.shields.io/badge/版本-V2.1.1-blue)
+![License](https://img.shields.io/badge/许可证-MIT-yellow)
+![Platform](https://img.shields.io/badge/平台-Windows-green)
 
 </div>
 
