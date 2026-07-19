@@ -6,13 +6,16 @@
 
 一款功能强大的B站视频解析与下载工具，支持多种视频类型和下载模式，为用户提供便捷的视频内容获取体验。
 
-![Version](https://img.shields.io/badge/版本-V2.1.1-blue)
-![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python)
-![PyQt](https://img.shields.io/badge/PyQt-5-41CD52?logo=qt)
-![Platform](https://img.shields.io/badge/平台-Windows-0078D6?logo=windows)
-![License](https://img.shields.io/badge/许可证-MIT-yellow)
-![Download](https://img.shields.io/badge/支持下载-视频/音频/直播-green)
-![DRM](https://img.shields.io/badge/支持-DRM%20解密-orange)
+![版本](https://img.shields.io/badge/版本-V2.1.1-0066ff?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white)
+![Qt](https://img.shields.io/badge/Qt-5-41CD52?style=flat-square&logo=qt&logoColor=white)
+![Windows](https://img.shields.io/badge/平台-Windows-0078D6?style=flat-square&logo=windows11&logoColor=white)
+![MIT](https://img.shields.io/badge/许可证-MIT-yellow?style=flat-square)
+![ffmpeg](https://img.shields.io/badge/ffmpeg-7.0-007808?style=flat-square&logo=ffmpeg&logoColor=white)
+![画质](https://img.shields.io/badge/支持画质-4K%20%7C%20HDR%20%7C%20杜比视界-ff6b6b?style=flat-square)
+![批量下载](https://img.shields.io/badge/批量下载-支持-success?style=flat-square)
+![收藏夹解析](https://img.shields.io/badge/收藏夹解析-支持-9cf?style=flat-square)
+![直播录制](https://img.shields.io/badge/直播录制-支持-blueviolet?style=flat-square)
 
 </div>
 
