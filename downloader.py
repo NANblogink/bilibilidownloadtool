@@ -138,6 +138,34 @@ class EpisodeDownloadThread(QThread):
 
     def _init_ep_title(self):
         try:
+            raw_title = self.config.get_app_setting("raw_title", False) if self.config else False
+            if raw_title:
+                # 不处理标题：直接用原始标题，不添加前缀、不截断
+                if self.video_info.get('is_bangumi') and self.video_info.get('bangumi_info'):
+                    title_candidates = [
+                        self.ep_info.get('ep_title', ''),
+                        self.ep_info.get('title', ''),
+                        self.ep_info.get('name', '')
+                    ]
+                elif self.video_info.get('is_cheese'):
+                    title_candidates = [
+                        self.ep_info.get('ep_title', ''),
+                        self.ep_info.get('title', ''),
+                        self.ep_info.get('name', '')
+                    ]
+                else:
+                    # 普通视频：优先用分P标题(part)，不用合集总标题
+                    title_candidates = [
+                        self.ep_info.get('part', ''),
+                        self.ep_info.get('ep_title', ''),
+                        self.ep_info.get('title', ''),
+                        self.ep_info.get('name', '')
+                    ]
+                actual_title = next((t for t in title_candidates if t), '')
+                self.ep_title = actual_title if actual_title else f"第{self.ep_index+1}集"
+                for c in illegal_filename_chars():
+                    self.ep_title = self.ep_title.replace(c, '_')
+                return
             if self.video_info.get('is_bangumi') and self.video_info.get('bangumi_info'):
                 season = self.video_info['bangumi_info'].get('season_title', '未知季度')
                 ep_idx = self.ep_info.get('ep_index', '未知集')
@@ -597,8 +625,12 @@ class EpisodeDownloadThread(QThread):
         if not self.save_path or not os.path.exists(self.save_path):
             raise Exception("保存路径不存在")
         
+        raw_title = self.config.get_app_setting("raw_title", False) if self.config else False
         add_episode_prefix = self.config.get_app_setting("add_episode_to_filename", True) if self.config else True
-        if add_episode_prefix:
+        if raw_title:
+            # 不处理标题：直接用 ep_title，不加任何前缀
+            output_path = os.path.join(self.save_path, f"{self.ep_title}.mp4")
+        elif add_episode_prefix:
             # 去除 ep_title 中已存在的 "第X集" 前缀，避免重复
             _clean_ep_title = re.sub(r'^第\d+集[ _\-]*', '', self.ep_title) if self.ep_title else ''
             _final_ep_title = _clean_ep_title if _clean_ep_title else self.ep_title
@@ -1284,7 +1316,35 @@ class DownloadManager(QObject):
         try:
             ep_title = f"第{ep_index+1}集_未知标题"
             try:
-                if task_info['video_info'].get('is_bangumi') and task_info['video_info'].get('bangumi_info'):
+                raw_title = self.config.get_app_setting("raw_title", False) if self.config else False
+                add_episode_prefix = self.config.get_app_setting("add_episode_to_filename", True) if self.config else True
+                if raw_title:
+                    # 不处理标题：直接用原始标题，不添加前缀、不替换字符（仅替换非法字符）
+                    if task_info['video_info'].get('is_bangumi') and task_info['video_info'].get('bangumi_info'):
+                        title_candidates = [
+                            ep_info.get('ep_title', ''),
+                            ep_info.get('title', ''),
+                            ep_info.get('name', '')
+                        ]
+                    elif task_info['video_info'].get('is_cheese'):
+                        title_candidates = [
+                            ep_info.get('ep_title', ''),
+                            ep_info.get('title', ''),
+                            ep_info.get('name', '')
+                        ]
+                    else:
+                        # 普通视频：优先用分P标题(part)，不用合集总标题
+                        title_candidates = [
+                            ep_info.get('part', ''),
+                            ep_info.get('ep_title', ''),
+                            ep_info.get('title', ''),
+                            ep_info.get('name', '')
+                        ]
+                    actual_title = next((t for t in title_candidates if t), '')
+                    ep_title = actual_title if actual_title else f"第{ep_index+1}集"
+                    for c in illegal_filename_chars():
+                        ep_title = ep_title.replace(c, '_')
+                elif task_info['video_info'].get('is_bangumi') and task_info['video_info'].get('bangumi_info'):
                     season = task_info['video_info']['bangumi_info'].get('season_title', '未知季度')
                     ep_idx = ep_info.get('ep_index', '未知集')
                     title_candidates = [
@@ -1295,10 +1355,12 @@ class DownloadManager(QObject):
                     actual_title = next((t for t in title_candidates if t), '')
                     # ep_idx 可能已经是 "第4集" 格式，避免重复包裹
                     ep_prefix = ep_idx if '第' in str(ep_idx) else f"第{ep_idx}集"
-                    if actual_title:
-                        ep_title = f"{ep_prefix}_{actual_title}"
+                    if add_episode_prefix:
+                        ep_title = f"{ep_prefix}_{actual_title}" if actual_title else ep_prefix
                     else:
-                        ep_title = ep_prefix
+                        ep_title = actual_title if actual_title else ep_prefix
+                    for c in illegal_filename_chars():
+                        ep_title = ep_title.replace(c, '_')
                 elif task_info['video_info'].get('is_cheese'):
                     title_candidates = [
                         ep_info.get('ep_title', ''),
@@ -1309,10 +1371,12 @@ class DownloadManager(QObject):
                     ep_idx = ep_info.get('ep_index', ep_index + 1)
                     # ep_idx 可能已经是 "第4集" 格式，避免重复包裹
                     ep_prefix = ep_idx if '第' in str(ep_idx) else f"第{ep_idx}集"
-                    if actual_title:
-                        ep_title = f"{ep_prefix}_{actual_title}"
+                    if add_episode_prefix:
+                        ep_title = f"{ep_prefix}_{actual_title}" if actual_title else ep_prefix
                     else:
-                        ep_title = ep_prefix
+                        ep_title = actual_title if actual_title else ep_prefix
+                    for c in illegal_filename_chars():
+                        ep_title = ep_title.replace(c, '_')
                 else:
                     # 普通视频：优先使用ep_info中的标题，如果没有则使用视频总标题
                     title_candidates = [
@@ -1325,22 +1389,34 @@ class DownloadManager(QObject):
                     page = ep_info.get('page', ep_index + 1)
                     # 获取视频总标题作为后备
                     video_main_title = task_info['video_info'].get('title', '')
+                    # 清理分P标题里的 "│" 和 "P\d+ - " 前缀，避免残留到文件名
                     if actual_title:
-                        # 去除 actual_title 中已存在的 "第X集" 前缀，避免重复
-                        _actual_clean = re.sub(r'^第\d+集[ _\-]*', '', actual_title) if actual_title else ''
-                        if _actual_clean:
-                            ep_title = f"第{page}集_{_actual_clean}"
+                        actual_title = re.sub(r'^\s*│\s*', '', actual_title)
+                        actual_title = re.sub(r'^P\d+\s*[-_]\s*', '', actual_title)
+                        actual_title = actual_title.strip()
+                    if add_episode_prefix:
+                        if actual_title:
+                            # 去除 actual_title 中已存在的 "第X集" 前缀，避免重复
+                            _actual_clean = re.sub(r'^第\d+集[ _\-]*', '', actual_title) if actual_title else ''
+                            ep_title = f"第{page}集_{_actual_clean}" if _actual_clean else f"第{page}集"
+                        elif video_main_title:
+                            # 使用视频总标题作为文件名基础
+                            _clean_main = re.sub(r'^第\d+集[ _\-]*', '', video_main_title)
+                            ep_title = f"第{page}集_{_clean_main[:25]}"
                         else:
                             ep_title = f"第{page}集"
-                    elif video_main_title:
-                        # 使用视频总标题作为文件名基础
-                        _clean_main = re.sub(r'^第\d+集[ _\-]*', '', video_main_title)
-                        ep_title = f"第{page}集_{_clean_main[:25]}"
                     else:
-                        ep_title = f"第{page}集"
-                for c in illegal_filename_chars():
-                    ep_title = ep_title.replace(c, '_')
-                # 不再截断标题，保持完整文件名
+                        # 不启用前缀：直接使用标题
+                        if actual_title:
+                            ep_title = actual_title
+                        elif video_main_title:
+                            _clean_main = re.sub(r'^第\d+集[ _\-]*', '', video_main_title)
+                            ep_title = _clean_main[:25] if _clean_main else f"第{page}集"
+                        else:
+                            ep_title = f"第{page}集"
+                    for c in illegal_filename_chars():
+                        ep_title = ep_title.replace(c, '_')
+                    # 不再截断标题，保持完整文件名
             except Exception as e:
                 logger.error(f"任务{task_id}：标题初始化错误: {e}")
                 ep_title = f"第{ep_index+1}集"

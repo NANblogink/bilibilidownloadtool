@@ -73,7 +73,7 @@ class RecordingTrayManager(QObject):
     pause_requested = pyqtSignal(str)  # session_id
     resume_requested = pyqtSignal(str) # session_id
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, visible=True):
         super().__init__(parent)
         self.sessions = {}
         self._next_id = 0
@@ -81,6 +81,7 @@ class RecordingTrayManager(QObject):
         self.tray_menu = None
         self._timer = None
         self._panel = None  # 当前显示的工具条面板
+        self._visible = visible
         self._init_tray()
 
     def _init_tray(self):
@@ -115,7 +116,8 @@ class RecordingTrayManager(QObject):
         # 左键点击 → 显示工具条
         self.tray_icon.activated.connect(self._on_tray_activated)
 
-        self.tray_icon.show()
+        if self._visible:
+            self.tray_icon.show()
 
         # 每秒更新
         self._timer = QTimer(self)
@@ -212,11 +214,25 @@ class RecordingTrayManager(QObject):
         self._next_id += 1
         session = RecordingSession(session_id, room_id, title, output_path)
         self.sessions[session_id] = session
-        if self.tray_icon:
+        if self.tray_icon and self._visible:
             self.tray_icon.show()
         self._rebuild_menu()
         logger.info(f"[录播工具] 注册会话: {session_id} 房间={room_id}")
         return session_id
+
+    def set_visible(self, visible):
+        """设置托盘图标是否显示"""
+        self._visible = visible
+        if self.tray_icon:
+            if visible:
+                self.tray_icon.show()
+            else:
+                self.tray_icon.hide()
+                self.close_panel()
+        logger.info(f"[录播工具] 托盘图标{'显示' if visible else '隐藏'}")
+
+    def is_visible(self):
+        return self._visible
 
     def remove_session(self, session_id):
         if session_id in self.sessions:

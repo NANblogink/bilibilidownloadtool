@@ -877,7 +877,8 @@ class BilibiliParser:
                 self.session.headers.update({'X-CSRF-Token': self.csrf_token})
 
             self.user_info = None
-            self._api_cache.clear()
+            with self._api_cache_lock:
+                self._api_cache.clear()
             return True
         except Exception as e:
             print(f"Cookie保存失败：{str(e)}")
@@ -960,6 +961,8 @@ class BilibiliParser:
     _api_cache = {}
     _cache_expiry = 300
     _cache_max_size = 100
+    # 多线程并发访问保护（批量解析使用ThreadPoolExecutor，多任务可能同时读写_api_cache）
+    _api_cache_lock = threading.Lock()
     
     def _api_request(self, url, timeout=None, max_retries=None, use_wbi=False, params=None, use_cache=True, extra_headers=None, with_dm_params=True):
         try:
@@ -1176,29 +1179,36 @@ class BilibiliParser:
         self._last_request_time = time.time()
     
     def _get_cached_data(self, cache_key):
-        if cache_key in self._api_cache:
-            cached = self._api_cache[cache_key]
-            if time.time() - cached['timestamp'] < self._cache_expiry:
-                logger.debug(f"使用缓存的API响应: {cache_key}")
-                return cached['data']
-            else:
-                del self._api_cache[cache_key]  # 缓存过期
+        with self._api_cache_lock:
+            if cache_key in self._api_cache:
+                cached = self._api_cache[cache_key]
+                if time.time() - cached['timestamp'] < self._cache_expiry:
+                    logger.debug(f"使用缓存的API响应: {cache_key}")
+                    return cached['data']
+                else:
+                    del self._api_cache[cache_key]  # 缓存过期
         return None
-    
+
     def _cache_api_response(self, cache_key, data):
-        if len(self._api_cache) >= self._cache_max_size:
-            self._clean_expired_cache()
+        with self._api_cache_lock:
             if len(self._api_cache) >= self._cache_max_size:
-                oldest_key = min(self._api_cache, key=lambda k: self._api_cache[k]['timestamp'])
-                del self._api_cache[oldest_key]
-        self._api_cache[cache_key] = {
-            'data': data,
-            'timestamp': time.time()
-        }
-    
+                self._clean_expired_cache_locked()
+                if len(self._api_cache) >= self._cache_max_size:
+                    oldest_key = min(self._api_cache, key=lambda k: self._api_cache[k]['timestamp'])
+                    del self._api_cache[oldest_key]
+            self._api_cache[cache_key] = {
+                'data': data,
+                'timestamp': time.time()
+            }
+
     def _clean_expired_cache(self):
+        with self._api_cache_lock:
+            self._clean_expired_cache_locked()
+
+    def _clean_expired_cache_locked(self):
+        # 调用方必须已持有 _api_cache_lock
         current_time = time.time()
-        expired_keys = [key for key, cached in self._api_cache.items() 
+        expired_keys = [key for key, cached in self._api_cache.items()
                       if current_time - cached['timestamp'] >= self._cache_expiry]
         for key in expired_keys:
             del self._api_cache[key]
@@ -5446,6 +5456,8 @@ class BilibiliParser:
                     _candidates = []
                     if audio_item.get('baseUrl'):
                         _candidates.append(audio_item.get('baseUrl'))
+                    if audio_item.get('base_url'):
+                        _candidates.append(audio_item.get('base_url'))
                     if audio_item.get('url'):
                         _candidates.append(audio_item.get('url'))
                     if audio_item.get('backup_url') and isinstance(audio_item.get('backup_url'), list):
@@ -5605,6 +5617,8 @@ class BilibiliParser:
                         _candidates = []
                         if video.get('baseUrl'):
                             _candidates.append(video.get('baseUrl'))
+                        if video.get('base_url'):
+                            _candidates.append(video.get('base_url'))
                         if video.get('url'):
                             _candidates.append(video.get('url'))
                         if video.get('backup_url') and isinstance(video.get('backup_url'), list):
@@ -5829,6 +5843,8 @@ class BilibiliParser:
                                     video_url = ''
                                     if video.get('baseUrl'):
                                         video_url = video.get('baseUrl').strip().strip('`')
+                                    elif video.get('base_url'):
+                                        video_url = video.get('base_url').strip().strip('`')
                                     elif video.get('url'):
                                         video_url = video.get('url').strip().strip('`')
                                     elif video.get('backup_url') and isinstance(video.get('backup_url'), list) and len(video.get('backup_url')) > 0:
@@ -5840,6 +5856,8 @@ class BilibiliParser:
                                 audio_item = data_source['dash']['audio'][0]
                                 if audio_item.get('baseUrl'):
                                     audio_url = audio_item.get('baseUrl').strip().strip('`')
+                                elif audio_item.get('base_url'):
+                                    audio_url = audio_item.get('base_url').strip().strip('`')
                                 elif audio_item.get('url'):
                                     audio_url = audio_item.get('url').strip().strip('`')
                                 elif audio_item.get('backup_url') and isinstance(audio_item.get('backup_url'), list) and len(audio_item.get('backup_url')) > 0:
@@ -5883,7 +5901,7 @@ class BilibiliParser:
                     if ep_id:
                         
                         if media_type == "cheese":
-                            play_url = f"https://api.bilibili.com/pugv/player/web/playurl?ep_id={ep_id}&qn=127&fnval=112&fourk=1&otype=json"
+                            play_url = f"https://api.bilibili.com/pugv/player/web/playurl?ep_id={ep_id}&qn=127&fnval=112&fourk=1&drm_tech_type=2&otype=json"
                         else:
                             play_url = f"https://api.bilibili.com/pgc/player/web/playurl?ep_id={ep_id}&qn=127&fnval=112&fnver=0&fourk=1&from_client=BROWSER&drm_tech_type=2&otype=json"
                         logger.info(f"尝试备用链接（仅ep_id）：{play_url}")
@@ -5941,6 +5959,8 @@ class BilibiliParser:
                                         video_url = ''
                                         if video.get('baseUrl'):
                                             video_url = video.get('baseUrl').strip().strip('`')
+                                        elif video.get('base_url'):
+                                            video_url = video.get('base_url').strip().strip('`')
                                         elif video.get('url'):
                                             video_url = video.get('url').strip().strip('`')
                                         elif video.get('backup_url') and isinstance(video.get('backup_url'), list) and len(video.get('backup_url')) > 0:
@@ -5955,6 +5975,8 @@ class BilibiliParser:
                                     audio_item = data_source['dash']['audio'][0]
                                     if audio_item.get('baseUrl'):
                                         audio_url = audio_item.get('baseUrl').strip().strip('`')
+                                    elif audio_item.get('base_url'):
+                                        audio_url = audio_item.get('base_url').strip().strip('`')
                                     elif audio_item.get('url'):
                                         audio_url = audio_item.get('url').strip().strip('`')
                                     elif audio_item.get('backup_url') and isinstance(audio_item.get('backup_url'), list) and len(audio_item.get('backup_url')) > 0:
@@ -6003,9 +6025,9 @@ class BilibiliParser:
                     if bvid and cid:
                         if media_type == "cheese":
                             if bvid.startswith('BV'):
-                                play_url = f"https://api.bilibili.com/pugv/player/web/playurl?cid={cid}&bvid={bvid}&qn=127&fnval=112&fourk=1&otype=json"
+                                play_url = f"https://api.bilibili.com/pugv/player/web/playurl?cid={cid}&bvid={bvid}&qn=127&fnval=112&fourk=1&drm_tech_type=2&otype=json"
                             else:
-                                play_url = f"https://api.bilibili.com/pugv/player/web/playurl?cid={cid}&avid={bvid}&qn=127&fnval=112&fourk=1&otype=json"
+                                play_url = f"https://api.bilibili.com/pugv/player/web/playurl?cid={cid}&avid={bvid}&qn=127&fnval=112&fourk=1&drm_tech_type=2&otype=json"
                         else:
                             play_url = f"https://api.bilibili.com/pgc/player/web/playurl?cid={cid}&bvid={bvid}&qn=127&fnval=112&fnver=0&fourk=1&from_client=BROWSER&drm_tech_type=2&otype=json"
                         logger.info(f"尝试备用链接（cid+bvid）：{play_url}")
@@ -6059,6 +6081,8 @@ class BilibiliParser:
                                         video_url = ''
                                         if video.get('baseUrl'):
                                             video_url = video.get('baseUrl').strip().strip('`')
+                                        elif video.get('base_url'):
+                                            video_url = video.get('base_url').strip().strip('`')
                                         elif video.get('url'):
                                             video_url = video.get('url').strip().strip('`')
                                         elif video.get('backup_url') and isinstance(video.get('backup_url'), list) and len(video.get('backup_url')) > 0:
@@ -6073,6 +6097,8 @@ class BilibiliParser:
                                     audio_item = data_source['dash']['audio'][0]
                                     if audio_item.get('baseUrl'):
                                         audio_url = audio_item.get('baseUrl').strip().strip('`')
+                                    elif audio_item.get('base_url'):
+                                        audio_url = audio_item.get('base_url').strip().strip('`')
                                     elif audio_item.get('url'):
                                         audio_url = audio_item.get('url').strip().strip('`')
                                     elif audio_item.get('backup_url') and isinstance(audio_item.get('backup_url'), list) and len(audio_item.get('backup_url')) > 0:
@@ -6120,7 +6146,7 @@ class BilibiliParser:
                     
                     if ep_id and cid:
                         if media_type == "cheese":
-                            play_url = f"https://api.bilibili.com/pugv/player/web/playurl?ep_id={ep_id}&cid={cid}&qn=127&fnval=112&fourk=1&otype=json"
+                            play_url = f"https://api.bilibili.com/pugv/player/web/playurl?ep_id={ep_id}&cid={cid}&qn=127&fnval=112&fourk=1&drm_tech_type=2&otype=json"
                         else:
                             play_url = f"https://api.bilibili.com/pgc/player/web/playurl?ep_id={ep_id}&cid={cid}&qn=127&fnval=112&fnver=0&fourk=1&from_client=BROWSER&drm_tech_type=2&otype=json"
                         logger.info(f"尝试备用链接（ep_id+cid）：{play_url}")
@@ -6174,6 +6200,8 @@ class BilibiliParser:
                                         video_url = ''
                                         if video.get('baseUrl'):
                                             video_url = video.get('baseUrl').strip().strip('`')
+                                        elif video.get('base_url'):
+                                            video_url = video.get('base_url').strip().strip('`')
                                         elif video.get('url'):
                                             video_url = video.get('url').strip().strip('`')
                                         elif video.get('backup_url') and isinstance(video.get('backup_url'), list) and len(video.get('backup_url')) > 0:
@@ -6188,6 +6216,8 @@ class BilibiliParser:
                                     audio_item = data_source['dash']['audio'][0]
                                     if audio_item.get('baseUrl'):
                                         audio_url = audio_item.get('baseUrl').strip().strip('`')
+                                    elif audio_item.get('base_url'):
+                                        audio_url = audio_item.get('base_url').strip().strip('`')
                                     elif audio_item.get('url'):
                                         audio_url = audio_item.get('url').strip().strip('`')
                                     elif audio_item.get('backup_url') and isinstance(audio_item.get('backup_url'), list) and len(audio_item.get('backup_url')) > 0:
@@ -6295,6 +6325,8 @@ class BilibiliParser:
                                         video_url = ''
                                         if video.get('baseUrl'):
                                             video_url = video.get('baseUrl').strip().strip('`')
+                                        elif video.get('base_url'):
+                                            video_url = video.get('base_url').strip().strip('`')
                                         elif video.get('url'):
                                             video_url = video.get('url').strip().strip('`')
                                         elif video.get('backup_url') and isinstance(video.get('backup_url'), list) and len(video.get('backup_url')) > 0:
@@ -6309,6 +6341,8 @@ class BilibiliParser:
                                     audio_item = data_source['dash']['audio'][0]
                                     if audio_item.get('baseUrl'):
                                         audio_url = audio_item.get('baseUrl').strip().strip('`')
+                                    elif audio_item.get('base_url'):
+                                        audio_url = audio_item.get('base_url').strip().strip('`')
                                     elif audio_item.get('url'):
                                         audio_url = audio_item.get('url').strip().strip('`')
                                     elif audio_item.get('backup_url') and isinstance(audio_item.get('backup_url'), list) and len(audio_item.get('backup_url')) > 0:
@@ -6411,6 +6445,8 @@ class BilibiliParser:
                                         video_url = ''
                                         if video.get('baseUrl'):
                                             video_url = video.get('baseUrl').strip().strip('`')
+                                        elif video.get('base_url'):
+                                            video_url = video.get('base_url').strip().strip('`')
                                         elif video.get('url'):
                                             video_url = video.get('url').strip().strip('`')
                                         elif video.get('backup_url') and isinstance(video.get('backup_url'), list) and len(video.get('backup_url')) > 0:
@@ -6425,6 +6461,8 @@ class BilibiliParser:
                                     audio_item = data_source['dash']['audio'][0]
                                     if audio_item.get('baseUrl'):
                                         audio_url = audio_item.get('baseUrl').strip().strip('`')
+                                    elif audio_item.get('base_url'):
+                                        audio_url = audio_item.get('base_url').strip().strip('`')
                                     elif audio_item.get('url'):
                                         audio_url = audio_item.get('url').strip().strip('`')
                                     elif audio_item.get('backup_url') and isinstance(audio_item.get('backup_url'), list) and len(audio_item.get('backup_url')) > 0:
@@ -6523,6 +6561,8 @@ class BilibiliParser:
                                         video_url = ''
                                         if video.get('baseUrl'):
                                             video_url = video.get('baseUrl').strip().strip('`')
+                                        elif video.get('base_url'):
+                                            video_url = video.get('base_url').strip().strip('`')
                                         elif video.get('url'):
                                             video_url = video.get('url').strip().strip('`')
                                         elif video.get('backup_url') and isinstance(video.get('backup_url'), list) and len(video.get('backup_url')) > 0:
@@ -6537,6 +6577,8 @@ class BilibiliParser:
                                     audio_item = data_source['dash']['audio'][0]
                                     if audio_item.get('baseUrl'):
                                         audio_url = audio_item.get('baseUrl').strip().strip('`')
+                                    elif audio_item.get('base_url'):
+                                        audio_url = audio_item.get('base_url').strip().strip('`')
                                     elif audio_item.get('url'):
                                         audio_url = audio_item.get('url').strip().strip('`')
                                     elif audio_item.get('backup_url') and isinstance(audio_item.get('backup_url'), list) and len(audio_item.get('backup_url')) > 0:
@@ -6672,9 +6714,10 @@ class BilibiliParser:
                             break
                     if not selected_video:
                         selected_video = data_source['dash']['video'][0]
-                    video_url = selected_video['baseUrl']
+                    video_url = selected_video.get('baseUrl') or selected_video.get('base_url', '')
                 if data_source['dash'].get('audio'):
-                    audio_url = data_source['dash']['audio'][0]['baseUrl']
+                    _audio_item = data_source['dash']['audio'][0]
+                    audio_url = _audio_item.get('baseUrl') or _audio_item.get('base_url', '')
             elif 'durl' in data_source:
                 video_url = data_source['durl'][0]['url']
 

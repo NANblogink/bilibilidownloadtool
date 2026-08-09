@@ -565,10 +565,23 @@ class CloudService:
                                 logger.info(f"[下载] 进度: {downloaded} bytes (未知总大小)")
                                 progress_callback(-1, downloaded, 0)
 
-            # 下载完成，报告100%
+            # 下载完成，校验文件完整性
             print(f"[DEBUG下载] ========== 下载完成 ==========")
             print(f"[DEBUG下载] 总计: {downloaded} bytes, chunk数: {chunk_count}")
             logger.info(f"[下载] 下载完成, 总计: {downloaded} bytes")
+
+            # 校验实际下载字节数是否与 content-length 声明一致，避免服务器提前断流导致文件截断、zip 损坏
+            if total > 0 and downloaded < total:
+                pct = downloaded * 100.0 / total
+                print(f"[DEBUG下载] 文件下载不完整: 已下载 {downloaded}/{total} bytes ({pct:.1f}%)")
+                logger.error(f"[下载] 文件下载不完整：已下载 {downloaded}/{total} bytes ({pct:.1f}%)，文件已截断，丢弃损坏文件")
+                try:
+                    if os.path.exists(save_path):
+                        os.remove(save_path)
+                except Exception:
+                    pass
+                return False
+
             if progress_callback:
                 if total > 0:
                     print(f"[DEBUG下载] 最终进度回调: 100%")

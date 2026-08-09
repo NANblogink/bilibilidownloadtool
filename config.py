@@ -56,7 +56,8 @@ class ConfigLoader:
                 "custom_icon_path": "",
                 "emoji_last_save_path": "",
                 "emoji_business": "reply",
-                "audio_last_save_path": ""
+                "audio_last_save_path": "",
+                "show_recording_tray": True
             }
         }
     def _load_config(self):

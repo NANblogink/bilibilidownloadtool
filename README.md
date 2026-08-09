@@ -389,7 +389,13 @@ bilibilidownloadtool-master/
 
 ## 版本历史
 
-### V2.1.1 -- 当前版本
+### V2.1.2 -- 当前版本
+
+修复：
+- **并发解析崩溃（SystemError）**：修复多线程批量解析（收藏夹/合集分P）时 _api_cache 无锁并发读写导致的 SystemError: tupleobject.c:69: bad argument to internal function 崩溃，新增 _api_cache_lock 保护所有缓存访问
+- **热更新 zip 损坏**：修复下载完整性校验缺失导致的 File is not a zip file 错误，下载完成后校验实际字节数与 content-length，截断时丢弃损坏文件并回退到浏览器下载
+
+### V2.1.1
 
 新增：
 - **按时长排序功能**：视频列表支持按时长排序，方便快速找到长视频或短视频
