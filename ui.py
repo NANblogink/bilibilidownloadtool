@@ -13538,6 +13538,34 @@ class BilibiliDownloader(BaseWindow):
         url_layout.addWidget(self.batch_parse_btn)
         content_layout.addLayout(url_layout)
 
+        parse_ctrl_layout = QHBoxLayout()
+        parse_ctrl_layout.setSpacing(scale(6))
+        parse_ctrl_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
+        mode_label = QLabel("范围:")
+        mode_label.setStyleSheet(f"font-size: {scale(11)}px; color: #606266;")
+        parse_ctrl_layout.addWidget(mode_label)
+        self.parse_mode_combo = QComboBox()
+        self.parse_mode_combo.addItem("自动", "auto")
+        self.parse_mode_combo.addItem("仅当前视频分P", "video_only")
+        self.parse_mode_combo.addItem("仅指定单集", "page_only")
+        self.parse_mode_combo.addItem("完整合集", "collection")
+        self.parse_mode_combo.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dee2e6; border-radius: {scale(6)}px; font-size: {scale(11)}px; background-color: #f8fafc;")
+        self.parse_mode_combo.setToolTip("自动:根据视频类型选择 | 仅当前视频分P:跳过合集 | 仅指定单集:只解析指定集 | 完整合集:加载全部不限制")
+        parse_ctrl_layout.addWidget(self.parse_mode_combo)
+        parse_ctrl_layout.addSpacing(scale(4))
+        ep_label = QLabel("指定分P:")
+        ep_label.setStyleSheet(f"font-size: {scale(11)}px; color: #606266;")
+        parse_ctrl_layout.addWidget(ep_label)
+        self.episode_page_spin = QSpinBox()
+        self.episode_page_spin.setRange(0, 99999)
+        self.episode_page_spin.setValue(0)
+        self.episode_page_spin.setSpecialValueText("全部")
+        self.episode_page_spin.setToolTip("0=全部，输入数字仅解析对应分P")
+        self.episode_page_spin.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dee2e6; border-radius: {scale(6)}px; font-size: {scale(11)}px; background-color: #f8fafc; min-width: {scale(45)}px;")
+        parse_ctrl_layout.addWidget(self.episode_page_spin)
+        parse_ctrl_layout.addStretch(1)
+        content_layout.addLayout(parse_ctrl_layout)
+
 
         
 
@@ -16874,10 +16902,21 @@ class BilibiliDownloader(BaseWindow):
                         return
                     else:
                         # 处理其他类型
+                        # 读取解析范围和指定分P
+                        episode_page = getattr(self, 'episode_page_spin', None)
+                        episode_page = episode_page.value() if episode_page else 0
+                        parse_mode = getattr(self, 'parse_mode_combo', None)
+                        parse_mode = parse_mode.currentData() if parse_mode else None
+                        if parse_mode == "auto" or not parse_mode:
+                            parse_mode = None
+                        url_page = media_parse_video_info.get("page")
+                        if url_page and not episode_page:
+                            episode_page = url_page
+                        ep = episode_page if episode_page and episode_page > 0 else None
                         # 传入权限不足重试次数
                         def _cancel_check():
                             return self.parse_cancelled or self.parse_stopped
-                        media_info = self.parser.parse_media(media_type, media_id, False, progress_callback, permission_denied_retries=perm_retry, cancel_check=_cancel_check)
+                        media_info = self.parser.parse_media(media_type, media_id, False, progress_callback, permission_denied_retries=perm_retry, cancel_check=_cancel_check, episode_page=ep, parse_mode=parse_mode)
                         # 检查是否被停止或取消
                         if self.parse_cancelled:
                             return
