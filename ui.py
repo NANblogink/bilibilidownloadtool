@@ -931,6 +931,22 @@ class ExpandedCard(QDialog):
         url_layout.addWidget(self.episode_page_spin)
         initial_layout.addLayout(url_layout)
         
+        mode_layout = QHBoxLayout()
+        mode_layout.setContentsMargins(scale(10), 0, scale(10), 0)
+        mode_label = QLabel("解析范围:")
+        mode_label.setStyleSheet(f"font-size: {scale(11)}px; color: #606266;")
+        mode_layout.addWidget(mode_label)
+        self.parse_mode_combo = QComboBox()
+        self.parse_mode_combo.addItem("自动（合集/分P）", "auto")
+        self.parse_mode_combo.addItem("仅当前视频分P", "video_only")
+        self.parse_mode_combo.addItem("仅指定单集", "page_only")
+        self.parse_mode_combo.addItem("强制完整合集", "collection")
+        self.parse_mode_combo.setStyleSheet(f"padding: {scale(6)}px; border: {scale(1)}px solid #dee2e6; border-radius: {scale(8)}px; font-size: {scale(11)}px; background-color: #f8fafc;")
+        self.parse_mode_combo.setMinimumHeight(scale(36))
+        self.parse_mode_combo.setToolTip("选择解析范围：自动根据视频类型选择/仅当前视频分P/仅指定单集/强制加载完整合集")
+        mode_layout.addWidget(self.parse_mode_combo, stretch=1)
+        initial_layout.addLayout(mode_layout)
+        
         btn_layout = QHBoxLayout()
         btn_layout.setContentsMargins(scale(10), 0, scale(10), 0)
         btn_layout.setSpacing(scale(8))
@@ -1146,6 +1162,7 @@ class ExpandedCard(QDialog):
             self.floating_ball.current_video_info = None
             self.floating_ball.url_edit = self.url_edit
             self.floating_ball.episode_page_spin = self.episode_page_spin
+            self.floating_ball.parse_mode_combo = self.parse_mode_combo
             self.floating_ball.resolution_combo = self.resolution_combo
             self.floating_ball.path_edit = self.path_edit
             self.floating_ball.video_list = self.video_list
@@ -1768,6 +1785,8 @@ class FloatingBall(QWidget):
         if url:
             episode_page = getattr(self, 'episode_page_spin', None)
             episode_page = episode_page.value() if episode_page else 0
+            parse_mode = getattr(self, 'parse_mode_combo', None)
+            parse_mode = parse_mode.currentData() if parse_mode else None
             # 验证是否为B站链接
             if hasattr(self.parent, '_is_bilibili_url') and not self.parent._is_bilibili_url(url):
                 if self.parent and hasattr(self.parent, 'show_notification'):
@@ -1776,7 +1795,7 @@ class FloatingBall(QWidget):
             if self.parent and hasattr(self.parent, 'signal_emitter'):
                 print("parent和signal_emitter存在")
                 print(f"准备发送信号，signal_emitter对象: {self.parent.signal_emitter}")
-                self.parent.signal_emitter.parse_start.emit(url, False, episode_page)
+                self.parent.signal_emitter.parse_start.emit(url, False, episode_page, parse_mode or "")
                 print("发送了解析信号")
             else:
                 print("parent或signal_emitter不存在")
@@ -4707,7 +4726,7 @@ class VideoToolWindow(BaseWindow):
 
 
 class SignalEmitter(QObject):
-    parse_start = pyqtSignal(str, bool, int)
+    parse_start = pyqtSignal(str, bool, int, str)
     parse_finished = pyqtSignal(dict)
     parse_progress = pyqtSignal(int, str)  # 信号：解析进度更新
     show_parse_progress = pyqtSignal()  # 信号：显示解析进度窗口

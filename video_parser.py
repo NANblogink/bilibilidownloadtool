@@ -17,6 +17,10 @@ class VideoParser:
     def parse_media_url(self, url):
         logger.info(f"开始解析链接: {url}")
 
+        # 提取URL中的分P参数 (如 ?p=9 或 &p=9)
+        p_match = re.search(r'[?&]p=(\d+)', url)
+        page_from_url = int(p_match.group(1)) if p_match else None
+
         # 检查直播间 URL（优先，避免不必要的重定向请求）
         live_match = re.search(r'live\.bilibili\.com/(\d+)', url, re.IGNORECASE)
         if live_match:
@@ -61,7 +65,7 @@ class VideoParser:
         if av_match_orig:
             av_id = av_match_orig.group(1)
             logger.info(f"解析成功: 类型=av, ID={av_id}")
-            return {"type": "av", "id": av_id, "error": ""}
+            return {"type": "av", "id": av_id, "page": page_from_url, "error": ""}
 
         bv_match_orig = re.search(r'(BV1[0-9A-Za-z]{9})', url)
         if bv_match_orig:
@@ -69,8 +73,8 @@ class VideoParser:
             if '充电' in url or 'sponsor' in url:
                 logger.info(f"解析成功: 类型=sponsor, ID={bvid}")
                 return {"type": "sponsor", "id": bvid, "error": ""}
-            logger.info(f"解析成功: 类型=video, ID={bvid}")
-            return {"type": "video", "id": bvid, "error": ""}
+            logger.info(f"解析成功: 类型=video, ID={bvid}, page={page_from_url}")
+            return {"type": "video", "id": bvid, "page": page_from_url, "error": ""}
 
         ep_match_orig = re.search(r'ep(\d+)', url, re.IGNORECASE)
         if ep_match_orig:
@@ -87,6 +91,11 @@ class VideoParser:
             logger.info(f"重定向后的链接: {final_url}")
         except Exception as e:
             logger.info(f"获取重定向链接失败: {str(e)}")
+
+        # 重定向后的URL可能也有p=参数，以此为准
+        p_match_final = re.search(r'[?&]p=(\d+)', final_url)
+        if p_match_final:
+            page_from_url = int(p_match_final.group(1))
 
         space_match = re.search(r'space\.bilibili\.com/(\d+)', final_url, re.IGNORECASE)
         if space_match:
@@ -118,7 +127,7 @@ class VideoParser:
         if av_match:
             av_id = av_match.group(1)
             logger.info(f"解析成功: 类型=av, ID={av_id}")
-            return {"type": "av", "id": av_id, "error": ""}
+            return {"type": "av", "id": av_id, "page": page_from_url, "error": ""}
 
         bv_match = re.search(r'(BV1[0-9A-Za-z]{9})', final_url)
         if bv_match:
@@ -127,8 +136,8 @@ class VideoParser:
             if '充电' in final_url or 'sponsor' in final_url:
                 logger.info(f"解析成功: 类型=sponsor, ID={bvid}")
                 return {"type": "sponsor", "id": bvid, "error": ""}
-            logger.info(f"解析成功: 类型=video, ID={bvid}")
-            return {"type": "video", "id": bvid, "error": ""}
+            logger.info(f"解析成功: 类型=video, ID={bvid}, page={page_from_url}")
+            return {"type": "video", "id": bvid, "page": page_from_url, "error": ""}
 
         ep_match = re.search(r'ep(\d+)', final_url, re.IGNORECASE)
         if ep_match:

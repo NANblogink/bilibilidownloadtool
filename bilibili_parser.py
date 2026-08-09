@@ -3206,8 +3206,20 @@ class BilibiliParser:
                 "error": str(e)
             }
 
-    def parse_media(self, media_type, media_id, is_tv_mode=False, progress_callback=None, permission_denied_retries=1, cancel_check=None, episode_page=None, max_episodes=200):
+    def parse_media(self, media_type, media_id, is_tv_mode=False, progress_callback=None, permission_denied_retries=1, cancel_check=None, episode_page=None, max_episodes=200, parse_mode=None):
+        """解析媒体信息
+        
+        Args:
+            parse_mode: 解析模式
+                None/"auto" - 自动检测合集/分P（默认）
+                "collection" - 强制加载完整合集（不限集数）
+                "video_only" - 仅解析当前视频的分P，跳过合集
+                "page_only" - 仅解析指定单集（通过episode_page指定）
+        """
         self._wait_session_ready()
+        # parse_mode 决定合集加载策略
+        load_collection = parse_mode not in ("video_only", "page_only")
+        force_full_collection = parse_mode == "collection"
         pp = f" (指定P{episode_page})" if episode_page else ""
         logger.info(f"开始解析媒体信息: 类型={media_type}, ID={media_id}{pp}")
         try:
@@ -3480,8 +3492,40 @@ class BilibiliParser:
                         interact_info = {"stein_guide_cid": video_info['stein_guide_cid']}
                         logger.info(f"通过stein_guide_cid字段检测到互动视频：{video_info['stein_guide_cid']}")
                     
-                    # 指定分P快速路径：多P视频直接取指定页，跳过完整合集加载
-                    if episode_page is not None and not collection:
+                    # parse_mode控制合集加载
+                    # page_only: 仅解析指定单集/video_only: 仅当前视频分P
+                    if not load_collection:
+                        pages = video_info.get('pages', [])
+                        if parse_mode == "page_only" and episode_page and pages and len(pages) >= episode_page:
+                            target = pages[episode_page - 1]
+                            cid = target.get('cid', cid)
+                            collection = [{
+                                "page": target.get('page', episode_page),
+                                "cid": cid,
+                                "bvid": bvid,
+                                "title": self._sanitize_filename(target.get('part', f"第{episode_page}集")),
+                                "duration": target.get('duration', 0),
+                                "duration_str": self._format_duration(target.get('duration', 0)),
+                                "cover": video_info.get('pic', '')
+                            }]
+                            logger.info(f"page_only模式：仅解析P{episode_page}，跳过合集加载")
+                        if not collection and pages:
+                            for page in pages:
+                                duration = page.get('duration', 0)
+                                collection.append({
+                                    "page": page.get('page', 0),
+                                    "cid": page.get('cid', 0),
+                                    "title": self._sanitize_filename(page.get('part', f"第{page.get('page')}集")),
+                                    "duration": duration,
+                                    "duration_str": self._format_duration(duration)
+                                })
+                            logger.info(f"跳过合集加载，使用当前视频分P，共{len(collection)}集")
+                            if parse_mode == "page_only" and episode_page:
+                                filtered = [c for c in collection if c.get('page') == episode_page]
+                                if filtered:
+                                    collection = filtered
+                                    logger.info(f"page_only过滤：仅保留P{episode_page}")
+                    elif episode_page is not None and not collection:
                         pages = video_info.get('pages', [])
                         has_ugc = 'ugc_season' in video_info
                         if pages and len(pages) >= episode_page and not has_ugc:
@@ -3502,8 +3546,8 @@ class BilibiliParser:
                             logger.info(f"视频属于合集，指定P将加载合集并限制最大{max_episodes}集")
                     
                     if not collection:
-                        # 优先检查是否属于合集(ugc_season)或系列(series)
-                        collection = self._get_collection_info(bvid, max_items=max_episodes)
+                        if load_collection:
+                            collection = self._get_collection_info(bvid, max_items=None if force_full_collection else max_episodes)
                         logger.info(f"从API获取合集信息，共{len(collection)}集")
                         
                         # 如果合集只有1集（即只有当前视频自身），尝试查找系列
