@@ -16910,7 +16910,7 @@ class BilibiliDownloader(BaseWindow):
                         if parse_mode == "auto" or not parse_mode:
                             parse_mode = None
                         url_page = media_parse_video_info.get("page")
-                        if url_page and not episode_page:
+                        if url_page and not episode_page and parse_mode != "video_only":
                             episode_page = url_page
                         ep = episode_page if episode_page and episode_page > 0 else None
                         # 传入权限不足重试次数

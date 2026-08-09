@@ -738,7 +738,7 @@ if __name__ == "__main__":
                         try:
                             print("开始解析媒体信息...")
                             url_page = media_parse_result.get("page")
-                            if url_page and not episode_page:
+                            if url_page and not episode_page and parse_mode != "video_only":
                                 episode_page = url_page
                             ep = episode_page if episode_page and episode_page > 0 else None
                             media_info = parser[0].parse_media(media_type, media_id, is_tv_mode, progress_callback, episode_page=ep, parse_mode=parse_mode)

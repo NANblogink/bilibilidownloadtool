@@ -3575,8 +3575,8 @@ class BilibiliParser:
                                 })
                             logger.info(f"从video_info获取分P信息，共{len(collection)}集")
                     
-                    # 指定分P过滤：从合集中仅保留目标分P
-                    if episode_page is not None and len(collection) > 1:
+                    # 指定分P过滤：从合集中仅保留目标分P（video_only模式不参与过滤）
+                    if episode_page is not None and len(collection) > 1 and parse_mode != "video_only":
                         orig_count = len(collection)
                         filtered = [c for c in collection if c.get('page') == episode_page]
                         if filtered:
