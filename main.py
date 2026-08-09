@@ -226,19 +226,62 @@ class SplashScreen(QWidget):
         fade_out()
 if __name__ == "__main__":
     # Windows: 启动时自动申请管理员权限（UAC提权）
+    # 三重防循环保护：
+    #   1. --elevated 标记：提权启动的子进程携带此参数，检测到则不再提权
+    #   2. 环境变量 BILIDOWN_ELEVATING：防止极端情况下参数丢失
+    #   3. 单实例互斥锁：确保同一时间只有一个实例运行
     if sys.platform == 'win32':
         try:
             import ctypes
-            if not ctypes.windll.shell32.IsUserAnAdmin():
-                # 获取当前脚本路径
-                script_path = os.path.abspath(__file__)
-                # 构造参数：python.exe -u "script_path" [其他参数...]
-                params = f'-u "{script_path}"'
-                if len(sys.argv) > 1:
-                    params += " " + " ".join(f'"{arg}"' for arg in sys.argv[1:])
-                ctypes.windll.shell32.ShellExecuteW(
+            # 清理 argv 中的 --elevated 标记，避免影响后续参数解析
+            if '--elevated' in sys.argv:
+                sys.argv = [a for a in sys.argv if a != '--elevated']
+            # 防循环标记：如果是被提权启动的子进程，跳过提权检查
+            _already_elevated = (os.environ.get('BILIDOWN_ELEVATING') == '1')
+            # 清理环境变量，避免子进程继承导致误判
+            os.environ.pop('BILIDOWN_ELEVATING', None)
+            if not _already_elevated and not ctypes.windll.shell32.IsUserAnAdmin():
+                if getattr(sys, 'frozen', False):
+                    _base_params = list(sys.argv[1:])
+                    _base_params.append('--elevated')
+                    params = " ".join(f'"{a}"' for a in _base_params)
+                else:
+                    script_path = os.path.abspath(__file__)
+                    _extra = " ".join(f'"{a}"' for a in sys.argv[1:])
+                    params = f'-u "{script_path}" --elevated'
+                    if _extra:
+                        params += " " + _extra
+                # ShellExecuteW 返回 HINSTANCE（64位系统上是指针）
+                ctypes.windll.shell32.ShellExecuteW.restype = ctypes.c_void_p
+                # 通过环境变量传递标记给子进程
+                os.environ['BILIDOWN_ELEVATING'] = '1'
+                result = ctypes.windll.shell32.ShellExecuteW(
                     None, "runas", sys.executable, params, None, 1
                 )
+                if result and int(result) > 32:
+                    sys.exit(0)
+                # 提权失败（用户拒绝或出错），清理标记后继续以普通权限运行
+                os.environ.pop('BILIDOWN_ELEVATING', None)
+        except Exception:
+            pass
+
+    # 单实例锁：防止多实例同时运行（循环启动时会拦截）
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            _mutex_name = "Global\\BilibiliDownloader_SingleInstance_v2"
+            _mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, False, _mutex_name)
+            _last_error = ctypes.windll.kernel32.GetLastError()
+            # ERROR_ALREADY_EXISTS = 183
+            if _last_error == 183:
+                # 已有实例在运行，激活已有窗口后退出
+                try:
+                    _hwnd = ctypes.windll.user32.FindWindowW(None, "B站解析工具")
+                    if _hwnd:
+                        ctypes.windll.user32.ShowWindow(_hwnd, 9)  # SW_RESTORE
+                        ctypes.windll.user32.SetForegroundWindow(_hwnd)
+                except Exception:
+                    pass
                 sys.exit(0)
         except Exception:
             pass

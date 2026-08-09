@@ -74,6 +74,7 @@ _refactor_*.py
 *_do_mod.py
 *_probe.py
 _rebuild_*.py
+_download_zhongying.py
 
 # ==================== 下载的视频文件（不上传） ====================
 B站下载/

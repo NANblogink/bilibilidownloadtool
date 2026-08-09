@@ -4729,6 +4729,7 @@ class SignalEmitter(QObject):
     batch_parse_result = pyqtSignal(object, bool, object)
     batch_parse_progress = pyqtSignal(int, int, str)
     update_available = pyqtSignal(dict)
+    update_chain_continue = pyqtSignal(dict)
     announcements_ready = pyqtSignal(list)
 
 
@@ -5409,10 +5410,11 @@ class UpdateDialog(QDialog):
     _progress_signal = pyqtSignal(int, str)
     _status_signal = pyqtSignal(str, bool)
 
-    def __init__(self, parent, update_info):
+    def __init__(self, parent, update_info, auto_mode=False):
         try:
             super().__init__(parent)
             self.update_info = update_info
+            self.auto_mode = auto_mode
             self.setAttribute(Qt.WA_DeleteOnClose)
             self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.Dialog)
             self.setAutoFillBackground(True)
@@ -5462,7 +5464,7 @@ class UpdateDialog(QDialog):
             """)
             title_lyt.addWidget(ver_lbl)
 
-            ttl = QLabel("检查更新")
+            ttl = QLabel("检查更新" if not auto_mode else "继续更新")
             ttl.setStyleSheet("font-size: 14px; font-weight: 600; color: #ffffff; background: transparent; border: none;")
             title_lyt.addWidget(ttl, 1)
 
@@ -5506,6 +5508,20 @@ class UpdateDialog(QDialog):
             sub = QLabel("发现新版本可用")
             sub.setStyleSheet("font-size: 15px; font-weight: 600; color: #1a1a1a; background: transparent; border: none;")
             content_layout.addWidget(sub)
+
+            # 版本和大小信息
+            latest_ver = update_info.get("latest_version", "")
+            file_size = update_info.get("file_size", 0)
+            info_text = f"最新版本：{latest_ver}"
+            if file_size and file_size > 0:
+                size_mb = file_size / 1048576
+                if size_mb > 100:
+                    info_text += f"  ·  完整包（约 {size_mb:.0f} MB）"
+                else:
+                    info_text += f"  ·  约 {size_mb:.1f} MB"
+            ver_info = QLabel(info_text)
+            ver_info.setStyleSheet("font-size: 12px; color: #888; background: transparent; border: none;")
+            content_layout.addWidget(ver_info)
 
             sep = QFrame()
             sep.setFrameShape(QFrame.HLine)
@@ -5702,6 +5718,9 @@ class UpdateDialog(QDialog):
 
     def _on_skip_clicked(self):
         """稍后再说"""
+        # 如果在更新链中，用户选择跳过则清除标记，避免反复弹出
+        if self.auto_mode and hasattr(self.parent(), '_clear_update_chain'):
+            self.parent()._clear_update_chain()
         self.reject()
 
     def _on_download(self):
@@ -5713,6 +5732,11 @@ class UpdateDialog(QDialog):
         self.progress_bar.show()
         self.status_label.show()
         self.status_label.setText("正在下载更新包...")
+
+        # 标记更新链（重启后继续检查是否还有更新）
+        latest_ver = self.update_info.get("latest_version", "")
+        if latest_ver and hasattr(self.parent(), '_mark_update_chain'):
+            self.parent()._mark_update_chain(latest_ver)
 
         import threading
         def _worker():
@@ -11218,6 +11242,7 @@ class BilibiliDownloader(BaseWindow):
         self.signal_emitter.batch_parse_result.connect(self._on_batch_parse_result)
         self.signal_emitter.batch_parse_progress.connect(self._on_batch_parse_progress)
         self.signal_emitter.update_available.connect(self._on_update_available)
+        self.signal_emitter.update_chain_continue.connect(self._on_update_chain_continue)
         self.signal_emitter.announcements_ready.connect(self._on_announcements_ready)
 
         # v_voucher 极验验证回调：在主线程弹出极验对话框
@@ -11390,7 +11415,7 @@ class BilibiliDownloader(BaseWindow):
             dlg = QDialog(self)
             dlg.setWindowTitle("数据采集说明")
             dlg.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
-            dlg.setAttribute(Qt.WA_TranslucentBackground, True)
+            dlg.setAutoFillBackground(True)
             dlg.setMinimumSize(560, 560)
             dlg.setMaximumWidth(600)
             dlg.setModal(True)
@@ -11553,7 +11578,7 @@ class BilibiliDownloader(BaseWindow):
                     for key, cb in cb_map.items():
                         new_consent[key] = cb.isChecked()
                     self.config.set_app_setting("data_consent", new_consent)
-                    self.config.save_settings()
+                    self.config.save_config()
                 except Exception:
                     pass
                 dlg.accept()
@@ -11656,7 +11681,9 @@ class BilibiliDownloader(BaseWindow):
     def _check_cloud_info(self):
         # 检查是否开启了自动检查更新
         auto_check = self.config.get_app_setting("auto_check_update", True) if self.config else True
-        if not auto_check:
+        # 如果在更新链中，即使用户关闭了自动检查也要继续（确保能更新完）
+        in_update_chain = self._is_in_update_chain()
+        if not auto_check and not in_update_chain:
             return
         import threading
         def _worker():
@@ -11669,18 +11696,100 @@ class BilibiliDownloader(BaseWindow):
                     update_channel = "stable"
                 update_info = self.cloud_service.check_update(channel=update_channel)
                 if update_info.get("has_update"):
-                    self.signal_emitter.update_available.emit(update_info)
+                    # 如果在更新链中，直接开始下载（不弹确认框）
+                    if in_update_chain:
+                        logger.info("[更新链] 检测到后续更新，自动继续更新")
+                        self.signal_emitter.update_chain_continue.emit(update_info)
+                    else:
+                        self.signal_emitter.update_available.emit(update_info)
+                else:
+                    # 没有更新了，清除更新链标记
+                    if in_update_chain:
+                        logger.info("[更新链] 已是最新版本，清除更新链标记")
+                        self._clear_update_chain()
             except Exception as e:
                 logger.debug(f"检查更新失败: {e}")
             try:
                 announcement_info = self.cloud_service.get_announcements()
                 announcements = announcement_info.get("announcements", [])
                 filtered = self.cloud_service.filter_announcements(announcements)
-                if filtered:
+                if filtered and not in_update_chain:
                     self.signal_emitter.announcements_ready.emit(filtered)
             except Exception as e:
                 logger.debug(f"获取公告失败: {e}")
         threading.Thread(target=_worker, daemon=True).start()
+    
+    @staticmethod
+    def _get_update_chain_path():
+        try:
+            if hasattr(sys, '_MEIPASS'):
+                base_dir = os.path.dirname(sys.executable)
+            else:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+            return os.path.join(base_dir, "update_chain.json")
+        except Exception:
+            return os.path.join(os.path.expanduser("~"), "bilidown_update_chain.json")
+    
+    def _is_in_update_chain(self):
+        """检查是否处于更新链中（即上次更新后还有后续更新需要继续）
+        超时保护：标记超过5分钟视为残留，自动清除，避免循环重启
+        """
+        try:
+            path = self._get_update_chain_path()
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                if not data.get("in_progress", False):
+                    return False
+                start_time = data.get("start_time", 0)
+                if start_time and (int(time.time()) - start_time > 300):
+                    logger.warning("[更新链] 标记已超过5分钟，视为残留并清除")
+                    self._clear_update_chain()
+                    return False
+                return True
+        except Exception:
+            pass
+        return False
+    
+    def _mark_update_chain(self, target_version):
+        """标记开始更新链（重启后继续检查）"""
+        try:
+            path = self._get_update_chain_path()
+            import version_info as _vi
+            current = getattr(_vi, 'version', '')
+            data = {
+                "in_progress": True,
+                "from_version": current,
+                "target_version": target_version,
+                "start_time": int(time.time()),
+            }
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            logger.info(f"[更新链] 已标记: {current} -> {target_version}")
+        except Exception as e:
+            logger.warning(f"[更新链] 标记失败: {e}")
+    
+    def _clear_update_chain(self):
+        """清除更新链标记"""
+        try:
+            path = self._get_update_chain_path()
+            if os.path.exists(path):
+                os.remove(path)
+                logger.info("[更新链] 已清除标记")
+        except Exception as e:
+            logger.warning(f"[更新链] 清除失败: {e}")
+    
+    def _on_update_chain_continue(self, update_info):
+        """更新链继续：弹出更新对话框并自动开始下载"""
+        try:
+            latest = update_info.get("latest_version", "")
+            logger.info(f"[更新链] 继续更新到: {latest}")
+            dialog = UpdateDialog(self, update_info, auto_mode=True)
+            dialog.show()
+            QTimer.singleShot(300, lambda: dialog._on_download())
+        except Exception as e:
+            logger.error(f"[更新链] 继续更新失败: {e}")
+            self._clear_update_chain()
     
     def _on_update_available(self, update_info):
         try:
@@ -14583,11 +14692,12 @@ class BilibiliDownloader(BaseWindow):
         # 录播工具托盘（归主窗口所有，不随LiveTab销毁）
         try:
             from recording_tray import RecordingTrayManager
-            self.recording_tray = RecordingTrayManager(parent=self)
+            show_tray = self.config.get_app_setting("show_recording_tray", True) if self.config else True
+            self.recording_tray = RecordingTrayManager(parent=self, visible=show_tray)
             self.recording_tray.stop_requested.connect(self._on_recording_tray_stop)
             self.recording_tray.pause_requested.connect(self._on_recording_tray_pause)
             self.recording_tray.resume_requested.connect(self._on_recording_tray_resume)
-            logger.info("录播工具托盘初始化成功")
+            logger.info(f"录播工具托盘初始化成功, 显示={show_tray}")
         except Exception as e:
             logger.warning(f"录播工具托盘初始化失败: {e}")
             self.recording_tray = None
@@ -25668,7 +25778,13 @@ class BilibiliDownloader(BaseWindow):
         batch_download_first_checkbox.setChecked(self.config.get_app_setting("batch_download_first", False))
         checkbox_layout.addWidget(batch_download_first_checkbox, 1, 2)
 
-        # Row 2: GPU加速独占一行
+        # Row 2: 不处理标题 + GPU加速
+        raw_title_checkbox = QCheckBox("不处理标题（使用原始分P标题）")
+        raw_title_checkbox.setMinimumHeight(scale(22))
+        raw_title_checkbox.setChecked(self.config.get_app_setting("raw_title", False))
+        raw_title_checkbox.setToolTip("勾选后文件名直接使用视频原始标题（分P视频使用对应分P标题），不添加集数前缀也不替换字符")
+        checkbox_layout.addWidget(raw_title_checkbox, 2, 0)
+
         from platform_utils import detect_gpu
         gpu_acceleration_value = self.config.get_app_setting("gpu_acceleration", None)
         has_gpu, gpu_type, gpu_name = detect_gpu()
@@ -25688,7 +25804,7 @@ class BilibiliDownloader(BaseWindow):
             gpu_acceleration_checkbox.setToolTip("使用AMD AMF硬件编码器进行视频转码，大幅降低CPU负载")
         elif gpu_type == 'intel':
             gpu_acceleration_checkbox.setToolTip("使用Intel QSV硬件编码器进行视频转码，大幅降低CPU负载")
-        checkbox_layout.addWidget(gpu_acceleration_checkbox, 2, 0, 1, 3)
+        checkbox_layout.addWidget(gpu_acceleration_checkbox, 2, 1, 1, 2)
         
         download_layout.addLayout(checkbox_layout)
         
@@ -25978,6 +26094,11 @@ class BilibiliDownloader(BaseWindow):
         show_float_checkbox = QCheckBox("显示悬浮球")
         show_float_checkbox.setChecked(self.config.get_app_setting("show_floating_ball", True))
         other_checkbox_layout.addWidget(show_float_checkbox, 0, 2)
+        
+        # 显示录制托盘图标
+        show_recording_tray_checkbox = QCheckBox("显示录制托盘图标")
+        show_recording_tray_checkbox.setChecked(self.config.get_app_setting("show_recording_tray", True))
+        other_checkbox_layout.addWidget(show_recording_tray_checkbox, 1, 2)
         
         # 显示合并窗口
         show_merge_window_checkbox = QCheckBox("显示合并进度窗口")
@@ -26655,6 +26776,7 @@ class BilibiliDownloader(BaseWindow):
             self.config.set_app_setting("play_sound_on_complete", play_sound_checkbox.isChecked())
             self.config.set_app_setting("add_episode_to_filename", add_episode_prefix_checkbox.isChecked())
             self.config.set_app_setting("batch_download_first", batch_download_first_checkbox.isChecked())
+            self.config.set_app_setting("raw_title", raw_title_checkbox.isChecked())
             self.config.set_app_setting("gpu_acceleration", gpu_acceleration_checkbox.isChecked())
             self.config.set_app_setting("video_output_format", video_format_combo.currentData())
             self.config.set_app_setting("video_output_codec", video_codec_combo.currentData())
@@ -26672,9 +26794,14 @@ class BilibiliDownloader(BaseWindow):
             self.config.set_app_setting("show_download_speed", show_speed_checkbox.isChecked())
             self.config.set_app_setting("show_floating_ball", show_float_checkbox.isChecked())
             self.config.set_app_setting("show_merge_window", show_merge_window_checkbox.isChecked())
+            self.config.set_app_setting("show_recording_tray", show_recording_tray_checkbox.isChecked())
             self.config.set_app_setting("auto_convert_incompatible", auto_convert_checkbox.isChecked())
             self.config.set_app_setting("hevc_not_supported_ask", hevc_not_support_ask_checkbox.isChecked())
             self.config.set_app_setting("file_dialog_style", file_dialog_combo.currentData())
+
+            # 立即应用录制托盘显示设置
+            if hasattr(self, 'recording_tray') and self.recording_tray:
+                self.recording_tray.set_visible(show_recording_tray_checkbox.isChecked())
 
             # 保存数据与隐私设置
             if hasattr(self, 'cloud_service') and self.cloud_service:
