@@ -1030,6 +1030,7 @@ class BilibiliParser:
 
                     if not hasattr(self, 'session') or self.session is None:
                         self.session = requests.Session()
+                        self.session.trust_env = False
                         self.session.headers.update(_BROWSER_HEADERS)
                     else:
                         for k, v in _BROWSER_HEADERS.items():
@@ -6986,6 +6987,7 @@ class BilibiliParser:
                 def _download_chunk(chunk_url, chunk_path, chunk_headers, chunk_index, chunk_start, chunk_end):
                     """下载单个分片（支持断点续传和指数退避重试，覆盖请求和流式读取全阶段）"""
                     ch_session = requests.Session()
+                    ch_session.trust_env = False
                     ch_session.headers.update(chunk_headers)
                     ch_session.cookies.update(self.session.cookies)
                     ch_session.verify = False

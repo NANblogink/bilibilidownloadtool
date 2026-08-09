@@ -64,6 +64,7 @@ class CloudService:
         self.current_version = self._normalize_version(current_version)
         self.platform = "macos" if IS_MACOS else ("windows" if IS_WINDOWS else "linux")
         self.session = requests.Session()
+        self.session.trust_env = False
         self.session.timeout = 10
         self._dismissed_file = self._get_dismissed_file_path()
         self._is_new_install = False
