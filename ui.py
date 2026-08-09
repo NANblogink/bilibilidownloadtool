@@ -920,6 +920,15 @@ class ExpandedCard(QDialog):
         self.url_edit.setMinimumHeight(scale(36))
         self.url_edit.returnPressed.connect(self.on_parse_clicked)
         url_layout.addWidget(self.url_edit, stretch=1)
+        
+        self.episode_page_spin = QSpinBox()
+        self.episode_page_spin.setRange(0, 99999)
+        self.episode_page_spin.setValue(0)
+        self.episode_page_spin.setSpecialValueText("全部")
+        self.episode_page_spin.setToolTip("指定分P/单集（0=全部，输入集数后仅解析该集）")
+        self.episode_page_spin.setStyleSheet(f"padding: {scale(8)}px; border: {scale(1)}px solid #dee2e6; border-radius: {scale(8)}px; font-size: {scale(11)}px; background-color: #f8fafc; min-width: {scale(50)}px;")
+        self.episode_page_spin.setMinimumHeight(scale(36))
+        url_layout.addWidget(self.episode_page_spin)
         initial_layout.addLayout(url_layout)
         
         btn_layout = QHBoxLayout()
@@ -1136,6 +1145,7 @@ class ExpandedCard(QDialog):
         if url:
             self.floating_ball.current_video_info = None
             self.floating_ball.url_edit = self.url_edit
+            self.floating_ball.episode_page_spin = self.episode_page_spin
             self.floating_ball.resolution_combo = self.resolution_combo
             self.floating_ball.path_edit = self.path_edit
             self.floating_ball.video_list = self.video_list
@@ -1756,6 +1766,8 @@ class FloatingBall(QWidget):
         url = self.url_edit.text().strip()
         print(f"输入的URL: {url}")
         if url:
+            episode_page = getattr(self, 'episode_page_spin', None)
+            episode_page = episode_page.value() if episode_page else 0
             # 验证是否为B站链接
             if hasattr(self.parent, '_is_bilibili_url') and not self.parent._is_bilibili_url(url):
                 if self.parent and hasattr(self.parent, 'show_notification'):
@@ -1764,7 +1776,7 @@ class FloatingBall(QWidget):
             if self.parent and hasattr(self.parent, 'signal_emitter'):
                 print("parent和signal_emitter存在")
                 print(f"准备发送信号，signal_emitter对象: {self.parent.signal_emitter}")
-                self.parent.signal_emitter.parse_start.emit(url, False)
+                self.parent.signal_emitter.parse_start.emit(url, False, episode_page)
                 print("发送了解析信号")
             else:
                 print("parent或signal_emitter不存在")
@@ -4695,7 +4707,7 @@ class VideoToolWindow(BaseWindow):
 
 
 class SignalEmitter(QObject):
-    parse_start = pyqtSignal(str, bool)
+    parse_start = pyqtSignal(str, bool, int)
     parse_finished = pyqtSignal(dict)
     parse_progress = pyqtSignal(int, str)  # 信号：解析进度更新
     show_parse_progress = pyqtSignal()  # 信号：显示解析进度窗口

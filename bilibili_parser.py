@@ -3206,9 +3206,10 @@ class BilibiliParser:
                 "error": str(e)
             }
 
-    def parse_media(self, media_type, media_id, is_tv_mode=False, progress_callback=None, permission_denied_retries=1, cancel_check=None):
+    def parse_media(self, media_type, media_id, is_tv_mode=False, progress_callback=None, permission_denied_retries=1, cancel_check=None, episode_page=None, max_episodes=200):
         self._wait_session_ready()
-        logger.info(f"开始解析媒体信息: 类型={media_type}, ID={media_id}")
+        pp = f" (指定P{episode_page})" if episode_page else ""
+        logger.info(f"开始解析媒体信息: 类型={media_type}, ID={media_id}{pp}")
         try:
             if cancel_check and cancel_check():
                 return {"success": False, "error": "解析已取消"}
@@ -3479,9 +3480,30 @@ class BilibiliParser:
                         interact_info = {"stein_guide_cid": video_info['stein_guide_cid']}
                         logger.info(f"通过stein_guide_cid字段检测到互动视频：{video_info['stein_guide_cid']}")
                     
+                    # 指定分P快速路径：多P视频直接取指定页，跳过完整合集加载
+                    if episode_page is not None and not collection:
+                        pages = video_info.get('pages', [])
+                        has_ugc = 'ugc_season' in video_info
+                        if pages and len(pages) >= episode_page and not has_ugc:
+                            # 仅多P视频（非合集）可使用快速路径
+                            target = pages[episode_page - 1]
+                            cid = target.get('cid', cid)
+                            collection = [{
+                                "page": target.get('page', episode_page),
+                                "cid": cid,
+                                "bvid": bvid,
+                                "title": self._sanitize_filename(target.get('part', f"第{episode_page}集")),
+                                "duration": target.get('duration', 0),
+                                "duration_str": self._format_duration(target.get('duration', 0)),
+                                "cover": video_info.get('pic', '')
+                            }]
+                            logger.info(f"指定P快速路径：仅解析P{episode_page}，跳过合集加载")
+                        elif has_ugc:
+                            logger.info(f"视频属于合集，指定P将加载合集并限制最大{max_episodes}集")
+                    
                     if not collection:
                         # 优先检查是否属于合集(ugc_season)或系列(series)
-                        collection = self._get_collection_info(bvid)
+                        collection = self._get_collection_info(bvid, max_items=max_episodes)
                         logger.info(f"从API获取合集信息，共{len(collection)}集")
                         
                         # 如果合集只有1集（即只有当前视频自身），尝试查找系列
@@ -3508,6 +3530,16 @@ class BilibiliParser:
                                     "duration_str": self._format_duration(duration)
                                 })
                             logger.info(f"从video_info获取分P信息，共{len(collection)}集")
+                    
+                    # 指定分P过滤：从合集中仅保留目标分P
+                    if episode_page is not None and len(collection) > 1:
+                        orig_count = len(collection)
+                        filtered = [c for c in collection if c.get('page') == episode_page]
+                        if filtered:
+                            collection = filtered
+                            logger.info(f"指定分P过滤：从{orig_count}集中筛选出P{episode_page}")
+                        else:
+                            logger.warning(f"指定分P{episode_page}未在合集中找到，保留全部{orig_count}集")
                     
                     
                     if is_interact and interact_info:
@@ -4639,7 +4671,7 @@ class BilibiliParser:
         except Exception as e:
             raise Exception(f"CID获取失败：{str(e)}（类型={media_type}, ID={media_id}）")
 
-    def _get_collection_info(self, bvid):
+    def _get_collection_info(self, bvid, max_items=None):
         try:
             url = self.config.get_api_url("video_info_api").format(bvid=bvid)
             
@@ -4693,7 +4725,7 @@ class BilibiliParser:
                 full_collection = None
                 if season_id and upper_mid:
                     logger.info(f"检测到合集: {season_title} (season_id={season_id}, mid={upper_mid})，尝试获取完整合集列表")
-                    full_collection = self._get_full_ugc_season_archives(upper_mid, season_id, video_cover, source_bvid=bvid)
+                    full_collection = self._get_full_ugc_season_archives(upper_mid, season_id, video_cover, source_bvid=bvid, max_items=max_items)
                     if full_collection and len(full_collection) > 0:
                         logger.info(f"从合集详情API获取到 {len(full_collection)} 个视频")
                         collection = full_collection
@@ -4775,7 +4807,7 @@ class BilibiliParser:
             logger.error(f"获取合集信息失败：{str(e)}（bvid={bvid}）")
             return []
 
-    def _get_full_ugc_season_archives(self, mid, season_id, default_cover='', source_bvid=''):
+    def _get_full_ugc_season_archives(self, mid, season_id, default_cover='', source_bvid='', max_items=None):
         """通过合集详情API获取完整的合集视频列表（包含所有章节、所有视频、所有分P）
 
         使用 seasons_archives_list API 获取所有章节视频，然后对每个章节视频
@@ -4819,6 +4851,10 @@ class BilibiliParser:
 
                     logger.info(f"seasons_archives_list 第{page_num}页获取到 {len(archives)} 个视频，累计 {len(all_archives)}/{total}")
 
+                    if max_items and len(all_archives) >= max_items:
+                        logger.info(f"合集已达上限{max_items}集，其余暂不加载")
+                        break
+
                     if len(all_archives) >= total or len(archives) < page_size:
                         break
 
@@ -4833,26 +4869,28 @@ class BilibiliParser:
 
             logger.info(f"从seasons_archives_list获取到 {len(all_archives)} 个章节视频，开始并发获取每个视频的分P信息")
 
-            # 并发获取每个章节视频的分P列表，避免同步请求导致解析卡死
-            from concurrent.futures import ThreadPoolExecutor, as_completed
-            pages_map = {}  # bvid -> pages list
+            # 大合集优化：超过30个章节或有max_items限制时跳过子分P预取
+            skip_sub_pages = (max_items is not None) or (len(all_archives) > 30)
+            pages_map = {}
+            if skip_sub_pages:
+                logger.info(f"大合集模式：跳过子分P预取（{len(all_archives)}个章节），按需加载")
+            else:
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                def _fetch_pages(bvid):
+                    return bvid, self._get_video_pages_list(bvid)
 
-            def _fetch_pages(bvid):
-                return bvid, self._get_video_pages_list(bvid)
-
-            # 限制并发数避免被风控，每个请求设置较短超时
-            max_workers = min(8, len(all_archives)) if all_archives else 1
-            try:
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    futures = {executor.submit(_fetch_pages, arc.get('bvid', '')): arc for arc in all_archives if arc.get('bvid')}
-                    for future in as_completed(futures, timeout=30):
-                        try:
-                            bvid, pages = future.result(timeout=10)
-                            pages_map[bvid] = pages
-                        except Exception as e:
-                            logger.warning(f"获取分P失败: {e}")
-            except Exception as e:
-                logger.warning(f"并发获取分P异常: {e}")
+                max_workers = min(8, len(all_archives)) if all_archives else 1
+                try:
+                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                        futures = {executor.submit(_fetch_pages, arc.get('bvid', '')): arc for arc in all_archives if arc.get('bvid')}
+                        for future in as_completed(futures, timeout=30):
+                            try:
+                                bvid, pages = future.result(timeout=10)
+                                pages_map[bvid] = pages
+                            except Exception as e:
+                                logger.warning(f"获取分P失败: {e}")
+                except Exception as e:
+                    logger.warning(f"并发获取分P异常: {e}")
 
             # 对每个章节视频，构建合集项（含分P）
             collection = []

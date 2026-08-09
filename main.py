@@ -706,9 +706,9 @@ if __name__ == "__main__":
                     thread.start()
                 poll_cookie_status()
             start_cookie_polling()
-            def handle_parse_media(url, is_tv_mode):
+            def handle_parse_media(url, is_tv_mode, episode_page=0):
                 print("=== handle_parse_media被调用 ===")
-                print(f"URL: {url}, is_tv_mode: {is_tv_mode}")
+                print(f"URL: {url}, is_tv_mode: {is_tv_mode}, episode_page: {episode_page}")
                 def progress_callback(progress, message):
                     print(f"解析进度: {progress}%, {message}")
                     window.signal_emitter.parse_progress.emit(int(progress), message)
@@ -735,7 +735,8 @@ if __name__ == "__main__":
                             return
                         try:
                             print("开始解析媒体信息...")
-                            media_info = parser[0].parse_media(media_type, media_id, is_tv_mode, progress_callback)
+                            ep = episode_page if episode_page and episode_page > 0 else None
+                            media_info = parser[0].parse_media(media_type, media_id, is_tv_mode, progress_callback, episode_page=ep)
                             print(f"media_info获取成功，发送信号")
                             window.signal_emitter.parse_finished.emit(media_info)
                         except Exception as e:
