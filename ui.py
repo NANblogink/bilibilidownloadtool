@@ -11415,7 +11415,6 @@ class BilibiliDownloader(BaseWindow):
             dlg = QDialog(self)
             dlg.setWindowTitle("数据采集说明")
             dlg.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
-            dlg.setAttribute(Qt.WA_TranslucentBackground, True)
             dlg.setMinimumSize(560, 560)
             dlg.setMaximumWidth(600)
             dlg.setModal(True)
@@ -11578,7 +11577,7 @@ class BilibiliDownloader(BaseWindow):
                     for key, cb in cb_map.items():
                         new_consent[key] = cb.isChecked()
                     self.config.set_app_setting("data_consent", new_consent)
-                    self.config.save_settings()
+                    self.config.save_config()
                 except Exception:
                     pass
                 dlg.accept()

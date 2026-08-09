@@ -230,16 +230,18 @@ if __name__ == "__main__":
         try:
             import ctypes
             if not ctypes.windll.shell32.IsUserAnAdmin():
-                # 获取当前脚本路径
-                script_path = os.path.abspath(__file__)
-                # 构造参数：python.exe -u "script_path" [其他参数...]
-                params = f'-u "{script_path}"'
-                if len(sys.argv) > 1:
-                    params += " " + " ".join(f'"{arg}"' for arg in sys.argv[1:])
-                ctypes.windll.shell32.ShellExecuteW(
+                if getattr(sys, 'frozen', False):
+                    params = " ".join(f'"{arg}"' for arg in sys.argv[1:]) if len(sys.argv) > 1 else ""
+                else:
+                    script_path = os.path.abspath(__file__)
+                    params = f'-u "{script_path}"'
+                    if len(sys.argv) > 1:
+                        params += " " + " ".join(f'"{arg}"' for arg in sys.argv[1:])
+                result = ctypes.windll.shell32.ShellExecuteW(
                     None, "runas", sys.executable, params, None, 1
                 )
-                sys.exit(0)
+                if result and result > 32:
+                    sys.exit(0)
         except Exception:
             pass
 
