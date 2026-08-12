@@ -32,10 +32,17 @@ logger = logging.getLogger(__name__)
 
 # 条件导入：优先使用orjson进行字符串解析，始终使用标准json进行文件操作
 import json as std_json
+JSONDecodeError = std_json.JSONDecodeError
 try:
     import orjson
-    json = orjson
-    logger.debug("使用orjson库进行JSON解析")
+    if hasattr(orjson, 'loads') and hasattr(orjson, 'dumps'):
+        json = orjson
+        if hasattr(orjson, 'JSONDecodeError'):
+            JSONDecodeError = orjson.JSONDecodeError
+        logger.debug("使用orjson库进行JSON解析")
+    else:
+        import json
+        logger.debug("orjson库关键函数缺失，使用标准json模块")
 except ImportError:
     import json
     logger.debug("orjson库导入失败，使用标准json模块")
@@ -1125,7 +1132,7 @@ class BilibiliParser:
                         
                         self._cache_api_response(cache_key, data)
                         return True, data
-                    except json.JSONDecodeError as e:
+                    except JSONDecodeError as e:
                         logger.debug(f"JSON解析错误: {str(e)}")
                         if resp.status_code == 403:
                             return False, {"error": "访问权限不足"}
@@ -1300,7 +1307,7 @@ class BilibiliParser:
             try:
                 data = json.loads(content)
                 logger.info(f"解析后的JSON数据：{data}")
-            except json.JSONDecodeError as e:
+            except JSONDecodeError as e:
                 content = content.strip()
                 if content.startswith('!'):
                     start_index = content.find('{')
@@ -1309,7 +1316,7 @@ class BilibiliParser:
                 try:
                     data = json.loads(content)
                     logger.info(f"清理后解析的JSON数据：{data}")
-                except json.JSONDecodeError as e:
+                except JSONDecodeError as e:
                     raise Exception(f"获取二维码失败：JSON解析错误：{str(e)}")
             
             code = data.get('code', 0)
@@ -1360,7 +1367,7 @@ class BilibiliParser:
                 
                 try:
                     data = resp.json()
-                except json.JSONDecodeError:
+                except JSONDecodeError:
                     content = resp.text.strip()
                     if content.startswith('!'):
                         start_index = content.find('{')
@@ -1438,7 +1445,7 @@ class BilibiliParser:
             
             try:
                 data = json.loads(content)
-            except json.JSONDecodeError:
+            except JSONDecodeError:
                 content = content.strip()
                 if content.startswith('!'):
                     start_index = content.find('{')
@@ -1446,7 +1453,7 @@ class BilibiliParser:
                         content = content[start_index:]
                 try:
                     data = json.loads(content)
-                except json.JSONDecodeError as e:
+                except JSONDecodeError as e:
                     raise Exception(f"轮询登录状态失败：JSON解析错误：{str(e)}")
             
             code = data.get('code', 0)
@@ -2651,7 +2658,7 @@ class BilibiliParser:
             
             try:
                 login_data = resp.json()
-            except json.JSONDecodeError:
+            except JSONDecodeError:
                 
                 content = resp.text.strip()
                 if content.startswith('!'):
@@ -2946,7 +2953,7 @@ class BilibiliParser:
             
             try:
                 sms_data = resp.json()
-            except json.JSONDecodeError:
+            except JSONDecodeError:
                 if content.startswith('!'):
                     start_index = content.find('{')
                     if start_index != -1:
@@ -3026,7 +3033,7 @@ class BilibiliParser:
             
             try:
                 verify_data = resp.json()
-            except json.JSONDecodeError:
+            except JSONDecodeError:
                 if content.startswith('!'):
                     start_index = content.find('{')
                     if start_index != -1:
@@ -3135,7 +3142,7 @@ class BilibiliParser:
 
             try:
                 verify_data = resp.json()
-            except json.JSONDecodeError:
+            except JSONDecodeError:
                 if content.startswith('!'):
                     start_index = content.find('{')
                     if start_index != -1:
@@ -8557,7 +8564,7 @@ class BilibiliParser:
                 
                 logger.info(f"获取弹幕元数据成功，弹幕总数：{count}")
                 return {"success": True, "count": count, "data": danmaku_data}
-            except json.JSONDecodeError:
+            except JSONDecodeError:
                 logger.error(f"获取弹幕元数据失败：API返回的不是JSON格式数据")
                 logger.error(f"响应内容：{content[:500]}")
                 

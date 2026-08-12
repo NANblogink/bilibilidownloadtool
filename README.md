@@ -389,7 +389,13 @@ bilibilidownloadtool-master/
 
 ## 版本历史
 
-### V2.1.2 -- 当前版本
+### V2.1.3 -- 当前版本
+
+修复：
+- **orjson 兼容性**：修复部分机器上 orjson 缺少 loads/dumps/JSONDecodeError 导致的 API 请求崩溃，导入时增加完整性校验，异常时自动回退标准 json
+- **更新弹窗崩溃**：修复更新下载过程中关闭弹窗后，后台线程持续回调已销毁的 UI 对象导致的 wrapped C/C++ object has been deleted 错误
+
+### V2.1.2
 
 修复：
 - **并发解析崩溃（SystemError）**：修复多线程批量解析（收藏夹/合集分P）时 _api_cache 无锁并发读写导致的 SystemError: tupleobject.c:69: bad argument to internal function 崩溃，新增 _api_cache_lock 保护所有缓存访问

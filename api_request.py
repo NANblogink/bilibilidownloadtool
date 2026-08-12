@@ -14,12 +14,17 @@ from wbi_sign import WbiSign
 logger = logging.getLogger(__name__)
 
 # 条件导入：优先使用orjson，失败则使用标准json模块
+import json as _std_json
 try:
     import orjson
-    json = orjson
-    logger.debug("使用orjson库进行JSON解析")
+    if hasattr(orjson, 'loads') and hasattr(orjson, 'dumps'):
+        json = orjson
+        logger.debug("使用orjson库进行JSON解析")
+    else:
+        json = _std_json
+        logger.debug("orjson库关键函数缺失，使用标准json模块")
 except ImportError:
-    import json
+    json = _std_json
     logger.debug("orjson库导入失败，使用标准json模块")
 
 class ApiRequest:

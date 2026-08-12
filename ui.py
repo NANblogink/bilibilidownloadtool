@@ -5449,6 +5449,7 @@ class UpdateDialog(QDialog):
             self.setAttribute(Qt.WA_DeleteOnClose)
             self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.Dialog)
             self.setAutoFillBackground(True)
+            self._closing = False
 
             self._progress_signal.connect(self._on_progress)
             self._status_signal.connect(self._on_status_update)
@@ -5795,6 +5796,8 @@ class UpdateDialog(QDialog):
                     save_path = os.path.join(temp_dir, "update.zip")
 
                 def progress_cb(pct, done, total):
+                    if self._closing:
+                        return
                     try:
                         print(f"[DEBUG-UI] progress_cb 被调用: pct={pct}, done={done}, total={total}")
                         logger.info(f"[UI进度回调] pct={pct}, done={done}, total={total}")
@@ -5831,6 +5834,8 @@ class UpdateDialog(QDialog):
 
                 cs = CloudService()
                 if not cs.download_update(download_url, save_path, progress_cb):
+                    if self._closing:
+                        return
                     # 下载失败，尝试用浏览器打开下载链接
                     self._update_status("自动下载失败，正在打开浏览器下载...", True)
                     import webbrowser
@@ -5839,6 +5844,9 @@ class UpdateDialog(QDialog):
                     return
 
                 # 跳过 SHA256 校验（CDN 可能修改文件字节导致校验失败）
+
+                if self._closing:
+                    return
 
                 if is_exe_update:
                     self._update_status("正在启动安装程序...")
@@ -5966,9 +5974,12 @@ exit /b 0
         threading.Thread(target=_worker, daemon=True).start()
 
     def _update_status(self, text, is_error=False):
-        self._status_signal.emit(text, is_error)
+        if not self._closing:
+            self._status_signal.emit(text, is_error)
 
     def _on_progress(self, pct, text):
+        if self._closing:
+            return
         try:
             import threading, json, re
             # 解析分片进度数据
@@ -6006,6 +6017,8 @@ exit /b 0
             pass
 
     def _on_status_update(self, text, is_error):
+        if self._closing:
+            return
         try:
             self.status_label.setText(text)
             if is_error:
@@ -6015,6 +6028,18 @@ exit /b 0
                 self._is_downloading = False
         except Exception:
             pass
+
+    def closeEvent(self, event):
+        self._closing = True
+        try:
+            self._progress_signal.disconnect()
+        except Exception:
+            pass
+        try:
+            self._status_signal.disconnect()
+        except Exception:
+            pass
+        super().closeEvent(event)
 
     def mousePressEvent(self, event):
         event.ignore()
