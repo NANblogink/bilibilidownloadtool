@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGr
                              QTableWidget, QTableWidgetItem, QAbstractItemView,
                              QStackedWidget, QRadioButton, QButtonGroup, QSpacerItem, QSizePolicy, QMenu,
                              QApplication, QSpinBox, QDoubleSpinBox, QSlider, QTabWidget, QSystemTrayIcon, QCompleter, QToolBar, QAction, QStyle, QSplitter, QTreeView, QFileSystemModel, QFrame, QHeaderView, QGraphicsDropShadowEffect,
+                             QTreeWidget, QTreeWidgetItem,
                              QDateTimeEdit, QPlainTextEdit, QToolButton)
 from PyQt5.QtCore import QSize, Qt, pyqtSignal, QObject, QEvent, pyqtSlot, QPoint, QThread, QTimer, QEventLoop, QUrl, QCoreApplication, QMetaObject, Q_ARG, QDir, QTime, QDate
 from PyQt5.QtGui import QFont, QPalette, QColor, QCursor, QPixmap, QPainter, QBrush, QIcon, QPainterPath, QImage, QPen, QFontMetrics
@@ -144,6 +145,13 @@ sys.excepthook = _global_excepthook
 
 def _log_thread_exception(args):
     logger.critical("线程异常", exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+    try:
+        import traceback as _tb
+        _stack = ''.join(_tb.format_exception(args.exc_type, args.exc_value, args.exc_traceback))
+        from cloud_service import CloudService
+        CloudService().report_error(args.exc_type.__name__, str(args.exc_value), _stack)
+    except Exception:
+        pass
 
 
 if hasattr(sys, 'excepthook'):
@@ -7012,7 +7020,7 @@ class _EpMarqueeLabel(QLabel):
             return False
 
 
-class EpisodeSelectionDialog(QDialog):
+class EpisodeSelectionDialog(ResizableDialog):
     def __init__(self, parent, episodes, is_bangumi=False, selected_episodes=None, video_info=None):
         super().__init__(parent)
         self.episodes = episodes
@@ -7080,10 +7088,11 @@ class EpisodeSelectionDialog(QDialog):
             self._recalc_grid(scale(700))
             self.setMinimumSize(scale(560), scale(480))
             self.resize(scale(700), scale(520))
-        
+
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
         self.setAutoFillBackground(True)
-        
+        self.setResizable()
+
         try:
             apply_window_icon(self, getattr(self, "config", None))
         except Exception:
@@ -7185,16 +7194,36 @@ class EpisodeSelectionDialog(QDialog):
         self.card_radio.toggled.connect(lambda: self.switch_view("card"))
         view_layout.addWidget(self.list_radio)
         view_layout.addWidget(self.card_radio)
+        self.expand_all_btn = QPushButton("展开全部")
+        self.expand_all_btn.setStyleSheet(scale_style("padding: 4px 12px; border: 1px solid #dee2e6; border-radius: 6px; background-color: white; color: #475569; font-size: 12px;"))
+        self.expand_all_btn.clicked.connect(lambda: self.list_view.expandAll())
+        self.collapse_all_btn = QPushButton("折叠全部")
+        self.collapse_all_btn.setStyleSheet(scale_style("padding: 4px 12px; border: 1px solid #dee2e6; border-radius: 6px; background-color: white; color: #475569; font-size: 12px;"))
+        self.collapse_all_btn.clicked.connect(lambda: self.list_view.collapseAll())
+        view_layout.addWidget(self.expand_all_btn)
+        view_layout.addWidget(self.collapse_all_btn)
         view_layout.addStretch(1)
         content_layout.addLayout(view_layout)
 
         self.stacked_view = QStackedWidget()
         content_layout.addWidget(self.stacked_view, stretch=1)
 
-        self.list_view = QListWidget()
-        self.list_view.setAlternatingRowColors(True)
-        self.list_view.setSelectionMode(QListWidget.SingleSelection)
-        self.list_view.setSelectionBehavior(QListWidget.SelectItems)
+        self.list_view = QTreeWidget()
+        self.list_view.setHeaderHidden(True)
+        self.list_view.setRootIsDecorated(True)
+        self.list_view.setSelectionMode(QTreeWidget.NoSelection)
+        self.list_view.setUniformRowHeights(False)
+        self.list_view.setAnimated(True)
+        self.list_view.setIndentation(scale(20))
+        self.list_view.setStyleSheet(scale_style("""
+            QTreeWidget {
+                border: none;
+                background-color: #f8fafc;
+            }
+            QTreeWidget::item {
+                border-bottom: 1px solid #e2e8f0;
+            }
+        """))
         self.populate_list_view()
         self.stacked_view.addWidget(self.list_view)
 
@@ -7612,100 +7641,194 @@ class EpisodeSelectionDialog(QDialog):
 
     def populate_list_view(self):
         self.list_view.clear()
-        
-        
         self.pending_cover_loading.clear()
         self.active_loaders = 0
-        
-        
         self.loaded_episodes = 0
-        
-        
-        
-        def create_item(i):
-            if i >= len(self.filtered_episodes) or i >= self.loaded_episodes + self.batch_size:
+
+        ep_id_to_index = {id(ep): i for i, ep in enumerate(self.episodes)}
+
+        bvid_to_indices = {}
+        order = []
+        for i, ep in enumerate(self.filtered_episodes):
+            bvid = ep.get('bvid', '')
+            if not bvid:
+                bvid = f'__noid_{id(ep)}__'
+            if bvid not in bvid_to_indices:
+                bvid_to_indices[bvid] = []
+                order.append(bvid)
+            bvid_to_indices[bvid].append(i)
+
+        groups = []
+        for bvid in order:
+            idx_list = bvid_to_indices[bvid]
+            group_items = []
+            for fi in idx_list:
+                ep = self.filtered_episodes[fi]
+                original_index = ep_id_to_index[id(ep)]
+                group_items.append((original_index, ep))
+            groups.append(group_items)
+
+        def apply_denied_state(item, item_widget, ep):
+            if not ep.get('permission_denied', False):
                 return
-            
-            ep = self.filtered_episodes[i]
-            
-            original_index = self.episodes.index(ep)
-            item = QListWidgetItem()
-            item_widget = self.create_episode_widget(ep, original_index, ep.get('permission_denied', False))
-            
-            item.setSizeHint(QSize(scale(0), scale(110)))
-            item.setData(Qt.UserRole, original_index)
-            
-            if ep.get('permission_denied', False):
-                has_free_part = ep.get('has_free_part', False)
-                if has_free_part:
-                    free_duration = ep.get('free_duration', 0)
-                    if free_duration > 0:
-                        for i in range(item_widget.layout().count()):
-                            widget = item_widget.layout().itemAt(i).widget()
-                            if isinstance(widget, QVBoxLayout):
-                                for j in range(widget.count()):
-                                    label = widget.itemAt(j).widget()
-                                    if isinstance(label, QLabel) and label.text().startswith('时长'):
-                                        hours = free_duration // 3600
-                                        minutes = (free_duration % 3600) // 60
-                                        seconds = free_duration % 60
-                                        if hours > 0:
-                                            duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-                                        else:
-                                            duration_str = f"{minutes:02d}:{seconds:02d}"
-                                        label.setText(f"试看 {duration_str}")
-                                        label.setStyleSheet(scale_style("font-size: 11px; color: #10b981;"))
-                else:
-                    item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
-                    item_widget.setStyleSheet("QWidget { opacity: 0.5; }")
-            
-            self.list_view.addItem(item)
-            self.list_view.setItemWidget(item, item_widget)
-            
-            
-            QTimer.singleShot(0, lambda: create_item(i + 1))
-        
-        
-        if self.filtered_episodes:
-            create_item(0)
-            self.loaded_episodes = min(self.batch_size, len(self.filtered_episodes))
-        
-        
-        def on_scroll_bar_value_changed(value):
-            scroll_bar = self.list_view.verticalScrollBar()
-            if value >= scroll_bar.maximum() - 200 and self.loaded_episodes < len(self.filtered_episodes):
-                
-                start = self.loaded_episodes
-                end = min(start + self.batch_size, len(self.filtered_episodes))
-                
-                def load_more(i):
-                    if i >= end:
-                        return
-                    
-                    ep = self.filtered_episodes[i]
-                    
-                    original_index = self.episodes.index(ep)
-                    item = QListWidgetItem()
+            has_free_part = ep.get('has_free_part', False)
+            if has_free_part:
+                free_duration = ep.get('free_duration', 0)
+                if free_duration > 0:
+                    for k in range(item_widget.layout().count()):
+                        w = item_widget.layout().itemAt(k).widget()
+                        if isinstance(w, QVBoxLayout):
+                            for j in range(w.count()):
+                                label = w.itemAt(j).widget()
+                                if isinstance(label, QLabel) and label.text().startswith('时长'):
+                                    hours = free_duration // 3600
+                                    minutes = (free_duration % 3600) // 60
+                                    seconds = free_duration % 60
+                                    if hours > 0:
+                                        duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                                    else:
+                                        duration_str = f"{minutes:02d}:{seconds:02d}"
+                                    label.setText(f"试看 {duration_str}")
+                                    label.setStyleSheet(scale_style("font-size: 11px; color: #10b981;"))
+            else:
+                item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
+                item_widget.setStyleSheet("QWidget { opacity: 0.5; }")
+
+        def create_batch(start):
+            if start >= len(groups):
+                return
+            end = min(start + 50, len(groups))
+            for gi in range(start, end):
+                group_items = groups[gi]
+                if len(group_items) == 1:
+                    original_index, ep = group_items[0]
+                    item = QTreeWidgetItem()
                     item_widget = self.create_episode_widget(ep, original_index, ep.get('permission_denied', False))
-                    
-                    item.setSizeHint(QSize(scale(0), scale(110)))
-                    item.setData(Qt.UserRole, original_index)
-                    
-                    if ep.get('permission_denied', False):
-                        item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
-                        item_widget.setStyleSheet("QWidget { opacity: 0.5; }")
-                    
-                    self.list_view.addItem(item)
-                    self.list_view.setItemWidget(item, item_widget)
-                    
-                    
-                    QTimer.singleShot(0, lambda: load_more(i + 1))
-                
-                load_more(start)
-                self.loaded_episodes = end
-        
-        
-        self.list_view.verticalScrollBar().valueChanged.connect(on_scroll_bar_value_changed)
+                    item.setSizeHint(0, QSize(scale(0), scale(110)))
+                    item.setData(0, Qt.UserRole, original_index)
+                    item.setData(0, Qt.UserRole + 1, 'episode')
+                    apply_denied_state(item, item_widget, ep)
+                    self.list_view.addTopLevelItem(item)
+                    self.list_view.setItemWidget(item, 0, item_widget)
+                else:
+                    parent_item = QTreeWidgetItem()
+                    group_indices = [oi for oi, _ in group_items]
+                    first_ep = group_items[0][1]
+                    title = first_ep.get('title', '') or first_ep.get('ep_title', '') or '未命名'
+                    header_widget = self.create_group_header_widget(title, len(group_items), parent_item, group_items)
+                    parent_item.setSizeHint(0, QSize(scale(0), scale(48)))
+                    parent_item.setData(0, Qt.UserRole + 1, 'group')
+                    parent_item.setData(0, Qt.UserRole + 2, group_indices)
+                    self.list_view.addTopLevelItem(parent_item)
+                    self.list_view.setItemWidget(parent_item, 0, header_widget)
+                    for original_index, ep in group_items:
+                        child_item = QTreeWidgetItem()
+                        child_widget = self.create_episode_widget(ep, original_index, ep.get('permission_denied', False))
+                        child_item.setSizeHint(0, QSize(scale(0), scale(110)))
+                        child_item.setData(0, Qt.UserRole, original_index)
+                        child_item.setData(0, Qt.UserRole + 1, 'episode')
+                        apply_denied_state(child_item, child_widget, ep)
+                        parent_item.addChild(child_item)
+                        self.list_view.setItemWidget(child_item, 0, child_widget)
+                    if len(group_items) <= 5:
+                        parent_item.setExpanded(True)
+            self.loaded_episodes = min(end, len(self.filtered_episodes))
+            if end < len(groups):
+                QTimer.singleShot(0, lambda: create_batch(end))
+
+        if groups:
+            create_batch(0)
+
+    def create_group_header_widget(self, title, part_count, parent_item, group_items):
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(scale(10), scale(6), scale(10), scale(6))
+        layout.setSpacing(scale(10))
+
+        selected_count = sum(1 for oi, _ in group_items if oi in self.selected_indices)
+        checkbox = QCheckBox()
+        checkbox.setTristate(True)
+        if selected_count == len(group_items) and len(group_items) > 0:
+            checkbox.setCheckState(Qt.Checked)
+        elif selected_count > 0:
+            checkbox.setCheckState(Qt.PartiallyChecked)
+        else:
+            checkbox.setCheckState(Qt.Unchecked)
+        checkbox.setMinimumSize(scale(22), scale(22))
+        checkbox.stateChanged.connect(lambda state: self._on_group_checkbox_changed(state, group_items, parent_item))
+        layout.addWidget(checkbox, alignment=Qt.AlignCenter)
+
+        title_label = QLabel(title)
+        title_label.setStyleSheet(scale_style("font-size: 14px; font-weight: 600; color: #1e293b;"))
+        layout.addWidget(title_label)
+
+        count_label = QLabel(f"({part_count}P)")
+        count_label.setStyleSheet(scale_style("font-size: 12px; color: #64748b;"))
+        layout.addWidget(count_label)
+
+        layout.addStretch(1)
+
+        total_duration = 0
+        has_duration = False
+        for _, ep in group_items:
+            d = ep.get('duration', 0)
+            if isinstance(d, (int, float)) and d > 0:
+                total_duration += int(d)
+                has_duration = True
+        if has_duration:
+            hours = total_duration // 3600
+            minutes = (total_duration % 3600) // 60
+            seconds = total_duration % 60
+            if hours > 0:
+                duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            else:
+                duration_str = f"{minutes:02d}:{seconds:02d}"
+            dur_label = QLabel(duration_str)
+            dur_label.setStyleSheet(scale_style("font-size: 11px; color: #94a3b8;"))
+            layout.addWidget(dur_label)
+
+        return widget
+
+    def _on_group_checkbox_changed(self, state, group_items, parent_item):
+        if state == Qt.PartiallyChecked:
+            return
+        checked = (state == Qt.Checked)
+        for original_index, ep in group_items:
+            if ep.get('permission_denied', False) and not ep.get('has_free_part', False):
+                continue
+            if checked:
+                self.selected_indices.add(original_index)
+            else:
+                self.selected_indices.discard(original_index)
+            for c in range(parent_item.childCount()):
+                child_item = parent_item.child(c)
+                if child_item.data(0, Qt.UserRole) == original_index:
+                    child_widget = self.list_view.itemWidget(child_item, 0)
+                    if child_widget:
+                        for cb in child_widget.findChildren(QCheckBox):
+                            cb.blockSignals(True)
+                            cb.setChecked(checked)
+                            cb.blockSignals(False)
+                    break
+        self._update_count_label()
+
+    def _update_all_group_check_states(self):
+        for i in range(self.list_view.topLevelItemCount()):
+            top = self.list_view.topLevelItem(i)
+            if top.data(0, Qt.UserRole + 1) == 'group':
+                group_indices = top.data(0, Qt.UserRole + 2) or []
+                selected_count = sum(1 for idx in group_indices if idx in self.selected_indices)
+                header_widget = self.list_view.itemWidget(top, 0)
+                if header_widget:
+                    for cb in header_widget.findChildren(QCheckBox):
+                        cb.blockSignals(True)
+                        if selected_count == len(group_indices) and len(group_indices) > 0:
+                            cb.setCheckState(Qt.Checked)
+                        elif selected_count > 0:
+                            cb.setCheckState(Qt.PartiallyChecked)
+                        else:
+                            cb.setCheckState(Qt.Unchecked)
+                        cb.blockSignals(False)
 
     def populate_card_view(self):
         self.card_view.clear()
@@ -7881,6 +8004,7 @@ class EpisodeSelectionDialog(QDialog):
         else:
             self.selected_indices.discard(index)
         self._update_count_label()
+        self._update_all_group_check_states()
     
     def _update_count_label(self):
         try:
@@ -7959,50 +8083,129 @@ class EpisodeSelectionDialog(QDialog):
             loader.start()
 
     def select_all(self):
-        current_view = self.list_view if self.list_radio.isChecked() else self.card_view
-        for i in range(current_view.count()):
-            item = current_view.item(i)
-            index = item.data(Qt.UserRole)
-            ep = self.episodes[index]
-            if ep.get('permission_denied', False) and not ep.get('has_free_part', False):
-                continue
-            self.selected_indices.add(index)
-            
-            widget = current_view.itemWidget(item)
-            if widget:
-                for child in widget.findChildren(QCheckBox):
-                    child.setChecked(True)
+        if self.list_radio.isChecked():
+            for i in range(self.list_view.topLevelItemCount()):
+                top = self.list_view.topLevelItem(i)
+                if top.childCount() > 0:
+                    for c in range(top.childCount()):
+                        child = top.child(c)
+                        index = child.data(0, Qt.UserRole)
+                        ep = self.episodes[index]
+                        if ep.get('permission_denied', False) and not ep.get('has_free_part', False):
+                            continue
+                        self.selected_indices.add(index)
+                        widget = self.list_view.itemWidget(child, 0)
+                        if widget:
+                            for cb in widget.findChildren(QCheckBox):
+                                cb.setChecked(True)
+                else:
+                    index = top.data(0, Qt.UserRole)
+                    ep = self.episodes[index]
+                    if ep.get('permission_denied', False) and not ep.get('has_free_part', False):
+                        continue
+                    self.selected_indices.add(index)
+                    widget = self.list_view.itemWidget(top, 0)
+                    if widget:
+                        for cb in widget.findChildren(QCheckBox):
+                            cb.setChecked(True)
+            self._update_all_group_check_states()
+        else:
+            current_view = self.card_view
+            for i in range(current_view.count()):
+                item = current_view.item(i)
+                index = item.data(Qt.UserRole)
+                ep = self.episodes[index]
+                if ep.get('permission_denied', False) and not ep.get('has_free_part', False):
+                    continue
+                self.selected_indices.add(index)
+                widget = current_view.itemWidget(item)
+                if widget:
+                    for child in widget.findChildren(QCheckBox):
+                        child.setChecked(True)
         self._update_count_label()
 
     def deselect_all(self):
-        current_view = self.list_view if self.list_radio.isChecked() else self.card_view
-        for i in range(current_view.count()):
-            item = current_view.item(i)
-            index = item.data(Qt.UserRole)
-            self.selected_indices.discard(index)
-            
-            widget = current_view.itemWidget(item)
-            if widget:
-                for child in widget.findChildren(QCheckBox):
-                    child.setChecked(False)
+        if self.list_radio.isChecked():
+            for i in range(self.list_view.topLevelItemCount()):
+                top = self.list_view.topLevelItem(i)
+                if top.childCount() > 0:
+                    for c in range(top.childCount()):
+                        child = top.child(c)
+                        index = child.data(0, Qt.UserRole)
+                        self.selected_indices.discard(index)
+                        widget = self.list_view.itemWidget(child, 0)
+                        if widget:
+                            for cb in widget.findChildren(QCheckBox):
+                                cb.setChecked(False)
+                else:
+                    index = top.data(0, Qt.UserRole)
+                    self.selected_indices.discard(index)
+                    widget = self.list_view.itemWidget(top, 0)
+                    if widget:
+                        for cb in widget.findChildren(QCheckBox):
+                            cb.setChecked(False)
+            self._update_all_group_check_states()
+        else:
+            current_view = self.card_view
+            for i in range(current_view.count()):
+                item = current_view.item(i)
+                index = item.data(Qt.UserRole)
+                self.selected_indices.discard(index)
+                widget = current_view.itemWidget(item)
+                if widget:
+                    for child in widget.findChildren(QCheckBox):
+                        child.setChecked(False)
         self._update_count_label()
 
     def invert_selection(self):
-        current_view = self.list_view if self.list_radio.isChecked() else self.card_view
-        for i in range(current_view.count()):
-            item = current_view.item(i)
-            index = item.data(Qt.UserRole)
-            ep = self.episodes[index]
-            if ep.get('permission_denied', False) and not ep.get('has_free_part', False):
-                continue
-            if index in self.selected_indices:
-                self.selected_indices.discard(index)
-            else:
-                self.selected_indices.add(index)
-            widget = current_view.itemWidget(item)
-            if widget:
-                for child in widget.findChildren(QCheckBox):
-                    child.setChecked(index in self.selected_indices)
+        if self.list_radio.isChecked():
+            for i in range(self.list_view.topLevelItemCount()):
+                top = self.list_view.topLevelItem(i)
+                if top.childCount() > 0:
+                    for c in range(top.childCount()):
+                        child = top.child(c)
+                        index = child.data(0, Qt.UserRole)
+                        ep = self.episodes[index]
+                        if ep.get('permission_denied', False) and not ep.get('has_free_part', False):
+                            continue
+                        if index in self.selected_indices:
+                            self.selected_indices.discard(index)
+                        else:
+                            self.selected_indices.add(index)
+                        widget = self.list_view.itemWidget(child, 0)
+                        if widget:
+                            for cb in widget.findChildren(QCheckBox):
+                                cb.setChecked(index in self.selected_indices)
+                else:
+                    index = top.data(0, Qt.UserRole)
+                    ep = self.episodes[index]
+                    if ep.get('permission_denied', False) and not ep.get('has_free_part', False):
+                        continue
+                    if index in self.selected_indices:
+                        self.selected_indices.discard(index)
+                    else:
+                        self.selected_indices.add(index)
+                    widget = self.list_view.itemWidget(top, 0)
+                    if widget:
+                        for cb in widget.findChildren(QCheckBox):
+                            cb.setChecked(index in self.selected_indices)
+            self._update_all_group_check_states()
+        else:
+            current_view = self.card_view
+            for i in range(current_view.count()):
+                item = current_view.item(i)
+                index = item.data(Qt.UserRole)
+                ep = self.episodes[index]
+                if ep.get('permission_denied', False) and not ep.get('has_free_part', False):
+                    continue
+                if index in self.selected_indices:
+                    self.selected_indices.discard(index)
+                else:
+                    self.selected_indices.add(index)
+                widget = current_view.itemWidget(item)
+                if widget:
+                    for child in widget.findChildren(QCheckBox):
+                        child.setChecked(index in self.selected_indices)
         self._update_count_label()
 
     def select_range(self):
@@ -8042,37 +8245,69 @@ class EpisodeSelectionDialog(QDialog):
             if not (ep.get('permission_denied', False) and not ep.get('has_free_part', False)):
                 self.selected_indices.add(idx)
         
-        current_view = self.list_view if self.list_radio.isChecked() else self.card_view
-        for i in range(current_view.count()):
-            item = current_view.item(i)
-            index = item.data(Qt.UserRole)
-            if index in self.selected_indices:
-                widget = current_view.itemWidget(item)
-                if widget:
-                    for child in widget.findChildren(QCheckBox):
-                        child.setChecked(True)
+        if self.list_radio.isChecked():
+            for i in range(self.list_view.topLevelItemCount()):
+                top = self.list_view.topLevelItem(i)
+                if top.childCount() > 0:
+                    for c in range(top.childCount()):
+                        child = top.child(c)
+                        index = child.data(0, Qt.UserRole)
+                        if index in self.selected_indices:
+                            widget = self.list_view.itemWidget(child, 0)
+                            if widget:
+                                for cb in widget.findChildren(QCheckBox):
+                                    cb.setChecked(True)
+                else:
+                    index = top.data(0, Qt.UserRole)
+                    if index in self.selected_indices:
+                        widget = self.list_view.itemWidget(top, 0)
+                        if widget:
+                            for cb in widget.findChildren(QCheckBox):
+                                cb.setChecked(True)
+            self._update_all_group_check_states()
+        else:
+            current_view = self.card_view
+            for i in range(current_view.count()):
+                item = current_view.item(i)
+                index = item.data(Qt.UserRole)
+                if index in self.selected_indices:
+                    widget = current_view.itemWidget(item)
+                    if widget:
+                        for child in widget.findChildren(QCheckBox):
+                            child.setChecked(True)
         self._update_count_label()
 
     def accept(self):
         
         self.selected_episodes = [self.episodes[i] for i in sorted(self.selected_indices)]
         super().accept()
-    
+
     def mousePressEvent(self, event):
-        
-        if event.button() == Qt.LeftButton:
-            self.drag_position = event.globalPos() - self.frameGeometry().topLeft()
-            event.accept()
+        if event.button() == Qt.LeftButton and not self._resizing:
+            pos = event.pos()
+            w = self.width()
+            h = self.height()
+            on_edge = (pos.x() < self._edge_margin or pos.x() > w - self._edge_margin or
+                       pos.y() < self._edge_margin or pos.y() > h - self._edge_margin)
+            if not on_edge:
+                self.drag_position = event.globalPos() - self.frameGeometry().topLeft()
+                event.accept()
+                return
+        super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        if self._resizing:
+            super().mouseMoveEvent(event)
+            return
         if event.buttons() == Qt.LeftButton and hasattr(self, 'drag_position') and self.drag_position is not None:
             self.move(event.globalPos() - self.drag_position)
             event.accept()
+            return
+        super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        
         self.drag_position = None
-        event.accept()
+        super().mouseReleaseEvent(event)
 
     def closeEvent(self, event):
         try:
@@ -12543,6 +12778,11 @@ class BilibiliDownloader(BaseWindow):
         test_error_btn.clicked.connect(self.test_fatal_error)
         layout.addWidget(test_error_btn)
         
+        hang_test_btn = QPushButton("卡死测试（触发未响应）")
+        hang_test_btn.setObjectName("envBtn")
+        hang_test_btn.clicked.connect(lambda: self._start_hang_test(dialog))
+        layout.addWidget(hang_test_btn)
+        
         info_btn = QPushButton("显示系统信息")
         info_btn.clicked.connect(self.show_system_info)
         layout.addWidget(info_btn)
@@ -12579,6 +12819,17 @@ class BilibiliDownloader(BaseWindow):
     def test_fatal_error(self):
         print("测试致命错误")
         1 / 0
+    
+    def _start_hang_test(self, dialog):
+        from PyQt5.QtWidgets import QInputDialog
+        seconds, ok = QInputDialog.getInt(self, "卡死测试", "输入卡死秒数（超过10秒将触发看门狗自动重启）:", 10, 1, 120, 1)
+        if not ok:
+            return
+        dialog.close()
+        QApplication.processEvents()
+        import time
+        time.sleep(seconds)
+        self.show_notification(f"卡死测试结束，已阻塞 {seconds} 秒", "success")
     
     def show_system_info(self):
         import platform

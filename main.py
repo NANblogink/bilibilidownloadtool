@@ -77,6 +77,11 @@ if IS_WINDOWS:
 
 from logger_config import logger
 
+
+class _HangRecovered(Exception):
+    pass
+
+
 def qt_message_handler(msg_type, msg_log_context, msg_string):
     pass
 
@@ -266,20 +271,49 @@ if __name__ == "__main__":
             pass
 
     # 单实例锁：防止多实例同时运行（循环启动时会拦截）
+    _INSTANCE_MUTEX = None
     if sys.platform == 'win32':
         try:
             import ctypes
             _mutex_name = "Global\\BilibiliDownloader_SingleInstance_v2"
-            _mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, False, _mutex_name)
+            _INSTANCE_MUTEX = ctypes.windll.kernel32.CreateMutexW(None, False, _mutex_name)
             _last_error = ctypes.windll.kernel32.GetLastError()
             # ERROR_ALREADY_EXISTS = 183
             if _last_error == 183:
-                # 已有实例在运行，激活已有窗口后退出
+                _hwnd = [None]
                 try:
-                    _hwnd = ctypes.windll.user32.FindWindowW(None, "B站解析工具")
-                    if _hwnd:
-                        ctypes.windll.user32.ShowWindow(_hwnd, 9)  # SW_RESTORE
-                        ctypes.windll.user32.SetForegroundWindow(_hwnd)
+                    _title_prefix = "B站视频解析工具"
+                    _WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+                    def _find_cb(hwnd, lparam):
+                        if not ctypes.windll.user32.IsWindowVisible(hwnd):
+                            return True
+                        length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+                        if length <= 0:
+                            return True
+                        buf = ctypes.create_unicode_buffer(length + 1)
+                        ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
+                        if buf.value.startswith(_title_prefix):
+                            _hwnd[0] = hwnd
+                            return False
+                        return True
+
+                    ctypes.windll.user32.EnumWindows(_WNDENUMPROC(_find_cb), 0)
+                except Exception:
+                    pass
+
+                if _hwnd[0]:
+                    try:
+                        if ctypes.windll.user32.IsIconic(_hwnd[0]):
+                            ctypes.windll.user32.ShowWindow(_hwnd[0], 9)  # SW_RESTORE
+                        ctypes.windll.user32.ShowWindow(_hwnd[0], 5)  # SW_SHOW
+                        ctypes.windll.user32.BringWindowToTop(_hwnd[0])
+                        ctypes.windll.user32.SetForegroundWindow(_hwnd[0])
+                    except Exception:
+                        pass
+
+                try:
+                    ctypes.windll.user32.MessageBoxW(None, "程序已经启动，请勿反复启动", "提示", 0x40)
                 except Exception:
                     pass
                 sys.exit(0)
@@ -817,6 +851,20 @@ if __name__ == "__main__":
         print("====================")
         def excepthook(exc_type, exc_value, exc_traceback):
             try:
+                if exc_type is _HangRecovered:
+                    logger.error("[卡死检测] 主线程已从阻塞中恢复，进度已保留")
+                    try:
+                        def _notify_hang_recovered():
+                            try:
+                                from PyQt5.QtWidgets import QMessageBox
+                                if window:
+                                    QMessageBox.information(window, "卡死恢复", "检测到程序卡死，已自动摆脱卡死")
+                            except Exception:
+                                pass
+                        QTimer.singleShot(200, _notify_hang_recovered)
+                    except Exception:
+                        pass
+                    return
                 if 'sipBadCatcherResult' in str(exc_value):
                     try:
                         import traceback as _tb
@@ -851,6 +899,14 @@ if __name__ == "__main__":
                         code_context = '<br>'.join(code_lines)
                     except Exception:
                         code_context = "无法读取文件内容"
+                try:
+                    _cs = getattr(window, 'cloud_service', None)
+                    if _cs is None:
+                        from cloud_service import CloudService
+                        _cs = CloudService()
+                    _cs.report_error(exc_type.__name__, str(exc_value), error_msg, {"file": file_path, "line": line_number})
+                except Exception:
+                    pass
                 if window:
                     try:
                         window.signal_emitter.show_debug_window.emit(error_msg, code_context, file_path)
@@ -861,6 +917,86 @@ if __name__ == "__main__":
             except Exception:
                 pass
         sys.excepthook = excepthook
+
+        # 卡死检测：主线程心跳 + 独立看门狗线程，主线程长时间无响应时自动重启摆脱未响应
+        _heartbeat = [time.time()]
+
+        def _update_heartbeat():
+            _heartbeat[0] = time.time()
+
+        _hb_timer = QTimer()
+        _hb_timer.timeout.connect(_update_heartbeat)
+        _hb_timer.start(1000)
+
+        def _hang_watchdog():
+            import threading as _th
+            import subprocess
+            import ctypes as _ct
+            hang_threshold = 10.0
+            injected_at = None
+            restart_limit = int(os.environ.get('BILIDOWN_HANG_RESTART', '0') or '0')
+            while True:
+                time.sleep(1)
+                elapsed = time.time() - _heartbeat[0]
+                if elapsed <= hang_threshold:
+                    injected_at = None
+                    continue
+
+                if injected_at is None:
+                    injected_at = time.time()
+                    try:
+                        logger.error(f"[卡死检测] 主线程已 {int(elapsed)} 秒未响应，注入恢复异常")
+                        for _tid, _frame in sys._current_frames().items():
+                            if _tid == _th.main_thread().ident:
+                                _stack = ''.join(traceback.format_stack(_frame))
+                                logger.error(f"[卡死检测] 主线程堆栈:\n{_stack}")
+                                break
+                    except Exception:
+                        pass
+                    try:
+                        _main_tid = _th.main_thread().ident
+                        _ct.pythonapi.PyThreadState_SetAsyncExc.argtypes = [_ct.c_ulong, _ct.py_object]
+                        _ct.pythonapi.PyThreadState_SetAsyncExc.restype = _ct.c_int
+                        _ret = _ct.pythonapi.PyThreadState_SetAsyncExc(_main_tid, _ct.py_object(_HangRecovered))
+                        if _ret == 0:
+                            logger.error("[卡死检测] 注入恢复异常失败：无效线程")
+                        elif _ret > 1:
+                            _ct.pythonapi.PyThreadState_SetAsyncExc(_main_tid, None)
+                            logger.error("[卡死检测] 注入恢复异常状态异常，已撤销")
+                        else:
+                            logger.error("[卡死检测] 已向主线程注入恢复异常")
+                    except Exception as _e:
+                        logger.error(f"[卡死检测] 注入恢复异常失败: {_e}")
+                    continue
+
+                if time.time() - injected_at > 30:
+                    if restart_limit >= 3:
+                        logger.error("[卡死检测] 已达自动重启上限，放弃恢复")
+                        break
+                    try:
+                        logger.error("[卡死检测] 注入恢复无效，作为最后手段重启")
+                        os.environ['BILIDOWN_HANG_RESTART'] = str(restart_limit + 1)
+                        if _INSTANCE_MUTEX:
+                            try:
+                                _ct.windll.kernel32.CloseHandle(_INSTANCE_MUTEX)
+                            except Exception:
+                                pass
+                        if getattr(sys, 'frozen', False):
+                            _exe = sys.executable
+                            _args = list(sys.argv[1:])
+                        else:
+                            _exe = sys.executable
+                            _args = ['-u', os.path.abspath(__file__)] + list(sys.argv[1:])
+                        subprocess.Popen([_exe] + _args, cwd=os.path.dirname(os.path.abspath(__file__)))
+                        logger.error("[卡死检测] 已启动新实例，即将退出当前进程")
+                    except Exception as _e:
+                        logger.error(f"[卡死检测] 自动重启失败: {_e}")
+                        break
+                    os._exit(1)
+
+        _wd_thread = threading.Thread(target=_hang_watchdog, daemon=True)
+        _wd_thread.start()
+
         try:
             app.exec_()
         except Exception as e:

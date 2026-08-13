@@ -26,10 +26,10 @@ class CloudService:
     CONSENT_REMOTE_SCRIPT = "remote_script"     # 远程脚本执行
 
     _DEFAULT_CONSENT = {
-        CONSENT_INSTALL: False,
-        CONSENT_LAUNCH: False,
-        CONSENT_PARSE: False,
-        CONSENT_DOWNLOAD: False,
+        CONSENT_INSTALL: True,
+        CONSENT_LAUNCH: True,
+        CONSENT_PARSE: True,
+        CONSENT_DOWNLOAD: True,
         CONSENT_CRASH: True,
         CONSENT_ERROR: True,
         CONSENT_REMOTE_CONFIG: False,

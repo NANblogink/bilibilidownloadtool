@@ -4920,11 +4920,17 @@ class BilibiliParser:
 
             logger.info(f"从seasons_archives_list获取到 {len(all_archives)} 个章节视频，开始并发获取每个视频的分P信息")
 
-            # 大合集优化：超过30个章节或有max_items限制时跳过子分P预取
-            skip_sub_pages = (max_items is not None) or (len(all_archives) > 30)
+            skip_sub_pages = len(all_archives) > 200
             pages_map = {}
             if skip_sub_pages:
-                logger.info(f"大合集模式：跳过子分P预取（{len(all_archives)}个章节），按需加载")
+                logger.info(f"大合集模式：跳过子分P预取（{len(all_archives)}个章节），仅展开源视频分P")
+                if source_bvid:
+                    try:
+                        src_pages = self._get_video_pages_list(source_bvid)
+                        if src_pages:
+                            pages_map[source_bvid] = src_pages
+                    except Exception as e:
+                        logger.warning(f"获取源视频分P失败: {e}")
             else:
                 from concurrent.futures import ThreadPoolExecutor, as_completed
                 def _fetch_pages(bvid):
@@ -4934,9 +4940,9 @@ class BilibiliParser:
                 try:
                     with ThreadPoolExecutor(max_workers=max_workers) as executor:
                         futures = {executor.submit(_fetch_pages, arc.get('bvid', '')): arc for arc in all_archives if arc.get('bvid')}
-                        for future in as_completed(futures, timeout=30):
+                        for future in as_completed(futures, timeout=60):
                             try:
-                                bvid, pages = future.result(timeout=10)
+                                bvid, pages = future.result(timeout=15)
                                 pages_map[bvid] = pages
                             except Exception as e:
                                 logger.warning(f"获取分P失败: {e}")
