@@ -47,6 +47,14 @@ except ImportError:
     import json
     logger.debug("orjson库导入失败，使用标准json模块")
 
+
+def _json_dumps(obj, ensure_ascii=False, indent=None):
+    if json is std_json:
+        return std_json.dumps(obj, ensure_ascii=ensure_ascii, indent=indent)
+    opts = orjson.OPT_INDENT_2 if indent else None
+    return orjson.dumps(obj, option=opts).decode('utf-8')
+
+
 KID_REGEX = {
     'bilidrm_uri': re.compile(r'uri:bili://([0-9a-f]{32})', re.IGNORECASE),
     'url_param': re.compile(r'kid=([0-9a-fA-F]{32})')
@@ -3928,7 +3936,7 @@ class BilibiliParser:
                 logger.debug(f"从ep字段获取剧集数量：{len(episodes)}")
 
             if not episodes:
-                logger.error(f"API未返回剧集数据，result: {json.dumps(result, ensure_ascii=False)[:1000]}...")
+                logger.error(f"API未返回剧集数据，result: {_json_dumps(result)[:1000]}...")
                 
                 return {
                     "success": True,
@@ -3956,7 +3964,7 @@ class BilibiliParser:
             bangumi_episodes = []
             for idx, ep in enumerate(episodes, 1):
                 logger.info(f"剧集{idx}信息字段：{list(ep.keys())}")
-                logger.info(f"剧集{idx}信息：{json.dumps(ep, ensure_ascii=False)[:500]}")
+                logger.info(f"剧集{idx}信息：{_json_dumps(ep)[:500]}")
                 ep_type = ep.get('type_name', '')
                 ep_num = ep.get('ep', idx)
                 
@@ -4211,7 +4219,7 @@ class BilibiliParser:
             logger.info(f"获取到的剧集数量：{len(episodes)}")
             
             if not episodes:
-                logger.error(f"API未返回剧集数据，data: {json.dumps(data, ensure_ascii=False)[:500]}...")
+                logger.error(f"API未返回剧集数据，data: {_json_dumps(data)[:500]}...")
                 raise Exception("API未返回剧集数据")
 
             season_title = data.get('title', '未知课程')
