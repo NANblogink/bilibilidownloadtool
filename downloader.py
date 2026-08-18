@@ -1125,21 +1125,28 @@ class DownloadManager(QObject):
         try:
             import shutil as _shutil
             total_bytes, used_bytes, free_bytes = _shutil.disk_usage(save_path)
-            # 估算所需空间：根据选中集数和清晰度估算
+            # 根据选中集数的总时长估算所需空间，避免按固定大小粗暴高估
+            episodes = download_params.get('episodes', [])
             estimated_size_mb = 0
             try:
-                est_size = download_params.get('estimated_size_mb', 0)
-                if est_size:
-                    estimated_size_mb = float(est_size)
+                total_sec = 0
+                for ep in episodes:
+                    d = ep.get('duration', 0)
+                    try:
+                        d = int(d)
+                    except (TypeError, ValueError):
+                        d = 0
+                    if d > 0:
+                        total_sec += d
+                if total_sec > 0:
+                    estimated_size_mb = int(total_sec * 0.375)
                 else:
-                    # 兜底估算：每集按500MB估算（合并前视频+音频流会临时占用约2倍空间）
-                    episodes_count = len(download_params.get('episodes', []))
-                    estimated_size_mb = episodes_count * 500
+                    estimated_size_mb = len(episodes) * 200
             except Exception:
-                estimated_size_mb = len(download_params.get('episodes', [])) * 500
+                estimated_size_mb = len(episodes) * 200
 
-            # 合并需要临时空间（约2倍最终大小），加上安全系数1.2
-            required_mb = estimated_size_mb * 2 * 1.2
+            # 合并/转码需要一定临时空间，加30%安全余量
+            required_mb = estimated_size_mb * 1.3
             free_mb = free_bytes / (1024 * 1024)
 
             if free_mb < required_mb:

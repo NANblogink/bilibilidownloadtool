@@ -3314,7 +3314,7 @@ class BilibiliParser:
                                     bvid = av_data['bvid']
                                     cid = av_data['cid']
                                     title = self._sanitize_filename(av_data['title'])
-                                    collection = self._get_collection_info(bvid)
+                                    collection = self._get_collection_info(bvid, progress_callback=progress_callback)
                                     logger.info(f"回退为普通视频处理: {title}")
                         else:
                             
@@ -3343,7 +3343,7 @@ class BilibiliParser:
                                     bvid = av_data['bvid']
                                     cid = av_data['cid']
                                     title = self._sanitize_filename(av_data['title'])
-                                    collection = self._get_collection_info(bvid)
+                                    collection = self._get_collection_info(bvid, progress_callback=progress_callback)
                                     logger.info(f"回退为普通视频处理: {title}")
                             else:
                                 
@@ -3351,7 +3351,7 @@ class BilibiliParser:
                                 bvid = av_data['bvid']
                                 cid = av_data['cid']
                                 title = self._sanitize_filename(av_data['title'])
-                                collection = self._get_collection_info(bvid)
+                                collection = self._get_collection_info(bvid, progress_callback=progress_callback)
                     else:
                         
                         media_type = "video"
@@ -3359,7 +3359,7 @@ class BilibiliParser:
                         cid = av_data['cid']
                         title = self._sanitize_filename(av_data['title'])
                         
-                        collection = self._get_collection_info(bvid)
+                        collection = self._get_collection_info(bvid, progress_callback=progress_callback)
                 except Exception as e:
                     logger.error(f"AV信息获取失败: {str(e)}")
                     if not self.cookies:
@@ -3413,7 +3413,7 @@ class BilibiliParser:
                                             bvid = view.get('bvid', media_id)
                                             cid = view.get('cid', 0)
                                             title = self._sanitize_filename(view.get('title', '未知视频'))
-                                            collection = self._get_collection_info(bvid)
+                                            collection = self._get_collection_info(bvid, progress_callback=progress_callback)
                                             success = True
                                             break
                                 except Exception as e3:
@@ -3438,7 +3438,7 @@ class BilibiliParser:
                 cid = self._get_cid(media_type, bvid)
                 video_info = self._get_video_main_info(bvid)
                 title = self._sanitize_filename(video_info['title'])
-                collection = self._get_collection_info(bvid)
+                collection = self._get_collection_info(bvid, progress_callback=progress_callback)
                 # 标记为充电视频，未登录时需要提示用户登录
                 is_charging_content = True
                 logger.info(f"充电视频处理: {title}")
@@ -3554,7 +3554,8 @@ class BilibiliParser:
                     
                     if not collection:
                         if load_collection:
-                            collection = self._get_collection_info(bvid, max_items=None if force_full_collection else max_episodes)
+                            _collection_max = max_episodes if episode_page else None
+                            collection = self._get_collection_info(bvid, max_items=_collection_max, progress_callback=progress_callback)
                         logger.info(f"从API获取合集信息，共{len(collection)}集")
                         
                         # 如果合集只有1集（即只有当前视频自身），尝试查找系列
@@ -3875,7 +3876,7 @@ class BilibiliParser:
 
     def _get_bangumi_full_info(self, media_id):
         try:
-            
+            media_id = str(media_id)
             is_ep_id = media_id.startswith('ep')
             id_value = media_id[2:] if is_ep_id else media_id
             
@@ -3927,7 +3928,7 @@ class BilibiliParser:
                 logger.debug(f"从ep字段获取剧集数量：{len(episodes)}")
 
             if not episodes:
-                logger.error(f"API未返回剧集数据，result: {json.dumps(result).decode('utf-8')[:1000]}...")
+                logger.error(f"API未返回剧集数据，result: {json.dumps(result, ensure_ascii=False)[:1000]}...")
                 
                 return {
                     "success": True,
@@ -3955,7 +3956,7 @@ class BilibiliParser:
             bangumi_episodes = []
             for idx, ep in enumerate(episodes, 1):
                 logger.info(f"剧集{idx}信息字段：{list(ep.keys())}")
-                logger.info(f"剧集{idx}信息：{json.dumps(ep).decode('utf-8')[:500]}")
+                logger.info(f"剧集{idx}信息：{json.dumps(ep, ensure_ascii=False)[:500]}")
                 ep_type = ep.get('type_name', '')
                 ep_num = ep.get('ep', idx)
                 
@@ -4210,7 +4211,7 @@ class BilibiliParser:
             logger.info(f"获取到的剧集数量：{len(episodes)}")
             
             if not episodes:
-                logger.error(f"API未返回剧集数据，data: {json.dumps(data).decode('utf-8')[:500]}...")
+                logger.error(f"API未返回剧集数据，data: {json.dumps(data, ensure_ascii=False)[:500]}...")
                 raise Exception("API未返回剧集数据")
 
             season_title = data.get('title', '未知课程')
@@ -4722,7 +4723,7 @@ class BilibiliParser:
         except Exception as e:
             raise Exception(f"CID获取失败：{str(e)}（类型={media_type}, ID={media_id}）")
 
-    def _get_collection_info(self, bvid, max_items=None):
+    def _get_collection_info(self, bvid, max_items=None, progress_callback=None):
         try:
             url = self.config.get_api_url("video_info_api").format(bvid=bvid)
             
@@ -4776,7 +4777,7 @@ class BilibiliParser:
                 full_collection = None
                 if season_id and upper_mid:
                     logger.info(f"检测到合集: {season_title} (season_id={season_id}, mid={upper_mid})，尝试获取完整合集列表")
-                    full_collection = self._get_full_ugc_season_archives(upper_mid, season_id, video_cover, source_bvid=bvid, max_items=max_items)
+                    full_collection = self._get_full_ugc_season_archives(upper_mid, season_id, video_cover, source_bvid=bvid, max_items=max_items, progress_callback=progress_callback)
                     if full_collection and len(full_collection) > 0:
                         logger.info(f"从合集详情API获取到 {len(full_collection)} 个视频")
                         collection = full_collection
@@ -4858,7 +4859,7 @@ class BilibiliParser:
             logger.error(f"获取合集信息失败：{str(e)}（bvid={bvid}）")
             return []
 
-    def _get_full_ugc_season_archives(self, mid, season_id, default_cover='', source_bvid='', max_items=None):
+    def _get_full_ugc_season_archives(self, mid, season_id, default_cover='', source_bvid='', max_items=None, progress_callback=None):
         """通过合集详情API获取完整的合集视频列表（包含所有章节、所有视频、所有分P）
 
         使用 seasons_archives_list API 获取所有章节视频，然后对每个章节视频
@@ -4937,15 +4938,21 @@ class BilibiliParser:
                     return bvid, self._get_video_pages_list(bvid)
 
                 max_workers = min(8, len(all_archives)) if all_archives else 1
+                total_archives = len(all_archives)
+                completed_count = 0
                 try:
                     with ThreadPoolExecutor(max_workers=max_workers) as executor:
                         futures = {executor.submit(_fetch_pages, arc.get('bvid', '')): arc for arc in all_archives if arc.get('bvid')}
-                        for future in as_completed(futures, timeout=60):
+                        for future in as_completed(futures, timeout=120):
                             try:
-                                bvid, pages = future.result(timeout=15)
+                                bvid, pages = future.result(timeout=30)
                                 pages_map[bvid] = pages
                             except Exception as e:
                                 logger.warning(f"获取分P失败: {e}")
+                            completed_count += 1
+                            if progress_callback:
+                                pct = 20 + int((completed_count / total_archives) * 20)
+                                progress_callback(pct, f"正在获取分P信息 {completed_count}/{total_archives}...")
                 except Exception as e:
                     logger.warning(f"并发获取分P异常: {e}")
 
@@ -6738,13 +6745,14 @@ class BilibiliParser:
                     raise Exception(f"未找到第{page}集")
                 
                 ep_title = ep_info['title']
-                
-                if 'bvid' in ep_info and ep_info['bvid'] != bvid:
+
+                if 'bvid' in ep_info and ep_info['bvid']:
                     bvid = ep_info['bvid']
-                    cid = ep_info.get('cid', '')
-                elif not cid:
-                    cid = self._get_cid(media_type, bvid, page)
-                
+
+                cid = ep_info.get('cid', '') or ep_info.get('cid', 0)
+                if not cid:
+                    cid = self._get_cid(media_type, bvid, 1)
+
                 main_title = self._get_video_main_info(bvid)['title']
                 full_title = f"{main_title}_{ep_title}"
 
@@ -8403,8 +8411,8 @@ class BilibiliParser:
                     }
                     
                     # 第一个URL(comment.bilibili.com)不稳定时容易超时，使用较短超时快速回退到备用API
-                    xml_timeout = 5 if idx == 0 else 10
-                    response = self.session.get(xml_url, headers=headers, timeout=xml_timeout)
+                    xml_timeout = 3 if idx == 0 else 8
+                    response = self.session.get(xml_url, headers=headers, timeout=xml_timeout, proxies={})
                     logger.info(f"XML API响应状态码：{response.status_code}")
                     logger.info(f"XML API响应头：{dict(response.headers)}")
                     
@@ -8771,7 +8779,7 @@ class BilibiliParser:
                 return self._convert_to_ass(danmaku_list)
             elif format_type == "JSON":
                 import json
-                return json.dumps(danmaku_list).decode('utf-8')
+                return json.dumps(danmaku_list, ensure_ascii=False)
             else:
                 logger.error(f"不支持的弹幕格式：{format_type}")
                 return ""

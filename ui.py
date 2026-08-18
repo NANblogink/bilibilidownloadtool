@@ -1856,19 +1856,26 @@ class FloatingBall(QWidget):
             
             if self.expanded_widget:
                 if 'episodes' in video_info:
-                    for episode in video_info['episodes']:
-                        if 'title' in episode:
-                            title = episode['title']
-                        elif 'ep_title' in episode:
-                            title = episode['ep_title']
-                        else:
-                            title = f"第{episode.get('page', 0)}集"
-                        
-                        duration = episode.get('duration', '')
-                        item_text = f"{title} - {duration}"
-                        item = QListWidgetItem(item_text)
-                        item.setData(Qt.UserRole, episode)
-                        self.video_list.addItem(item)
+                    episodes_list = video_info['episodes']
+                    if len(episodes_list) > 500:
+                        summary_item = QListWidgetItem(f"共 {len(episodes_list)} 集视频，请点击「选择集数」按钮选择需要下载的集数")
+                        summary_item.setData(Qt.UserRole, None)
+                        summary_item.setFlags(summary_item.flags() & ~Qt.ItemIsEnabled)
+                        self.video_list.addItem(summary_item)
+                    else:
+                        for episode in episodes_list:
+                            if 'title' in episode:
+                                title = episode['title']
+                            elif 'ep_title' in episode:
+                                title = episode['ep_title']
+                            else:
+                                title = f"第{episode.get('page', 0)}集"
+                            
+                            duration = episode.get('duration', '')
+                            item_text = f"{title} - {duration}"
+                            item = QListWidgetItem(item_text)
+                            item.setData(Qt.UserRole, episode)
+                            self.video_list.addItem(item)
                 else:
                     
                     title = video_info.get('title', '未知视频')
@@ -1878,58 +1885,7 @@ class FloatingBall(QWidget):
                     item.setData(Qt.UserRole, video_info)
                     self.video_list.addItem(item)
             
-            # 获取弹幕信息
-            if self.parent and hasattr(self.parent, 'danmaku_count_label') and hasattr(self.parent, 'parser'):
-                cid = video_info.get("cid", "")
-                # 尝试从episodes或collection中获取cid
-                if not cid:
-                    # 检查番剧
-                    if video_info.get("is_bangumi") and video_info.get("bangumi_info"):
-                        episodes = video_info["bangumi_info"].get("episodes", [])
-                        if episodes:
-                            cid = episodes[0].get("cid", "")
-                    # 检查课程
-                    elif video_info.get("is_cheese") and video_info.get("cheese_info"):
-                        episodes = video_info["cheese_info"].get("episodes", [])
-                        if episodes:
-                            cid = episodes[0].get("cid", "")
-                    # 检查普通合集
-                    elif video_info.get("collection"):
-                        collection = video_info.get("collection", [])
-                        if collection:
-                            cid = collection[0].get("cid", "")
-                    # 检查episodes
-                    elif video_info.get("episodes"):
-                        episodes = video_info.get("episodes", [])
-                        if episodes:
-                            cid = episodes[0].get("cid", "")
-                
-                if cid:
-                    import threading
-                    def get_danmaku_info():
-                        try:
-                            if not hasattr(self.parent, 'parser') or not self.parent.parser:
-                                print("parser未初始化，无法获取弹幕信息")
-                                return
-                            
-                            logger.debug("开始\1")
-                            danmaku_video_info = self.parent.parser.get_danmaku(cid)
-                            logger.debug("获取\1")
-                            if danmaku_video_info.get('error') == "":
-                                count = danmaku_video_info.get('data', {}).get('count', 0)
-                                run_on_main_thread(lambda: self.parent.danmaku_count_label.setText(f"{count}条"))
-                            else:
-                                run_on_main_thread(lambda: self.parent.danmaku_count_label.setText("获取失败"))
-                        except Exception as e:
-                            logger.warning(f"二维码生成异常: {error_msg}")
-                            logger.debug("traceback", exc_info=True)
-                            run_on_main_thread(lambda: self.parent.danmaku_count_label.setText("获取失败"))
-                    
-                    thread = threading.Thread(target=get_danmaku_info, daemon=True)
-                    thread.start()
-                else:
-                    print("未找到cid，无法获取弹幕信息")
-                    QTimer.singleShot(0, lambda: self.parent.danmaku_count_label.setText("无cid"))
+            # 弹幕信息由主窗口 update_ui 统一获取，这里不再重复请求，避免并发弹幕请求导致卡顿
         else:
             
             if self.parent and hasattr(self.parent, 'show_notification'):
@@ -2307,12 +2263,6 @@ class FloatingBall(QWidget):
             if self.parent and hasattr(self.parent, 'show_notification'):
                 self.parent.show_notification(f"视频下载完成：{message}", "success")
             
-            if self.parent and hasattr(self.parent, 'tray_icon') and self.parent.tray_icon:
-                try:
-                    self.parent.tray_icon.showMessage("B站下载工具", f"视频下载完成：{message}", QSystemTrayIcon.Information, 3000)
-                except Exception:
-                    pass
-
             if self.parent and hasattr(self.parent, 'download_history') and hasattr(self, 'current_video_info') and self.current_video_info:
                 try:
                     bvid = self.current_video_info.get('bvid', '')
@@ -2364,9 +2314,15 @@ class ParseProgressWindow(QDialog):
             self.setMinimumSize(max(scale(400), int(sg.width() * 0.3)), max(scale(300), int(sg.height() * 0.3)))
         else:
             self.setMinimumSize(scale(400), scale(300))
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setAutoFillBackground(True)
         self.setWindowModality(Qt.NonModal)
+        self.drag_position = None
+        self._resizing = False
+        self._resize_direction = None
+        self._drag_pos = None
+        self._edge_margin = 8
+        self._original_geometry = None
 
         try:
             apply_window_icon(self, getattr(parent, "config", None) if parent else None)
@@ -2550,20 +2506,70 @@ class ParseProgressWindow(QDialog):
     
     def mousePressEvent(self, event):
         try:
-            if event.button() == Qt.LeftButton:
-                self.drag_position = event.globalPos() - self.frameGeometry().topLeft()
+            if event.button() == Qt.LeftButton and not self._resizing:
+                pos = event.pos()
+                w = self.width()
+                h = self.height()
+                on_edge = (pos.x() < self._edge_margin or pos.x() > w - self._edge_margin or
+                           pos.y() < self._edge_margin or pos.y() > h - self._edge_margin)
+                if on_edge:
+                    direction = []
+                    if pos.y() < self._edge_margin: direction.append('top')
+                    if pos.y() > h - self._edge_margin: direction.append('bottom')
+                    if pos.x() < self._edge_margin: direction.append('left')
+                    if pos.x() > w - self._edge_margin: direction.append('right')
+                    self._resizing = True
+                    self._resize_direction = direction
+                    self._drag_pos = event.globalPos()
+                    self._original_geometry = self.geometry()
+                else:
+                    self.drag_position = event.globalPos() - self.frameGeometry().topLeft()
                 event.accept()
+                return
         except Exception:
-            event.accept()
+            pass
+        super().mousePressEvent(event)
     
     def mouseMoveEvent(self, event):
         try:
-            if event.buttons() & Qt.LeftButton:
-                if self.drag_position:
-                    self.move(event.globalPos() - self.drag_position)
-                    event.accept()
+            if self._resizing and self._drag_pos:
+                global_pos = event.globalPos()
+                diff = global_pos - self._drag_pos
+                geo = self._original_geometry
+                new_x, new_y, new_w, new_h = geo.x(), geo.y(), geo.width(), geo.height()
+                min_w, min_h = self.minimumWidth(), self.minimumHeight()
+                if 'left' in self._resize_direction:
+                    new_x += diff.x()
+                    new_w -= diff.x()
+                if 'right' in self._resize_direction:
+                    new_w += diff.x()
+                if 'top' in self._resize_direction:
+                    new_y += diff.y()
+                    new_h -= diff.y()
+                if 'bottom' in self._resize_direction:
+                    new_h += diff.y()
+                if new_w >= min_w and new_h >= min_h:
+                    self.setGeometry(new_x, new_y, new_w, new_h)
+                event.accept()
+                return
+            if event.buttons() & Qt.LeftButton and self.drag_position:
+                self.move(event.globalPos() - self.drag_position)
+                event.accept()
+                return
         except Exception:
             pass
+        super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        try:
+            self.drag_position = None
+            self._resizing = False
+            self._resize_direction = None
+            self._drag_pos = None
+            self._original_geometry = None
+        except Exception:
+            pass
+        super().mouseReleaseEvent(event)
         
     def update_progress(self, progress, message):
         self.update_progress_signal.emit(progress, message)
@@ -4854,7 +4860,6 @@ class NotificationWidget(QWidget):
 
             self.layout.activate()
             self.content_layout.activate()
-            QApplication.processEvents()
             # 用 QTextDocument 计算换行后的实际高度（adjustSize 对 wordWrap 不准）
             from PyQt5.QtGui import QTextDocument
             text_avail = ideal_width - extra_width
@@ -7034,6 +7039,7 @@ class EpisodeSelectionDialog(ResizableDialog):
         self.pending_cover_loading = []
         self.loaded_episodes = 0
         self.batch_size = 100
+        self.large_mode = len(self.filtered_episodes) > 200
         self.selected_episodes = selected_episodes or []
         self.selected_indices = set()
         self.drag_position = None
@@ -7215,6 +7221,8 @@ class EpisodeSelectionDialog(ResizableDialog):
         self.list_view.setUniformRowHeights(False)
         self.list_view.setAnimated(True)
         self.list_view.setIndentation(scale(20))
+        if self.large_mode:
+            self.list_view.itemChanged.connect(self._on_large_item_changed)
         self.list_view.setStyleSheet(scale_style("""
             QTreeWidget {
                 border: none;
@@ -7357,7 +7365,7 @@ class EpisodeSelectionDialog(ResizableDialog):
                 
                 start_loader()
             
-            QTimer.singleShot(10 * index, load_cover)
+            load_cover()
         
         info_layout = QVBoxLayout()
         info_layout.setSpacing(scale(3))
@@ -7697,10 +7705,45 @@ class EpisodeSelectionDialog(ResizableDialog):
         def create_batch(start):
             if start >= len(groups):
                 return
-            end = min(start + 50, len(groups))
+            batch = 500 if self.large_mode else 8
+            end = min(start + batch, len(groups))
+            self.list_view.setUpdatesEnabled(False)
             for gi in range(start, end):
                 group_items = groups[gi]
-                if len(group_items) == 1:
+                if self.large_mode:
+                    if len(group_items) == 1:
+                        original_index, ep = group_items[0]
+                        item = QTreeWidgetItem()
+                        item.setText(0, self._light_episode_title(ep, original_index))
+                        item.setCheckState(0, Qt.Checked if original_index in self.selected_indices else Qt.Unchecked)
+                        item.setData(0, Qt.UserRole, original_index)
+                        item.setData(0, Qt.UserRole + 1, 'episode')
+                        if ep.get('permission_denied', False) and not ep.get('has_free_part', False):
+                            item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
+                        self.list_view.addTopLevelItem(item)
+                    else:
+                        parent_item = QTreeWidgetItem()
+                        group_indices = [oi for oi, _ in group_items]
+                        first_ep = group_items[0][1]
+                        title = first_ep.get('title', '') or first_ep.get('ep_title', '') or '未命名'
+                        parent_item.setText(0, f"{title} ({len(group_items)}P)")
+                        parent_item.setData(0, Qt.UserRole + 1, 'group')
+                        parent_item.setData(0, Qt.UserRole + 2, group_indices)
+                        selected_count = sum(1 for oi in group_indices if oi in self.selected_indices)
+                        parent_item.setCheckState(0, Qt.Checked if selected_count == len(group_indices) else (Qt.PartiallyChecked if selected_count > 0 else Qt.Unchecked))
+                        self.list_view.addTopLevelItem(parent_item)
+                        for original_index, ep in group_items:
+                            child_item = QTreeWidgetItem()
+                            child_item.setText(0, self._light_episode_title(ep, original_index))
+                            child_item.setCheckState(0, Qt.Checked if original_index in self.selected_indices else Qt.Unchecked)
+                            child_item.setData(0, Qt.UserRole, original_index)
+                            child_item.setData(0, Qt.UserRole + 1, 'episode')
+                            if ep.get('permission_denied', False) and not ep.get('has_free_part', False):
+                                child_item.setFlags(child_item.flags() & ~Qt.ItemIsEnabled)
+                            parent_item.addChild(child_item)
+                        if len(group_items) <= 5:
+                            parent_item.setExpanded(True)
+                elif len(group_items) == 1:
                     original_index, ep = group_items[0]
                     item = QTreeWidgetItem()
                     item_widget = self.create_episode_widget(ep, original_index, ep.get('permission_denied', False))
@@ -7732,12 +7775,74 @@ class EpisodeSelectionDialog(ResizableDialog):
                         self.list_view.setItemWidget(child_item, 0, child_widget)
                     if len(group_items) <= 5:
                         parent_item.setExpanded(True)
+            self.list_view.setUpdatesEnabled(True)
             self.loaded_episodes = min(end, len(self.filtered_episodes))
             if end < len(groups):
-                QTimer.singleShot(0, lambda: create_batch(end))
+                QTimer.singleShot(0 if self.large_mode else 10, lambda: create_batch(end))
 
         if groups:
             create_batch(0)
+
+    def _light_episode_title(self, ep, index):
+        if self.is_bangumi:
+            return f"{ep.get('ep_index', '')} - {ep.get('ep_title', '')}"
+        if 'page' in ep and 'title' in ep:
+            ep_title = ep['title']
+            if ep_title and ep_title.lstrip().startswith('│'):
+                return f"  {ep_title}"
+            return f"第{ep['page']}集 - {ep_title}"
+        if 'ep_index' in ep and 'ep_title' in ep:
+            return f"{ep['ep_index']} - {ep['ep_title']}"
+        return f"第{index+1}集"
+
+    def _on_large_item_changed(self, item, column):
+        if column != 0:
+            return
+        kind = item.data(0, Qt.UserRole + 1)
+        if kind == 'episode':
+            index = item.data(0, Qt.UserRole)
+            if index is None:
+                return
+            if item.checkState(0) == Qt.Checked:
+                self.selected_indices.add(index)
+            else:
+                self.selected_indices.discard(index)
+            self._update_count_label()
+            self._update_large_group_states()
+        elif kind == 'group':
+            state = item.checkState(0)
+            if state == Qt.PartiallyChecked:
+                return
+            checked = (state == Qt.Checked)
+            group_indices = item.data(0, Qt.UserRole + 2) or []
+            for idx in group_indices:
+                if checked:
+                    self.selected_indices.add(idx)
+                else:
+                    self.selected_indices.discard(idx)
+            self.list_view.blockSignals(True)
+            for c in range(item.childCount()):
+                child = item.child(c)
+                child.setCheckState(0, Qt.Checked if checked else Qt.Unchecked)
+            self.list_view.blockSignals(False)
+            self._update_count_label()
+
+    def _update_large_group_states(self):
+        self.list_view.blockSignals(True)
+        try:
+            for i in range(self.list_view.topLevelItemCount()):
+                top = self.list_view.topLevelItem(i)
+                if top.data(0, Qt.UserRole + 1) == 'group':
+                    group_indices = top.data(0, Qt.UserRole + 2) or []
+                    selected_count = sum(1 for idx in group_indices if idx in self.selected_indices)
+                    if selected_count == len(group_indices) and len(group_indices) > 0:
+                        top.setCheckState(0, Qt.Checked)
+                    elif selected_count > 0:
+                        top.setCheckState(0, Qt.PartiallyChecked)
+                    else:
+                        top.setCheckState(0, Qt.Unchecked)
+        finally:
+            self.list_view.blockSignals(False)
 
     def create_group_header_widget(self, title, part_count, parent_item, group_items):
         widget = QWidget()
@@ -7813,6 +7918,9 @@ class EpisodeSelectionDialog(ResizableDialog):
         self._update_count_label()
 
     def _update_all_group_check_states(self):
+        if self.large_mode:
+            self._update_large_group_states()
+            return
         for i in range(self.list_view.topLevelItemCount()):
             top = self.list_view.topLevelItem(i)
             if top.data(0, Qt.UserRole + 1) == 'group':
@@ -7832,13 +7940,15 @@ class EpisodeSelectionDialog(ResizableDialog):
 
     def populate_card_view(self):
         self.card_view.clear()
-        
-        
+
+
         self.pending_cover_loading.clear()
         self.active_loaders = 0
-        
-        
+
+
         self.loaded_episodes = 0
+
+        ep_id_to_index = {id(ep): i for i, ep in enumerate(self.episodes)}
         
         
         
@@ -7847,8 +7957,8 @@ class EpisodeSelectionDialog(ResizableDialog):
                 return
             
             ep = self.filtered_episodes[i]
-            
-            original_index = self.episodes.index(ep)
+
+            original_index = ep_id_to_index.get(id(ep), i)
             item = QListWidgetItem()
             item_widget = self.create_episode_card(ep, original_index)
             item.setSizeHint(QSize(self._grid_w, self._grid_h))
@@ -7907,8 +8017,8 @@ class EpisodeSelectionDialog(ResizableDialog):
                         return
                     
                     ep = self.filtered_episodes[i]
-                    
-                    original_index = self.episodes.index(ep)
+
+                    original_index = ep_id_to_index.get(id(ep), i)
                     item = QListWidgetItem()
                     item_widget = self.create_episode_card(ep, original_index)
                     item.setSizeHint(QSize(scale(200), scale(170)))
@@ -8082,6 +8192,17 @@ class EpisodeSelectionDialog(ResizableDialog):
             loader.signals.finished.connect(on_cover_loaded)
             loader.start()
 
+    def _set_item_checked(self, item, checked):
+        if self.large_mode:
+            self.list_view.blockSignals(True)
+            item.setCheckState(0, Qt.Checked if checked else Qt.Unchecked)
+            self.list_view.blockSignals(False)
+        else:
+            widget = self.list_view.itemWidget(item, 0)
+            if widget:
+                for cb in widget.findChildren(QCheckBox):
+                    cb.setChecked(checked)
+
     def select_all(self):
         if self.list_radio.isChecked():
             for i in range(self.list_view.topLevelItemCount()):
@@ -8094,20 +8215,14 @@ class EpisodeSelectionDialog(ResizableDialog):
                         if ep.get('permission_denied', False) and not ep.get('has_free_part', False):
                             continue
                         self.selected_indices.add(index)
-                        widget = self.list_view.itemWidget(child, 0)
-                        if widget:
-                            for cb in widget.findChildren(QCheckBox):
-                                cb.setChecked(True)
+                        self._set_item_checked(child, True)
                 else:
                     index = top.data(0, Qt.UserRole)
                     ep = self.episodes[index]
                     if ep.get('permission_denied', False) and not ep.get('has_free_part', False):
                         continue
                     self.selected_indices.add(index)
-                    widget = self.list_view.itemWidget(top, 0)
-                    if widget:
-                        for cb in widget.findChildren(QCheckBox):
-                            cb.setChecked(True)
+                    self._set_item_checked(top, True)
             self._update_all_group_check_states()
         else:
             current_view = self.card_view
@@ -8133,17 +8248,11 @@ class EpisodeSelectionDialog(ResizableDialog):
                         child = top.child(c)
                         index = child.data(0, Qt.UserRole)
                         self.selected_indices.discard(index)
-                        widget = self.list_view.itemWidget(child, 0)
-                        if widget:
-                            for cb in widget.findChildren(QCheckBox):
-                                cb.setChecked(False)
+                        self._set_item_checked(child, False)
                 else:
                     index = top.data(0, Qt.UserRole)
                     self.selected_indices.discard(index)
-                    widget = self.list_view.itemWidget(top, 0)
-                    if widget:
-                        for cb in widget.findChildren(QCheckBox):
-                            cb.setChecked(False)
+                    self._set_item_checked(top, False)
             self._update_all_group_check_states()
         else:
             current_view = self.card_view
@@ -8172,10 +8281,7 @@ class EpisodeSelectionDialog(ResizableDialog):
                             self.selected_indices.discard(index)
                         else:
                             self.selected_indices.add(index)
-                        widget = self.list_view.itemWidget(child, 0)
-                        if widget:
-                            for cb in widget.findChildren(QCheckBox):
-                                cb.setChecked(index in self.selected_indices)
+                        self._set_item_checked(child, index in self.selected_indices)
                 else:
                     index = top.data(0, Qt.UserRole)
                     ep = self.episodes[index]
@@ -8185,10 +8291,7 @@ class EpisodeSelectionDialog(ResizableDialog):
                         self.selected_indices.discard(index)
                     else:
                         self.selected_indices.add(index)
-                    widget = self.list_view.itemWidget(top, 0)
-                    if widget:
-                        for cb in widget.findChildren(QCheckBox):
-                            cb.setChecked(index in self.selected_indices)
+                    self._set_item_checked(top, index in self.selected_indices)
             self._update_all_group_check_states()
         else:
             current_view = self.card_view
@@ -8253,17 +8356,11 @@ class EpisodeSelectionDialog(ResizableDialog):
                         child = top.child(c)
                         index = child.data(0, Qt.UserRole)
                         if index in self.selected_indices:
-                            widget = self.list_view.itemWidget(child, 0)
-                            if widget:
-                                for cb in widget.findChildren(QCheckBox):
-                                    cb.setChecked(True)
+                            self._set_item_checked(child, True)
                 else:
                     index = top.data(0, Qt.UserRole)
                     if index in self.selected_indices:
-                        widget = self.list_view.itemWidget(top, 0)
-                        if widget:
-                            for cb in widget.findChildren(QCheckBox):
-                                cb.setChecked(True)
+                        self._set_item_checked(top, True)
             self._update_all_group_check_states()
         else:
             current_view = self.card_view
@@ -10475,7 +10572,7 @@ class BatchDownloadWindow(BaseWindow):
         self._parent_ref = parent
         super().__init__(None)
 
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setAutoFillBackground(True)
         self.video_info = video_info
         self.total_episodes = 0
@@ -11326,10 +11423,6 @@ class BatchDownloadWindow(BaseWindow):
                         self.cancel_btn.clicked.disconnect()
                         self.cancel_btn.clicked.connect(self.close)
 
-                        # 下载完成后将窗口置顶（比主界面层级高）
-                        self.raise_()
-                        self.activateWindow()
-
                         if self.failed:
                             msg = f"下载完成！\n成功：{self.total_episodes - len(self.failed)}集\n失败：{len(self.failed)}集"
                             parent = self.parent()
@@ -11385,10 +11478,6 @@ class BatchDownloadWindow(BaseWindow):
                     self.cancel_btn.setText("关闭窗口")
                     self.cancel_btn.clicked.disconnect()
                     self.cancel_btn.clicked.connect(self.close)
-
-                    # 下载完成后将窗口置顶（比主界面层级高）
-                    self.raise_()
-                    self.activateWindow()
 
                     if self.failed:
                         msg = f"下载完成！\n成功：{self.total_episodes - len(self.failed)}集\n失败：{len(self.failed)}集"
@@ -16131,38 +16220,45 @@ class BilibiliDownloader(BaseWindow):
             
             if hasattr(self, 'all_episode_list'):
                 self.all_episode_list.clear()
-                for i, ep in enumerate(episodes):
-                    title = ""
-                    duration_str = ""
-                    if video_info.get("is_bangumi") or video_info.get("is_cheese"):
-                        ep_index = ep.get('ep_index', f'第{i+1}集')
-                        ep_title = ep.get('ep_title', '')
-                        title = f"{ep_index} - {ep_title}" if ep_title else ep_index
-                    else:
-                        page = ep.get('page', i + 1)
-                        ep_title = ep.get('title', '')
-                        if ep_title and ep_title.lstrip().startswith('│'):
-                            title = f"  {ep_title}"
+                if len(episodes) > 500:
+                    summary_item = QListWidgetItem(f"共 {len(episodes)} 集视频，数据量较大，请使用上方「选择集数」按钮选择")
+                    summary_item.setData(Qt.UserRole, None)
+                    summary_item.setCheckState(Qt.Unchecked)
+                    summary_item.setFlags(summary_item.flags() & ~Qt.ItemIsEnabled)
+                    self.all_episode_list.addItem(summary_item)
+                else:
+                    for i, ep in enumerate(episodes):
+                        title = ""
+                        duration_str = ""
+                        if video_info.get("is_bangumi") or video_info.get("is_cheese"):
+                            ep_index = ep.get('ep_index', f'第{i+1}集')
+                            ep_title = ep.get('ep_title', '')
+                            title = f"{ep_index} - {ep_title}" if ep_title else ep_index
                         else:
-                            title = f"第{page}集 - {ep_title}" if ep_title else f"第{page}集"
-                    
-                    dur = ep.get('duration_str', '') or ep.get('duration', '')
-                    if isinstance(dur, int) and dur > 0:
-                        h = dur // 3600
-                        m = (dur % 3600) // 60
-                        s = dur % 60
-                        duration_str = f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
-                    elif dur:
-                        duration_str = str(dur)
-                    
-                    display_text = f"{title}"
-                    if duration_str:
-                        display_text += f"   时长: {duration_str}"
-                    
-                    item = QListWidgetItem(display_text)
-                    item.setData(Qt.UserRole, i)
-                    item.setCheckState(Qt.Checked)
-                    self.all_episode_list.addItem(item)
+                            page = ep.get('page', i + 1)
+                            ep_title = ep.get('title', '')
+                            if ep_title and ep_title.lstrip().startswith('│'):
+                                title = f"  {ep_title}"
+                            else:
+                                title = f"第{page}集 - {ep_title}" if ep_title else f"第{page}集"
+
+                        dur = ep.get('duration_str', '') or ep.get('duration', '')
+                        if isinstance(dur, int) and dur > 0:
+                            h = dur // 3600
+                            m = (dur % 3600) // 60
+                            s = dur % 60
+                            duration_str = f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+                        elif dur:
+                            duration_str = str(dur)
+
+                        display_text = f"{title}"
+                        if duration_str:
+                            display_text += f"   时长: {duration_str}"
+
+                        item = QListWidgetItem(display_text)
+                        item.setData(Qt.UserRole, i)
+                        item.setCheckState(Qt.Checked)
+                        self.all_episode_list.addItem(item)
             
             qualities = video_info.get("qualities", [])
             # 填充编码选择下拉框
@@ -19651,7 +19747,11 @@ class BilibiliDownloader(BaseWindow):
             
             if hasattr(self, 'cover_list_widget'):
                 self.cover_list_widget.clear()
-                for i, cover_data in enumerate(self.cover_data_list):
+                self.cover_list_widget.setUpdatesEnabled(False)
+                self.cover_list_widget.setUniformItemSizes(True)
+                cover_sem = threading.Semaphore(8)
+                display_list = self.cover_data_list[:60] if len(self.cover_data_list) > 60 else self.cover_data_list
+                for i, cover_data in enumerate(display_list):
                     item_widget = QWidget()
                     item_widget.setAutoFillBackground(True)
                     item_widget.setFixedSize(scale(96), scale(76))
@@ -19699,26 +19799,31 @@ class BilibiliDownloader(BaseWindow):
                             class Signals(QObject):
                                 finished = pyqtSignal(QLabel, QPixmap)
                             
-                            def __init__(self, url, label):
+                            def __init__(self, url, label, sem):
                                 super().__init__()
                                 self.url = url
                                 self.label = label
+                                self.sem = sem
                                 self.signals = self.Signals()
                             
                             def run(self):
-                                pixmap = QPixmap()
-                                for attempt in range(2):
-                                    try:
-                                        response = requests.get(self.url, headers=_COVER_HEADERS, timeout=10)
-                                        response.raise_for_status()
-                                        pixmap = QPixmap()
-                                        pixmap.loadFromData(response.content)
-                                        if not pixmap.isNull():
-                                            break
-                                    except Exception:
-                                        if attempt == 0:
-                                            continue
-                                self.signals.finished.emit(self.label, pixmap)
+                                self.sem.acquire()
+                                try:
+                                    pixmap = QPixmap()
+                                    for attempt in range(2):
+                                        try:
+                                            response = requests.get(self.url, headers=_COVER_HEADERS, timeout=10)
+                                            response.raise_for_status()
+                                            pixmap = QPixmap()
+                                            pixmap.loadFromData(response.content)
+                                            if not pixmap.isNull():
+                                                break
+                                        except Exception:
+                                            if attempt == 0:
+                                                continue
+                                    self.signals.finished.emit(self.label, pixmap)
+                                finally:
+                                    self.sem.release()
                         
                         def on_thumb_loaded(label, pixmap):
                             try:
@@ -19738,13 +19843,14 @@ class BilibiliDownloader(BaseWindow):
                             except:
                                 pass
                         
-                        thumb_loader = CoverThumbLoader(cover_data["url"], thumb_label)
+                        thumb_loader = CoverThumbLoader(cover_data["url"], thumb_label, cover_sem)
                         thumb_loader.signals.finished.connect(on_thumb_loaded)
                         thumb_loader.start()
                         
                         if not hasattr(self, 'cover_thumb_loaders'):
                             self.cover_thumb_loaders = []
                         self.cover_thumb_loaders.append(thumb_loader)
+                self.cover_list_widget.setUpdatesEnabled(True)
             
             if self.cover_data_list:
                 first_cover = self.cover_data_list[0]

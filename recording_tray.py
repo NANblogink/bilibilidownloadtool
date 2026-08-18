@@ -116,13 +116,21 @@ class RecordingTrayManager(QObject):
         # 左键点击 → 显示工具条
         self.tray_icon.activated.connect(self._on_tray_activated)
 
-        if self._visible:
-            self.tray_icon.show()
+        self._apply_visibility()
 
         # 每秒更新
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._update_display)
         self._timer.start(1000)
+
+    def _apply_visibility(self):
+        """根据设置开关和当前任务状态决定托盘图标显示/隐藏"""
+        if not self.tray_icon:
+            return
+        if self._visible and self.sessions:
+            self.tray_icon.show()
+        else:
+            self.tray_icon.hide()
 
     def _on_tray_activated(self, reason):
         if reason == QSystemTrayIcon.Trigger:
@@ -149,9 +157,6 @@ class RecordingTrayManager(QObject):
                     lambda checked, s=sid: self.stop_requested.emit(s))
                 sub.addAction("📂 文件夹").triggered.connect(
                     lambda checked, p=session.output_path: self._open_folder(p))
-
-        self.tray_menu.addSeparator()
-        self.tray_menu.addAction("隐藏").triggered.connect(self._hide_if_no_tasks)
 
     def _update_display(self):
         if not self.sessions:
@@ -214,22 +219,18 @@ class RecordingTrayManager(QObject):
         self._next_id += 1
         session = RecordingSession(session_id, room_id, title, output_path)
         self.sessions[session_id] = session
-        if self.tray_icon and self._visible:
-            self.tray_icon.show()
+        self._apply_visibility()
         self._rebuild_menu()
         logger.info(f"[录播工具] 注册会话: {session_id} 房间={room_id}")
         return session_id
 
     def set_visible(self, visible):
-        """设置托盘图标是否显示"""
+        """设置托盘图标是否启用（关闭后即使有任务也不显示）"""
         self._visible = visible
-        if self.tray_icon:
-            if visible:
-                self.tray_icon.show()
-            else:
-                self.tray_icon.hide()
-                self.close_panel()
-        logger.info(f"[录播工具] 托盘图标{'显示' if visible else '隐藏'}")
+        if not visible:
+            self.close_panel()
+        self._apply_visibility()
+        logger.info(f"[录播工具] 托盘图标{'启用' if visible else '关闭'}")
 
     def is_visible(self):
         return self._visible
@@ -241,6 +242,7 @@ class RecordingTrayManager(QObject):
             self._rebuild_menu()
             if not self.sessions:
                 self.tray_icon.setToolTip("录播工具 - 无录制任务")
+                self._apply_visibility()
 
     def get_session(self, session_id):
         return self.sessions.get(session_id)
@@ -276,12 +278,6 @@ class RecordingTrayManager(QObject):
                 os.startfile(folder)
         except Exception as e:
             logger.warning(f"打开文件夹失败: {e}")
-
-    def _hide_if_no_tasks(self):
-        if self.sessions:
-            return
-        if self.tray_icon:
-            self.tray_icon.hide()
 
     def cleanup(self):
         if self._timer:
