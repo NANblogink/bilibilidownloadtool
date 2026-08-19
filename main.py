@@ -229,13 +229,22 @@ class SplashScreen(QWidget):
                 except RuntimeError:
                     pass
         fade_out()
+def _is_msix_environment():
+    try:
+        exe_path = os.path.abspath(sys.executable).lower().replace('/', '\\')
+        return 'windowsapps' in exe_path
+    except Exception:
+        return False
+
+
 if __name__ == "__main__":
     # Windows: 启动时自动申请管理员权限（UAC提权）
+    # MSIX 环境下跳过 UAC 提权，因为 runFullTrust 已授予完全信任权限
     # 三重防循环保护：
     #   1. --elevated 标记：提权启动的子进程携带此参数，检测到则不再提权
     #   2. 环境变量 BILIDOWN_ELEVATING：防止极端情况下参数丢失
     #   3. 单实例互斥锁：确保同一时间只有一个实例运行
-    if sys.platform == 'win32':
+    if sys.platform == 'win32' and not _is_msix_environment():
         try:
             import ctypes
             # 清理 argv 中的 --elevated 标记，避免影响后续参数解析
