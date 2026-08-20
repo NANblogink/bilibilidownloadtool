@@ -23,8 +23,6 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGr
                              QDateTimeEdit, QPlainTextEdit, QToolButton)
 from PyQt5.QtCore import QSize, Qt, pyqtSignal, QObject, QEvent, pyqtSlot, QPoint, QThread, QTimer, QEventLoop, QUrl, QCoreApplication, QMetaObject, Q_ARG, QDir, QTime, QDate
 from PyQt5.QtGui import QFont, QPalette, QColor, QCursor, QPixmap, QPainter, QBrush, QIcon, QPainterPath, QImage, QPen, QFontMetrics
-from PyQt5.QtWebEngineWidgets import QWebEngineView
-from PyQt5.QtWebChannel import QWebChannel
 from icon_manager import BUILTIN_ICON_OPTIONS, ensure_custom_icon_file, get_effective_icon_path, get_effective_icon_mode
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -377,7 +375,14 @@ def format_ep_name(ep, index, video_info=None):
             return f"第{page}集"
 
 
-from PyQt5.QtWebEngineWidgets import QWebEngineView
+def _get_web_engine_view_cls():
+    from PyQt5.QtWebEngineWidgets import QWebEngineView
+    return QWebEngineView
+
+
+def _get_web_channel_cls():
+    from PyQt5.QtWebChannel import QWebChannel
+    return QWebChannel
 
 
 class CaptchaHandler(QObject):
@@ -474,7 +479,7 @@ def show_captcha_dialog(gt, challenge, callback, parent=None):
         web_view = None
         web_engine_error = None
         try:
-            web_view = QWebEngineView()
+            web_view = _get_web_engine_view_cls()()
             web_view.page().renderProcessTerminated.connect(
                 lambda status, code, wv=web_view: logger.warning(f"QWebEngineView渲染进程终止: status={status}, code={code}")
             )
@@ -550,7 +555,7 @@ def show_captcha_dialog(gt, challenge, callback, parent=None):
         web_settings.setAttribute(web_settings.AutoLoadImages, True)
         
         
-        channel = QWebChannel()
+        channel = _get_web_channel_cls()()
         handler = CaptchaHandler(callback, dialog)
         channel.registerObject('handler', handler)
         web_view.page().setWebChannel(channel)
@@ -27463,7 +27468,7 @@ class BilibiliDownloader(BaseWindow):
             content_layout.setSpacing(scale(0))
             
             # 创建WebEngineView
-            web_view = QWebEngineView()
+            web_view = _get_web_engine_view_cls()()
             web_view.setStyleSheet("border: none;")
             web_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             content_layout.addWidget(web_view)

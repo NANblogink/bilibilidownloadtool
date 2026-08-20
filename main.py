@@ -5,6 +5,14 @@ import os
 if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+
+def _is_msix_environment():
+    try:
+        exe_path = os.path.abspath(sys.executable).lower().replace('/', '\\')
+        return 'windowsapps' in exe_path
+    except Exception:
+        return False
+
 # B站是国内站点，不需要走梯子/代理。在 import requests 之前清除所有代理环境变量，
 # 并设置 NO_PROXY=* 让 requests 对所有主机都不使用代理（包括系统注册表里的IE代理）。
 # 这样用户即使开着梯子，程序也能直连B站正常工作。
@@ -68,10 +76,18 @@ if IS_WINDOWS:
 
         if os.path.isdir(_qt_bin_dir):
             # 使用单进程模式运行QtWebEngine，避免创建独立子进程触发杀毒软件"远程线程注入"误报
-            # --single-process: 不创建QtWebEngineProcess.exe子进程
-            # --no-sandbox: 禁用Chromium沙箱（单进程模式下不需要）
+            # 注意：MSIX容器/Windows 11 24H2+ 环境单进程模式会导致Chromium崩，改用多进程
+            # --no-sandbox: 禁用Chromium沙箱（减少崩溃）
             # --disable-gpu: 禁用GPU加速（减少进程数）
-            os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = '--single-process --no-sandbox --disable-gpu'
+            if not _is_msix_environment():
+                os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = '--single-process --no-sandbox --disable-gpu'
+            else:
+                os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = '--no-sandbox --disable-gpu'
+
+        if _is_msix_environment():
+            # 微软认证测试在无GPU的虚拟机中运行，强制Qt软件渲染避免OpenGL初始化失败崩溃
+            os.environ['QT_OPENGL'] = 'software'
+            os.environ['QT_QUICK_BACKEND'] = 'software'
     except Exception:
         pass
 
@@ -229,13 +245,6 @@ class SplashScreen(QWidget):
                 except RuntimeError:
                     pass
         fade_out()
-def _is_msix_environment():
-    try:
-        exe_path = os.path.abspath(sys.executable).lower().replace('/', '\\')
-        return 'windowsapps' in exe_path
-    except Exception:
-        return False
-
 
 if __name__ == "__main__":
     # Windows: 启动时自动申请管理员权限（UAC提权）
