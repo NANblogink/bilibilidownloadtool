@@ -47,6 +47,7 @@ build_*.py
 version_info_*.win
 patch_pyinstaller.py
 output/
+msix_staging/
 sign_exes.ps1
 setup.iss
 *.iss

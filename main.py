@@ -13,6 +13,25 @@ def _is_msix_environment():
     except Exception:
         return False
 
+
+def _fatal_error_exit(title, message):
+    """启动阶段致命错误：写日志 + 弹窗 + 立即退出进程。
+    绝不静默吞掉异常留下"进程活着但无窗口"的僵尸实例（会一直持有单实例锁）"""
+    try:
+        import traceback as _tb
+        _log_path = os.path.join(os.path.expanduser('~'), 'bilidown_startup_error.log')
+        with open(_log_path, 'a', encoding='utf-8') as f:
+            f.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} {title} =====\n{message}\n")
+    except Exception:
+        pass
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, str(message)[:1800], title, 0x10)
+        except Exception:
+            pass
+    os._exit(1)
+
 # B站是国内站点，不需要走梯子/代理。在 import requests 之前清除所有代理环境变量，
 # 并设置 NO_PROXY=* 让 requests 对所有主机都不使用代理（包括系统注册表里的IE代理）。
 # 这样用户即使开着梯子，程序也能直连B站正常工作。
@@ -293,15 +312,13 @@ if __name__ == "__main__":
     if sys.platform == 'win32':
         try:
             import ctypes
-            _mutex_name = "Global\\BilibiliDownloader_SingleInstance_v2"
-            _INSTANCE_MUTEX = ctypes.windll.kernel32.CreateMutexW(None, False, _mutex_name)
-            _last_error = ctypes.windll.kernel32.GetLastError()
-            # ERROR_ALREADY_EXISTS = 183
-            if _last_error == 183:
-                _hwnd = [None]
+            from ctypes import wintypes
+
+            def _find_windows_by_title_prefixes(prefixes):
+                """按标题前缀查找可见窗口，返回hwnd或None"""
+                hwnd_found = [None]
                 try:
-                    _title_prefix = "B站视频解析工具"
-                    _WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+                    WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
 
                     def _find_cb(hwnd, lparam):
                         if not ctypes.windll.user32.IsWindowVisible(hwnd):
@@ -311,30 +328,157 @@ if __name__ == "__main__":
                             return True
                         buf = ctypes.create_unicode_buffer(length + 1)
                         ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
-                        if buf.value.startswith(_title_prefix):
-                            _hwnd[0] = hwnd
-                            return False
+                        for _p in prefixes:
+                            if buf.value.startswith(_p):
+                                hwnd_found[0] = hwnd
+                                return False
                         return True
 
-                    ctypes.windll.user32.EnumWindows(_WNDENUMPROC(_find_cb), 0)
+                    ctypes.windll.user32.EnumWindows(WNDENUMPROC(_find_cb), 0)
                 except Exception:
                     pass
+                return hwnd_found[0]
 
-                if _hwnd[0]:
+            def _enum_instance_pids():
+                """枚举与本进程同名的其他实例PID（仅打包模式有效）"""
+                pids = []
+                if not getattr(sys, 'frozen', False):
+                    return pids
+                try:
+                    class PROCESSENTRY32W(ctypes.Structure):
+                        _fields_ = [
+                            ('dwSize', wintypes.DWORD),
+                            ('cntUsage', wintypes.DWORD),
+                            ('th32ProcessID', wintypes.DWORD),
+                            ('th32DefaultHeapID', ctypes.POINTER(wintypes.ULONG)),
+                            ('th32ModuleID', wintypes.DWORD),
+                            ('cntThreads', wintypes.DWORD),
+                            ('th32ParentProcessID', wintypes.DWORD),
+                            ('pcPriClassBase', wintypes.LONG),
+                            ('dwFlags', wintypes.DWORD),
+                            ('szExeFile', wintypes.WCHAR * 260),
+                        ]
+                    exe_name = os.path.basename(sys.executable).lower()
+                    kernel32 = ctypes.windll.kernel32
+                    snap = kernel32.CreateToolhelp32Snapshot(0x2, 0)  # TH32CS_SNAPPROCESS
+                    if snap and snap != ctypes.c_void_p(-1).value and snap != -1:
+                        entry = PROCESSENTRY32W()
+                        entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+                        ok = kernel32.Process32FirstW(snap, ctypes.byref(entry))
+                        while ok:
+                            try:
+                                if (entry.szExeFile or '').lower() == exe_name and entry.th32ProcessID != os.getpid():
+                                    pids.append(entry.th32ProcessID)
+                            except Exception:
+                                pass
+                            ok = kernel32.Process32NextW(snap, ctypes.byref(entry))
+                        kernel32.CloseHandle(snap)
+                except Exception:
+                    pass
+                return pids
+
+            def _find_window_of_instance_pids(pids):
+                """查找属于指定PID集合的窗口：
+                返回 (hwnd, kind)：
+                  kind='titled'  匹配应用标题的窗口（含隐藏的，如最小化到托盘）
+                  kind='visible' 任意可见顶层窗口（如启动中的splash）
+                  kind=None     什么都没有（疑似僵尸实例）"""
+                if not pids:
+                    return None, None
+                pid_set = set(pids)
+                titled = [None]
+                visible = [None]
+                WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+                def _cb(hwnd, lparam):
                     try:
-                        if ctypes.windll.user32.IsIconic(_hwnd[0]):
-                            ctypes.windll.user32.ShowWindow(_hwnd[0], 9)  # SW_RESTORE
-                        ctypes.windll.user32.ShowWindow(_hwnd[0], 5)  # SW_SHOW
-                        ctypes.windll.user32.BringWindowToTop(_hwnd[0])
-                        ctypes.windll.user32.SetForegroundWindow(_hwnd[0])
+                        pid = wintypes.DWORD(0)
+                        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                        if pid.value not in pid_set:
+                            return True
+                        length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+                        title = ''
+                        if length > 0:
+                            buf = ctypes.create_unicode_buffer(length + 1)
+                            ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
+                            title = buf.value
+                        is_visible = bool(ctypes.windll.user32.IsWindowVisible(hwnd))
+                        for _p in ("B站视频解析工具", "B站视频下载工具", "BilibiliDownloader"):
+                            if title.startswith(_p):
+                                titled[0] = hwnd
+                                return False
+                        if is_visible and visible[0] is None:
+                            visible[0] = hwnd
                     except Exception:
                         pass
+                    return True
 
                 try:
-                    ctypes.windll.user32.MessageBoxW(None, "程序已经启动，请勿反复启动", "提示", 0x40)
+                    ctypes.windll.user32.EnumWindows(WNDENUMPROC(_cb), 0)
                 except Exception:
                     pass
-                sys.exit(0)
+                if titled[0]:
+                    return titled[0], 'titled'
+                if visible[0]:
+                    return visible[0], 'visible'
+                return None, None
+
+            def _activate_window(hwnd):
+                try:
+                    ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                    ctypes.windll.user32.ShowWindow(hwnd, 5)  # SW_SHOW
+                    ctypes.windll.user32.BringWindowToTop(hwnd)
+                    ctypes.windll.user32.SetForegroundWindow(hwnd)
+                except Exception:
+                    pass
+
+            _mutex_name = "Global\\BilibiliDownloader_SingleInstance_v2"
+            _INSTANCE_MUTEX = ctypes.windll.kernel32.CreateMutexW(None, False, _mutex_name)
+            _last_error = ctypes.windll.kernel32.GetLastError()
+            # ERROR_ALREADY_EXISTS = 183
+            if _last_error == 183:
+                # 1) 先按标题找已启动的窗口并激活
+                _hwnd = _find_windows_by_title_prefixes(("B站视频解析工具", "B站视频下载工具", "BilibiliDownloader"))
+                if _hwnd:
+                    _activate_window(_hwnd)
+                    try:
+                        ctypes.windll.user32.MessageBoxW(None, "程序已经启动，请勿反复启动", "提示", 0x40)
+                    except Exception:
+                        pass
+                    sys.exit(0)
+
+                # 2) 标题没找到：按进程名定位旧实例，看它是否还有任何窗口
+                #    （可见无标题窗口=启动中的splash；有标题但隐藏=最小化到托盘；都没有=僵尸实例）
+                _old_pids = _enum_instance_pids()
+                _pid_hwnd, _kind = _find_window_of_instance_pids(_old_pids)
+                if _pid_hwnd:
+                    _activate_window(_pid_hwnd)
+                    try:
+                        ctypes.windll.user32.MessageBoxW(None, "程序已经启动，请勿反复启动", "提示", 0x40)
+                    except Exception:
+                        pass
+                    sys.exit(0)
+
+                # 3) 旧实例没有任何窗口：等待2秒复查（给慢速启动留余地），仍无窗口则判定为
+                #    "无窗口僵尸实例"，强制结束后由当前进程接管启动，绝不让用户/认证测试卡死
+                time.sleep(2)
+                _old_pids = _enum_instance_pids()
+                _pid_hwnd, _kind = _find_window_of_instance_pids(_old_pids)
+                if _pid_hwnd:
+                    _activate_window(_pid_hwnd)
+                    sys.exit(0)
+                for _pid in _old_pids:
+                    try:
+                        _h = ctypes.windll.kernel32.OpenProcess(1, False, _pid)  # PROCESS_TERMINATE
+                        if _h:
+                            ctypes.windll.kernel32.TerminateProcess(_h, 1)
+                            ctypes.windll.kernel32.CloseHandle(_h)
+                    except Exception:
+                        pass
+                time.sleep(0.5)
+                # 当前进程已持有互斥锁句柄，旧实例结束后本进程成为唯一持有者，直接继续启动
+        except SystemExit:
+            raise
         except Exception:
             pass
 
@@ -350,7 +494,8 @@ if __name__ == "__main__":
 
     # 已是管理员权限，静默安装开发者证书（方便后续版本更新时不再报"未知发行者"）
     # 异步执行避免阻塞主程序启动，失败不影响主程序
-    if sys.platform == 'win32':
+    # MSIX 环境跳过：商店包有正式签名，且向系统证书存储写内容易引起认证测试怀疑
+    if sys.platform == 'win32' and not _is_msix_environment():
         try:
             import threading
             from cert_installer import auto_install_cert
@@ -377,6 +522,9 @@ if __name__ == "__main__":
             from PyQt5.QtCore import Qt, qInstallMessageHandler
         except ImportError as e:
             _fallback_reason = f"PyQt5导入失败: {e}"
+            if getattr(sys, 'frozen', False):
+                # 打包模式下禁止CLI降级：无控制台时CLI会挂死成无窗口僵尸进程
+                _fatal_error_exit("启动失败", f"{_fallback_reason}\n\n程序即将退出。")
             print(f"\n[降级模式] {_fallback_reason}")
             print("[降级模式] 已自动降级为命令行模式\n")
             from cli import main as cli_main
@@ -395,6 +543,8 @@ if __name__ == "__main__":
             app = SafeQApplication(sys.argv)
         except Exception as e:
             _fallback_reason = f"GUI初始化失败: {e}"
+            if getattr(sys, 'frozen', False):
+                _fatal_error_exit("启动失败", f"{_fallback_reason}\n\n程序即将退出。")
             print(f"\n[降级模式] {_fallback_reason}")
             print("[降级模式] 已自动降级为命令行模式\n")
             from cli import main as cli_main
@@ -518,7 +668,13 @@ if __name__ == "__main__":
         component_thread.start()
         progress_timer_start = time.time()
         def poll_component_progress():
-            if components_ready.is_set():
+            # 组件初始化超过30秒（如测试机网络受限）不再无限等待，直接带现有组件创建窗口
+            if components_ready.is_set() or time.time() - progress_timer_start > 30:
+                if not components_ready.is_set():
+                    try:
+                        logger.error("组件初始化超时(30秒)，跳过等待直接创建主窗口")
+                    except Exception:
+                        pass
                 splash.update_progress(80, "组件初始化完成")
                 app.processEvents()
                 QTimer.singleShot(50, create_main_window)
@@ -532,12 +688,22 @@ if __name__ == "__main__":
         window = None
         def create_main_window():
             global window
-            window = BilibiliDownloader(
-                config=config,
-                task_manager=task_manager[0],
-                download_manager=download_manager[0]
-            )
-            window.parser = parser[0]
+            # 主窗口创建必须成功：任何异常都不允许被事件循环吞掉后留下无窗口僵尸进程
+            try:
+                window = BilibiliDownloader(
+                    config=config,
+                    task_manager=task_manager[0],
+                    download_manager=download_manager[0]
+                )
+                window.parser = parser[0]
+            except Exception:
+                import traceback as _tb
+                _err = _tb.format_exc()
+                try:
+                    logger.error(f"主窗口创建失败:\n{_err}")
+                except Exception:
+                    pass
+                _fatal_error_exit("启动失败", f"主窗口创建失败，程序即将退出。\n\n{_err[-1500:]}")
 
             # 设置 v_voucher 极验验证回调，遇到风控时在主线程弹出验证框
             def _setup_v_voucher_callback(win, par):
@@ -558,33 +724,55 @@ if __name__ == "__main__":
                         'seccode': result.get('seccode', '')
                     } if result.get('validate') and result.get('seccode') else {}
                 par.v_voucher_callback = _v_voucher_callback
-            _setup_v_voucher_callback(window, parser[0])
+            try:
+                _setup_v_voucher_callback(window, parser[0])
+            except Exception:
+                pass
 
-            app.processEvents()
-            splash.update_progress(95, "加载完成...")
-            app.processEvents()
-            splash.close_with_animation()
-            # 设置默认窗口尺寸（供用户从最大化还原时使用合理大小）
-            saved_geo = config.get_app_setting("window_geometry", "")
-            if not saved_geo:
-                screen = QApplication.primaryScreen()
-                if screen:
-                    sg = screen.availableGeometry()
-                    w = int(sg.width() * 0.75)
-                    h = int(sg.height() * 0.8)
-                    x = sg.left() + (sg.width() - w) // 2
-                    y = sg.top() + (sg.height() - h) // 2
-                    window.setGeometry(x, y, w, h)
-            window.showMaximized()
-            window.raise_()
-            window.activateWindow()
+            try:
+                app.processEvents()
+                splash.update_progress(95, "加载完成...")
+                app.processEvents()
+                splash.close_with_animation()
+                # 设置默认窗口尺寸（供用户从最大化还原时使用合理大小）
+                saved_geo = config.get_app_setting("window_geometry", "")
+                if not saved_geo:
+                    screen = QApplication.primaryScreen()
+                    if screen:
+                        sg = screen.availableGeometry()
+                        w = int(sg.width() * 0.75)
+                        h = int(sg.height() * 0.8)
+                        x = sg.left() + (sg.width() - w) // 2
+                        y = sg.top() + (sg.height() - h) // 2
+                        window.setGeometry(x, y, w, h)
+                window.showMaximized()
+                window.raise_()
+                window.activateWindow()
+            except Exception:
+                # 收尾步骤失败也必须把窗口显示出来，绝不留无窗口进程
+                import traceback as _tb
+                _err = _tb.format_exc()
+                try:
+                    logger.error(f"主窗口显示失败:\n{_err}")
+                except Exception:
+                    pass
+                try:
+                    window.showMaximized()
+                    window.raise_()
+                    window.activateWindow()
+                except Exception:
+                    _fatal_error_exit("启动失败", f"主窗口显示失败，程序即将退出。\n\n{_err[-1500:]}")
             app.processEvents()
             QTimer.singleShot(100, init_after_ui)
         def ensure_splash_closed():
             import time
             start_time = time.time()
-            while time.time() - start_time < 3:
-                time.sleep(0.01)
+            # 只有主窗口创建成功后才隐藏splash；窗口迟迟未创建时保持splash可见（由窗口看门狗兜底）
+            while time.time() - start_time < 180:
+                if window is not None:
+                    break
+                time.sleep(0.1)
+            time.sleep(3)
             try:
                 QTimer.singleShot(0, splash.hide)
             except Exception:
@@ -1015,17 +1203,52 @@ if __name__ == "__main__":
         _wd_thread = threading.Thread(target=_hang_watchdog, daemon=True)
         _wd_thread.start()
 
+        # 窗口看门狗：无论何种原因（异常被吞、初始化卡死），若超时后主窗口仍未显示，
+        # 记录全部线程堆栈并退出进程，绝不留下"进程活着但无窗口"的僵尸实例占用单实例锁
+        def _window_watchdog():
+            import threading as _th
+            _main_tid = _th.main_thread().ident
+            _deadline = 150.0
+            _t0 = time.time()
+            while True:
+                time.sleep(5)
+                try:
+                    _visible = window is not None and window.isVisible()
+                except Exception:
+                    _visible = False
+                if _visible:
+                    return  # 窗口已成功显示，看门狗退役（之后用户最小化到托盘不影响）
+                if time.time() - _t0 > _deadline:
+                    _dumps = []
+                    try:
+                        for _tid, _frame in sys._current_frames().items():
+                            _tag = "主线程" if _tid == _main_tid else f"线程{_tid}"
+                            _dumps.append(f"=== {_tag} ===\n" + ''.join(traceback.format_stack(_frame)))
+                        _stack_info = '\n'.join(_dumps)
+                    except Exception:
+                        _stack_info = "堆栈获取失败"
+                    _fatal_error_exit(
+                        "启动失败",
+                        f"启动后{int(_deadline)}秒主窗口仍未显示，为避免占用单实例锁已自动退出。\n\n{_stack_info[-1200:]}"
+                    )
+        threading.Thread(target=_window_watchdog, daemon=True).start()
+
         try:
             app.exec_()
         except Exception as e:
             import traceback
             logger.error(f"应用运行异常: {e}")
             logger.debug("traceback", exc_info=True)
+            if getattr(sys, 'frozen', False):
+                os._exit(1)
             input("按回车键退出...")
     except Exception as e:
         import traceback
         error_msg = traceback.format_exc()
         logger.error(f"GUI启动失败: {error_msg}")
+        if getattr(sys, 'frozen', False):
+            # 打包模式：弹窗报错并退出，禁止无控制台的CLI降级（会挂死成僵尸进程）
+            _fatal_error_exit("启动失败", f"GUI启动失败，程序即将退出。\n\n{error_msg[-1500:]}")
         print(f"\n[降级模式] GUI启动失败: {e}")
         print("[降级模式] 已自动降级为命令行模式\n")
         try:
