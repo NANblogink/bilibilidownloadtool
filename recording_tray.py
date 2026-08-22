@@ -291,7 +291,7 @@ class RecordingPanel(QDialog):
     """点击托盘弹出的录制工具条"""
 
     def __init__(self, tray_manager, parent=None):
-        super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint)
         self.tray_manager = tray_manager
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self._setup_ui()

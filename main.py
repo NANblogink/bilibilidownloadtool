@@ -191,7 +191,7 @@ class SplashScreen(QWidget):
     def __init__(self):
         super().__init__()
         from ui import scale
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool)
         self.setFixedSize(scale(600), scale(400))
         self.setStyleSheet("background-color: #1890ff;")
         main_layout = QVBoxLayout(self)

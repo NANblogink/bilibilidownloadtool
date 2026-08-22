@@ -415,7 +415,8 @@ def show_captcha_dialog(gt, challenge, callback, parent=None):
         dialog.setMinimumSize(scale(420), scale(380))
         dialog.setModal(True)
         
-        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        make_resizable(dialog)
         dialog.setAutoFillBackground(True)
         
         style_sheet = """
@@ -858,7 +859,8 @@ class ExpandedCard(QDialog):
         self.floating_ball = floating_ball
         
         self.setAttribute(Qt.WA_DeleteOnClose)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool)
+        make_resizable(self)
         self.setAutoFillBackground(True)
         
         self.setStyleSheet(scale_style("""
@@ -1358,7 +1360,7 @@ class FloatingBall(QWidget):
         super().__init__(None)  
         self.parent = parent
         
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         
@@ -2623,7 +2625,7 @@ class DataLoadingDialog(QDialog):
     def __init__(self, parent=None, title="加载中", message="正在加载数据..."):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog | Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setWindowModality(Qt.ApplicationModal)
         self.setAutoFillBackground(True)
         self.setFixedSize(scale(420), scale(200))
@@ -4789,7 +4791,7 @@ class NotificationWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.Window)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool | Qt.Window)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAutoFillBackground(False)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
@@ -5466,6 +5468,7 @@ class UpdateDialog(QDialog):
             self.auto_mode = auto_mode
             self.setAttribute(Qt.WA_DeleteOnClose)
             self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.Dialog)
+            make_resizable(self)
             self.setAutoFillBackground(True)
             self._closing = False
 
@@ -6295,7 +6298,8 @@ class MergeProgressWindow(QDialog):
             self.setMinimumSize(max(scale(400), int(sg.width() * 0.3)), max(scale(300), int(sg.height() * 0.3)))
         else:
             self.setMinimumSize(scale(400), scale(300))
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        make_resizable(self)
         self.setAutoFillBackground(True)
         self.setWindowModality(Qt.NonModal)
         
@@ -6504,7 +6508,8 @@ class DanmakuSelectionDialog(QDialog):
         else:
             self.setMinimumSize(scale(500), scale(350))
         
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        make_resizable(self)
         self.setAutoFillBackground(True)
         
         try:
@@ -6839,6 +6844,114 @@ class DanmakuSelectionDialog(QDialog):
         pass
 
 
+class _WindowResizeFilter(QObject):
+    """通过事件过滤器为无边框窗口提供边缘拖拽调整大小（兼容已有的标题栏拖拽）"""
+
+    def __init__(self, win, edge_margin=6):
+        super().__init__(win)
+        self._win = win
+        self._edge_margin = edge_margin
+        self._resizing = False
+        self._resize_direction = None
+        self._drag_pos = None
+        self._original_geometry = None
+        try:
+            win.setMouseTracking(True)
+            win.installEventFilter(self)
+        except Exception:
+            pass
+
+    def eventFilter(self, obj, event):
+        if obj is not self._win:
+            return super().eventFilter(obj, event)
+        et = event.type()
+        if et == QEvent.HoverMove:
+            self._update_cursor(event.globalPos())
+        elif et == QEvent.MouseButtonPress:
+            if event.button() == Qt.LeftButton and self._start_resize(event):
+                return True
+        elif et == QEvent.MouseMove:
+            if self._resizing and self._drag_pos:
+                self._do_resize(event)
+                return True
+        elif et == QEvent.MouseButtonRelease:
+            if event.button() == Qt.LeftButton:
+                self._resizing = False
+                self._resize_direction = None
+                self._drag_pos = None
+                self._original_geometry = None
+        return super().eventFilter(obj, event)
+
+    def _dirs_at(self, pos):
+        win = self._win
+        w, h = win.width(), win.height()
+        m = self._edge_margin
+        dirs = []
+        if pos.x() < m:
+            dirs.append('left')
+        if pos.x() > w - m:
+            dirs.append('right')
+        if pos.y() < m:
+            dirs.append('top')
+        if pos.y() > h - m:
+            dirs.append('bottom')
+        return dirs
+
+    def _update_cursor(self, global_pos):
+        if self._resizing:
+            return
+        pos = self._win.mapFromGlobal(global_pos)
+        dirs = self._dirs_at(pos)
+        if not dirs:
+            self._win.setCursor(Qt.ArrowCursor)
+        elif ('top' in dirs and 'left' in dirs) or ('bottom' in dirs and 'right' in dirs):
+            self._win.setCursor(Qt.SizeFDiagCursor)
+        elif ('top' in dirs and 'right' in dirs) or ('bottom' in dirs and 'left' in dirs):
+            self._win.setCursor(Qt.SizeBDiagCursor)
+        elif 'left' in dirs or 'right' in dirs:
+            self._win.setCursor(Qt.SizeHorCursor)
+        else:
+            self._win.setCursor(Qt.SizeVerCursor)
+
+    def _start_resize(self, event):
+        dirs = self._dirs_at(event.pos())
+        if not dirs:
+            return False
+        self._resizing = True
+        self._resize_direction = dirs
+        self._drag_pos = event.globalPos()
+        self._original_geometry = self._win.geometry()
+        return True
+
+    def _do_resize(self, event):
+        diff = event.globalPos() - self._drag_pos
+        geo = self._original_geometry
+        new_x, new_y, new_w, new_h = geo.x(), geo.y(), geo.width(), geo.height()
+        min_w, min_h = self._win.minimumWidth(), self._win.minimumHeight()
+        if 'left' in self._resize_direction:
+            new_x += diff.x()
+            new_w -= diff.x()
+        if 'right' in self._resize_direction:
+            new_w += diff.x()
+        if 'top' in self._resize_direction:
+            new_y += diff.y()
+            new_h -= diff.y()
+        if 'bottom' in self._resize_direction:
+            new_h += diff.y()
+        if new_w >= min_w and new_h >= min_h:
+            self._win.setGeometry(new_x, new_y, new_w, new_h)
+        event.accept()
+
+
+def make_resizable(win, edge_margin=6):
+    """为无边框窗口启用边缘拖拽调整大小"""
+    try:
+        if not hasattr(win, '_resize_filter'):
+            win._resize_filter = _WindowResizeFilter(win, edge_margin)
+    except Exception:
+        pass
+
+
 class ResizableDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -7100,7 +7213,7 @@ class EpisodeSelectionDialog(ResizableDialog):
             self.setMinimumSize(scale(560), scale(480))
             self.resize(scale(700), scale(520))
 
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setAutoFillBackground(True)
         self.setResizable()
 
@@ -8475,7 +8588,7 @@ class TaskManagerWindow(BaseWindow):
     def __init__(self, task_manager, parser, download_manager, config, parent=None):
         super().__init__(parent)
         
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.Tool | Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.Tool)
         self.setAutoFillBackground(True)
         self.task_manager = task_manager
         self.parser = parser
@@ -9146,7 +9259,8 @@ class TaskManagerWindow(BaseWindow):
             return
         
         dialog = QDialog(self)
-        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        make_resizable(dialog)
         dialog.setAutoFillBackground(True)
         dialog.setWindowTitle(f"任务详情 - {task.get('title', '未知任务')}")
         screen = QApplication.primaryScreen()
@@ -10107,7 +10221,8 @@ class TaskManagerWindow(BaseWindow):
                         })
             
             dialog = QDialog(self)
-            dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+            dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+            make_resizable(dialog)
             dialog.setAutoFillBackground(True)
             dialog.setWindowTitle("弹幕内容")
             screen = QApplication.primaryScreen()
@@ -11161,7 +11276,8 @@ class BatchDownloadWindow(BaseWindow):
                 self.link_ready.emit(video_url, audio_url)
         
         dialog = QDialog(self)
-        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        make_resizable(dialog)
         dialog.setAutoFillBackground(True)
         dialog.setWindowTitle("下载链接")
         screen = QApplication.primaryScreen()
@@ -11599,10 +11715,6 @@ class BilibiliDownloader(BaseWindow):
         self.admin_input = ""
         self.admin_code = "admincaidan"
         
-        is_topmost = self.config.get_app_setting("window_topmost", False)
-        if is_topmost:
-            self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
-        
         self.floating_ball = None
         self.floating_toolbar_enabled = self.config.get_app_setting("show_floating_ball", False)
         
@@ -11799,7 +11911,8 @@ class BilibiliDownloader(BaseWindow):
 
             dlg = QDialog(self)
             dlg.setWindowTitle("数据采集说明")
-            dlg.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+            dlg.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+            make_resizable(dlg)
             dlg.setAutoFillBackground(True)
             dlg.setMinimumSize(560, 560)
             dlg.setMaximumWidth(600)
@@ -12024,15 +12137,73 @@ class BilibiliDownloader(BaseWindow):
                 return
             if not hasattr(self, 'url_edit'):
                 return
-            # 使用统一的B站链接验证
-            is_bili = self._is_bilibili_url(text)
-            if is_bili:
-                logger.info(f"[剪切板监测] 检测到B站链接: {text[:80]}")
-                self._last_clipboard_url = text
-                self.url_edit.setText(text)
-                self.show_notification("已从剪贴板检测到B站链接", "info")
+            # 只提取链接本身，去掉复制时带上的前后文案
+            link = self._extract_bilibili_link(text)
+            if not link or not self._is_bilibili_url(link):
+                return
+            logger.info(f"[剪切板监测] 检测到B站链接: {link[:80]}")
+            self._last_clipboard_url = text
+            self.url_edit.setText(link)
+            self.show_notification("已从剪贴板检测到B站链接", "info")
         except Exception as e:
             logger.error(f"[剪切板监测] 异常: {e}")
+
+    @staticmethod
+    def _extract_bilibili_link(text):
+        """从剪贴板文本中只提取B站链接/视频ID，去掉前后文案"""
+        if not text:
+            return ""
+        text = text.strip()
+        # 优先提取URL：从http(s)开始到空白结束，并去掉结尾标点
+        url_m = re.search(r'https?://[^\s]+', text, re.IGNORECASE)
+        if url_m:
+            url = url_m.group(0).rstrip('。，,;；!！?？)]}>】"\'')
+            if re.search(r'(?:bilibili\.com|b23\.tv)', url, re.IGNORECASE):
+                return url
+        # 无URL则从文案中提取视频ID
+        m = re.search(r'BV1[0-9A-Za-z]{9}', text, re.IGNORECASE)
+        if m:
+            return m.group(0)
+        m = re.search(r'(?:av|AV)(\d+)', text)
+        if m:
+            return m.group(0)
+        m = re.search(r'(?:ep|EP)(\d+)', text)
+        if m:
+            return f"ep{m.group(1)}"
+        m = re.search(r'(?:ss|SS)(\d+)', text)
+        if m:
+            return f"ss{m.group(1)}"
+        if re.match(r'^\d{10,}$', text):
+            return text
+        return ""
+
+    def _apply_clipboard_auto_detect(self, enable):
+        """保存设置后立即启停剪贴板自动检测，无需重启"""
+        self._clipboard_auto_detect = bool(enable)
+        try:
+            if enable:
+                try:
+                    self._clipboard.dataChanged.disconnect(self._on_clipboard_changed)
+                except Exception:
+                    pass
+                self._clipboard.dataChanged.connect(self._on_clipboard_changed)
+                timer = getattr(self, '_clipboard_timer', None)
+                if timer is None:
+                    timer = QTimer(self)
+                    timer.setInterval(1500)
+                    timer.timeout.connect(self._on_clipboard_changed)
+                    self._clipboard_timer = timer
+                timer.start()
+            else:
+                try:
+                    self._clipboard.dataChanged.disconnect(self._on_clipboard_changed)
+                except Exception:
+                    pass
+                timer = getattr(self, '_clipboard_timer', None)
+                if timer is not None:
+                    timer.stop()
+        except Exception as e:
+            logger.debug(f"切换剪贴板自动检测异常: {e}")
 
     def _get_beta_bind_file_path(self):
         """获取内测绑定记录文件路径（与client_id.txt同目录）"""
@@ -12270,7 +12441,6 @@ class BilibiliDownloader(BaseWindow):
                 dialog = QDialog(self)
                 dialog.setWindowTitle("路径权限不足")
                 dialog.setMinimumSize(scale(420), scale(200))
-                dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowStaysOnTopHint)
                 layout = QVBoxLayout(dialog)
                 layout.setContentsMargins(scale(24), scale(20), scale(24), scale(20))
                 layout.setSpacing(scale(14))
@@ -12561,7 +12731,8 @@ class BilibiliDownloader(BaseWindow):
     
     def show_network_error_dialog(self, error_type, error_msg, proxy_info=None):
         dialog = QDialog(self)
-        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        make_resizable(dialog)
         dialog.setAutoFillBackground(True)
         dialog.setWindowTitle("网络错误")
         screen = QApplication.primaryScreen()
@@ -13368,10 +13539,12 @@ class BilibiliDownloader(BaseWindow):
         if self.floating_toolbar_enabled and self.floating_ball:
             self.floating_ball.hide()
         
+        super().show()
         
-        super().showMaximized()
-        
-        self.showMaximized()
+        # 保证主窗口打开即为最大化，且窗口状态与视觉保持一致，
+        # 避免"首次未最大化/点击右上角变成还原"的状态错乱
+        if not self.isMaximized():
+            self.showMaximized()
         
         self.raise_()
         self.activateWindow()
@@ -13484,7 +13657,7 @@ class BilibiliDownloader(BaseWindow):
             
             if self.floating_ball and (self.windowState() & Qt.WindowMinimized):
                 
-                self.floating_ball.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.WindowDoesNotAcceptFocus)
+                self.floating_ball.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool | Qt.WindowDoesNotAcceptFocus)
                 self.floating_ball.show()
                 
                 self.floating_ball.raise_()
@@ -15118,6 +15291,16 @@ class BilibiliDownloader(BaseWindow):
             logger.warning(f"音频功能Tab加载失败: {e}")
             self.audio_tab = None
 
+        # 字幕解析功能Tab
+        try:
+            from subtitle_tab import SubtitleTab
+            self.subtitle_tab = SubtitleTab(config=self.config, parent=self)
+            self.tab_widget.addTab(self.subtitle_tab, "字幕解析")
+            logger.info("字幕解析Tab已加载")
+        except Exception as e:
+            logger.warning(f"字幕解析Tab加载失败: {e}")
+            self.subtitle_tab = None
+
         # 录播工具托盘（归主窗口所有，不随LiveTab销毁）
         try:
             from recording_tray import RecordingTrayManager
@@ -15849,15 +16032,17 @@ class BilibiliDownloader(BaseWindow):
         btn_layout.setSpacing(scale(4))
         
         parse_btn = QPushButton("解析")
-        parse_btn.setMinimumSize(scale(76), scale(26))
+        parse_btn.setMinimumSize(scale(80), scale(30))
+        parse_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         parse_btn.setStyleSheet(scale_style("""
             QPushButton {
                 background-color: #10b981;
                 color: white;
                 border: none;
                 border-radius: 3px;
-                font-size: 11px;
+                font-size: 12px;
                 font-weight: 500;
+                padding: 2px 6px;
             }
             QPushButton:hover {
                 background-color: #059669;
@@ -15868,15 +16053,17 @@ class BilibiliDownloader(BaseWindow):
         btn_layout.addWidget(parse_btn)
         
         cover_btn = QPushButton("封面")
-        cover_btn.setMinimumSize(scale(76), scale(26))
+        cover_btn.setMinimumSize(scale(80), scale(30))
+        cover_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         cover_btn.setStyleSheet(scale_style("""
             QPushButton {
                 background-color: #4f6ef7;
                 color: white;
                 border: none;
                 border-radius: 3px;
-                font-size: 11px;
+                font-size: 12px;
                 font-weight: 500;
+                padding: 2px 6px;
             }
             QPushButton:hover {
                 background-color: #3b5de7;
@@ -15906,7 +16093,7 @@ class BilibiliDownloader(BaseWindow):
             card_w = max(base_card_w, min(card_w, max_card_w))
             cover_w = card_w - scale(8)
             cover_h = int(cover_w * 9 / 16)
-            card_h = cover_h + scale(70)
+            card_h = cover_h + scale(84)
             self.content_list._card_width = card_w
             self.content_list._card_height = card_h
         except Exception:
@@ -16903,7 +17090,8 @@ class BilibiliDownloader(BaseWindow):
     def on_logout(self):
         
         dialog = QDialog(self)
-        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        make_resizable(dialog)
         dialog.setAutoFillBackground(True)
         dialog.setWindowTitle("确认退出登录")
         dialog.setMinimumSize(scale(350), scale(200))
@@ -17480,6 +17668,10 @@ class BilibiliDownloader(BaseWindow):
             QTimer.singleShot(0, lambda: self.update_ui(video_info))
             
             QTimer.singleShot(0, lambda: self._populate_all_in_one_tab(video_info))
+            
+            # 视频解析完成后自动触发字幕解析（跟随全局解析）
+            if hasattr(self, 'subtitle_tab') and self.subtitle_tab:
+                QTimer.singleShot(0, lambda: self.subtitle_tab.auto_parse_from_main(video_info))
         except Exception as e:
             logger.error(f"更新视频信息UI异常: {e}")
             logger.debug("traceback", exc_info=True)
@@ -17504,7 +17696,7 @@ class BilibiliDownloader(BaseWindow):
                 pass
 
         class ImageLoader(QThread):
-            image_ready = pyqtSignal(QLabel, QPixmap)
+            image_ready = pyqtSignal(object, QPixmap)
             
             def __init__(self, url, label):
                 super().__init__()
@@ -17641,7 +17833,8 @@ class BilibiliDownloader(BaseWindow):
                 self._load_avatar()
 
             def _init_ui(self):
-                self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+                self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+                make_resizable(self)
                 self.setAutoFillBackground(True)
 
                 screen = QApplication.primaryScreen()
@@ -18600,7 +18793,8 @@ class BilibiliDownloader(BaseWindow):
                     self._load_cover()
 
                 def _init_ui(self):
-                    self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+                    self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+                    make_resizable(self)
                     self.setAutoFillBackground(True)
 
                     screen = QApplication.primaryScreen()
@@ -18986,12 +19180,7 @@ class BilibiliDownloader(BaseWindow):
             batch_window.window_closed.connect(lambda tid=batch_task_id: self.on_batch_window_closed(tid))
             logger.info("信号连接完成")
             
-            # 确保窗口在最前面
-            logger.info("设置窗口标志")
-            from PyQt5.QtCore import Qt
-            # 只添加WindowStaysOnTopHint标志，保留其他默认标志
-            batch_window.setWindowFlags(batch_window.windowFlags() | Qt.WindowStaysOnTopHint)
-            logger.info("窗口标志设置完成")
+            # 批量下载窗口为正常层级窗口（BaseWindow 已支持边缘调整大小）
             
             # 先显示空窗口，让用户立即看到反馈
             logger.info("显示批量下载窗口（空）")
@@ -19765,8 +19954,9 @@ class BilibiliDownloader(BaseWindow):
                     item_layout.setSpacing(scale(2))
                     
                     thumb_label = QLabel()
-                    thumb_label.setMinimumHeight(scale(50))
-                    thumb_label.setMaximumHeight(scale(50))
+                    thumb_cover_w = scale(92)
+                    thumb_cover_h = int(thumb_cover_w * 9 / 16)
+                    thumb_label.setFixedSize(thumb_cover_w, thumb_cover_h)
                     thumb_label.setAlignment(Qt.AlignCenter)
                     thumb_label.setStyleSheet(scale_style("""
                         QLabel {
@@ -19802,7 +19992,7 @@ class BilibiliDownloader(BaseWindow):
                     if cover_data["url"]:
                         class CoverThumbLoader(QThread):
                             class Signals(QObject):
-                                finished = pyqtSignal(QLabel, QPixmap)
+                                finished = pyqtSignal(object, QPixmap)
                             
                             def __init__(self, url, label, sem):
                                 super().__init__()
@@ -21849,6 +22039,12 @@ class BilibiliDownloader(BaseWindow):
                     self.audio_tab.cleanup()
                 except Exception:
                     pass
+            # 清理字幕解析Tab资源
+            if hasattr(self, 'subtitle_tab') and self.subtitle_tab:
+                try:
+                    self.subtitle_tab.cleanup()
+                except Exception:
+                    pass
             # 清理流媒体播放器资源
             if hasattr(self, 'stream_player_dialog') and self.stream_player_dialog:
                 try:
@@ -22188,7 +22384,8 @@ class BilibiliDownloader(BaseWindow):
 
     def on_batch_parse(self):
         dialog = QDialog(self)
-        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        make_resizable(dialog)
         dialog.setAutoFillBackground(True)
         dialog.setWindowTitle("批量解析")
         screen = QApplication.primaryScreen()
@@ -22318,7 +22515,8 @@ class BilibiliDownloader(BaseWindow):
         
         batch_parse_window = QMainWindow()
         batch_parse_window.setAutoFillBackground(True)
-        batch_parse_window.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+        batch_parse_window.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        make_resizable(batch_parse_window)
         batch_parse_window.setWindowTitle("批量解析结果")
         screen = QApplication.primaryScreen()
         if screen:
@@ -23118,7 +23316,8 @@ class BilibiliDownloader(BaseWindow):
             dialog.setMinimumSize(scale(900), scale(600))
             dialog.resize(scale(900), scale(600))
         
-        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        make_resizable(dialog)
         dialog.setResizable()
         dialog.setStyleSheet(get_base_style() + scale_style("""
             QDialog {
@@ -23874,7 +24073,6 @@ class BilibiliDownloader(BaseWindow):
         type_text = "、".join(content_types)
         dialog = QDialog(self)
         dialog.setWindowTitle("登录提示")
-        dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowStaysOnTopHint)
         dialog.setMinimumWidth(scale(420))
 
         layout = QVBoxLayout(dialog)
@@ -23983,7 +24181,8 @@ class BilibiliDownloader(BaseWindow):
             return
         
         self.login_dialog = QDialog(self)
-        self.login_dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+        self.login_dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        make_resizable(self.login_dialog)
         self.login_dialog.setAutoFillBackground(True)
         self.login_dialog.setWindowTitle("登录B站")
         screen = QApplication.primaryScreen()
@@ -25660,7 +25859,8 @@ class BilibiliDownloader(BaseWindow):
         
         dialog = QDialog(self)
         dialog.setAttribute(Qt.WA_DeleteOnClose, False)
-        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        make_resizable(dialog)
         dialog.setAutoFillBackground(True)
         dialog.setWindowTitle("设置")
         screen = QApplication.primaryScreen()
@@ -25838,11 +26038,6 @@ class BilibiliDownloader(BaseWindow):
         window_group.setStyleSheet(scale_style("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; } QCheckBox { spacing: 8px; font-size: 13px; }"))
         window_layout = QVBoxLayout(window_group)
         window_layout.setContentsMargins(scale(10), scale(10), scale(10), scale(10))
-        
-        topmost_checkbox = QCheckBox("窗口置顶")
-        is_topmost = self.windowFlags() & Qt.WindowStaysOnTopHint
-        topmost_checkbox.setChecked(is_topmost)
-        window_layout.addWidget(topmost_checkbox)
         
         # 组件缩放比例（DPI Scale）
         import ui as ui_module
@@ -26571,6 +26766,11 @@ class BilibiliDownloader(BaseWindow):
         hevc_not_support_ask_checkbox = QCheckBox("HEVC/AV1视频下载时询问是否安装解码器")
         hevc_not_support_ask_checkbox.setChecked(self.config.get_app_setting("hevc_not_supported_ask", True))
         other_checkbox_layout.addWidget(hevc_not_support_ask_checkbox, 2, 0, 1, 3)
+
+        # 剪贴板自动检测B站链接
+        clipboard_detect_checkbox = QCheckBox("自动检测剪贴板中的B站链接")
+        clipboard_detect_checkbox.setChecked(self.config.get_app_setting("clipboard_auto_detect", True))
+        other_checkbox_layout.addWidget(clipboard_detect_checkbox, 3, 0, 1, 3)
         
         other_layout.addLayout(other_checkbox_layout)
         
@@ -27183,14 +27383,6 @@ class BilibiliDownloader(BaseWindow):
                 self.download_manager.set_max_threads(new_threads)
             
             
-            is_topmost = topmost_checkbox.isChecked()
-            self.config.set_app_setting("window_topmost", is_topmost)
-            
-            if is_topmost:
-                self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
-            else:
-                self.setWindowFlags(self.windowFlags() & ~Qt.WindowStaysOnTopHint)
-            
             self.show()
             logger.info(f"线程数已修改为：{new_threads}")
             
@@ -27255,6 +27447,10 @@ class BilibiliDownloader(BaseWindow):
             self.config.set_app_setting("auto_convert_incompatible", auto_convert_checkbox.isChecked())
             self.config.set_app_setting("hevc_not_supported_ask", hevc_not_support_ask_checkbox.isChecked())
             self.config.set_app_setting("file_dialog_style", file_dialog_combo.currentData())
+
+            # 保存并立即应用剪贴板自动检测设置
+            self.config.set_app_setting("clipboard_auto_detect", clipboard_detect_checkbox.isChecked())
+            self._apply_clipboard_auto_detect(clipboard_detect_checkbox.isChecked())
 
             # 立即应用录制托盘显示设置
             if hasattr(self, 'recording_tray') and self.recording_tray:
@@ -27381,7 +27577,8 @@ class BilibiliDownloader(BaseWindow):
         try:
             print("开始显示用户信息窗口")
             dialog = QDialog(self)
-            dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.WindowStaysOnTopHint)
+            dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+            make_resizable(dialog)
             dialog.setAutoFillBackground(True)
             dialog.setWindowTitle("个人中心")
             screen = QApplication.primaryScreen()
