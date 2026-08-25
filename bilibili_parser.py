@@ -3567,7 +3567,8 @@ class BilibiliParser:
                         logger.info(f"从API获取合集信息，共{len(collection)}集")
                         
                         # 如果合集只有1集（即只有当前视频自身），尝试查找系列
-                        if len(collection) <= 1:
+                        # video_only 模式下禁止回退到系列/合集，防止单视频任务被展开为整个系列
+                        if parse_mode != "video_only" and len(collection) <= 1:
                             logger.info("合集信息只有1集，尝试查找视频所属系列...")
                             # 复用已获取的video_info中的mid，避免重复请求
                             _owner_mid = None

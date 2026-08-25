@@ -19353,7 +19353,9 @@ class BilibiliDownloader(BaseWindow):
 
                             logger.info(f"处理视频：{bvid} - {video.get('title', '未知标题')}")
 
-                            media_info = self.parser.parse_media("video", bvid, self.tv_mode, cancel_check=self._cancel_check)
+                            # 空间列表按单视频下载：仅解析当前视频自身分P，不展开所属合集，
+                            # 否则同合集的每个选中视频都会生成一个"整个合集"的任务，导致重复下载
+                            media_info = self.parser.parse_media("video", bvid, self.tv_mode, cancel_check=self._cancel_check, parse_mode="video_only")
 
                             if not media_info.get('success'):
                                 logger.warning(f"完全模式：解析视频 {bvid} 失败，跳过")
