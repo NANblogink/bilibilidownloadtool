@@ -21,8 +21,9 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGr
                              QApplication, QSpinBox, QDoubleSpinBox, QSlider, QTabWidget, QSystemTrayIcon, QCompleter, QToolBar, QAction, QStyle, QSplitter, QTreeView, QFileSystemModel, QFrame, QHeaderView, QGraphicsDropShadowEffect,
                              QTreeWidget, QTreeWidgetItem,
                              QDateTimeEdit, QPlainTextEdit, QToolButton)
-from PyQt5.QtCore import QSize, Qt, pyqtSignal, QObject, QEvent, pyqtSlot, QPoint, QThread, QTimer, QEventLoop, QUrl, QCoreApplication, QMetaObject, Q_ARG, QDir, QTime, QDate
+from PyQt5.QtCore import QSize, Qt, pyqtSignal, QObject, QEvent, pyqtSlot, QPoint, QThread, QTimer, QEventLoop, QUrl, QCoreApplication, QMetaObject, Q_ARG, QDir, QTime, QDate, QRect
 from PyQt5.QtGui import QFont, QPalette, QColor, QCursor, QPixmap, QPainter, QBrush, QIcon, QPainterPath, QImage, QPen, QFontMetrics
+from PyQt5.QtSvg import QSvgRenderer
 from icon_manager import BUILTIN_ICON_OPTIONS, ensure_custom_icon_file, get_effective_icon_path, get_effective_icon_mode
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -40,6 +41,168 @@ def get_app_icon(config=None):
     if icon_path and os.path.exists(icon_path):
         return QIcon(icon_path)
     return QIcon()
+
+
+def _inline_svg_pixmap(svg_text, size, color="#94a3b8"):
+    svg_text = svg_text.replace("#64748b", color)
+    from PyQt5.QtCore import QByteArray
+    try:
+        renderer = QSvgRenderer()
+        if not renderer.load(QByteArray(svg_text.encode("utf-8"))):
+            return QPixmap()
+        pm = QPixmap(max(int(size), 1), max(int(size), 1))
+        pm.fill(Qt.transparent)
+        painter = QPainter(pm)
+        painter.setRenderHint(QPainter.Antialiasing)
+        renderer.render(painter)
+        painter.end()
+        return pm
+    except Exception:
+        return QPixmap()
+
+
+_TASK_ICONS = {
+    "folder": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z'/></svg>",
+    "file": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z'/><polyline points='14 2 14 8 20 8'/></svg>",
+    "link": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/><path d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/></svg>",
+    "list": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><line x1='8' y1='6' x2='21' y2='6'/><line x1='8' y1='12' x2='21' y2='12'/><line x1='8' y1='18' x2='21' y2='18'/><line x1='3' y1='6' x2='3.01' y2='6'/><line x1='3' y1='12' x2='3.01' y2='12'/><line x1='3' y1='18' x2='3.01' y2='18'/></svg>",
+    "alert": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z'/><line x1='12' x2='12' y1='9' y2='13'/><line x1='12' x2='12.01' y1='17' y2='17'/></svg>",
+    "play": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polygon points='5 3 19 12 5 21 5 3'/></svg>",
+    "pause": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='14' y='4' width='4' height='16' rx='1'/><rect x='6' y='4' width='4' height='16' rx='1'/></svg>",
+    "stop": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect width='10' height='10' x='7' y='7' rx='2'/></svg>",
+    "trash": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 6h18'/><path d='M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6'/><path d='M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2'/><line x1='10' y1='11' x2='10' y2='17'/><line x1='14' y1='11' x2='14' y2='17'/></svg>",
+    "eye": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z'/><circle cx='12' cy='12' r='3'/></svg>",
+    "refresh": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8'/><path d='M21 3v5h-5'/><path d='M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16'/><path d='M8 16H3v5'/></svg>",
+    "check": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>",
+    "check_square": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2'/><path d='m9 12 2 2 4-4'/></svg>",
+    "square": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2'/></svg>",
+    "x": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M18 6 6 18'/><path d='m6 6 12 12'/></svg>",
+    "tools": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z'/></svg>",
+    "clipboard": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect width='8' height='4' x='8' y='2' rx='1' ry='1'/><path d='M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2'/></svg>",
+    "palette": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='13.5' cy='6.5' r='.5'/><circle cx='17.5' cy='10.5' r='.5'/><circle cx='8.5' cy='7.5' r='.5'/><circle cx='6.5' cy='12.5' r='.5'/><path d='M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z'/></svg>",
+    "bell": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9'/><path d='M10.3 21a1.94 1.94 0 0 0 3.4 0'/></svg>",
+    "download": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'/><polyline points='7 10 12 15 17 10'/><line x1='12' x2='12' y1='15' y2='3'/></svg>",
+    "info": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><path d='M12 16v-4'/><path d='M12 8h.01'/></svg>",
+}
+
+
+def _task_icon_pixmap(name, size, color="#94a3b8"):
+    svg = _TASK_ICONS.get(name)
+    if not svg:
+        return QPixmap()
+    return _inline_svg_pixmap(svg, size, color)
+
+
+def _task_icon(name, size, color="#94a3b8"):
+    return QIcon(_task_icon_pixmap(name, size, color))
+
+
+def _enable_window_drag(title_bar, skip=()):
+    """让无边框弹窗的标题栏可整体拖动。
+    通过事件过滤器统一处理标题栏及其子控件，子控件遮挡也不会失效；
+    优先用 QWindow.startSystemMove()，失败则回退到手动拖拽；
+    skip 传入需要保持可点击的控件（如关闭按钮）。返回 eventFilter 引用避免被回收。"""
+    from PyQt5.QtCore import QEvent, QObject
+    from PyQt5.QtWidgets import QWidget as _QW
+
+    class _DragFilter(QObject):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self._start = None
+
+        def eventFilter(self, obj, ev):
+            try:
+                win = title_bar.window()
+            except RuntimeError:
+                return False
+            t = ev.type()
+            try:
+                if t == QEvent.MouseButtonPress and ev.button() == Qt.LeftButton:
+                    wh = win.windowHandle()
+                    if wh is not None and getattr(wh, 'startSystemMove', None):
+                        try:
+                            if wh.startSystemMove():
+                                return True
+                        except Exception:
+                            pass
+                    self._start = ev.globalPos() - win.frameGeometry().topLeft()
+                    return True
+                elif t == QEvent.MouseMove and self._start is not None and (ev.buttons() & Qt.LeftButton):
+                    win.move(ev.globalPos() - self._start)
+                    return True
+                elif t == QEvent.MouseButtonRelease:
+                    self._start = None
+            except RuntimeError:
+                pass
+            return False
+
+    flt = _DragFilter(title_bar)
+    skip_set = set(skip)
+    for w in title_bar.findChildren(_QW):
+        if w in skip_set:
+            continue
+        w.installEventFilter(flt)
+    title_bar.installEventFilter(flt)
+    return flt
+
+
+def _update_state_path():
+    try:
+        if hasattr(sys, '_MEIPASS') or getattr(sys, 'frozen', False):
+            base = os.path.dirname(sys.executable)
+        else:
+            base = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(base, "update_download.json")
+    except Exception:
+        return os.path.join(os.path.expanduser("~"), "bilidown_update_download.json")
+
+
+def _read_update_state():
+    try:
+        p = _update_state_path()
+        if os.path.exists(p):
+            with open(p, 'r', encoding='utf-8') as f:
+                d = json.load(f)
+            if isinstance(d, dict):
+                return d
+    except Exception:
+        pass
+    return {}
+
+
+def _save_update_state(state):
+    try:
+        with open(_update_state_path(), 'w', encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _clear_update_state():
+    try:
+        p = _update_state_path()
+        if os.path.exists(p):
+            os.remove(p)
+    except Exception:
+        pass
+
+
+def _remove_update_files(state):
+    try:
+        sp = state.get("save_path", "")
+        if sp and os.path.exists(sp):
+            try:
+                os.remove(sp)
+            except Exception:
+                pass
+        td = state.get("temp_dir", "")
+        if td and os.path.exists(td):
+            try:
+                shutil.rmtree(td, ignore_errors=True)
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 def get_app_icon_pixmap(config=None, width=None, height=None):
@@ -169,9 +332,16 @@ if IS_WINDOWS:
 
 global_dpi_scale = 1.0
 global_ui_shrink = 1.0
+_DPI_INITIALIZED = False
 
 def init_dpi_scale():
-    global global_dpi_scale, global_ui_shrink
+    """计算全局 DPI 缩放。整个进程生命周期只计算一次并缓存，
+    避免启动时被调用两次（导入期用 GetDC、主程序内用 logicalDotsPerInch）
+    在打包 exe（system-DPI-aware）下产生不同值导致窗口先正常后变小。"""
+    global global_dpi_scale, global_ui_shrink, _DPI_INITIALIZED
+    if _DPI_INITIALIZED:
+        return
+    _DPI_INITIALIZED = True
     
     # 优先使用用户自定义的缩放比例
     try:
@@ -186,14 +356,18 @@ def init_dpi_scale():
     except Exception:
         pass
     
-    # 自动检测DPI
+    # 自动检测DPI。统一取物理DPI（physicalDotsPerInch / GetDC LOGPIXELSX），
+    # 不依赖 logicalDotsPerInch——该值在 PyInstaller 打包的 system-DPI-aware
+    # exe 下偏小（常为96），会与导入期的物理值不一致导致界面突然变小。
     try:
         from PyQt5.QtWidgets import QApplication
         app = QApplication.instance()
         if app:
             screen = app.primaryScreen()
             if screen:
-                dpi = screen.logicalDotsPerInch()
+                dpi = screen.physicalDotsPerInch()
+                if dpi <= 0:
+                    dpi = screen.logicalDotsPerInch()
                 global_dpi_scale = dpi / 96.0
                 global_ui_shrink = max(0.65, 1.0 / (global_dpi_scale ** 0.60))
                 return
@@ -871,16 +1045,13 @@ class ExpandedCard(QDialog):
             }
         """))
         
-        # 使用全局DPI缩放因子
         global global_dpi_scale
         
-        # 自适应屏幕尺寸
         screen = QApplication.primaryScreen()
         screen_geometry = screen.geometry()
         screen_width = screen_geometry.width()
         screen_height = screen_geometry.height()
         
-        # 根据屏幕尺寸和DPI设置合理的大小
         min_width = max(scale(250), int(screen_width * 0.2))
         min_height = max(scale(200), int(screen_height * 0.2))
         max_width = min(scale(800), int(screen_width * 0.6))
@@ -889,7 +1060,6 @@ class ExpandedCard(QDialog):
         self.setMinimumSize(min_width, min_height)
         self.setMaximumSize(max_width, max_height)
         
-        # 响应窗口大小变化
         self.resizeEvent = self.on_resize
         
         
@@ -1265,13 +1435,10 @@ class ExpandedCard(QDialog):
         if not hasattr(self, 'initial_card'):
             return
         
-        # 调整URL输入框大小
         if hasattr(self, 'url_edit'):
-            # 根据窗口宽度调整输入框大小
             new_width = max(200, self.width() - 100)
             self.url_edit.setFixedWidth(new_width)
         
-        # 调整按钮大小和位置
         if hasattr(self, 'parse_btn') and hasattr(self, 'close_btn'):
             button_width = max(60, int(self.width() * 0.2))
             self.parse_btn.setFixedWidth(button_width)
@@ -1281,12 +1448,10 @@ class ExpandedCard(QDialog):
         if not hasattr(self, 'video_info_widget'):
             return
         
-        # 调整分辨率下拉框大小
         if hasattr(self, 'resolution_combo'):
             new_width = max(150, self.width() - 400)
             self.resolution_combo.setFixedWidth(new_width)
         
-        # 调整路径输入框大小
         if hasattr(self, 'path_edit'):
             new_width = max(200, self.width() - 300)
             self.path_edit.setFixedWidth(new_width)
@@ -1295,7 +1460,6 @@ class ExpandedCard(QDialog):
         if not hasattr(self, 'download_widget'):
             return
         
-        # 调整进度条大小
         if hasattr(self, 'progress_bar'):
             new_width = max(200, self.width() - 100)
             self.progress_bar.setFixedWidth(new_width)
@@ -1304,10 +1468,8 @@ class ExpandedCard(QDialog):
         window_width = self.width()
         window_height = self.height()
         
-        # 综合考虑窗口宽度和高度
         min_dimension = min(window_width, window_height)
         
-        # 根据窗口大小调整字体大小
         if min_dimension < 300:
             font_size = 8
         elif min_dimension < 350:
@@ -1327,12 +1489,10 @@ class ExpandedCard(QDialog):
         else:
             font_size = 16
         
-        # 调整所有子控件的字体大小
         self._adjust_widget_font(self, font_size)
     
     def _adjust_widget_font(self, widget, font_size):
         
-        # 调整当前控件的字体
         if hasattr(widget, 'setFont'):
             font = widget.font()
             font.setPointSize(font_size)
@@ -1364,7 +1524,6 @@ class FloatingBall(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         
-        # 计算基于DPI的尺寸
         global global_dpi_scale
         self.base_size = int(70 * global_dpi_scale * global_ui_shrink)
         self.min_size = int(50 * global_dpi_scale * global_ui_shrink)
@@ -1375,7 +1534,6 @@ class FloatingBall(QWidget):
         # 使用 setMask 限制为圆形区域，防止透明角落拦截鼠标
         self._update_ball_mask()
         
-        # 计算初始位置
         screen = QApplication.primaryScreen()
         screen_geometry = screen.geometry()
         screen_width = screen_geometry.width()
@@ -1589,11 +1747,9 @@ class FloatingBall(QWidget):
             screen_width = screen_geometry.width()
             screen_height = screen_geometry.height()
             
-            # 计算窗口大小
             window_width = min(int(screen_width * 0.5), 550)
             window_height = min(int(screen_height * 0.7), 750)
             
-            # 计算窗口位置
             x = ball_pos.x() + 10
             y = ball_pos.y()
             
@@ -1802,7 +1958,6 @@ class FloatingBall(QWidget):
             episode_page = episode_page.value() if episode_page else 0
             parse_mode = getattr(self, 'parse_mode_combo', None)
             parse_mode = parse_mode.currentData() if parse_mode else None
-            # 验证是否为B站链接
             if hasattr(self.parent, '_is_bilibili_url') and not self.parent._is_bilibili_url(url):
                 if self.parent and hasattr(self.parent, 'show_notification'):
                     self.parent.show_notification("请输入B站链接（支持bilibili.com、b23.tv、BV号等）", "warning")
@@ -1919,12 +2074,9 @@ class FloatingBall(QWidget):
             )
         
         if folder:
-            # 验证选择的路径
             try:
-                # 规范化路径
                 folder = os.path.normpath(folder)
                 
-                # 确保路径存在且可写
                 if not os.path.exists(folder):
                     os.makedirs(folder, exist_ok=True)
 
@@ -1952,7 +2104,6 @@ class FloatingBall(QWidget):
                 self.parent.show_notification("内部错误：缺少必要组件", "error")
             return
 
-        # 获取下载内容选择
         # 0: 有声视频（视频+音频）, 1: 仅音频, 2: 仅视频（无声）
         if content_type is not None:
             download_content_type = content_type
@@ -1967,16 +2118,13 @@ class FloatingBall(QWidget):
         if hasattr(self, 'download_danmaku_checkbox'):
             download_danmaku = self.download_danmaku_checkbox.isChecked()
 
-        # 至少选择一种下载类型（弹幕或内容）
         if download_content_type < 0 and not download_danmaku:
             if self.parent and hasattr(self.parent, 'show_notification'):
                 self.parent.show_notification("请至少选择一种下载类型", "warning")
             return
 
-        # 获取选中的视频
         selected_items = self.video_list.selectedItems()
         if not selected_items:
-            # 如果只有一个视频，自动选择它
             if self.video_list.count() == 1:
                 selected_items = [self.video_list.item(0)]
             elif download_content_type >= 0:  # 需要下载内容时必须选择
@@ -1984,7 +2132,6 @@ class FloatingBall(QWidget):
                     self.parent.show_notification("请选择要下载的视频", "warning")
                 return
             else:
-                # 只下载弹幕时，自动选择第一个视频
                 if self.video_list.count() > 0:
                     selected_items = [self.video_list.item(0)]
                 else:
@@ -2010,10 +2157,8 @@ class FloatingBall(QWidget):
             
             url = self.url_edit.text().strip()
             
-            # 获取并验证保存路径
             save_path = self.path_edit.text() if hasattr(self, 'path_edit') else (self.parent.path_edit.text() if hasattr(self.parent, 'path_edit') else "")
             
-            # 验证并规范化保存路径
             try:
                 if not save_path or not isinstance(save_path, str) or len(save_path.strip()) == 0:
                     save_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载")
@@ -2021,7 +2166,6 @@ class FloatingBall(QWidget):
                 else:
                     save_path = os.path.normpath(save_path)
                 
-                # 确保路径存在且可写
                 if not os.path.exists(save_path):
                     os.makedirs(save_path, exist_ok=True)
 
@@ -2075,7 +2219,6 @@ class FloatingBall(QWidget):
             logger.info(f"弹幕格式：{download_params.get('danmaku_format')}")
             logger.info(f"下载参数：{download_params}")
 
-            # 检查HEVC/AV1视频并询问
             if download_video and self.parent and hasattr(self.parent, 'parser'):
                 hevc_ask = self.parent.config.get_app_setting("hevc_not_supported_ask", True)
                 if hevc_ask:
@@ -2108,7 +2251,6 @@ class FloatingBall(QWidget):
                     self.parent.show_notification(f"发送下载请求失败：{str(e)}", "error")
                 return
             
-            # 构建通知消息
             download_types = []
             if download_video:
                 download_types.append("视频")
@@ -2121,7 +2263,6 @@ class FloatingBall(QWidget):
             
             # 对于 BilibiliDownloader 主窗口，使用 BatchDownloadWindow 显示下载进度
             if hasattr(self.parent, 'batch_windows'):
-                # 检查是否已经有 BatchDownloadWindow
                 existing_window = None
                 for window in self.parent.batch_windows.values():
                     from ui import BatchDownloadWindow
@@ -2132,7 +2273,6 @@ class FloatingBall(QWidget):
                 if existing_window:
                     existing_window.show()
                 else:
-                    # 创建新的 BatchDownloadWindow
                     from ui import BatchDownloadWindow
                     batch_window = BatchDownloadWindow(self.current_video_info, 0, self.parent.download_manager, self.parent.parser, parent=self.parent)
                     for i, ep in enumerate(selected_videos):
@@ -2304,6 +2444,216 @@ class FloatingBall(QWidget):
                     )
                 except Exception:
                     pass
+
+import webbrowser as _webbrowser
+
+QQ_GROUP_LINK = "https://qm.qq.com/q/FuEDO9DXmG"
+
+def copy_logs_for_support():
+    try:
+        from logger_config import copy_logs_to_clipboard
+        return copy_logs_to_clipboard()
+    except Exception:
+        return False
+
+def join_support_group():
+    try:
+        _webbrowser.open(QQ_GROUP_LINK)
+        return True
+    except Exception:
+        return False
+
+# ---------- Windows 通知中心推送（基于 WinRT / winsdk，避免 PowerShell 的 RPC_R_SERVERFAULT 问题） ----------
+_WINRT_TOAST_APP_ID = "B站视频下载工具"
+_winrt_toast_refs = []
+_warned_no_winsdk = False
+
+
+def _toast_logo_png():
+    """返回用于通知图标（appLogoOverride）的 PNG 绝对路径。
+    打包后 logo.png 随 _internal 一起分发，源码运行则取项目根目录。"""
+    try:
+        bases = []
+        if getattr(sys, "frozen", False):
+            _exe = os.path.dirname(os.path.abspath(sys.executable))
+            bases = [_exe, os.path.join(_exe, "_internal")]
+        else:
+            bases = [os.path.dirname(os.path.abspath(__file__))]
+        for _d in bases:
+            _cand = os.path.join(_d, "logo.png")
+            if os.path.exists(_cand):
+                return _cand.replace("\\", "/")
+    except Exception:
+        pass
+    return ""
+
+
+def _toast_warning_png():
+    """返回用于错误通知左侧的真实警告图标（感叹号）PNG 绝对路径。"""
+    try:
+        bases = []
+        if getattr(sys, "frozen", False):
+            _exe = os.path.dirname(os.path.abspath(sys.executable))
+            bases = [_exe, os.path.join(_exe, "_internal")]
+        else:
+            bases = [os.path.dirname(os.path.abspath(__file__))]
+        for _d in bases:
+            _cand = os.path.join(_d, "warning_icon.png")
+            if os.path.exists(_cand):
+                return _cand.replace("\\", "/")
+    except Exception:
+        pass
+    return ""
+
+
+def _winrt_toast(title, message, actions=None, progress=None, attribution="", app_logo="", hero=""):
+    """通过 winsdk(Windows Runtime) 直接向 Windows 通知中心发送 Toast。
+    actions: list，每项 (action_id, label, callback, activation_type)
+    activation_type: 'foreground'(回调) 或 'protocol'(点击由系统打开 arguments 作为链接)。
+    progress: tuple (进度标题, 0.0~1.0 或 "indeterminate", 状态文字)，传入后使用 ToastGeneric 模板
+    attribution / app_logo / hero: 可选，使用 ToastGeneric 模板时生效
+    说明：winsdk 的 activated 回调参数无法可靠读到 arguments，因此
+    普通回调采用"每通知只有一个 foreground 按钮"的方式，直接用回调执行操作。"""
+    if not IS_WINDOWS:
+        return False
+    global _warned_no_winsdk
+    try:
+        from winsdk.windows.ui.notifications import ToastNotificationManager, ToastNotification
+        from winsdk.windows.data.xml.dom import XmlDocument
+    except Exception:
+        if not _warned_no_winsdk:
+            _warned_no_winsdk = True
+            logger.warning("winsdk 未安装，无法通过通知中心推送 Toast")
+        return False
+
+    def _esc(s):
+        return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                .replace('"', "&quot;").replace("'", "&apos;").replace("\n", " "))
+
+    title = _esc(title)
+    body = _esc(message)
+
+    # 统一使用 ToastGeneric 模板（支持应用图标/进度条/归属文字/底图）。
+    # appLogoOverride 让每条通知都显示应用图标，不依赖系统对免安装应用的图标关联。
+    binding = "<text>%s</text><text>%s</text>" % (title, body)
+    logo_src = app_logo or _toast_logo_png()
+    if logo_src:
+        binding += "<image placement='appLogoOverride' src='%s'/>" % _esc(logo_src)
+    if hero:
+        binding += "<image placement='hero' src='%s'/>" % _esc(hero)
+    if progress is not None:
+        p_title, p_value, p_status = progress
+        if isinstance(p_value, (int, float)):
+            p_value = "%.3f" % max(0.0, min(1.0, float(p_value)))
+        binding += "<progress title='%s' value='%s' status='%s'/>" % (
+            _esc(p_title), p_value, _esc(p_status))
+    if attribution:
+        binding += "<text placement='attribution'>%s</text>" % _esc(attribution)
+    xml = "<toast><visual><binding template='ToastGeneric'>%s</binding></visual>" % binding
+
+    activated_callback = None
+    if actions:
+        parts = []
+        action_map = {}
+        i = 0
+        for item in actions:
+            action_id, label, callback = item[0], item[1], item[2]
+            activation = item[3] if len(item) > 3 else "foreground"
+            if activation == "protocol":
+                arg = label
+            else:
+                arg = action_id
+                if callback is not None:
+                    action_map[arg] = callback
+            parts.append("<action content='%s' arguments='%s' activationType='%s'/>"
+                         % (_esc(label), _esc(arg), activation))
+            i += 1
+        xml += "<actions>%s</actions>" % "".join(parts)
+        if action_map:
+            _map = dict(action_map)
+
+            def activated_callback(sender, args):
+                try:
+                    key = getattr(args, "arguments", "") or ""
+                    cb = _map.get(key)
+                    if cb is not None:
+                        cb()
+                        return
+                    # 读不到 arguments 时兜底：执行唯一前台回调（多按钮时退化为全部执行，尽力而为）
+                    for _cb in list(_map.values()):
+                        try:
+                            _cb()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+    xml += "</toast>"
+    try:
+        doc = XmlDocument()
+        doc.load_xml(xml)
+        toast = ToastNotification(doc)
+        if activated_callback:
+            toast.add_activated(activated_callback)
+        ToastNotificationManager.create_toast_notifier(_WINRT_TOAST_APP_ID).show(toast)
+        _winrt_toast_refs.append(toast)
+        return True
+    except Exception:
+        return False
+
+
+def windows_notify(title, message):
+    return _winrt_toast(title, message, attribution="B站视频下载工具")
+
+
+def windows_notify_done(title, message, success=1, fail=0):
+    """整批任务全部完成后推送：带进度条满格 + 归属文字。"""
+    if success and not fail:
+        return _winrt_toast(title, message,
+                            progress=("全部完成", 1.0, "completed"),
+                            attribution="B站视频下载工具")
+    return _winrt_toast(title, message, attribution="B站视频下载工具")
+
+
+def windows_notify_progress(title, message, percent, status=""):
+    """进度通知：percent 传 0~100 的整数。"""
+    val = max(0.0, min(1.0, percent / 100.0))
+    return _winrt_toast(title, message,
+                        progress=("下载进度", val, status or ("%d%%" % int(percent))),
+                        attribution="B站视频下载工具")
+
+
+def windows_notify_with_actions(title, message):
+    if not IS_WINDOWS:
+        return False
+    # 加入交流群：用 foreground 前台回调打开浏览器，比 system 的 protocol 激活更可靠
+    def _join_group():
+        try:
+            _webbrowser.open("https://qm.qq.com/q/FuEDO9DXmG")
+        except Exception:
+            pass
+    actions = [("joingroup", "加入交流群", _join_group, "foreground")]
+    try:
+        from logger_config import package_logs
+        log_file = package_logs()
+        if log_file and os.path.exists(log_file):
+            def _copy_log_file():
+                try:
+                    abs_log = os.path.abspath(log_file)
+                    subprocess.Popen(
+                        ["powershell", "-Sta", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
+                         "-Command", "Get-Item '" + abs_log.replace("'", "''") + "' | Set-Clipboard"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        **subprocess_no_window_kwargs())
+                except Exception:
+                    pass
+            actions.insert(0, ("copylogs", "一键复制日志", _copy_log_file, "foreground"))
+    except Exception:
+        pass
+    # 错误类通知：左侧用真实警告图标(感叹号)，顶部归属文字标明应用名
+    return _winrt_toast(title, message, actions,
+                        attribution="B站视频下载工具",
+                        app_logo=_toast_warning_png())
 
 class ParseProgressWindow(QDialog):
     # 定义信号
@@ -2741,12 +3091,52 @@ class DataLoadingDialog(QDialog):
             event.accept()
 
 
+class _EdgeGrip(QWidget):
+    """无边框窗口边缘缩放窄条：悬浮时提供对应方向的光标，按住拖动缩放窗口。
+    窄条提升到中央控件之上并常驻，解决子控件吃掉 mouseMoveEvent 导致边缘光标不生效的问题。"""
+
+    def __init__(self, window, direction):
+        super().__init__(window)
+        self._window = window
+        self._direction = direction
+        self.setCursor(window._cursor_for_direction(direction))
+        self.setStyleSheet("background-color: transparent;")
+        self.setMouseTracking(True)
+
+    def _global_pos(self, event):
+        return event.globalPos()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._window._begin_edge_resize(self._direction, self._global_pos(event))
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() & Qt.LeftButton and self._window.resizing:
+            self._window._update_edge_resize(self._global_pos(event))
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self._window._end_edge_resize()
+        event.accept()
+
+
 class BaseWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
-        
+
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setAutoFillBackground(True)
+
+        # 边缘缩放窄条（8方向），提供悬浮光标与拖拽缩放
+        self._edge_grips = []
+        for direction in ('top', 'bottom', 'left', 'right',
+                          'top-left', 'top-right', 'bottom-left', 'bottom-right'):
+            grip = _EdgeGrip(self, direction)
+            grip.raise_()
+            grip.show()
+            self._edge_grips.append(grip)
+        self._edge_grip_width = 6
         
         self.dragging = False
         self.start_pos = None
@@ -2792,6 +3182,97 @@ class BaseWindow(QMainWindow):
         if direction in ('top', 'bottom'):
             return Qt.SizeVerCursor
         return None
+
+    def _begin_edge_resize(self, direction, global_pos):
+        """从边缘窄条或窗口 mouseMove 检测进入边缘缩放"""
+        self.resizing = True
+        self.resize_direction = direction
+        self.dragging = False
+        self._resize_start_global = global_pos
+        self._resize_start_geom = self.frameGeometry()
+
+    def _update_edge_resize(self, global_pos):
+        """按当前方向更新窗口几何（含最小值钳制）"""
+        direction = self.resize_direction
+        if not direction:
+            return
+        start_g = getattr(self, '_resize_start_geom', None)
+        if start_g is None:
+            return
+        dx = global_pos.x() - self._resize_start_global.x()
+        dy = global_pos.y() - self._resize_start_global.y()
+        x, y, w, h = start_g.left(), start_g.top(), start_g.width(), start_g.height()
+        if 'left' in direction:
+            x = start_g.left() + dx
+            w = start_g.width() - dx
+        if 'right' in direction:
+            w = start_g.width() + dx
+        if 'top' in direction:
+            y = start_g.top() + dy
+            h = start_g.height() - dy
+        if 'bottom' in direction:
+            h = start_g.height() + dy
+        # 最小值钳制（与 setMinimumSize 一致）
+        min_size = self.minimumSize()
+        min_w = min_size.width() if min_size.width() > 0 else scale(280)
+        min_h = min_size.height() if min_size.height() > 0 else scale(200)
+        if w < min_w:
+            if 'left' in direction:
+                x -= (min_w - w)
+            w = min_w
+        if h < min_h:
+            if 'top' in direction:
+                y -= (min_h - h)
+            h = min_h
+        self.setGeometry(x, y, w, h)
+
+    def _end_edge_resize(self):
+        self.resizing = False
+        self.resize_direction = None
+
+    def _layout_edge_grips(self):
+        """把8条边缘窄条贴着窗口四边/四角摆放并置顶。
+        窄条创建早于中央控件，setCentralWidget 后会被盖住，
+        必须在每次布局时重新 raise 到最上层，否则真实鼠标事件到不了窄条。"""
+        if not getattr(self, '_edge_grips', None):
+            return
+        try:
+            m = self._edge_grip_width
+            corner = m * 2
+            w = self.width()
+            h = self.height()
+            rects = {
+                'left': QRect(0, corner, m, h - 2 * corner),
+                'right': QRect(w - m, corner, m, h - 2 * corner),
+                'top': QRect(corner, 0, w - 2 * corner, m),
+                'bottom': QRect(corner, h - m, w - 2 * corner, m),
+                'top-left': QRect(0, 0, corner, corner),
+                'top-right': QRect(w - corner, 0, corner, corner),
+                'bottom-left': QRect(0, h - corner, corner, corner),
+                'bottom-right': QRect(w - corner, h - corner, corner, corner),
+            }
+            for grip in self._edge_grips:
+                rect = rects.get(grip._direction)
+                if rect is not None:
+                    grip.raise_()
+                    grip.setGeometry(rect)
+        except Exception:
+            pass
+
+    def resizeEvent(self, event):
+        try:
+            super().resizeEvent(event)
+            self._layout_edge_grips()
+        except Exception:
+            pass
+
+    def showEvent(self, event):
+        try:
+            super().showEvent(event)
+            # 显示时中央控件可能重新置顶盖住窄条，重新摆放并 raise
+            self._layout_edge_grips()
+        except Exception:
+            pass
     
     def mousePressEvent(self, event):
         try:
@@ -2803,10 +3284,10 @@ class BaseWindow(QMainWindow):
 
                 pos = event.pos()
                 # 边缘检测：只在真正位于边缘时才设置resizing
+                # （常态下边缘有 _EdgeGrip 窄条接管，这里兜底窄条未覆盖到的空隙）
                 direction = self._get_resize_direction(pos)
                 if direction:
-                    self.resize_direction = direction
-                    self.resizing = True
+                    self._begin_edge_resize(direction, event.globalPos())
                 elif pos.y() < scale(32):
                     self.dragging = True
                     self.start_pos = event.globalPos() - self.frameGeometry().topLeft()
@@ -2815,65 +3296,18 @@ class BaseWindow(QMainWindow):
                 event.accept()
         except Exception:
             event.accept()
-    
+
     def mouseMoveEvent(self, event):
         try:
-            if self.resizing and event.buttons() == Qt.LeftButton:
-                global_pos = event.globalPos()
-                frame_geometry = self.frameGeometry()
-                if self.resize_direction == 'top-left':
-                    new_width = frame_geometry.width() + (frame_geometry.left() - global_pos.x())
-                    new_height = frame_geometry.height() + (frame_geometry.top() - global_pos.y())
-                    new_x = global_pos.x()
-                    new_y = global_pos.y()
-                elif self.resize_direction == 'top-right':
-                    new_width = global_pos.x() - frame_geometry.left()
-                    new_height = frame_geometry.height() + (frame_geometry.top() - global_pos.y())
-                    new_x = frame_geometry.left()
-                    new_y = global_pos.y()
-                elif self.resize_direction == 'bottom-left':
-                    new_width = frame_geometry.width() + (frame_geometry.left() - global_pos.x())
-                    new_height = global_pos.y() - frame_geometry.top()
-                    new_x = global_pos.x()
-                    new_y = frame_geometry.top()
-                elif self.resize_direction == 'bottom-right':
-                    new_width = global_pos.x() - frame_geometry.left()
-                    new_height = global_pos.y() - frame_geometry.top()
-                    new_x = frame_geometry.left()
-                    new_y = frame_geometry.top()
-                elif self.resize_direction == 'left':
-                    new_width = frame_geometry.width() + (frame_geometry.left() - global_pos.x())
-                    new_height = frame_geometry.height()
-                    new_x = global_pos.x()
-                    new_y = frame_geometry.top()
-                elif self.resize_direction == 'right':
-                    new_width = global_pos.x() - frame_geometry.left()
-                    new_height = frame_geometry.height()
-                    new_x = frame_geometry.left()
-                    new_y = frame_geometry.top()
-                elif self.resize_direction == 'top':
-                    new_width = frame_geometry.width()
-                    new_height = frame_geometry.height() + (frame_geometry.top() - global_pos.y())
-                    new_x = frame_geometry.left()
-                    new_y = global_pos.y()
-                elif self.resize_direction == 'bottom':
-                    new_width = frame_geometry.width()
-                    new_height = global_pos.y() - frame_geometry.top()
-                    new_x = frame_geometry.left()
-                    new_y = frame_geometry.top()
-                else:
-                    return
-                min_width = scale(280)
-                min_height = scale(200)
-                new_width = max(new_width, min_width)
-                new_height = max(new_height, min_height)
-                self.setGeometry(new_x, new_y, new_width, new_height)
+            if self.resizing and event.buttons() & Qt.LeftButton:
+                self._update_edge_resize(event.globalPos())
                 event.accept()
-            elif self.dragging and event.buttons() == Qt.LeftButton:
+            elif self.dragging and event.buttons() & Qt.LeftButton:
                 self.move(event.globalPos() - self.start_pos)
                 event.accept()
             else:
                 # 未按下按钮时，根据鼠标位置更新光标形状（边缘resize提示）
+                # （常态下边缘光标由 _EdgeGrip 窄条提供，这里兜底）
                 direction = self._get_resize_direction(event.pos())
                 cursor = self._cursor_for_direction(direction) if direction else None
                 if cursor is not None:
@@ -2882,12 +3316,11 @@ class BaseWindow(QMainWindow):
                     self.unsetCursor()
         except Exception:
             pass
-    
+
     def mouseReleaseEvent(self, event):
         try:
+            self._end_edge_resize()
             self.dragging = False
-            self.resizing = False
-            self.resize_direction = None
             event.accept()
         except Exception:
             event.accept()
@@ -5468,6 +5901,7 @@ class UpdateDialog(QDialog):
             self.auto_mode = auto_mode
             self.setAttribute(Qt.WA_DeleteOnClose)
             self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.Dialog)
+            self.setObjectName("updateDialog")
             make_resizable(self)
             self.setAutoFillBackground(True)
             self._closing = False
@@ -5478,11 +5912,37 @@ class UpdateDialog(QDialog):
             is_force = update_info.get("force_update", False)
             accent = "#cf1322" if is_force else "#1677ff"
 
+            # 自适应尺寸：随 DPI/屏幕占比自适应，可缩放，默认更大
+            screen = QApplication.primaryScreen()
+            sg = screen.geometry() if screen else None
+            base_w, base_h = scale(560), scale(620)
+            if sg:
+                win_w = min(base_w, int(sg.width() * 0.85))
+                win_h = min(base_h, int(sg.height() * 0.92))
+                self.resize(win_w, win_h)
+                self.move((sg.width() - win_w) // 2, (sg.height() - win_h) // 2)
+            else:
+                self.resize(base_w, base_h)
+            self.setMinimumSize(scale(400), scale(360))
+
             self.setStyleSheet(f"""
-                QDialog {{
+                QDialog#updateDialog {{ background-color: #ffffff; border: 2px solid {accent}; }}
+                QWidget#updateTitleBar {{
+                    background-color: {accent};
+                    border-bottom: 1px solid rgba(0,0,0,0.06);
+                }}
+                QLabel#updateIcon {{ background: transparent; }}
+                QLabel#updateTitle {{ font-size: {scale(16)}px; font-weight: 700; color: #ffffff; background: transparent; }}
+                QLabel#updateVersionBadge {{
                     background-color: #ffffff;
-                    border: 1px solid #e0e0e0;
-                    border-radius: 10px;
+                    color: {accent}; font-size: {scale(13)}px; font-weight: 700;
+                    padding: 0 {scale(14)}px;
+                }}
+                QLabel#updateSub  {{ font-size: {scale(17)}px; font-weight: 700; color: #17181c; }}
+                QLabel#updateInfo {{ font-size: {scale(12)}px; color: #8a8f98; }}
+                QTextBrowser {{
+                    background-color: #f7f9fc; border: 1px solid #e4e8ee;
+                    padding: {scale(14)}px; font-size: {scale(13)}px; color: #333a45;
                 }}
             """)
 
@@ -5491,78 +5951,54 @@ class UpdateDialog(QDialog):
             main_layout.setSpacing(0)
 
             title_bar = QWidget()
-            title_bar.setFixedHeight(42)
-            title_bar.setStyleSheet(f"""
-                QWidget {{
-                    background-color: {accent};
-                    border-top-left-radius: 10px;
-                    border-top-right-radius: 10px;
-                }}
-            """)
+            title_bar.setObjectName("updateTitleBar")
+            title_bar.setAttribute(Qt.WA_StyledBackground, True)
+            title_bar.setFixedHeight(scale(52))
             title_lyt = QHBoxLayout(title_bar)
-            title_lyt.setContentsMargins(16, 0, 8, 0)
-            title_lyt.setSpacing(10)
+            title_lyt.setContentsMargins(scale(16), 0, scale(6), 0)
+            title_lyt.setSpacing(scale(10))
 
-            ver_lbl = QLabel(f" {update_info.get('latest_version', '')} ")
-            ver_lbl.setFixedSize(56, 22)
-            ver_lbl.setAlignment(Qt.AlignCenter)
-            ver_lbl.setStyleSheet("""
-                QLabel {
-                    background-color: rgba(255,255,255,0.25);
-                    color: #ffffff;
-                    font-size: 11px;
-                    font-weight: 600;
-                    border-radius: 4px;
-                }
-            """)
-            title_lyt.addWidget(ver_lbl)
+            ic_lbl = QLabel()
+            ic_lbl.setObjectName("updateIcon")
+            ic_lbl.setPixmap(_task_icon_pixmap("download", scale(20), "#ffffff"))
+            ic_lbl.setFixedSize(scale(22), scale(22))
+            ic_lbl.setAlignment(Qt.AlignCenter)
+            title_lyt.addWidget(ic_lbl)
 
             ttl = QLabel("检查更新" if not auto_mode else "继续更新")
-            ttl.setStyleSheet("font-size: 14px; font-weight: 600; color: #ffffff; background: transparent; border: none;")
+            ttl.setObjectName("updateTitle")
             title_lyt.addWidget(ttl, 1)
 
-            close_btn = QPushButton("\u00d7")
-            close_btn.setFixedSize(28, 28)
+            ver_lbl = QLabel(" " + str(update_info.get('latest_version', '')) + " ")
+            ver_lbl.setObjectName("updateVersionBadge")
+            ver_lbl.setFixedHeight(scale(26))
+            ver_lbl.setAlignment(Qt.AlignCenter)
+            title_lyt.addWidget(ver_lbl)
+
+            close_btn = QLabel("\u00d7")
+            close_btn.setAlignment(Qt.AlignCenter)
+            close_btn.setFixedSize(scale(30), scale(30))
             close_btn.setCursor(Qt.PointingHandCursor)
-            close_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: transparent;
-                    border: none;
-                    color: rgba(255,255,255,0.85);
-                    font-size: 16px;
-                    font-weight: bold;
-                    border-radius: 14px;
-                }
-                QPushButton:hover {
-                    background-color: rgba(255,255,255,0.2);
-                    color: #ffffff;
-                }
-                QPushButton:pressed {
-                    background-color: rgba(255,255,255,0.3);
-                }
-            """)
-            close_btn.setToolTip("关闭")
-            close_btn.clicked.connect(self.reject)
+            close_btn.setStyleSheet(
+                f"font-size:{scale(18)}px; color:#ffffff;"
+                f"QLabel:hover {{ background-color: rgba(255,255,255,0.2); }}")
+            close_btn.mousePressEvent = lambda e: self.reject()
             title_lyt.addWidget(close_btn)
 
             main_layout.addWidget(title_bar)
 
             self._drag_pos = None
-            title_bar.mousePressEvent = self._title_mouse_press
-            title_bar.mouseMoveEvent = self._title_mouse_move
-            title_bar.mouseReleaseEvent = self._title_mouse_release
+            _enable_window_drag(title_bar, skip=(close_btn,))
 
             content = QWidget()
             content_layout = QVBoxLayout(content)
-            content_layout.setContentsMargins(22, 16, 22, 16)
-            content_layout.setSpacing(12)
+            content_layout.setContentsMargins(scale(22), scale(18), scale(22), scale(18))
+            content_layout.setSpacing(scale(12))
 
-            # 副标题
             sub = QLabel("发现新版本可用")
-            sub.setStyleSheet("font-size: 15px; font-weight: 600; color: #1a1a1a; background: transparent; border: none;")
+            sub.setObjectName("updateSub")
             content_layout.addWidget(sub)
 
-            # 版本和大小信息
             latest_ver = update_info.get("latest_version", "")
             file_size = update_info.get("file_size", 0)
             info_text = f"最新版本：{latest_ver}"
@@ -5573,7 +6009,7 @@ class UpdateDialog(QDialog):
                 else:
                     info_text += f"  ·  约 {size_mb:.1f} MB"
             ver_info = QLabel(info_text)
-            ver_info.setStyleSheet("font-size: 12px; color: #888; background: transparent; border: none;")
+            ver_info.setObjectName("updateInfo")
             content_layout.addWidget(ver_info)
 
             sep = QFrame()
@@ -5597,62 +6033,46 @@ class UpdateDialog(QDialog):
                     'color:#999;text-align:center;padding:24px 0">暂无更新详情</div>'
                 )
 
-            browser.setStyleSheet("""
-                QTextBrowser {
-                    background-color: #f7f8fa;
-                    border: 1px solid #ebeef2;
-                    border-radius: 6px;
-                    padding: 12px 14px;
-                    font-size: 13px;
-                }
-            """)
-            browser.setMinimumHeight(150)
+            browser.setMinimumHeight(scale(150))
             content_layout.addWidget(browser, 1)
             self._notes_browser = browser
 
-            # 进度条（隐藏）
             self.progress_bar = SegmentedProgressBar(segment_count=4)
             self.progress_bar.hide()
             content_layout.addWidget(self.progress_bar)
 
-            # 状态文字（隐藏）
             self.status_label = QLabel("")
             self.status_label.setAlignment(Qt.AlignCenter)
-            self.status_label.setStyleSheet("font-size: 12px; color: #888; background: transparent;")
+            self.status_label.setStyleSheet("font-size: 12px; color: #8a8f98; background: transparent;")
             self.status_label.hide()
             content_layout.addWidget(self.status_label)
 
             if not is_force:
                 chk_lyt = QHBoxLayout()
-                chk_lyt.setSpacing(16)
+                chk_lyt.setSpacing(scale(16))
+
+                def _chk_style():
+                    return f"""
+                        QCheckBox {{
+                            font-size: {scale(12)}px; color: #8a8f98; spacing: 6px;
+                            background: transparent;
+                        }}
+                        QCheckBox::indicator {{
+                            width: 15px; height: 15px; border: 1px solid #d9d9d9;
+                            border-radius: 3px; background: #ffffff;
+                        }}
+                        QCheckBox::indicator:checked {{
+                            background-color: {accent}; border-color: {accent};
+                        }}
+                    """
 
                 self.chk_skip_today = QCheckBox("今日不再提示")
-                self.chk_skip_today.setStyleSheet("""
-                    QCheckBox {
-                        font-size: 12px;
-                        color: #888;
-                        spacing: 6px;
-                        background: transparent;
-                    }
-                    QCheckBox::indicator {
-                        width: 15px;
-                        height: 15px;
-                        border: 1px solid #d9d9d9;
-                        border-radius: 3px;
-                        background: #fff;
-                    }
-                    QCheckBox::indicator:checked {
-                        background-color: #1677ff;
-                        border-color: #1677ff;
-                        image: url(none);
-                    }
-                    QCheckBox::indicator:hover { border-color: #1677ff; }
-                """)
+                self.chk_skip_today.setStyleSheet(_chk_style())
                 self.chk_skip_today.stateChanged.connect(self._on_skip_today_changed)
                 chk_lyt.addWidget(self.chk_skip_today)
 
                 self.chk_ignore_version = QCheckBox("忽略此版本更新")
-                self.chk_ignore_version.setStyleSheet(self.chk_skip_today.styleSheet())
+                self.chk_ignore_version.setStyleSheet(_chk_style())
                 self.chk_ignore_version.setToolTip("忽略当前版本，下一个版本会再次提示")
                 self.chk_ignore_version.stateChanged.connect(self._on_ignore_version_changed)
                 chk_lyt.addWidget(self.chk_ignore_version)
@@ -5664,56 +6084,34 @@ class UpdateDialog(QDialog):
                 self.chk_ignore_version = None
 
             btn_lyt = QHBoxLayout()
-            btn_lyt.setSpacing(10)
+            btn_lyt.setSpacing(scale(10))
 
             if not is_force:
                 skip = QPushButton("稍后再说")
-                skip.setMinimumSize(86, 34)
+                skip.setMinimumSize(scale(90), scale(36))
                 skip.setCursor(Qt.PointingHandCursor)
-                skip.setStyleSheet("""
-                    QPushButton {
-                        background-color: #ffffff;
-                        color: #555555;
-                        border: 1px solid #d9d9d9;
-                        border-radius: 6px;
-                        font-size: 13px;
-                        padding: 0 18px;
-                    }
-                    QPushButton:hover {
-                        border-color: #1677ff;
-                        color: #1677ff;
-                        background: #f0f7ff;
-                    }
-                    QPushButton:pressed {
-                        background: #e6f0fa;
-                    }
+                skip.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: #ffffff; color: #555555;
+                        border: 1px solid #d9d9d9; border-radius: 4px;
+                        font-size: {scale(13)}px; padding: 0 {scale(18)}px;
+                    }}
+                    QPushButton:hover {{ border-color: {accent}; color: {accent}; }}
                 """)
                 skip.clicked.connect(self._on_skip_clicked)
                 btn_lyt.addWidget(skip)
 
             self.download_btn = QPushButton("立即更新")
-            self.download_btn.setMinimumSize(100, 34)
+            self.download_btn.setMinimumSize(scale(104), scale(36))
             self.download_btn.setCursor(Qt.PointingHandCursor)
             self.download_btn.setStyleSheet(f"""
                 QPushButton {{
-                    background-color: {accent};
-                    color: #ffffff;
-                    border: none;
-                    border-radius: 6px;
-                    font-size: 13px;
-                    font-weight: 500;
-                    padding: 0 20px;
+                    background-color: {accent}; color: #ffffff; border: none;
+                    border-radius: 4px; font-size: {scale(13)}px; font-weight: 500;
+                    padding: 0 {scale(20)}px;
                 }}
-                QPushButton:hover {{
-                    background-color: {"#a61d24" if is_force else "#0958d9"};
-                }}
-                QPushButton:pressed {{
-                    background-color: {"#8b151b" if is_force else "#003eb3"};
-                }}
-                QPushButton:disabled {{
-                    background: #d9d9d9;
-                    color: #bbbbbb;
-                }}
+                QPushButton:hover {{ background-color: {"#a61d24" if is_force else "#0958d8"}; }}
+                QPushButton:disabled {{ background: #d9d9d9; color: #bbbbbb; }}
             """)
             self.download_btn.clicked.connect(self._on_download)
             btn_lyt.addWidget(self.download_btn)
@@ -5723,7 +6121,6 @@ class UpdateDialog(QDialog):
 
             main_layout.addWidget(content, 1)
 
-            self.setFixedSize(480, 480)
             self._is_downloading = False
 
         except Exception as e:
@@ -5788,211 +6185,145 @@ class UpdateDialog(QDialog):
 
         # 标记更新链（重启后继续检查是否还有更新）
         latest_ver = self.update_info.get("latest_version", "")
-        if latest_ver and hasattr(self.parent(), '_mark_update_chain'):
-            self.parent()._mark_update_chain(latest_ver)
+        parent = self.parent()
+        if latest_ver and hasattr(parent, '_mark_update_chain'):
+            parent._mark_update_chain(latest_ver)
 
-        import threading
+        import time as _time
+        from cloud_service import CloudService
+        import tempfile
+
+        download_url = self.update_info.get("download_url", "")
+        print(f"[DEBUG-UI] update_info: {self.update_info}")
+        print(f"[DEBUG-UI] 下载链接: {download_url}")
+        if not download_url:
+            self._update_status("错误：下载地址为空", True)
+            return
+
+        is_exe_update = download_url.lower().endswith('.exe') if IS_WINDOWS else False
+        temp_dir = tempfile.mkdtemp(prefix="bilidown_update_")
+        save_path = os.path.join(temp_dir, "update_setup.exe" if is_exe_update else "update.zip")
+
+        def progress_cb(pct, done, total):
+            if self._closing:
+                return
+            try:
+                mb_done = done / 1048576
+                speed_str = ""
+                now = _time.time()
+                if not hasattr(self, '_dl_start_time'):
+                    self._dl_start_time = now
+                    self._dl_last_done = 0
+                    self._dl_last_time = now
+                elapsed = now - self._dl_last_time
+                if elapsed >= 0.5:
+                    delta = done - self._dl_last_done
+                    speed_bps = delta / elapsed
+                    if speed_bps > 1048576:
+                        speed_str = f" {speed_bps / 1048576:.1f}MB/s"
+                    elif speed_bps > 1024:
+                        speed_str = f" {speed_bps / 1024:.0f}KB/s"
+                    self._dl_last_done = done
+                    self._dl_last_time = now
+                if total > 0:
+                    mb_total = total / 1048576
+                    text = f"正在下载... {mb_done:.1f}/{mb_total:.1f} MB ({pct}%){speed_str}"
+                else:
+                    text = f"正在下载... {mb_done:.1f} MB{speed_str}"
+                self._progress_signal.emit(max(pct, 0), text)
+            except Exception:
+                pass
+
         def _worker():
             try:
-                import time as _time
-                from cloud_service import CloudService
-                import tempfile
-                import zipfile
-                import shutil
-                import subprocess
-
-                download_url = self.update_info.get("download_url", "")
-                print(f"[DEBUG-UI] update_info: {self.update_info}")
-                print(f"[DEBUG-UI] 下载链接: {download_url}")
-                if not download_url:
-                    self._update_status("错误：下载地址为空", True)
-                    return
-
-                is_exe_update = download_url.lower().endswith('.exe') if IS_WINDOWS else False
-                
-                temp_dir = tempfile.mkdtemp(prefix="bilidown_update_")
-                if is_exe_update:
-                    save_path = os.path.join(temp_dir, "update_setup.exe")
-                else:
-                    save_path = os.path.join(temp_dir, "update.zip")
-
-                def progress_cb(pct, done, total):
-                    if self._closing:
-                        return
-                    try:
-                        print(f"[DEBUG-UI] progress_cb 被调用: pct={pct}, done={done}, total={total}")
-                        logger.info(f"[UI进度回调] pct={pct}, done={done}, total={total}")
-                        mb_done = done / 1048576
-                        speed_str = ""
-                        now = _time.time()
-                        if not hasattr(self, '_dl_start_time'):
-                            self._dl_start_time = now
-                            self._dl_last_done = 0
-                            self._dl_last_time = now
-                        elapsed = now - self._dl_last_time
-                        if elapsed >= 0.5:
-                            delta = done - self._dl_last_done
-                            speed_bps = delta / elapsed
-                            if speed_bps > 1048576:
-                                speed_str = f" {speed_bps / 1048576:.1f}MB/s"
-                            elif speed_bps > 1024:
-                                speed_str = f" {speed_bps / 1024:.0f}KB/s"
-                            self._dl_last_done = done
-                            self._dl_last_time = now
-                        if total > 0:
-                            mb_total = total / 1048576
-                            text = f"正在下载... {mb_done:.1f}/{mb_total:.1f} MB ({pct}%){speed_str}"
-                        else:
-                            text = f"正在下载... {mb_done:.1f} MB{speed_str}"
-                        emit_pct = max(pct, 0)
-                        print(f"[DEBUG-UI] 准备emit信号: pct={emit_pct}, text={text}")
-                        self._progress_signal.emit(emit_pct, text)
-                        print(f"[DEBUG-UI] emit信号完成")
-                        logger.info(f"[UI进度信号] 已emit: pct={emit_pct}, text={text}")
-                    except Exception as e:
-                        print(f"[DEBUG-UI] progress_cb 异常: {e}")
-                        logger.error(f"[UI进度回调异常] {e}")
-
                 cs = CloudService()
                 if not cs.download_update(download_url, save_path, progress_cb):
                     if self._closing:
                         return
-                    # 下载失败，尝试用浏览器打开下载链接
                     self._update_status("自动下载失败，正在打开浏览器下载...", True)
-                    import webbrowser
                     webbrowser.open(download_url)
                     self._status_signal.emit("已打开浏览器下载，请手动安装下载的文件", False)
                     return
-
-                # 跳过 SHA256 校验（CDN 可能修改文件字节导致校验失败）
-
-                if self._closing:
-                    return
-
-                if is_exe_update:
-                    self._update_status("正在启动安装程序...")
-                    self._progress_signal.emit(-1, "正在启动安装程序...")
-                    
-                    import subprocess
-                    subprocess.Popen(
-                        [save_path],
-                        **subprocess_no_window_kwargs()
-                    )
-                    
-                    import time
-                    time.sleep(1)
-                    
-                    try:
-                        from PyQt5.QtWidgets import QApplication
-                        QApplication.quit()
-                    except Exception:
-                        pass
-                    os._exit(0)
-                    return
-
-                self._update_status("正在解压更新包...")
-                self._progress_signal.emit(-1, "正在解压更新包...")
-
-                extract_dir = os.path.join(temp_dir, "extracted")
-                with zipfile.ZipFile(save_path, 'r') as zf:
-                    zf.extractall(extract_dir)
-
-                # ZIP 内部可能有一层版本号根文件夹（如 V2.0.3_main/），需要自动检测并跳过
-                # 检查解压根目录下是否只有一个子文件夹且包含 _internal
-                source_dir = extract_dir
-                root_items = os.listdir(extract_dir)
-                if len(root_items) == 1:
-                    single_item = os.path.join(extract_dir, root_items[0])
-                    if os.path.isdir(single_item) and os.path.isdir(os.path.join(single_item, '_internal')):
-                        source_dir = single_item
-                        logger.info(f"检测到ZIP内层文件夹 {root_items[0]}，使用 {source_dir} 作为更新源")
-
-                self._update_status("正在替换文件...")
-
-                if hasattr(sys, 'frozen') or hasattr(sys, '_MEIPASS'):
-                    app_dir = os.path.dirname(sys.executable)
-                else:
-                    app_dir = os.path.dirname(os.path.abspath(__file__))
-
-                update_script = os.path.join(temp_dir, "updater.bat")
-                if IS_WINDOWS:
-                    # 查找新版本的主程序 exe 名（版本号可能变了，如 V2.0.1_main.exe → V2.0.3_main.exe）
-                    new_exe_name = None
-                    for f in os.listdir(source_dir):
-                        if f.endswith('.exe') and 'uninstall' not in f.lower():
-                            new_exe_name = f
-                            break
-                    if not new_exe_name:
-                        new_exe_name = os.path.basename(sys.executable) if hasattr(sys, 'frozen') else 'main.py'
-                    logger.info(f"热更新：新版本主程序 {new_exe_name}，当前运行 {os.path.basename(sys.executable) if hasattr(sys, 'frozen') else 'main.py'}")
-
-                    script_content = f"""@echo off
-chcp 65001 >nul
-echo 正在更新{APP_NAME}...
-timeout /t 2 /nobreak >nul
-
-xcopy /E /Y /Q "{source_dir}\\*" "{app_dir}\\"
-
-if %errorlevel% neq 0 (
-    echo 更新失败！
-    pause
-    exit /b 1
-)
-
-REM 同步 version_info.json 到 exe 根目录，确保版本号正确
-if exist "{app_dir}\\_internal\\version_info.json" (
-    copy /Y "{app_dir}\\_internal\\version_info.json" "{app_dir}\\version_info.json" >nul
-)
-
-echo 更新完成，正在启动程序...
-start "" "{app_dir}\\{new_exe_name}"
-exit /b 0
-"""
-                    with open(update_script, 'w', encoding='utf-8') as f:
-                        f.write(script_content)
-
-                    self._update_status("更新即将完成，程序将自动重启...")
-
-                    subprocess.Popen(
-                        ['cmd', '/c', update_script],
-                        **subprocess_no_window_kwargs()
-                    )
-                else:
-                    import shutil as _shutil
-                    for item in os.listdir(source_dir):
-                        src = os.path.join(source_dir, item)
-                        dst = os.path.join(app_dir, item)
-                        if os.path.isdir(src):
-                            _shutil.copytree(src, dst, dirs_exist_ok=True)
-                        else:
-                            _shutil.copy2(src, dst)
-
-                    self._update_status("更新即将完成，程序将自动重启...")
-
-                    # 查找新版本的主程序
-                    new_exe_name = os.path.basename(sys.executable) if hasattr(sys, 'frozen') else 'main.py'
-                    for f in os.listdir(source_dir):
-                        if f.endswith('.exe') and 'uninstall' not in f.lower():
-                            new_exe_name = f
-                            break
-                    restart_target = os.path.join(app_dir, new_exe_name)
-                    subprocess.Popen(['open', '-a', 'Terminal', restart_target])
-
-                import time
-                time.sleep(1)
-
-                try:
-                    from PyQt5.QtWidgets import QApplication
-                    QApplication.quit()
-                except Exception:
-                    pass
-                os._exit(0)
-
+                state = {
+                    "target_version": latest_ver,
+                    "save_path": save_path,
+                    "temp_dir": temp_dir,
+                    "is_exe_update": is_exe_update,
+                    "downloaded": True,
+                    "downloaded_at": int(_time.time()),
+                    "update_info": self.update_info,
+                }
+                _save_update_state(state)
+                closing = self._closing
+                auto = self.auto_mode
+                def _dispatch():
+                    if closing and parent is not None and hasattr(parent, 'on_update_package_ready'):
+                        try:
+                            parent.on_update_package_ready(state, auto=auto, dialog=None)
+                        except Exception:
+                            pass
+                    else:
+                        self._on_ready(state, auto)
+                run_on_main_thread(_dispatch)
             except Exception as e:
                 logger.error(f"热更新失败: {e}")
-                self._update_status(f"更新失败：{str(e)}", True)
+                if not self._closing:
+                    self._update_status(f"更新失败：{str(e)}", True)
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _policy_is_auto(self):
+        try:
+            return self.parent().config.get_app_setting("update_policy", "ask") == "auto"
+        except Exception:
+            return False
+
+    def _on_ready(self, state, auto):
+        if self._closing:
+            return
+        self._ready_state = state
+        parent = self.parent()
+        if auto or self._policy_is_auto():
+            if parent is not None and hasattr(parent, 'on_update_package_ready'):
+                parent.on_update_package_ready(state, auto=True, dialog=self)
+            return
+        try:
+            if isinstance(self.progress_bar, SegmentedProgressBar):
+                self.progress_bar.set_all_progress([100] * self.progress_bar.segment_count)
+            else:
+                self.progress_bar.setRange(0, 100)
+                self.progress_bar.setValue(100)
+        except Exception:
+            pass
+        try:
+            self.status_label.setStyleSheet(scale_style("font-size: 12px; color: #25b561;"))
+            self.status_label.setText("下载完成")
+            self.download_btn.setEnabled(True)
+            self.download_btn.setText("立即安装")
+            try:
+                self.download_btn.clicked.disconnect(self._on_download)
+            except Exception:
+                pass
+            self.download_btn.clicked.connect(self._on_install_now)
+        except Exception:
+            pass
+
+    def _on_install_now(self):
+        try:
+            self.download_btn.setEnabled(False)
+            self.download_btn.setText("正在安装...")
+            self.status_label.setText("正在安装更新...")
+            parent = self.parent()
+            state = getattr(self, '_ready_state', {})
+            def _w():
+                if parent is not None and hasattr(parent, 'on_update_package_ready'):
+                    try:
+                        parent.on_update_package_ready(state, auto=True, dialog=self)
+                    except Exception:
+                        pass
+            threading.Thread(target=_w, daemon=True).start()
+        except Exception:
+            pass
 
     def _update_status(self, text, is_error=False):
         if not self._closing:
@@ -6248,14 +6579,29 @@ class DebugWindow(QWidget):
         main_layout.addWidget(code_group, stretch=2)
         
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(scale(8))
+        self.support_btn = QPushButton("加入交流群获取支持")
+        self.support_btn.clicked.connect(self._on_support_join)
+        self.copy_support_btn = QPushButton("一键复制日志")
+        self.copy_support_btn.clicked.connect(self._on_support_copy)
         self.copy_btn = QPushButton("复制错误信息")
         self.copy_btn.clicked.connect(self.copy_error)
         self.close_btn = QPushButton("关闭")
         self.close_btn.clicked.connect(self.close)
+        btn_layout.addWidget(self.support_btn)
+        btn_layout.addWidget(self.copy_support_btn)
         btn_layout.addWidget(self.copy_btn)
         btn_layout.addStretch(1)
         btn_layout.addWidget(self.close_btn)
         main_layout.addLayout(btn_layout)
+
+    def _on_support_copy(self):
+        ok = copy_logs_for_support()
+        self.show_notification("日志已复制到剪贴板" if ok else "日志打包失败，请到设置中手动打包日志",
+                               "success" if ok else "error")
+
+    def _on_support_join(self):
+        join_support_group()
     
     def set_error_info(self, error_msg, code_context, file_path):
         # 提取错误原因
@@ -6266,14 +6612,11 @@ class DebugWindow(QWidget):
                 error_reason = line.strip()
                 break
         
-        # 设置窗口标题
         self.setWindowTitle(f"程序出现错误：{error_reason}")
         
-        # 显示错误信息
         error_text = f"文件：{file_path}\n\n错误信息：\n{error_msg}"
         self.error_text.setPlainText(error_text)
         
-        # 显示代码上下文，错误行标红
         self.code_text.setHtml(code_context)
     
     def copy_error(self):
@@ -7525,8 +7868,19 @@ class EpisodeSelectionDialog(ResizableDialog):
                     duration_str = f"{minutes:02d}:{seconds:02d}"
             else:
                 duration_str = str(duration)
-            dur_label = QLabel(f"时长 {duration_str}")
-            dur_label.setStyleSheet(scale_style("font-size: 11px; color: #64748b;"))
+            _avail_sec = ep.get('available_duration_sec', 0)
+            _charging = bool(_avail_sec) and ep.get('permission_denied', False)
+            if _charging:
+                _a_h = _avail_sec // 3600
+                _a_m = (_avail_sec % 3600) // 60
+                _a_s = _avail_sec % 60
+                _avail_str = f"{_a_h:02d}:{_a_m:02d}:{_a_s:02d}" if _a_h > 0 else f"{_a_m:02d}:{_a_s:02d}"
+                dur_label = QLabel(f'时长 <s>{duration_str}</s>（可获取 {_avail_str}）')
+                dur_label.setTextFormat(Qt.RichText)
+                dur_label.setStyleSheet(scale_style("font-size: 11px; color: #f56c6c;"))
+            else:
+                dur_label = QLabel(f"时长 {duration_str}")
+                dur_label.setStyleSheet(scale_style("font-size: 11px; color: #64748b;"))
             meta_layout.addWidget(dur_label)
         
         if permission_denied:
@@ -7611,11 +7965,21 @@ class EpisodeSelectionDialog(ResizableDialog):
             else:
                 duration_str = str(duration)
 
+            _avail_sec = ep.get('available_duration_sec', 0)
+            _charging = bool(_avail_sec) and ep.get('permission_denied', False)
+            if _charging:
+                _a_h = _avail_sec // 3600
+                _a_m = (_avail_sec % 3600) // 60
+                _a_s = _avail_sec % 60
+                _avail_str = f"{_a_h:02d}:{_a_m:02d}:{_a_s:02d}" if _a_h > 0 else f"{_a_m:02d}:{_a_s:02d}"
+                duration_str = f'<s>{duration_str}</s> (可获取 {_avail_str})'
+
             duration_label = QLabel(duration_str, cover_container)
+            duration_label.setTextFormat(Qt.RichText)
             duration_label.setStyleSheet(scale_style("""
                 QLabel {
                     background-color: rgba(0, 0, 0, 0.7);
-                    color: white;
+                    color: #f56c6c;
                     padding: 2px 6px;
                     border-radius: 4px;
                     font-size: 11px;
@@ -8696,6 +9060,8 @@ class TaskManagerWindow(BaseWindow):
 
         self.task_list = QListWidget()
         self.task_list.setSelectionMode(QListWidget.ExtendedSelection)
+        self.task_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.task_list.customContextMenuRequested.connect(self._show_list_context_menu)
         self.task_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.task_list.setStyleSheet(scale_style("""
             QListWidget {
@@ -8744,39 +9110,53 @@ class TaskManagerWindow(BaseWindow):
         btn_style_secondary = scale_style("QPushButton { background-color: #f1f5f9; color: #475569; padding: 6px 16px; border-radius: 6px; font-size: 12px; font-weight: 500; min-height: 32px; border: 1px solid #e2e8f0; } QPushButton:hover { background-color: #e2e8f0; } QPushButton:pressed { background-color: #cbd5e1; }")
         btn_style_warning = scale_style("QPushButton { background-color: #f59e0b; color: white; padding: 6px 16px; border-radius: 6px; font-size: 12px; font-weight: 500; min-height: 32px; border: none; } QPushButton:hover { background-color: #d97706; } QPushButton:pressed { background-color: #b45309; }")
         self.refresh_btn = QPushButton("刷新列表")
+        self.refresh_btn.setIcon(_task_icon("refresh", scale(16), "#ffffff"))
+        self.refresh_btn.setIconSize(QSize(scale(15), scale(15)))
         self.refresh_btn.setStyleSheet(btn_style_primary)
         self.refresh_btn.setMinimumHeight(scale(36))
         self.refresh_btn.setMinimumWidth(scale(100))
         self.refresh_btn.clicked.connect(self.refresh_task_list)
         self.clear_completed_btn = QPushButton("清除已完成")
+        self.clear_completed_btn.setIcon(_task_icon("check", scale(15), "#16a34a"))
+        self.clear_completed_btn.setIconSize(QSize(scale(14), scale(14)))
         self.clear_completed_btn.setStyleSheet(btn_style_secondary)
         self.clear_completed_btn.setMinimumHeight(scale(36))
         self.clear_completed_btn.setMinimumWidth(scale(100))
         self.clear_completed_btn.clicked.connect(self.clear_completed_tasks)
         self.batch_delete_btn = QPushButton("批量删除")
+        self.batch_delete_btn.setIcon(_task_icon("trash", scale(15), "#ffffff"))
+        self.batch_delete_btn.setIconSize(QSize(scale(14), scale(14)))
         self.batch_delete_btn.setStyleSheet(btn_style_warning)
         self.batch_delete_btn.setMinimumHeight(scale(36))
         self.batch_delete_btn.setMinimumWidth(scale(100))
         self.batch_delete_btn.clicked.connect(self.toggle_checkboxes)
         self.select_all_btn = QPushButton("全选")
+        self.select_all_btn.setIcon(_task_icon("check_square", scale(15), "#475569"))
+        self.select_all_btn.setIconSize(QSize(scale(14), scale(14)))
         self.select_all_btn.setStyleSheet(btn_style_secondary)
         self.select_all_btn.setMinimumHeight(scale(36))
         self.select_all_btn.setMinimumWidth(scale(80))
         self.select_all_btn.clicked.connect(self.select_all_tasks)
         self.select_all_btn.hide()
         self.deselect_all_btn = QPushButton("取消全选")
+        self.deselect_all_btn.setIcon(_task_icon("square", scale(15), "#475569"))
+        self.deselect_all_btn.setIconSize(QSize(scale(14), scale(14)))
         self.deselect_all_btn.setStyleSheet(btn_style_secondary)
         self.deselect_all_btn.setMinimumHeight(scale(36))
         self.deselect_all_btn.setMinimumWidth(scale(100))
         self.deselect_all_btn.clicked.connect(self.deselect_all_tasks)
         self.deselect_all_btn.hide()
         self.confirm_delete_btn = QPushButton("确认删除")
+        self.confirm_delete_btn.setIcon(_task_icon("trash", scale(15), "#ffffff"))
+        self.confirm_delete_btn.setIconSize(QSize(scale(14), scale(14)))
         self.confirm_delete_btn.setStyleSheet(btn_style_danger)
         self.confirm_delete_btn.setMinimumHeight(scale(36))
         self.confirm_delete_btn.setMinimumWidth(scale(100))
         self.confirm_delete_btn.clicked.connect(self.batch_delete_tasks)
         self.confirm_delete_btn.hide()
         self.close_btn = QPushButton("关闭")
+        self.close_btn.setIcon(_task_icon("x", scale(15), "#475569"))
+        self.close_btn.setIconSize(QSize(scale(14), scale(14)))
         self.close_btn.setStyleSheet(btn_style_secondary)
         self.close_btn.setMinimumHeight(scale(36))
         self.close_btn.setMinimumWidth(scale(80))
@@ -8895,6 +9275,9 @@ class TaskManagerWindow(BaseWindow):
             item_widget = QWidget()
             item_widget.setObjectName("taskCard")
             item_widget.setStyleSheet(card_base_style)
+            item_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+            item_widget.customContextMenuRequested.connect(lambda pos, t=task: self._show_task_context_menu(t))
+            item_widget.setToolTip("双击查看详情，右键更多操作")
             
             card_layout = QVBoxLayout(item_widget)
             card_layout.setContentsMargins(scale(16), scale(14), scale(16), scale(14))
@@ -8969,8 +9352,9 @@ class TaskManagerWindow(BaseWindow):
             info_layout = QHBoxLayout()
             info_layout.setSpacing(scale(8))
             
-            path_icon_label = QLabel("📁")
-            path_icon_label.setStyleSheet(scale_style("font-size: 12px;"))
+            path_icon_label = QLabel()
+            path_icon_label.setPixmap(_task_icon_pixmap("folder", scale(14), "#94a3b8"))
+            path_icon_label.setFixedSize(scale(14), scale(14))
             info_layout.addWidget(path_icon_label)
             
             path_text = save_path[:50] + "..." if len(save_path) > 50 else save_path
@@ -9036,8 +9420,9 @@ class TaskManagerWindow(BaseWindow):
             if detail_parts:
                 detail_layout = QHBoxLayout()
                 detail_layout.setSpacing(scale(8))
-                detail_icon = QLabel("📋")
-                detail_icon.setStyleSheet(scale_style("font-size: 11px;"))
+                detail_icon = QLabel()
+                detail_icon.setPixmap(_task_icon_pixmap("list", scale(13), "#64748b"))
+                detail_icon.setFixedSize(scale(13), scale(13))
                 detail_layout.addWidget(detail_icon)
                 detail_text = " | ".join(detail_parts)
                 detail_label = QLabel(detail_text)
@@ -9049,8 +9434,9 @@ class TaskManagerWindow(BaseWindow):
             if file_path and file_path != save_path:
                 fp_layout = QHBoxLayout()
                 fp_layout.setSpacing(scale(6))
-                fp_icon = QLabel("📄")
-                fp_icon.setStyleSheet(scale_style("font-size: 11px;"))
+                fp_icon = QLabel()
+                fp_icon.setPixmap(_task_icon_pixmap("file", scale(13), "#94a3b8"))
+                fp_icon.setFixedSize(scale(13), scale(13))
                 fp_layout.addWidget(fp_icon)
                 fp_text = file_path[:60] + "..." if len(file_path) > 60 else file_path
                 fp_label = QLabel(fp_text)
@@ -9061,8 +9447,9 @@ class TaskManagerWindow(BaseWindow):
             
             url_layout = QHBoxLayout()
             url_layout.setSpacing(scale(6))
-            url_icon_label = QLabel("🔗")
-            url_icon_label.setStyleSheet(scale_style("font-size: 12px;"))
+            url_icon_label = QLabel()
+            url_icon_label.setPixmap(_task_icon_pixmap("link", scale(13), "#3b82f6"))
+            url_icon_label.setFixedSize(scale(13), scale(13))
             url_layout.addWidget(url_icon_label)
             url_text = url[:60] + "..." if len(url) > 60 else url
             url_link = QLabel(f"<a href='{url}' style='color: #3b82f6; text-decoration: none;'>{url_text}</a>")
@@ -9079,11 +9466,24 @@ class TaskManagerWindow(BaseWindow):
             card_layout.addLayout(url_layout)
             
             if error_message:
-                error_label = QLabel(f"⚠ {error_message[:80]}{'...' if len(error_message) > 80 else ''}")
+                err_row = QHBoxLayout()
+                err_row.setSpacing(scale(8))
+                err_icon = QLabel()
+                err_icon.setPixmap(_task_icon_pixmap("alert", scale(14), "#ef4444"))
+                err_icon.setFixedSize(scale(14), scale(14))
+                err_row.addWidget(err_icon, 0, Qt.AlignTop)
+                error_label = QLabel(f"{error_message[:80]}{'...' if len(error_message) > 80 else ''}")
                 error_label.setStyleSheet(scale_style("color: #ef4444; font-size: 11px; background-color: #fef2f2; padding: 4px 8px; border-radius: 4px;"))
                 error_label.setToolTip(error_message)
                 error_label.setWordWrap(True)
-                card_layout.addWidget(error_label)
+                err_row.addWidget(error_label, stretch=1)
+                support_btn = QPushButton("获取支持")
+                support_btn.setIcon(_task_icon("link", scale(13), "#ef4444"))
+                support_btn.setIconSize(QSize(scale(12), scale(12)))
+                support_btn.setStyleSheet(scale_style("QPushButton { background-color: #fef2f2; color: #ef4444; border: 1px solid #fecaca; padding: 2px 8px; border-radius: 4px; font-size: 11px; } QPushButton:hover { background-color: #fee2e2; } QPushButton:pressed { background-color: #fecaca; }"))
+                support_btn.clicked.connect(lambda checked, t=task: self._show_error_support_dialog(t))
+                err_row.addWidget(support_btn, 0, Qt.AlignTop)
+                card_layout.addLayout(err_row)
             
             btn_layout = QHBoxLayout()
             btn_layout.setSpacing(scale(8))
@@ -9091,6 +9491,8 @@ class TaskManagerWindow(BaseWindow):
             card_btn_style = scale_style("QPushButton { padding: 4px 12px; border-radius: 5px; font-size: 11px; font-weight: 500; min-height: 26px; border: none; }")
             
             download_btn = QPushButton("查看下载")
+            download_btn.setIcon(_task_icon("eye", scale(16), "#ffffff"))
+            download_btn.setIconSize(QSize(scale(14), scale(14)))
             download_btn.setStyleSheet(card_btn_style + scale_style("QPushButton { background-color: #3b82f6; color: white; } QPushButton:hover { background-color: #2563eb; } QPushButton:pressed { background-color: #1d4ed8; }"))
             download_btn.clicked.connect(lambda checked, t=task: self.open_download_window(t))
             if task_type != "封面":
@@ -9098,19 +9500,27 @@ class TaskManagerWindow(BaseWindow):
             
             if status == "downloading":
                 pause_btn = QPushButton("暂停")
+                pause_btn.setIcon(_task_icon("pause", scale(16), "#ffffff"))
+                pause_btn.setIconSize(QSize(scale(14), scale(14)))
                 pause_btn.setStyleSheet(card_btn_style + scale_style("QPushButton { background-color: #f59e0b; color: white; } QPushButton:hover { background-color: #d97706; } QPushButton:pressed { background-color: #b45309; }"))
                 pause_btn.clicked.connect(lambda checked, t=task: self.pause_task(t))
                 btn_layout.addWidget(pause_btn)
                 stop_btn = QPushButton("停止")
+                stop_btn.setIcon(_task_icon("stop", scale(16), "#ffffff"))
+                stop_btn.setIconSize(QSize(scale(14), scale(14)))
                 stop_btn.setStyleSheet(card_btn_style + scale_style("QPushButton { background-color: #ef4444; color: white; } QPushButton:hover { background-color: #dc2626; } QPushButton:pressed { background-color: #b91c1c; }"))
                 stop_btn.clicked.connect(lambda checked, t=task: self.stop_task(t))
                 btn_layout.addWidget(stop_btn)
             elif status in ["failed", "pending", "paused"]:
                 resume_btn = QPushButton("继续")
+                resume_btn.setIcon(_task_icon("play", scale(16), "#ffffff"))
+                resume_btn.setIconSize(QSize(scale(14), scale(14)))
                 resume_btn.setStyleSheet(card_btn_style + scale_style("QPushButton { background-color: #22c55e; color: white; } QPushButton:hover { background-color: #16a34a; } QPushButton:pressed { background-color: #15803d; }"))
                 resume_btn.clicked.connect(lambda checked, t=task: self.resume_task(t))
                 btn_layout.addWidget(resume_btn)
             delete_btn = QPushButton("删除")
+            delete_btn.setIcon(_task_icon("trash", scale(16), "#ef4444"))
+            delete_btn.setIconSize(QSize(scale(14), scale(14)))
             delete_btn.setStyleSheet(card_btn_style + scale_style("QPushButton { background-color: #f1f5f9; color: #ef4444; border: 1px solid #fecaca; } QPushButton:hover { background-color: #fef2f2; } QPushButton:pressed { background-color: #fee2e2; }"))
             delete_btn.clicked.connect(lambda checked, tid=task_id: self.delete_task(tid))
             btn_layout.addWidget(delete_btn)
@@ -9188,11 +9598,13 @@ class TaskManagerWindow(BaseWindow):
         self.show_checkboxes = not self.show_checkboxes
         if self.show_checkboxes:
             self.batch_delete_btn.setText("取消选择")
+            self.batch_delete_btn.setIcon(_task_icon("square", scale(15), "#ffffff"))
             self.select_all_btn.show()
             self.deselect_all_btn.show()
             self.confirm_delete_btn.show()
         else:
             self.batch_delete_btn.setText("批量删除")
+            self.batch_delete_btn.setIcon(_task_icon("trash", scale(15), "#ffffff"))
             self.select_all_btn.hide()
             self.deselect_all_btn.hide()
             self.confirm_delete_btn.hide()
@@ -9253,6 +9665,156 @@ class TaskManagerWindow(BaseWindow):
         except Exception as e:
             logger.error(f"复制到剪贴板失败：{str(e)}")
 
+    def _open_task_detail(self, task):
+        if not task:
+            return
+        tmp_item = QListWidgetItem()
+        tmp_item.setData(Qt.UserRole, task)
+        self.on_task_clicked(tmp_item)
+
+    def _show_task_context_menu(self, task):
+        from PyQt5.QtGui import QCursor
+        if not task:
+            return
+        task_id = task.get("id")
+        status = task.get("status", "unknown")
+        menu = QMenu(self)
+        menu.setStyleSheet(scale_style("""
+            QMenu { background-color: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px; }
+            QMenu::item { padding: 7px 22px; border-radius: 6px; font-size: 12px; }
+            QMenu::item:selected { background-color: #eff6ff; color: #2563eb; }
+        """))
+        menu.addAction(_task_icon("eye", scale(16), "#3b82f6"), "查看详情", lambda t=task: self._open_task_detail(t))
+        url = task.get("url", "")
+        if url:
+            menu.addAction(_task_icon("link", scale(16), "#3b82f6"), "复制链接", lambda u=url: self.copy_to_clipboard(u))
+        save_path = task.get("save_path", "")
+        if save_path:
+            menu.addAction(_task_icon("folder", scale(16), "#f59e0b"), "打开保存路径", lambda p=save_path: self.open_directory(p))
+        file_path = task.get("file_path", "")
+        if file_path and os.path.isdir(os.path.dirname(file_path)):
+            menu.addAction(_task_icon("file", scale(16), "#94a3b8"), "打开文件所在位置", lambda p=file_path: self.open_directory(os.path.dirname(p)))
+        menu.addSeparator()
+        if status == "downloading":
+            menu.addAction(_task_icon("pause", scale(16), "#f59e0b"), "暂停", lambda t=task: self.pause_task(t))
+            menu.addAction(_task_icon("stop", scale(16), "#ef4444"), "停止", lambda t=task: self.stop_task(t))
+        elif status in ["failed", "pending", "paused"]:
+            menu.addAction(_task_icon("play", scale(16), "#22c55e"), "继续下载", lambda t=task: self.resume_task(t))
+        if status == "completed":
+            menu.addAction(_task_icon("check", scale(16), "#22c55e"), "清除记录", lambda tid=task_id: self.delete_task(tid))
+        if task.get("error_message"):
+            menu.addAction(_task_icon("link", scale(16), "#ef4444"), "获取支持", lambda t=task: self._show_error_support_dialog(t))
+            menu.addAction(_task_icon("file", scale(16), "#475569"), "一键复制日志", lambda: self._notify_support_result(copy_logs_for_support()))
+        menu.addSeparator()
+        menu.addAction(_task_icon("trash", scale(16), "#ef4444"), "删除任务", lambda tid=task_id: self.delete_task(tid))
+        menu.addAction(_task_icon("refresh", scale(16), "#475569"), "刷新列表", self.refresh_task_list)
+        menu.exec_(QCursor.pos())
+
+    def _show_list_context_menu(self, pos):
+        item = self.task_list.itemAt(pos)
+        if item:
+            task = item.data(Qt.UserRole)
+            if task:
+                self._show_task_context_menu(task)
+                return
+        menu = QMenu(self)
+        menu.setStyleSheet(scale_style("""
+            QMenu { background-color: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px; }
+            QMenu::item { padding: 7px 22px; border-radius: 6px; font-size: 12px; }
+            QMenu::item:selected { background-color: #eff6ff; color: #2563eb; }
+        """))
+        show_checkboxes = getattr(self, "show_checkboxes", False)
+        if show_checkboxes:
+            menu.addAction(_task_icon("check_square", scale(16), "#475569"), "确认删除", self.batch_delete_tasks)
+            menu.addAction(_task_icon("x", scale(16), "#475569"), "取消选择", self.toggle_checkboxes)
+        menu.addAction(_task_icon("refresh", scale(16), "#475569"), "刷新列表", self.refresh_task_list)
+        menu.addAction(_task_icon("x", scale(16), "#475569"), "关闭", self.custom_close)
+        menu.exec_(QCursor.pos())
+
+    def _show_error_support_dialog(self, task=None, error_msg=""):
+        if task:
+            error_msg = task.get("error_message") or error_msg
+        if not error_msg:
+            error_msg = "任务出现错误"
+        dialog = QDialog(self)
+        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        make_resizable(dialog)
+        dialog.setAutoFillBackground(True)
+        dialog.setWindowTitle("获取支持")
+        _scr = QApplication.primaryScreen()
+        dw = max(scale(460), int((_scr.availableGeometry().width() if _scr else scale(1200)) * 0.4))
+        dialog.resize(dw, scale(360))
+        dialog.setMinimumSize(dw, scale(320))
+
+        title_bar = QWidget()
+        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 32px; border-top-left-radius: 6px; border-top-right-radius: 6px;"))
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(scale(15), scale(0), scale(10), scale(0))
+        t_label = QLabel("获取技术支持")
+        t_label.setStyleSheet(scale_style("font-weight: bold; font-size: 13px; color: white;"))
+        title_layout.addWidget(t_label, stretch=1)
+        c_btn = QPushButton("×")
+        c_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 14px; min-width: 28px; min-height: 28px;"))
+        c_btn.clicked.connect(dialog.reject)
+        title_layout.addWidget(c_btn)
+
+        main_layout = QVBoxLayout(dialog)
+        main_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
+        main_layout.setSpacing(scale(0))
+        main_layout.addWidget(title_bar)
+
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(scale(20), scale(20), scale(20), scale(20))
+        body_layout.setSpacing(scale(14))
+
+        err_heading = QLabel("碰到问题？")
+        err_heading.setStyleSheet(scale_style("font-size: 15px; font-weight: 600; color: #262626;"))
+        body_layout.addWidget(err_heading)
+
+        qq_info = QLabel("QQ：2273962061 / 3241417097\n作者：寒烟似雪（逸雨）\n用户交流QQ群：714822491")
+        qq_info.setStyleSheet(scale_style("font-size: 12px; color: #595959;"))
+        qq_info.setWordWrap(True)
+        body_layout.addWidget(qq_info)
+
+        err_box = QGroupBox("错误信息")
+        err_box.setStyleSheet(scale_style("QGroupBox { border: 1px solid #fecaca; border-radius: 6px; margin-top: 10px; padding: 8px; } QGroupBox::title { color: #dc2626; padding: 0 4px; }"))
+        err_box_layout = QVBoxLayout(err_box)
+        err_label = QLabel(error_msg[:400] + ("..." if len(error_msg) > 400 else ""))
+        err_label.setWordWrap(True)
+        err_label.setStyleSheet(scale_style("color: #dc2626; font-size: 12px;"))
+        err_label.setToolTip(error_msg)
+        err_box_layout.addWidget(err_label)
+        body_layout.addWidget(err_box)
+        body_layout.addStretch(1)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(scale(10))
+        copy_log_btn = QPushButton("一键复制日志")
+        copy_log_btn.setStyleSheet(scale_style("QPushButton { background-color: #fafafa; color: #374151; border: 1px solid #e8e8e8; border-radius: 6px; padding: 8px; } QPushButton:hover { background-color: #f0f0f0; }"))
+        copy_log_btn.clicked.connect(lambda: self._notify_support_result(copy_logs_for_support()))
+        btn_row.addWidget(copy_log_btn, 1)
+        join_btn = QPushButton("加入交流群获取支持")
+        join_btn.setStyleSheet(scale_style("QPushButton { background-color: #00a1d6; color: white; border: none; border-radius: 6px; padding: 8px; font-weight: 600; } QPushButton:hover { background-color: #0091c2; }"))
+        join_btn.clicked.connect(lambda: self._notify_join_result(join_support_group()))
+        btn_row.addWidget(join_btn, 1)
+        body_layout.addLayout(btn_row)
+
+        main_layout.addWidget(body)
+        dialog.exec_()
+
+    def _notify_support_result(self, ok):
+        if ok:
+            windows_notify("日志已复制", "日志已打包并复制到剪贴板，可直接粘贴发送给作者")
+        else:
+            windows_notify("日志打包失败", "请到设置中手动打包日志")
+
+    def _notify_join_result(self, ok):
+        if ok:
+            windows_notify("已打开加群链接", "加入交流群后，把日志和错误信息发给作者即可")
+        else:
+            windows_notify("无法打开链接", "请自行前往QQ：2273962061 求助")
+
     def on_task_clicked(self, item):
         task = item.data(Qt.UserRole)
         if not task:
@@ -9266,12 +9828,15 @@ class TaskManagerWindow(BaseWindow):
         screen = QApplication.primaryScreen()
         if screen:
             sg = screen.availableGeometry()
-            max_h = int(sg.height() * 0.85)
-            dialog.setMinimumSize(max(scale(500), int(sg.width() * 0.3)), max(scale(400), int(sg.height() * 0.3)))
-            dialog.setMaximumHeight(max_h)
+            dlg_w = max(scale(760), int(sg.width() * 0.55))
+            dlg_h = max(scale(560), int(sg.height() * 0.8))
+            dialog.resize(dlg_w, dlg_h)
+            dialog.setMinimumSize(dlg_w, dlg_h)
+            dialog.setMaximumHeight(int(sg.height() * 0.92))
         else:
-            dialog.setMinimumSize(scale(500), scale(400))
-            dialog.setMaximumHeight(scale(800))
+            dialog.resize(scale(760), scale(560))
+            dialog.setMinimumSize(scale(760), scale(560))
+            dialog.setMaximumHeight(scale(900))
         
         title_bar = QWidget()
         title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 32px; border-top-left-radius: 6px; border-top-right-radius: 6px;"))
@@ -9289,7 +9854,6 @@ class TaskManagerWindow(BaseWindow):
         title_layout.addWidget(title_label, stretch=1)
         title_layout.addWidget(close_btn)
         
-        # 添加拖拽功能
         dialog.dragging = False
         dialog.start_pos = None
         
@@ -9390,7 +9954,7 @@ class TaskManagerWindow(BaseWindow):
         info_group = QGroupBox("基本信息")
         info_group.setObjectName("video_info_group")
         info_layout = QVBoxLayout(info_group)
-        info_layout.setSpacing(scale(12))
+        info_layout.setSpacing(scale(6))
         
         task_type_field = task.get("task_type", "")
         download_video = task.get("download_video", True)
@@ -10070,14 +10634,6 @@ class TaskManagerWindow(BaseWindow):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         main_layout.addWidget(scroll)
 
-        dialog.adjustSize()
-        # 确保不超过屏幕高度
-        if screen:
-            sg = screen.availableGeometry()
-            dh = dialog.height()
-            if dh > sg.height() * 0.9:
-                dialog.resize(dialog.width(), int(sg.height() * 0.85))
-
         dialog.exec_()
 
     def filter_file_list(self, text, episodes, task, is_bangumi):
@@ -10164,11 +10720,9 @@ class TaskManagerWindow(BaseWindow):
                     i = 0
                     for line in f:
                         buffer += line
-                        # 查找完整的弹幕标签
                         matches = pattern.findall(buffer)
                         if matches:
                             for full_match, text in matches:
-                                # 提取p属性值
                                 p_match = p_pattern.search(full_match)
                                 p_value = p_match.group(1) if p_match else ''
                                 danmaku_items.append({
@@ -10178,11 +10732,9 @@ class TaskManagerWindow(BaseWindow):
                                     'format': 'xml',
                                     'p_value': p_value
                                 })
-                                # 从缓冲区中移除已处理的部分
                                 buffer = buffer.replace(full_match, '')
                                 i += 1
             elif danmaku_format == '.ass':
-                # 逐行读取ASS文件
                 with open(file_path, 'r', encoding='utf-8') as f:
                     i = 0
                     for line in f:
@@ -10195,7 +10747,6 @@ class TaskManagerWindow(BaseWindow):
                             })
                         i += 1
             elif danmaku_format == '.srt':
-                # 逐行读取SRT文件
                 with open(file_path, 'r', encoding='utf-8') as f:
                     lines = []
                     i = 0
@@ -10211,7 +10762,6 @@ class TaskManagerWindow(BaseWindow):
                                 })
                             lines = []
                         i += 1
-                    # 处理最后一组可能不完整的字幕
                     if len(lines) >= 3 and lines[0].strip().isdigit():
                         danmaku_items.append({
                             'id': i,
@@ -10248,7 +10798,6 @@ class TaskManagerWindow(BaseWindow):
             close_btn.clicked.connect(dialog.reject)
             title_layout.addWidget(close_btn)
             
-            # 添加拖拽功能
             dialog.dragging = False
             dialog.start_pos = None
             
@@ -10396,39 +10945,29 @@ class TaskManagerWindow(BaseWindow):
             
             main_layout.addWidget(content_widget)
             
-            # 定义删除功能
             def delete_selected():
                 selected_items = danmaku_list.selectedItems()
                 for item in selected_items:
                     danmaku_list.takeItem(danmaku_list.row(item))
             
-            # 定义保存功能
             def save_changes():
                 try:
-                    # 收集剩余的弹幕
                     remaining_items = []
                     for i in range(danmaku_list.count()):
                         list_item = danmaku_list.item(i)
                         if list_item:
                             remaining_items.append(list_item.data(Qt.UserRole))
                     
-                    # 重新生成文件内容
                     new_content = content
                     if danmaku_format == '.xml':
-                        # 重新生成XML内容
                         import xml.etree.ElementTree as ET
-                        # 解析原始XML
                         root = ET.fromstring(content)
-                        # 移除所有现有的d标签
                         for d in root.findall('.//d'):
                             root.remove(d)
-                        # 添加剩余的弹幕
                         for item in remaining_items:
                             ET.SubElement(root, 'd', {'p': item['p_value']}).text = item['text']
-                        # 生成新的XML内容
                         new_content = ET.tostring(root, encoding='utf-8').decode('utf-8')
                     elif danmaku_format == '.ass':
-                        # 重新生成ASS内容
                         lines = content.split('\n')
                         new_lines = []
                         for line in lines:
@@ -10438,7 +10977,6 @@ class TaskManagerWindow(BaseWindow):
                             new_lines.append(item['full_match'])
                         new_content = '\n'.join(new_lines)
                     elif danmaku_format == '.srt':
-                        # 重新生成SRT内容
                         new_lines = []
                         for i, item in enumerate(remaining_items, 1):
                             # 重新编号
@@ -10448,7 +10986,6 @@ class TaskManagerWindow(BaseWindow):
                             new_lines.append('')
                         new_content = '\n'.join(new_lines)
                     
-                    # 保存文件
                     with open(file_path, 'w', encoding='utf-8') as f:
                         f.write(new_content)
                     
@@ -12235,6 +12772,7 @@ class BilibiliDownloader(BaseWindow):
 
 
     def _check_cloud_info(self):
+        self._check_pending_update_ready()
         # 检查是否开启了自动检查更新
         auto_check = self.config.get_app_setting("auto_check_update", True) if self.config else True
         # 如果在更新链中，即使用户关闭了自动检查也要继续（确保能更新完）
@@ -12355,10 +12893,307 @@ class BilibiliDownloader(BaseWindow):
             if latest_parsed == (0, 0, 0) or current_parsed >= latest_parsed:
                 logger.info(f"UI层拦截：当前版本 {version_info.get('version', '')}({current_parsed}) >= 最新版本 {latest}({latest_parsed})，不显示更新")
                 return
+            policy = self.config.get_app_setting("update_policy", "ask") if self.config else "ask"
+            if policy == "auto":
+                self._start_background_download(update_info, silent=True)
+                return
             dialog = UpdateDialog(self, update_info)
             dialog.exec_()
         except Exception as e:
             logger.error(f"显示更新对话框失败: {e}")
+
+    def _start_background_download(self, update_info, silent=False):
+        import tempfile
+        import time as _time
+        from cloud_service import CloudService
+        latest_ver = update_info.get("latest_version", "")
+        download_url = update_info.get("download_url", "")
+        if not download_url:
+            return
+        _remove_update_files(_read_update_state())
+        is_exe = download_url.lower().endswith('.exe') if IS_WINDOWS else False
+        temp_dir = tempfile.mkdtemp(prefix="bilidown_update_")
+        save_path = os.path.join(temp_dir, "update_setup.exe" if is_exe else "update.zip")
+        state = {
+            "target_version": latest_ver,
+            "save_path": save_path,
+            "temp_dir": temp_dir,
+            "is_exe_update": is_exe,
+            "downloaded": False,
+            "update_info": update_info,
+        }
+        _save_update_state(state)
+
+        def _worker():
+            try:
+                cs = CloudService()
+                ok = cs.download_update(download_url, save_path, None)
+                st = _read_update_state()
+                if not ok:
+                    return
+                st["downloaded"] = True
+                st["downloaded_at"] = int(_time.time())
+                _save_update_state(st)
+                run_on_main_thread(lambda: self.on_update_package_ready(st, auto=False, dialog=None))
+            except Exception as e:
+                logger.error(f"后台下载更新失败: {e}")
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def on_update_package_ready(self, state, auto=False, dialog=None):
+        try:
+            if auto:
+                self._run_install_from_state(state)
+                return
+            policy = self.config.get_app_setting("update_policy", "ask") if self.config else "ask"
+            if policy == "auto":
+                self._run_install_from_state(state)
+                return
+            self._show_update_ready_prompt(state)
+        except Exception as e:
+            logger.error(f"更新就绪处理失败: {e}")
+
+    def _run_install_from_state(self, state, status_cb=None):
+        self._perform_install(
+            state.get("save_path", ""),
+            state.get("temp_dir", ""),
+            state.get("is_exe_update", False),
+            status_cb=status_cb,
+        )
+
+    def _perform_install(self, save_path, temp_dir, is_exe_update, status_cb=None):
+        import zipfile
+        def _st(msg, err=False):
+            if status_cb:
+                try:
+                    status_cb(msg, err)
+                except Exception:
+                    pass
+        if not save_path or not os.path.exists(save_path):
+            _st("安装包不存在，请重新下载更新", True)
+            self._clear_update_package_state()
+            return
+        if is_exe_update:
+            _st("正在启动安装程序...")
+            try:
+                subprocess.Popen([save_path], **subprocess_no_window_kwargs())
+            except Exception as e:
+                _st(f"启动安装程序失败: {e}", True)
+                return
+            time.sleep(1)
+            QApplication.quit()
+            os._exit(0)
+            return
+        _st("正在解压更新包...")
+        extract_dir = os.path.join(temp_dir, "extracted")
+        try:
+            with zipfile.ZipFile(save_path, 'r') as zf:
+                zf.extractall(extract_dir)
+        except Exception as e:
+            _st(f"解压失败：{e}", True)
+            return
+        source_dir = extract_dir
+        root_items = os.listdir(extract_dir)
+        if len(root_items) == 1:
+            single_item = os.path.join(extract_dir, root_items[0])
+            if os.path.isdir(single_item) and os.path.isdir(os.path.join(single_item, '_internal')):
+                source_dir = single_item
+        _st("正在替换文件...")
+        if hasattr(sys, 'frozen') or hasattr(sys, '_MEIPASS'):
+            app_dir = os.path.dirname(sys.executable)
+        else:
+            app_dir = os.path.dirname(os.path.abspath(__file__))
+        if IS_WINDOWS:
+            new_exe_name = None
+            for f in os.listdir(source_dir):
+                if f.endswith('.exe') and 'uninstall' not in f.lower():
+                    new_exe_name = f
+                    break
+            if not new_exe_name:
+                new_exe_name = os.path.basename(sys.executable) if hasattr(sys, 'frozen') else 'main.py'
+            update_script = os.path.join(temp_dir, "updater.bat")
+            script_content = f"""@echo off
+chcp 65001 >nul
+echo 正在更新{APP_NAME}...
+timeout /t 2 /nobreak >nul
+
+xcopy /E /Y /Q "{source_dir}\\*" "{app_dir}\\"
+
+if %errorlevel% neq 0 (
+    echo 更新失败！
+    pause
+    exit /b 1
+)
+
+if exist "{app_dir}\\_internal\\version_info.json" (
+    copy /Y "{app_dir}\\_internal\\version_info.json" "{app_dir}\\version_info.json" >nul
+)
+
+echo 更新完成，正在启动程序...
+start "" "{app_dir}\\{new_exe_name}"
+exit /b 0
+"""
+            with open(update_script, 'w', encoding='utf-8') as f:
+                f.write(script_content)
+            _st("更新即将完成，程序将自动重启...")
+            subprocess.Popen(['cmd', '/c', update_script], **subprocess_no_window_kwargs())
+        else:
+            for item in os.listdir(source_dir):
+                src = os.path.join(source_dir, item)
+                dst = os.path.join(app_dir, item)
+                if os.path.isdir(src):
+                    shutil.copytree(src, dst, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(src, dst)
+            new_exe_name = os.path.basename(sys.executable) if hasattr(sys, 'frozen') else 'main.py'
+            for f in os.listdir(source_dir):
+                if f.endswith('.exe') and 'uninstall' not in f.lower():
+                    new_exe_name = f
+                    break
+            restart_target = os.path.join(app_dir, new_exe_name)
+            subprocess.Popen(['open', '-a', 'Terminal', restart_target])
+        time.sleep(1)
+        QApplication.quit()
+        os._exit(0)
+
+    def _clear_update_package_state(self):
+        _remove_update_files(_read_update_state())
+        _clear_update_state()
+
+    def _show_update_ready_prompt(self, state):
+        latest = state.get("target_version", "")
+        accent = "#1677ff"
+        dlg = QDialog(self)
+        dlg.setWindowTitle("升级已就绪")
+        dlg.setAttribute(Qt.WA_DeleteOnClose)
+        dlg.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.Dialog)
+        make_resizable(dlg)
+        dlg.setObjectName("updateReadyDialog")
+        screen = QApplication.primaryScreen()
+        sg = screen.geometry() if screen else None
+        base_w, base_h = scale(460), scale(280)
+        if sg:
+            win_w = min(base_w, int(sg.width() * 0.85))
+            win_h = min(base_h, int(sg.height() * 0.9))
+            dlg.resize(win_w, win_h)
+            dlg.move((sg.width() - win_w) // 2, (sg.height() - win_h) // 2)
+        else:
+            dlg.resize(base_w, base_h)
+        dlg.setMinimumSize(scale(400), scale(220))
+        dlg.setStyleSheet(f"""
+            QDialog#updateReadyDialog {{ background-color: #ffffff; border: 2px solid {accent}; }}
+            QWidget#urHeader {{ background-color: {accent}; }}
+            QLabel#urTitle {{ font-size: {scale(16)}px; font-weight: 700; color: #ffffff; background: transparent; }}
+            QLabel#urText {{ font-size: {scale(14)}px; color: #1f2329; background: transparent; }}
+            QLabel#urSub {{ font-size: {scale(12)}px; color: #8a8f98; background: transparent; }}
+        """)
+        main_lyt = QVBoxLayout(dlg)
+        main_lyt.setContentsMargins(0, 0, 0, 0)
+        main_lyt.setSpacing(0)
+        header = QWidget()
+        header.setObjectName("urHeader")
+        header.setAttribute(Qt.WA_StyledBackground, True)
+        header.setFixedHeight(scale(52))
+        h_lyt = QHBoxLayout(header)
+        h_lyt.setContentsMargins(scale(16), 0, scale(6), 0)
+        h_lyt.setSpacing(scale(10))
+        h_ic = QLabel()
+        h_ic.setPixmap(_task_icon_pixmap("check", scale(18), "#ffffff"))
+        h_ic.setFixedSize(scale(20), scale(20))
+        h_ic.setAlignment(Qt.AlignCenter)
+        h_lyt.addWidget(h_ic)
+        h_title = QLabel("升级已就绪")
+        h_title.setObjectName("urTitle")
+        h_lyt.addWidget(h_title, 1)
+        close_btn = QLabel("\u00d7")
+        close_btn.setAlignment(Qt.AlignCenter)
+        close_btn.setFixedSize(scale(30), scale(30))
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setStyleSheet(f"font-size:{scale(18)}px; color:#ffffff; QLabel:hover {{ background-color: rgba(255,255,255,0.2); }}")
+        close_btn.mousePressEvent = lambda e: dlg.reject()
+        h_lyt.addWidget(close_btn)
+        main_lyt.addWidget(header)
+        _enable_window_drag(header, skip=(close_btn,))
+        body = QWidget()
+        b_lyt = QVBoxLayout(body)
+        b_lyt.setContentsMargins(scale(22), scale(18), scale(22), scale(18))
+        b_lyt.setSpacing(scale(12))
+        txt = QLabel(f"更新包下载已完成（v{latest}），是否现在安装？")
+        txt.setObjectName("urText")
+        txt.setWordWrap(True)
+        b_lyt.addWidget(txt)
+        sub = QLabel("安装后将自动重启程序。若暂不安装，下次启动时仍会提示。")
+        sub.setObjectName("urSub")
+        sub.setWordWrap(True)
+        b_lyt.addWidget(sub)
+        b_lyt.addStretch(1)
+        btn_lyt = QHBoxLayout()
+        btn_lyt.setSpacing(scale(10))
+        later_btn = QPushButton("稍后再说")
+        later_btn.setMinimumSize(scale(90), scale(36))
+        later_btn.setCursor(Qt.PointingHandCursor)
+        later_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: #ffffff; color: #555555; border: 1px solid #d9d9d9; border-radius: 4px; font-size: {scale(13)}px; padding: 0 {scale(18)}px; }}
+            QPushButton:hover {{ border-color: {accent}; color: {accent}; }}
+        """)
+        later_btn.clicked.connect(dlg.reject)
+        btn_lyt.addWidget(later_btn)
+        install_btn = QPushButton("立即安装")
+        install_btn.setMinimumSize(scale(104), scale(36))
+        install_btn.setCursor(Qt.PointingHandCursor)
+        install_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: {accent}; color: #ffffff; border: none; border-radius: 4px; font-size: {scale(13)}px; font-weight: 500; padding: 0 {scale(20)}px; }}
+            QPushButton:hover {{ background-color: #0958d8; }}
+        """)
+        def _do_install():
+            dlg.accept()
+            def _w():
+                self._run_install_from_state(state)
+            threading.Thread(target=_w, daemon=True).start()
+        install_btn.clicked.connect(_do_install)
+        btn_lyt.addWidget(install_btn)
+        btn_lyt.addStretch(1)
+        b_lyt.addLayout(btn_lyt)
+        main_lyt.addWidget(body, 1)
+        dlg.exec_()
+
+    def _check_pending_update_ready(self):
+        import time as _time
+        try:
+            st = _read_update_state()
+            if not st:
+                return
+            if not st.get("downloaded"):
+                _remove_update_files(st)
+                _clear_update_state()
+                return
+            target = st.get("target_version", "")
+            target_p = self.cloud_service._parse_version(target)
+            current_p = self.cloud_service._parse_version(version_info.get("version", ""))
+            if current_p >= target_p:
+                _remove_update_files(st)
+                _clear_update_state()
+                return
+            def _do():
+                try:
+                    try:
+                        import app_config
+                        channel = "beta" if getattr(app_config, 'IS_BETA_BUILD', False) else "stable"
+                    except Exception:
+                        channel = "stable"
+                    info = self.cloud_service.check_update(channel=channel)
+                    latest = info.get("latest_version", "")
+                    if latest and self.cloud_service._parse_version(latest) > target_p:
+                        _remove_update_files(st)
+                        _clear_update_state()
+                        if info.get("has_update"):
+                            run_on_main_thread(lambda: self._start_background_download(info, silent=True))
+                        return
+                    run_on_main_thread(lambda: self.on_update_package_ready(st, auto=False, dialog=None))
+                except Exception:
+                    run_on_main_thread(lambda: self.on_update_package_ready(st, auto=False, dialog=None))
+            threading.Thread(target=_do, daemon=True).start()
+        except Exception as e:
+            logger.error(f"检查待装更新失败: {e}")
     
     def _on_announcements_ready(self, announcements):
         try:
@@ -12943,143 +13778,179 @@ class BilibiliDownloader(BaseWindow):
             pass
     
     def show_admin_menu(self):
-        
-        print("开始创建开发菜单")
-        
+        """开发者管理菜单：无边框可缩放对话框，图标分区，内容在滚动区内随窗口/屏幕自适应。"""
+        from PyQt5.QtWidgets import QScrollArea
+        from PyQt5.QtCore import QSize as _QSize
+
         dialog = QDialog(self)
         dialog.setWindowTitle("开发者菜单")
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.Dialog)
+        make_resizable(dialog)
+
+        # 自适应尺寸：缩放尺寸与屏幕占比中取较小者，随 DPI/屏幕自适应，默认更大
         screen = QApplication.primaryScreen()
-        if screen:
-            sg = screen.geometry()
-            win_w = min(scale(500), int(sg.width() * 0.85))
-            win_h = min(scale(600), int(sg.height() * 0.85))
-            dialog.setGeometry((sg.width() - win_w) // 2, (sg.height() - win_h) // 2, win_w, win_h)
+        sg = screen.geometry() if screen else None
+        base_w, base_h = scale(620), scale(720)
+        if sg:
+            win_w = min(base_w, int(sg.width() * 0.9))
+            win_h = min(base_h, int(sg.height() * 0.92))
+            dialog.resize(win_w, win_h)
+            dialog.move((sg.width() - win_w) // 2, (sg.height() - win_h) // 2)
         else:
-            dialog.setGeometry(scale(100), scale(100), scale(500), scale(600))
-        dialog.setMinimumSize(scale(350), scale(400))
-        
-        dialog.setStyleSheet(scale_style("""
-            QDialog {
-                background-color: #f5f5f5;
-                border: 1px solid #e0e0e0;
-                border-radius: 8px;
-            }
-            QLabel {
-                font-size: 16px;
-                font-weight: bold;
-                color: #333333;
-                margin-bottom: 20px;
-            }
-            QPushButton {
-                background-color: #1890ff;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-                font-size: 14px;
-                margin: 5px;
-            }
-            QPushButton:hover {
-                background-color: #40a9ff;
-            }
-            QPushButton:pressed {
-                background-color: #096dd9;
-            }
-            QPushButton#checkBtn {
-                background-color: #52c41a;
-            }
-            QPushButton#checkBtn:hover {
-                background-color: #73d13d;
-            }
-            QPushButton#installBtn {
-                background-color: #faad14;
-            }
-            QPushButton#installBtn:hover {
-                background-color: #ffc53d;
-            }
-            QPushButton#envBtn {
-                background-color: #722ed1;
-            }
-            QPushButton#envBtn:hover {
-                background-color: #9254de;
-            }
-        """))
-        
-        layout = QVBoxLayout(dialog)
-        
-        title_label = QLabel("开发者菜单")
-        title_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title_label)
-        
-        tool_group_label = QLabel("🛠️ 工具管理")
-        tool_group_label.setStyleSheet(scale_style("font-size: 14px; color: #1890ff; margin-top: 10px;"))
-        layout.addWidget(tool_group_label)
-        
-        check_tools_btn = QPushButton("检查工具文件")
-        check_tools_btn.setObjectName("checkBtn")
-        check_tools_btn.clicked.connect(self.check_tools_existence)
-        layout.addWidget(check_tools_btn)
-        
-        install_tools_btn = QPushButton("安装工具到系统")
-        install_tools_btn.setObjectName("installBtn")
-        install_tools_btn.clicked.connect(lambda: self.install_tools())
-        layout.addWidget(install_tools_btn)
-        
-        add_env_btn = QPushButton("添加到环境变量")
-        add_env_btn.setObjectName("envBtn")
-        add_env_btn.clicked.connect(lambda: self.add_to_env())
-        layout.addWidget(add_env_btn)
-        
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Sunken)
-        layout.addWidget(line)
-        
-        other_group_label = QLabel("📋 其他功能")
-        other_group_label.setStyleSheet(scale_style("font-size: 14px; color: #1890ff; margin-top: 10px;"))
-        layout.addWidget(other_group_label)
-        
-        test_error_btn = QPushButton("测试致命错误")
-        test_error_btn.clicked.connect(self.test_fatal_error)
-        layout.addWidget(test_error_btn)
-        
-        hang_test_btn = QPushButton("卡死测试（触发未响应）")
-        hang_test_btn.setObjectName("envBtn")
-        hang_test_btn.clicked.connect(lambda: self._start_hang_test(dialog))
-        layout.addWidget(hang_test_btn)
-        
-        info_btn = QPushButton("显示系统信息")
-        info_btn.clicked.connect(self.show_system_info)
-        layout.addWidget(info_btn)
-        
-        cookie_test_btn = QPushButton("测试Cookie")
-        cookie_test_btn.clicked.connect(self.show_cookie_test)
-        layout.addWidget(cookie_test_btn)
-        
-        line2 = QFrame()
-        line2.setFrameShape(QFrame.HLine)
-        line2.setFrameShadow(QFrame.Sunken)
-        layout.addWidget(line2)
-        
-        ui_group_label = QLabel("🎨 UI 测试")
-        ui_group_label.setStyleSheet(scale_style("font-size: 14px; color: #1890ff; margin-top: 10px;"))
-        layout.addWidget(ui_group_label)
-        
-        test_announcement_btn = QPushButton("📢 测试公告弹窗")
-        test_announcement_btn.setObjectName("checkBtn")
-        test_announcement_btn.clicked.connect(self.test_announcement_dialog)
-        layout.addWidget(test_announcement_btn)
-        
-        test_update_btn = QPushButton("🚀 测试更新弹窗")
-        test_update_btn.setObjectName("installBtn")
-        test_update_btn.clicked.connect(self.test_update_dialog)
-        layout.addWidget(test_update_btn)
-        
-        close_btn = QPushButton("关闭")
-        close_btn.clicked.connect(dialog.close)
-        layout.addWidget(close_btn)
-        
+            dialog.resize(base_w, base_h)
+        dialog.setMinimumSize(scale(360), scale(440))
+
+        accent = "#1677ff"
+        dialog.setStyleSheet(f"""
+            QDialog {{ background-color: #f5f6f7; }}
+            QWidget#titleBar {{
+                background-color: {accent};
+            }}
+            QLabel#menuTitle {{ font-size: {scale(15)}px; font-weight: 700; color: #ffffff; background: transparent; }}
+            QLabel#menuSub {{ font-size: {scale(11)}px; color: rgba(255,255,255,0.8); background: transparent; }}
+            QLabel#groupTitle {{ font-size: {scale(13)}px; font-weight: 600; color: {accent}; background: transparent; }}
+            QScrollArea {{ border: none; background: transparent; }}
+            QScrollArea > QWidget > QWidget {{ background: transparent; }}
+            QPushButton {{
+                background-color: #ffffff; color: #333333;
+                border: 1px solid #e0e2e6; border-radius: 4px;
+                padding: {scale(9)}px {scale(14)}px;
+                min-height: {scale(20)}px;
+                font-size: {scale(13)}px;
+                text-align: left;
+            }}
+            QPushButton#accent {{ background-color: {accent}; color: #ffffff; border: none; }}
+            QPushButton#danger {{ background-color: #fa541c; color: #ffffff; border: none; }}
+            QLabel#closeBtn:hover {{ background-color: rgba(255,255,255,0.25); }}
+        """)
+
+        main_lay = QVBoxLayout(dialog)
+        main_lay.setContentsMargins(0, 0, 0, 0)
+        main_lay.setSpacing(0)
+
+        # 标题栏
+        title_bar = QWidget()
+        title_bar.setObjectName("titleBar")
+        title_bar.setAttribute(Qt.WA_StyledBackground, True)
+        title_bar.setFixedHeight(scale(54))
+        title_lyt = QHBoxLayout(title_bar)
+        title_lyt.setContentsMargins(scale(16), 0, scale(6), 0)
+        title_lyt.setSpacing(scale(10))
+        title_block = QHBoxLayout()
+        title_block.setSpacing(scale(8))
+        ttl = QLabel("开发者菜单")
+        ttl.setObjectName("menuTitle")
+        title_block.addWidget(ttl)
+        sub = QLabel(" · 开发与调试工具")
+        sub.setObjectName("menuSub")
+        title_block.addWidget(sub)
+        title_block.addStretch(1)
+        title_lyt.addLayout(title_block, 1)
+
+        close_btn = QLabel("\u00d7")
+        close_btn.setObjectName("closeBtn")
+        close_btn.setAlignment(Qt.AlignCenter)
+        close_btn.setFixedSize(scale(30), scale(30))
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setStyleSheet(
+            f"font-size:{scale(20)}px; color:rgba(255,255,255,0.9); border-radius:4px;")
+        close_btn.mousePressEvent = lambda e: dialog.reject()
+        title_lyt.addWidget(close_btn)
+
+        _enable_window_drag(title_bar, skip=(close_btn,))
+        main_lay.addWidget(title_bar)
+
+        def _group_header(text, icon_name):
+            row = QWidget()
+            lay = QHBoxLayout(row)
+            lay.setContentsMargins(scale(2), scale(8), scale(2), scale(2))
+            lay.setSpacing(scale(8))
+            ic = QLabel()
+            ic.setPixmap(_task_icon_pixmap(icon_name, scale(15), accent))
+            ic.setFixedSize(scale(18), scale(18))
+            ic.setAlignment(Qt.AlignCenter)
+            tx = QLabel(text)
+            tx.setObjectName("groupTitle")
+            lay.addWidget(ic)
+            lay.addWidget(tx)
+            lay.addStretch(1)
+            return row
+
+        def _action_btn(text, slot, icon=None, kind="normal"):
+            btn = QPushButton(text)
+            if kind == "accent":
+                btn.setObjectName("accent")
+            elif kind == "danger":
+                btn.setObjectName("danger")
+            if icon:
+                col = "#ffffff" if kind in ("accent", "danger") else accent
+                btn.setIcon(_task_icon(icon, scale(15), col))
+                btn.setIconSize(_QSize(scale(15), scale(15)))
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(slot)
+            return btn
+
+        def _sep():
+            sp = QFrame()
+            sp.setFrameShape(QFrame.HLine)
+            sp.setFixedHeight(1)
+            sp.setStyleSheet("background-color:#e7e9ee; border:none; margin-top:6px; margin-bottom:2px;")
+            return sp
+
+        # 滚动内容区
+        scroll = QScrollArea(dialog)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        inner = QWidget()
+        scroll.setWidget(inner)
+        in_lay = QVBoxLayout(inner)
+        in_lay.setContentsMargins(scale(16), scale(14), scale(16), scale(16))
+        in_lay.setSpacing(scale(8))
+
+        in_lay.addWidget(_group_header("工具管理", "tools"))
+        in_lay.addWidget(_action_btn("检查工具文件", self.check_tools_existence, "check"))
+        in_lay.addWidget(_action_btn("安装工具到系统", self.install_tools, "download", "accent"))
+        in_lay.addWidget(_action_btn("添加到环境变量", lambda: self.add_to_env(), "link"))
+        in_lay.addWidget(_sep())
+
+        in_lay.addWidget(_group_header("其他功能", "clipboard"))
+        in_lay.addWidget(_action_btn("测试致命错误", self.test_fatal_error, "alert", "danger"))
+        in_lay.addWidget(_action_btn("卡死测试", lambda: self._start_hang_test(dialog), "pause"))
+        in_lay.addWidget(_action_btn("显示系统信息", self.show_system_info, "info"))
+        in_lay.addWidget(_action_btn("测试Cookie", self.show_cookie_test, "refresh"))
+        in_lay.addWidget(_sep())
+
+        in_lay.addWidget(_group_header("UI 测试", "palette"))
+        in_lay.addWidget(_action_btn("测试公告弹窗", self.test_announcement_dialog, "bell"))
+        in_lay.addWidget(_action_btn("测试更新弹窗", self.test_update_dialog, "download"))
+        in_lay.addStretch(1)
+
+        main_lay.addWidget(scroll, 1)
+
+        dlg_bottom = QWidget()
+        bottom_lay = QHBoxLayout(dlg_bottom)
+        bottom_lay.setContentsMargins(scale(16), scale(10), scale(16), scale(14))
+        bottom_lay.setSpacing(scale(8))
+        close_all = QPushButton("关闭")
+        close_all.setCursor(Qt.PointingHandCursor)
+        close_all.clicked.connect(dialog.reject)
+        bottom_lay.addStretch(1)
+        bottom_lay.addWidget(close_all)
+        main_lay.addWidget(dlg_bottom)
+
         dialog.exec_()
+
+    def _admin_title_mouse_press(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
+
+    def _admin_title_mouse_move(self, event):
+        if self._drag_pos and event.buttons() & Qt.LeftButton:
+            self.move(event.globalPos() - self._drag_pos)
+
+    def _admin_title_mouse_release(self, event):
+        self._drag_pos = None
     
     def test_fatal_error(self):
         print("测试致命错误")
@@ -13096,16 +13967,167 @@ class BilibiliDownloader(BaseWindow):
         time.sleep(seconds)
         self.show_notification(f"卡死测试结束，已阻塞 {seconds} 秒", "success")
     
+    def _collect_windows_hardware(self):
+        import subprocess
+        import json as _json
+        script = (
+            "$os=Get-CimInstance Win32_OperatingSystem | Select-Object -First 1;"
+            "$cs=Get-CimInstance Win32_ComputerSystem | Select-Object -First 1;"
+            "$cpu=Get-CimInstance Win32_Processor | Select-Object -First 1;"
+            "$gpu=@(Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name) -join ' | ';"
+            "if(!$gpu){$gpu='未知'}"
+            "$free=[math]::Round(($os.FreePhysicalMemory/1KB),1);"
+            "[PSCustomObject]@{"
+            "os=$os.Caption;"
+            "version=$os.Version;"
+            "machine=($cs.Manufacturer+' '+$cs.Model);"
+            "cpu=$cpu.Name;"
+            "ram=('{0} GB（可用 {1} GB）' -f [math]::Round($cs.TotalPhysicalMemory/1GB,1),$free);"
+            "gpu=$gpu"
+            "} | ConvertTo-Json -Compress"
+        )
+        try:
+            proc = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", script],
+                capture_output=True, text=True, timeout=12,
+                **subprocess_no_window_kwargs(),
+            )
+            line = (proc.stdout or "").strip()
+            if not line:
+                return {}
+            data = _json.loads(line)
+            return {k: str(v) for k, v in data.items()}
+        except Exception:
+            return {}
+
     def show_system_info(self):
         import platform
         from PyQt5.QtCore import QT_VERSION_STR
-        
-        info = f"Python版本: {platform.python_version()}\n"
-        info += f"系统平台: {platform.system()} {platform.release()}\n"
-        info += f"Qt版本: {QT_VERSION_STR}\n"
-        info += f"应用路径: {sys.executable}\n"
-        
-        QMessageBox.information(self, "系统信息", info)
+
+        data = {}
+        if IS_WINDOWS:
+            data = self._collect_windows_hardware()
+        if not data:
+            data = {
+                "os": f"{platform.system()} {platform.release()}",
+                "version": platform.version(),
+                "machine": platform.machine(),
+                "cpu": "未知",
+                "ram": "未知",
+                "gpu": "未检测到",
+            }
+
+        machine = data.get("machine", "")
+        os_line = data.get("os", platform.system())
+        if data.get("version"):
+            os_line += f" · {data['version']}"
+
+        rows = [
+            ("info", "操作系统", os_line),
+            ("folder", "设备型号", machine or "未知"),
+            ("tools", "处理器", data.get("cpu", "未知")),
+            ("palette", "显卡", data.get("gpu", "未检测到")),
+            ("clipboard", "内存", data.get("ram", "未知")),
+            ("check", "Python", platform.python_version()),
+            ("list", "Qt 版本", QT_VERSION_STR),
+            ("link", "应用路径", sys.executable),
+        ]
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("系统信息")
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+        dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.Dialog)
+        make_resizable(dialog)
+        dialog.setObjectName("sysInfoDialog")
+        accent = "#1677ff"
+
+        screen = QApplication.primaryScreen()
+        sg = screen.geometry() if screen else None
+        base_w, base_h = scale(560), scale(360)
+        if sg:
+            win_w = min(base_w, int(sg.width() * 0.85))
+            win_h = min(base_h, int(sg.height() * 0.9))
+            dialog.resize(win_w, win_h)
+            dialog.move((sg.width() - win_w) // 2, (sg.height() - win_h) // 2)
+        else:
+            dialog.resize(base_w, base_h)
+        dialog.setMinimumSize(scale(400), scale(300))
+
+        dialog.setStyleSheet(f"""
+            QDialog#sysInfoDialog {{ background-color: #ffffff; border: 1px solid #e6eaf0; }}
+            QWidget#sysHeader {{
+                background-color: {accent};
+            }}
+            QLabel#sysTitle {{ font-size: {scale(15)}px; font-weight: 700; color: #ffffff; background: transparent; }}
+            QLabel#sysLabel {{ font-size: {scale(13)}px; font-weight: 600; color: #6b7280; background: transparent; }}
+            QLabel#sysValue {{ font-size: {scale(13)}px; color: #1f2329; background: transparent; }}
+        """)
+
+        main_lay = QVBoxLayout(dialog)
+        main_lay.setContentsMargins(0, 0, 0, 0)
+        main_lay.setSpacing(0)
+
+        header = QWidget()
+        header.setObjectName("sysHeader")
+        header.setAttribute(Qt.WA_StyledBackground, True)
+        header.setFixedHeight(scale(50))
+        h_lyt = QHBoxLayout(header)
+        h_lyt.setContentsMargins(scale(16), 0, scale(6), 0)
+        h_lyt.setSpacing(scale(10))
+        h_ic = QLabel()
+        h_ic.setPixmap(_task_icon_pixmap("info", scale(18), "#ffffff"))
+        h_ic.setFixedSize(scale(20), scale(20))
+        h_ic.setAlignment(Qt.AlignCenter)
+        h_lyt.addWidget(h_ic)
+        h_title = QLabel("系统信息")
+        h_title.setObjectName("sysTitle")
+        h_lyt.addWidget(h_title, 1)
+        close_btn = QLabel("\u00d7")
+        close_btn.setAlignment(Qt.AlignCenter)
+        close_btn.setFixedSize(scale(30), scale(30))
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setStyleSheet(
+            f"font-size:{scale(18)}px; color:#ffffff;"
+            f"QLabel:hover {{ background-color: rgba(255,255,255,0.2); }}")
+        close_btn.mousePressEvent = lambda e: dialog.reject()
+        h_lyt.addWidget(close_btn)
+        main_lay.addWidget(header)
+        _enable_window_drag(header, skip=(close_btn,))
+
+        body = QWidget()
+        b_lay = QVBoxLayout(body)
+        b_lay.setContentsMargins(scale(20), scale(18), scale(20), scale(18))
+        b_lay.setSpacing(scale(4))
+
+        info_label = QLabel("双击或选择后可复制，便于反馈问题。")
+        info_label.setStyleSheet(f"font-size:{scale(11)}px; color:#909399; background:transparent;")
+        b_lay.addWidget(info_label)
+
+        for icon_name, label, value in rows:
+            row = QWidget()
+            row_lay = QHBoxLayout(row)
+            row_lay.setContentsMargins(scale(4), scale(5), scale(4), scale(5))
+            row_lay.setSpacing(scale(10))
+            ic = QLabel()
+            ic.setPixmap(_task_icon_pixmap(icon_name, scale(16), accent))
+            ic.setFixedSize(scale(20), scale(20))
+            ic.setAlignment(Qt.AlignCenter)
+            lbl = QLabel(label)
+            lbl.setObjectName("sysLabel")
+            lbl.setFixedWidth(scale(64))
+            vlabel = QLabel(value)
+            vlabel.setObjectName("sysValue")
+            vlabel.setWordWrap(True)
+            vlabel.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            row_lay.addWidget(ic)
+            row_lay.addWidget(lbl)
+            row_lay.addWidget(vlabel, 1)
+            b_lay.addWidget(row)
+
+        b_lay.addStretch(1)
+        main_lay.addWidget(body, 1)
+
+        dialog.exec_()
     
     def show_cookie_test(self):
         print("显示Cookie测试对话框")
@@ -13122,11 +14144,11 @@ class BilibiliDownloader(BaseWindow):
         test_announcement = {
             "id": "test_001",
             "type": "info",
-            "title": "🎉 测试公告标题",
+            "title": "测试公告标题",
             "content": "这是一条测试公告内容，用于验证公告弹窗的显示效果。\n\n"
-                       "✨ 支持多行文本显示\n"
-                       "📌 支持富文本格式\n"
-                       "🎨 美观的渐变配色方案",
+                       "支持多行文本显示\n"
+                       "支持富文本格式\n"
+                       "美观清晰的配色方案",
             "dismissible": True,
             "action": {
                 "type": "url",
@@ -13150,12 +14172,12 @@ class BilibiliDownloader(BaseWindow):
         
         test_update_info = {
             "latest_version": "2.0.0",
-            "release_notes": "🚀 版本更新内容：\n\n"
+            "release_notes": "版本更新内容：\n\n"
                            "• 新增：支持4K超清视频下载\n"
                            "• 优化：下载速度提升50%\n"
                            "• 修复：已知bug修复若干\n"
                            "• 改进：UI界面全面美化升级\n\n"
-                           "💡 建议所有用户尽快更新到最新版本！",
+                           "建议所有用户尽快更新到最新版本！",
             "download_url": "",
             "force_update": False,
             "sha256": ""
@@ -13635,16 +14657,230 @@ class BilibiliDownloader(BaseWindow):
         try:
             super().resizeEvent(event)
             self.update_progress_bar_position()
+            # 窗口过矮（小屏或用户缩小）时切换紧凑布局，避免内容互相重叠
+            full_min = getattr(self, '_full_min_height', 0)
+            if full_min > 0:
+                self._apply_adaptive_density(self.height() < full_min)
         except Exception:
             pass
-    
+
+    def showEvent(self, event):
+        try:
+            super().showEvent(event)
+            # 首次显示后样式/字体已完成度量，需重新收敛一次最小尺寸防止偏差。
+            # 延迟到窗口状态稳定后再收敛：showMaximized 的首次 showEvent 阶段
+            # isMaximized() 可能仍为 False，此时收紧最小值会把无边框窗口顶出最大化，
+            # 导致“启动后瞬间缩小”的现象。故这里只排期，不在 showEvent 内同步执行。
+            if (not getattr(self, '_min_size_reenforced', False)
+                    and not getattr(self, '_init_enforce_scheduled', False)):
+                self._init_enforce_scheduled = True
+                QTimer.singleShot(160, self._delayed_enforce_min_size)
+        except Exception:
+            pass
+
+    def _delayed_enforce_min_size(self):
+        if getattr(self, '_destroying', False):
+            return
+        try:
+            self._min_size_reenforced = True
+            self._enforce_content_minimum_size()
+            full_min = getattr(self, '_full_min_height', 0)
+            if full_min > 0:
+                self._apply_adaptive_density(self.height() < full_min)
+        except Exception:
+            pass
+
+    def _apply_adaptive_density(self, compact):
+        """紧凑模式：隐藏诊断信息行、压缩视频标签页间距，降低内容最小高度"""
+        if getattr(self, '_adaptive_compact', None) == compact:
+            return
+        self._adaptive_compact = compact
+        try:
+            debug_widget = getattr(self, 'sys_debug_widget', None)
+            if debug_widget is not None:
+                debug_widget.setVisible(not compact)
+            summary_btn = getattr(self, 'sys_debug_summary_btn', None)
+            if summary_btn is not None:
+                summary_btn.setVisible(compact)
+
+            video_layout = getattr(self, 'video_tab_layout', None)
+            if video_layout is not None:
+                if compact:
+                    video_layout.setSpacing(scale(8))
+                    video_layout.setContentsMargins(scale(8), scale(8), scale(8), scale(8))
+                else:
+                    video_layout.setSpacing(scale(15))
+                    video_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
+
+            checkbox = getattr(self, 'full_mode_checkbox', None)
+            if checkbox is not None:
+                checkbox.setMinimumHeight(scale(22) if compact else scale(36))
+        except Exception:
+            pass
+
+    def _show_sys_debug_popup(self):
+        import platform
+        try:
+            diag = getattr(self, '_sys_diag', {})
+            screen = QApplication.primaryScreen()
+            if screen is not None:
+                sg = screen.geometry()
+                diag["screen"] = f"{sg.width()}x{sg.height()} · DPI: {screen.logicalDotsPerInch()}"
+            rows = [
+                ("操作系统", diag.get("system", "未知")),
+                ("屏幕", diag.get("screen", "未知")),
+                ("Python", diag.get("python", platform.python_version())),
+                ("处理器", diag.get("cpu", "未知")),
+            ]
+            accent = "#1677ff"
+            dialog = QDialog(self)
+            dialog.setWindowTitle("系统信息")
+            dialog.setAttribute(Qt.WA_DeleteOnClose)
+            dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.Dialog)
+            make_resizable(dialog)
+            dialog.setObjectName("sysDebugDialog")
+            dialog.setStyleSheet(f"""
+                QDialog#sysDebugDialog {{ background-color: #ffffff; border: 1px solid #e6eaf0; }}
+                QWidget#sysDbgHeader {{ background-color: {accent}; }}
+                QLabel#sysDbgTitle {{ font-size: {scale(14)}px; font-weight: 700; color: #ffffff; background: transparent; }}
+                QLabel#sysDbgLabel {{ font-size: {scale(13)}px; font-weight: 600; color: #6b7280; background: transparent; }}
+                QLabel#sysDbgValue {{ font-size: {scale(13)}px; color: #1f2329; background: transparent; }}
+            """)
+            screen = QApplication.primaryScreen()
+            sg = screen.geometry() if screen else None
+            base_w, base_h = scale(520), scale(300)
+            if sg:
+                win_w = min(base_w, int(sg.width() * 0.8))
+                win_h = min(base_h, int(sg.height() * 0.8))
+                dialog.resize(win_w, win_h)
+                dialog.move((sg.width() - win_w) // 2, (sg.height() - win_h) // 2)
+            else:
+                dialog.resize(base_w, base_h)
+            dialog.setMinimumSize(scale(380), scale(240))
+
+            main_lay = QVBoxLayout(dialog)
+            main_lay.setContentsMargins(0, 0, 0, 0)
+            main_lay.setSpacing(0)
+
+            header = QWidget()
+            header.setObjectName("sysDbgHeader")
+            header.setAttribute(Qt.WA_StyledBackground, True)
+            header.setFixedHeight(scale(46))
+            h_lyt = QHBoxLayout(header)
+            h_lyt.setContentsMargins(scale(14), 0, scale(4), 0)
+            h_lyt.setSpacing(scale(8))
+            h_title = QLabel("系统信息")
+            h_title.setObjectName("sysDbgTitle")
+            h_lyt.addWidget(h_title, 1)
+            close_btn = QLabel("\u00d7")
+            close_btn.setAlignment(Qt.AlignCenter)
+            close_btn.setFixedSize(scale(28), scale(28))
+            close_btn.setCursor(Qt.PointingHandCursor)
+            close_btn.setStyleSheet(f"font-size:{scale(18)}px; color:#ffffff; background:transparent;")
+            close_btn.mousePressEvent = lambda e, d=dialog: d.reject()
+            h_lyt.addWidget(close_btn)
+            main_lay.addWidget(header)
+            _enable_window_drag(header, skip=(close_btn,))
+
+            body = QWidget()
+            body.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            b_lay = QVBoxLayout(body)
+            b_lay.setContentsMargins(scale(16), scale(14), scale(16), scale(14))
+            b_lay.setSpacing(scale(10))
+            for lab, val in rows:
+                row_lay = QHBoxLayout()
+                row_lay.setSpacing(scale(10))
+                l_lab = QLabel(lab + "：")
+                l_lab.setObjectName("sysDbgLabel")
+                l_lab.setWordWrap(True)
+                l_lab.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+                row_lay.addWidget(l_lab)
+                l_val = QLabel(str(val))
+                l_val.setObjectName("sysDbgValue")
+                l_val.setWordWrap(True)
+                l_val.setTextInteractionFlags(Qt.TextSelectableByMouse)
+                row_lay.addWidget(l_val, 1)
+                b_lay.addLayout(row_lay)
+            b_lay.addStretch(1)
+            main_lay.addWidget(body, 1)
+            dialog.show()
+        except Exception:
+            pass
+
+    def _update_tab_explicit_minimum(self):
+        """按当前标签页真实内容设置 QTabWidget 的显式最小高度。
+        显式最小高度会覆盖 QTabWidget 的 minimumSizeHint，若低于真实需要，
+        父布局会按过小的值分配空间，导致标签页内容互相重叠。"""
+        tab_widget = getattr(self, 'tab_widget', None)
+        if tab_widget is None:
+            return
+        page = tab_widget.currentWidget()
+        if page is None:
+            return
+        need = page.minimumSizeHint().height()
+        if need <= 0:
+            return
+        tab_bar_h = tab_widget.tabBar().sizeHint().height()
+        tab_widget.setMinimumHeight(max(scale(200), need + tab_bar_h + scale(24)))
+
+    def _on_tab_changed_adaptive(self, _index):
+        # 切换标签页后内容需求可能变大，同步抬高窗口最小值（只增不减，且不超过屏幕）
+        if not getattr(self, '_min_size_reenforced', False):
+            return
+        self._enforce_content_minimum_size()
+
+    def _enforce_content_minimum_size(self):
+        """按内容真实最小尺寸收敛窗口最小值，保证任何允许的窗口尺寸下布局都不重叠"""
+        try:
+            central = self.centralWidget()
+            if central is None:
+                return
+            # 测量顺序：先在常规密度下测量全尺寸需求（tab 显式最小高度必须在
+            # 常规密度下按当前页设置，否则窗口放大后间距恢复时该值会过时偏小）
+            self._adaptive_compact = False
+            self._apply_adaptive_density(False)
+            self._update_tab_explicit_minimum()
+            self._full_min_height = central.minimumSizeHint().height() + scale(6)
+            # 紧凑密度下的需求（tab 最小高度随之收紧，保证测量值与实际状态一致）
+            self._apply_adaptive_density(True)
+            self._update_tab_explicit_minimum()
+            compact_min_h = central.minimumSizeHint().height() + scale(6)
+            self._apply_adaptive_density(False)
+
+            need_w = central.minimumSizeHint().width() + scale(6)
+
+            screen = QApplication.primaryScreen()
+            clamp_w = clamp_h = None
+            if screen:
+                sg = screen.availableGeometry()
+                clamp_w = int(sg.width() * 0.92)
+                clamp_h = int(sg.height() * 0.92)
+
+            # 屏幕足够时按内容需要；屏幕过矮时退到屏幕92%，并由紧凑模式兜底
+            target_w = min(need_w, clamp_w) if clamp_w else need_w
+            target_h = min(self._full_min_height, clamp_h) if clamp_h else self._full_min_height
+            new_min_w = max(self.minimumSize().width(), target_w)
+            new_min_h = max(self.minimumSize().height(), target_h)
+            # 最大化状态下收紧最小值会把无边框窗口顶出最大化导致"启动后瞬间变小"，
+            # 因此最大化时只做测量、不改窗口最小值，等还原后再套用。
+            if not self.isMaximized():
+                self.setMinimumSize(new_min_w, new_min_h)
+            # 重算后紧凑状态可能需要变化（如切换标签页触发但窗口尺寸未变、不触发resizeEvent）
+            compact = self.height() < self._full_min_height
+            self._apply_adaptive_density(compact)
+            if compact:
+                # 最终处于紧凑态时，tab 最小高度也按紧凑密度收敛
+                self._update_tab_explicit_minimum()
+        except Exception as e:
+            logger.debug(f"收敛窗口最小尺寸失败: {e}")
+
     def update_progress_bar_position(self):
         if hasattr(self, 'main_progress'):
-            
+
             self.main_progress.setMaximumWidth(int(self.width() * 0.98))
-            
+
             self.main_progress.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            
+
             if self.main_progress.parent():
                 self.main_progress.parent().layout().update()
             self.main_progress.update()
@@ -14007,44 +15243,83 @@ class BilibiliDownloader(BaseWindow):
             screen_resolution = "未知"
             dpi = "未知"
         
-        # 优化布局：自适应不同分辨率和DPI
-        info_layout = QVBoxLayout()
+        self._sys_diag = {
+            "system": f"{system_info} {system_release} {machine}",
+            "screen": f"{screen_resolution} · DPI: {dpi}",
+            "python": platform.python_version(),
+            "cpu": processor or "未知",
+        }
         
+        # 优化布局：自适应不同分辨率和DPI
+        # 诊断信息（系统/屏幕/Python/处理器）放入独立容器，窗口过矮时可整体隐藏
+        info_layout = QVBoxLayout()
+        info_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
+        info_layout.setSpacing(scale(0))
+
         basic_info_layout = QHBoxLayout()
         basic_info_layout.setSpacing(scale(12))
-        
+
         # 系统信息
         system_label = QLabel(f"系统: {system_info} {system_release} {machine}")
         system_label.setWordWrap(True)
+        system_label.setMinimumHeight(scale(20))
         system_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         basic_info_layout.addWidget(system_label)
-        
+
         # 屏幕信息
         screen_label = QLabel(f"屏幕: {screen_resolution}, DPI: {dpi}")
         screen_label.setWordWrap(True)
+        screen_label.setMinimumHeight(scale(20))
         screen_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         basic_info_layout.addWidget(screen_label)
-        
+
         # 第二行信息
         secondary_info_layout = QHBoxLayout()
         secondary_info_layout.setSpacing(scale(12))
-        
+
         # Python信息
         python_label = QLabel(f"Python: {platform.python_version()}")
         python_label.setWordWrap(True)
+        python_label.setMinimumHeight(scale(20))
         python_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         secondary_info_layout.addWidget(python_label)
-        
+
         # 处理器信息
         cpu_label = QLabel(f"处理器: {processor}")
         cpu_label.setWordWrap(True)
+        cpu_label.setMinimumHeight(scale(20))
         cpu_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         secondary_info_layout.addWidget(cpu_label)
-        
+
         info_layout.addLayout(basic_info_layout)
         info_layout.addLayout(secondary_info_layout)
-        
-        sys_layout.addLayout(info_layout)
+
+        self.sys_debug_widget = QWidget()
+        self.sys_debug_widget.setLayout(info_layout)
+        sys_layout.addWidget(self.sys_debug_widget)
+
+        # 窗口过矮时折叠为单行概要，点击弹出完整系统信息
+        self.sys_debug_summary_btn = QPushButton("系统详情 ▸")
+        self.sys_debug_summary_btn.setObjectName("sysDebugSummaryBtn")
+        self.sys_debug_summary_btn.setMinimumHeight(scale(24))
+        self.sys_debug_summary_btn.setMinimumWidth(scale(150))
+        self.sys_debug_summary_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.sys_debug_summary_btn.setCursor(Qt.PointingHandCursor)
+        self.sys_debug_summary_btn.setToolTip("点击查看系统/屏幕/Python/处理器详情")
+        self.sys_debug_summary_btn.setStyleSheet(scale_style("""
+            QPushButton {
+                background-color: #f1f5f9;
+                border: 1px solid #e2e8f0;
+                border-radius: 0px;
+                color: #2563eb;
+                font-size: 12px;
+                text-align: left;
+                padding: 4px 10px;
+            }
+        """))
+        self.sys_debug_summary_btn.clicked.connect(self._show_sys_debug_popup)
+        self.sys_debug_summary_btn.setVisible(False)
+        sys_layout.addWidget(self.sys_debug_summary_btn)
         sys_layout.addLayout(floating_layout)
 
         content_layout.addWidget(sys_info_group)
@@ -14115,7 +15390,9 @@ class BilibiliDownloader(BaseWindow):
 
         
         self.tab_widget = QTabWidget()
-        self.tab_widget.setMinimumHeight(scale(200))
+        # 注意：不要在这里 setMinimumHeight——显式最小高度会覆盖 QTabWidget 的
+        # minimumSizeHint，父布局会按过小的值分配空间，导致标签页内容被压缩重叠。
+        # 真实最小高度由 _enforce_content_minimum_size 按各页需要计算后设置。
         self.tab_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.tab_widget.setStyleSheet(scale_style("""
             QTabWidget {
@@ -14129,7 +15406,7 @@ class BilibiliDownloader(BaseWindow):
             QTabBar::tab {
                 background-color: #f8f9fa;
                 color: #6c757d;
-                padding: 10px 20px;
+                padding: 8px 14px;
                 border: 1px solid #dee2e6;
                 border-bottom: none;
                 border-top-left-radius: 8px;
@@ -14160,6 +15437,7 @@ class BilibiliDownloader(BaseWindow):
         video_layout = QVBoxLayout(video_tab)
         video_layout.setSpacing(scale(15))
         video_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
+        self.video_tab_layout = video_layout
         
         info_layout = QHBoxLayout()
         info_layout.setSpacing(scale(15))
@@ -15342,11 +16620,15 @@ class BilibiliDownloader(BaseWindow):
         self.status_label = QLabel("就绪 - 请输入链接并解析")
         self.status_label.setObjectName("statusLabel")
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setMinimumHeight(scale(44))
+        self.status_label.setMinimumHeight(scale(24))
         self.status_label.setWordWrap(True)
         self.status_label.setStyleSheet(scale_style("font-size: 11px;"))
-        self.status_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        progress_layout.addWidget(self.status_label, alignment=Qt.AlignCenter)
+        # 占满整行宽度（带 alignment 会让标签按 sizeHint 收窄导致单行文本被折行），
+        # 垂直方向按内容自适应（长消息自动换行成两行）
+        status_sp = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        status_sp.setHeightForWidth(True)
+        self.status_label.setSizePolicy(status_sp)
+        progress_layout.addWidget(self.status_label)
         
         content_layout.addLayout(progress_layout)
 
@@ -15417,6 +16699,11 @@ class BilibiliDownloader(BaseWindow):
         # QScrollArea会拦截内部控件（如QListWidget、QComboBox）的鼠标事件，导致无法操作
         content_widget.setAutoFillBackground(True)
         main_layout.addWidget(content_widget, stretch=1)
+
+        # 内容布局已完整构建，按内容真实最小尺寸收敛窗口最小值
+        self._enforce_content_minimum_size()
+        # 切换标签页后同步更新内容最小需求（不同标签页所需高度不同）
+        self.tab_widget.currentChanged.connect(self._on_tab_changed_adaptive)
 
         self.signal_emitter.user_info_updated.connect(self.update_user_info)
         self.signal_emitter.hevc_checked.connect(self.update_hevc_status)
@@ -16143,15 +17430,12 @@ class BilibiliDownloader(BaseWindow):
     def update_content_list(self, items):
         logger = logging.getLogger(__name__)
         
-        # 确保content_list存在
         if not hasattr(self, 'content_list'):
             logger.error("content_list不存在")
             return
         
-        # 清空列表
         self.content_list.clear()
         
-        # 根据当前列表宽度计算卡片尺寸
         self._calc_card_size()
         
         # 记录处理的项目数量
@@ -16453,7 +17737,6 @@ class BilibiliDownloader(BaseWindow):
                         self.all_episode_list.addItem(item)
             
             qualities = video_info.get("qualities", [])
-            # 填充编码选择下拉框
             play_info = video_info.get('play_info', {})
             available_codecs = play_info.get('available_codecs', set())
             codec_id_map = {7: "H.264 (AVC)", 12: "H.265 (HEVC)", 13: "AV1"}
@@ -16907,10 +18190,8 @@ class BilibiliDownloader(BaseWindow):
         selected_items = self.content_list.selectedItems()
         selected_indices = set()
         for item in selected_items:
-            # 通过列表项找到对应的widget
             widget = self.content_list.itemWidget(item)
             if widget:
-                # 从objectName中提取索引
                 object_name = widget.objectName()
                 if object_name.startswith("favorite_card_"):
                     try:
@@ -17639,6 +18920,10 @@ class BilibiliDownloader(BaseWindow):
                 
                 # 确保在主线程中更新UI
                 QTimer.singleShot(0, lambda: self.update_ui_error(error_msg))
+                # 关闭解析进度窗口，仅通过通知中心推送带操作按钮的失败通知
+                if hasattr(self, 'parse_progress_window') and self.parse_progress_window:
+                    self.parse_progress_window.close()
+                windows_notify_with_actions("解析失败", error_msg)
                 return
 
             # 检测充电/DRM加密内容，若未登录则提示用户登录以获取完整内容
@@ -21773,6 +23058,11 @@ class BilibiliDownloader(BaseWindow):
             self._set_download_buttons_enabled(True)
             if hasattr(self, 'status_label'):
                 self.status_label.setText("下载完成，可继续选择其他内容下载")
+            # 整批任务全部完成后，向 Windows 通知中心推送完成通知
+            try:
+                windows_notify_done("下载完成", "所有下载任务均已完成")
+            except Exception:
+                pass
 
     def on_batch_window_closed(self, task_id=None):
         # 从 batch_windows 中移除已关闭的窗口
@@ -26775,7 +28065,40 @@ class BilibiliDownloader(BaseWindow):
         other_checkbox_layout.addWidget(clipboard_detect_checkbox, 3, 0, 1, 3)
         
         other_layout.addLayout(other_checkbox_layout)
-        
+
+        # 有更新时怎么做
+        update_policy_row = QHBoxLayout()
+        update_policy_row.setSpacing(scale(10))
+        update_policy_label = QLabel("有更新时：")
+        update_policy_label.setStyleSheet(scale_style("font-size: 13px; color: #333;"))
+        self.update_policy_combo = QComboBox()
+        self.update_policy_combo.addItem("通知我来决定是否安装", "ask")
+        self.update_policy_combo.addItem("自动下载安装", "auto")
+        self.update_policy_combo.setMinimumHeight(scale(30))
+        self.update_policy_combo.setStyleSheet(scale_style("""
+            QComboBox {
+                padding: 6px 12px;
+                border: 1px solid #dee2e6;
+                border-radius: 6px;
+                background-color: white;
+                font-size: 13px;
+                min-width: 180px;
+            }
+            QComboBox:hover { border-color: #409eff; }
+        """))
+        current_policy = self.config.get_app_setting("update_policy", "ask")
+        for i in range(self.update_policy_combo.count()):
+            if self.update_policy_combo.itemData(i) == current_policy:
+                self.update_policy_combo.setCurrentIndex(i)
+                break
+        update_policy_tip = QLabel("自动更新在下载完成后提示重启安装")
+        update_policy_tip.setStyleSheet(scale_style("font-size: 11px; color: #909399;"))
+        update_policy_row.addWidget(update_policy_label)
+        update_policy_row.addWidget(self.update_policy_combo)
+        update_policy_row.addWidget(update_policy_tip)
+        update_policy_row.addStretch(1)
+        other_layout.addLayout(update_policy_row)
+
         # 文件选择器样式
         file_dialog_row = QHBoxLayout()
         file_dialog_row.setSpacing(scale(10))
@@ -27442,6 +28765,7 @@ class BilibiliDownloader(BaseWindow):
             
             # 保存其他设置
             self.config.set_app_setting("auto_check_update", auto_update_checkbox.isChecked())
+            self.config.set_app_setting("update_policy", self.update_policy_combo.currentData())
             self.config.set_app_setting("show_download_speed", show_speed_checkbox.isChecked())
             self.config.set_app_setting("show_floating_ball", show_float_checkbox.isChecked())
             self.config.set_app_setting("show_merge_window", show_merge_window_checkbox.isChecked())

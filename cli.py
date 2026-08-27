@@ -33,7 +33,7 @@ def get_parser():
     if _parser is None:
         try:
             from bilibili_parser import BilibiliParser
-            _parser = BilibiliParser()
+            _parser = BilibiliParser(config=get_config())
             logger.info("解析器初始化成功")
         except Exception as e:
             logger.error(f"解析器初始化失败: {e}")

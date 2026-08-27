@@ -3759,11 +3759,31 @@ class BilibiliParser:
                         episodes[i]['permission_denied'] = True
                         episodes[i]['title'] = f"{ep.get('ep_title', '')}（权限检查失败）"
             elif media_type == "video" and collection:
-                
-                
                 logger.info(f"视频合集数: {len(collection)}")
+                # 充电专属视频：逐集探测实际可下载时长，用于列表中删除线 + 可获取时长的标记
+                _probe_charging = bool(is_charging_content)
                 for i, ep in enumerate(collection):
-                    collection[i]['permission_denied'] = False
+                    if _probe_charging:
+                        try:
+                            _info = self._get_play_info('video', ep.get('bvid', ''), ep.get('cid', 0), is_tv_mode)
+                            _truncated = _info.get('is_truncated', False)
+                            _avail_ms = _info.get('available_duration_ms') or 0
+                            _decl_ms = _info.get('declared_duration_ms') or 0
+                            if _truncated and _avail_ms:
+                                collection[i]['permission_denied'] = True
+                                collection[i]['has_free_part'] = True
+                                collection[i]['declared_duration_sec'] = _decl_ms // 1000 if _decl_ms else ep.get('duration', 0)
+                                collection[i]['available_duration_sec'] = _avail_ms // 1000
+                            else:
+                                collection[i]['permission_denied'] = False
+                                collection[i]['has_free_part'] = False
+                        except Exception as e:
+                            logger.warning(f"探测第{i+1}集可获取时长失败：{str(e)}")
+                            collection[i]['permission_denied'] = False
+                            collection[i]['has_free_part'] = False
+                    else:
+                        collection[i]['permission_denied'] = False
+                        collection[i]['has_free_part'] = False
 
             
             pic = None
@@ -3777,6 +3797,7 @@ class BilibiliParser:
             
             total_duration = 0
             
+            # 番剧/课程/视频的 collection 均已包含全部剧集，统一遍历一次即可
             if collection:
                 for i, ep in enumerate(collection):
                     
@@ -3790,26 +3811,6 @@ class BilibiliParser:
                         elif media_type == "cheese" and cheese_info:
                             
                             collection[i]['cover'] = cheese_info.get('cover', '')
-                    
-                    if ep.get('duration'):
-                        total_duration += int(ep.get('duration'))
-            
-            
-            if media_type == "bangumi" and bangumi_info:
-                episodes = bangumi_info.get('episodes', [])
-                for i, ep in enumerate(episodes):
-                    if not ep.get('cover'):
-                        episodes[i]['cover'] = bangumi_info.get('cover', '')
-                    
-                    if ep.get('duration'):
-                        total_duration += int(ep.get('duration'))
-            
-            
-            if media_type == "cheese" and cheese_info:
-                episodes = cheese_info.get('episodes', [])
-                for i, ep in enumerate(episodes):
-                    if not ep.get('cover'):
-                        episodes[i]['cover'] = cheese_info.get('cover', '')
                     
                     if ep.get('duration'):
                         total_duration += int(ep.get('duration'))
@@ -3967,7 +3968,7 @@ class BilibiliParser:
                 logger.info(f"剧集{idx}信息字段：{list(ep.keys())}")
                 logger.info(f"剧集{idx}信息：{_json_dumps(ep)[:500]}")
                 ep_type = ep.get('type_name', '')
-                ep_num = ep.get('ep', idx)
+                ep_num = ep.get('ep', idx) or idx
                 
                 if ep_type in ['SP', 'OVA', '剧场版']:
                     ep_index = f"{ep_type}{ep_num}"
@@ -4012,8 +4013,8 @@ class BilibiliParser:
                     "cid": ep.get('cid', ''),
                     "ep_index": ep_index,
                     "ep_title": self._sanitize_filename(actual_title),
-                    "duration": ep.get('duration', 0),
-                    "duration_str": self._format_duration(ep.get('duration', 0)),
+                    "duration": self._bangumi_duration_sec(ep.get('duration', 0)),
+                    "duration_str": self._format_duration(self._bangumi_duration_sec(ep.get('duration', 0))),
                     "aid": ep.get('aid', ''),
                     "cover": ep.get('cover', season_cover),  
                     "share_url": ep.get('share_url', ''),
@@ -4085,7 +4086,7 @@ class BilibiliParser:
                 
                 cheese_episodes = []
                 for idx, ep in enumerate(episodes, 1):
-                    ep_num = ep.get('index', idx)
+                    ep_num = ep.get('index', idx) or idx
                     ep_index = f"第{ep_num}集"
 
                     title = ep.get('title', f"第{ep_num}集")
@@ -4103,8 +4104,8 @@ class BilibiliParser:
                         "cid": ep.get('cid', ''),
                         "ep_index": ep_index,
                         "ep_title": self._sanitize_filename(title),
-                        "duration": ep.get('duration', 0),
-                        "duration_str": self._format_duration(ep.get('duration', 0)),
+                        "duration": self._bangumi_duration_sec(ep.get('duration', 0)),
+                        "duration_str": self._format_duration(self._bangumi_duration_sec(ep.get('duration', 0))),
                         "status": status,
                         "kid": ep.get('kid', None)
                     })
@@ -4163,7 +4164,7 @@ class BilibiliParser:
                                 
                                 cheese_episodes = []
                                 for idx, ep in enumerate(episodes, 1):
-                                    ep_num = ep.get('index', idx)
+                                    ep_num = ep.get('index', idx) or idx
                                     ep_index = f"第{ep_num}集"
 
                                     title = ep.get('title', f"第{ep_num}集")
@@ -4181,8 +4182,8 @@ class BilibiliParser:
                                         "cid": ep.get('cid', ''),
                                         "ep_index": ep_index,
                                         "ep_title": self._sanitize_filename(title),
-                                        "duration": ep.get('duration', 0),
-                                        "duration_str": self._format_duration(ep.get('duration', 0)),
+                                        "duration": self._bangumi_duration_sec(ep.get('duration', 0)),
+                                        "duration_str": self._format_duration(self._bangumi_duration_sec(ep.get('duration', 0))),
                                         "status": status,
                                         "kid": ep.get('kid', None)
                                     })
@@ -4231,7 +4232,7 @@ class BilibiliParser:
 
             cheese_episodes = []
             for idx, ep in enumerate(episodes, 1):
-                ep_num = ep.get('index', idx)
+                ep_num = ep.get('index', idx) or idx
                 ep_index = f"第{ep_num}集"
 
                 title = ep.get('title', f"第{ep_num}集")
@@ -4249,8 +4250,8 @@ class BilibiliParser:
                 "cid": ep.get('cid', ''),
                 "ep_index": ep_index,
                 "ep_title": self._sanitize_filename(title),
-                "duration": ep.get('duration', 0),
-                "duration_str": self._format_duration(ep.get('duration', 0)),
+                "duration": self._bangumi_duration_sec(ep.get('duration', 0)),
+                "duration_str": self._format_duration(self._bangumi_duration_sec(ep.get('duration', 0))),
                 "status": status,
                 "kid": None
             })
@@ -5518,6 +5519,11 @@ class BilibiliParser:
 
             data_source = play_data.get('data', play_data.get('result', {}))
             logger.debug(f"API返回数据结构：{list(data_source.keys())}")
+
+            _declared_ms = 0
+            _avail_ms = 0
+            _is_truncated = False
+
             if 'dash' in data_source and 'video' in data_source['dash'] and data_source['dash']['video']:
                 first_video = data_source['dash']['video'][0]
                 logger.debug(f"第一个视频对象的键：{list(first_video.keys())}")
@@ -5679,7 +5685,6 @@ class BilibiliParser:
                         logger.info(f"使用最高可用的音频质量：{_hq_name}")
 
                 if 'video' in data_source['dash']:
-                    # 编码ID映射
                     codec_id_map = {7: "AVC", 12: "HEVC", 13: "AV1"}
                     # 用于去重：同一(qn, codecid)只保留第一个
                     seen_qn_codec = set()
@@ -5785,6 +5790,21 @@ class BilibiliParser:
                 logger.debug("使用DURL格式获取链接")
                 current_qn = data_source.get('quality', 0)
                 accept_quality = data_source.get('accept_quality', [current_qn])
+
+                # 校验渐进式(mp4-only)流是否被B站截断：durl分段总长 vs 声明的timelength
+                _declared_ms = data_source.get('timelength') or 0
+                _durl_total_ms = 0
+                if data_source['durl']:
+                    _durl_total_ms = sum(int(x.get('length') or 0) for x in data_source['durl'])
+                _avail_ms = _durl_total_ms
+                if _declared_ms and _durl_total_ms and _durl_total_ms < int(_declared_ms) * 0.6:
+                    _is_truncated = True
+                    logger.warning(
+                        f"渐进式视频流疑似被截断: timelength={_declared_ms}ms(约{int(_declared_ms)//1000}秒)，"
+                        f"实际可下载durl仅{_durl_total_ms}ms(约{int(_durl_total_ms)//1000}秒)。"
+                        f"该视频为仅mp4格式(无DASH)，需保持登录状态才能下载完整时长，"
+                        f"否则将只能得到约{self._format_duration(int(_durl_total_ms)//1000)}的前缀内容。"
+                    )
                 
                 if data_source['durl']:
                     # 检查是否有多个分段
@@ -5899,7 +5919,10 @@ class BilibiliParser:
                 "is_vip": is_vip,
                 "has_hevc": has_hevc,
                 "kid": kid,
-                "available_codecs": available_codecs
+                "available_codecs": available_codecs,
+                "is_truncated": _is_truncated,
+                "declared_duration_ms": _declared_ms,
+                "available_duration_ms": _avail_ms
             }
         except Exception as e:
             error_msg = str(e)
@@ -6980,7 +7003,6 @@ class BilibiliParser:
             raise Exception(f"创建保存目录失败：{str(e)}")
 
         
-        # 使用工作目录下的temp文件夹作为临时目录
         work_dir = os.path.dirname(os.path.abspath(__file__))
         temp_dir = os.path.join(work_dir, "temp")
         try:
@@ -7089,8 +7111,8 @@ class BilibiliParser:
                 progress_lock = threading.Lock()
                 progress_state = {
                     'cumulative_size': 0,
-                    'chunk_progresses': [0] * CHUNK_COUNT,   # 每片进度 0-100
-                    'chunk_sizes': [r[1] - r[0] + 1 for r in ranges],  # 每片字节数
+                    'chunk_progresses': [0] * CHUNK_COUNT,
+                    'chunk_sizes': [r[1] - r[0] + 1 for r in ranges],
                     'last_callback_overall': -1  # 上次回调的进度值，避免重复
                 }
                 chunk_results = [None] * CHUNK_COUNT
@@ -9869,6 +9891,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     def _sanitize_filename(filename):
         invalid_chars = r'[\/:*?"<>|]'
         return re.sub(invalid_chars, '_', filename).strip()
+
+    @staticmethod
+    def _bangumi_duration_sec(duration):
+        """番剧API返回的duration单位为毫秒，转成秒"""
+        try:
+            ms = int(duration)
+        except (TypeError, ValueError):
+            return 0
+        if ms <= 0:
+            return 0
+        return ms // 1000
 
     @staticmethod
     def _format_duration(duration):

@@ -14,6 +14,133 @@ def _is_msix_environment():
         return False
 
 
+def _fatal_error_dialog(title, message):
+    """致命错误弹窗：除显示错误外，额外提供【一键复制日志】【加入交流群】入口，
+    方便用户在启动即崩溃时也能把日志和报错发给作者。返回 True 表示已成功弹出。"""
+    try:
+        from PyQt5.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout,
+                                     QLabel, QPushButton, QFrame)
+        from PyQt5.QtCore import Qt
+        from PyQt5 import QtCore
+    except Exception:
+        return False  # PyQt 不可用时由调用方退回 MessageBoxW
+
+    app = QApplication.instance()
+    if app is None:
+        try:
+            QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling, True)
+            QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_UseHighDpiPixmaps, True)
+        except Exception:
+            pass
+        app = QApplication([])
+
+    def _copy_logs():
+        try:
+            from ui import copy_logs_for_support
+            return copy_logs_for_support()
+        except Exception:
+            return False
+
+    def _join_group():
+        try:
+            import webbrowser as _wb
+            _wb.open("https://qm.qq.com/q/FuEDO9DXmG")
+            return True
+        except Exception:
+            return False
+
+    top = None
+    from PyQt5.QtWidgets import QApplication as _QA
+    _inst = _QA.instance()
+    if _inst is not None and getattr(_inst, 'topLevelWidgets', None):
+        try:
+            wins = _inst.topLevelWidgets()
+            for w in wins:
+                if w.isVisible() and w.window():
+                    top = w.window()
+                    break
+        except Exception:
+            top = None
+
+    dlg = QDialog(top)
+    dlg.setWindowTitle(title)
+    dlg.setWindowFlags(Qt.WindowTitleHint | Qt.WindowSystemMenuHint | Qt.WindowCloseButtonHint)
+    dlg.resize(560, 380)
+    dlg.setMinimumSize(440, 300)
+    if top is None:
+        dlg.setAttribute(Qt.WA_DeleteOnClose, False)
+
+    layout = QVBoxLayout(dlg)
+    layout.setContentsMargins(24, 20, 24, 18)
+    layout.setSpacing(12)
+
+    heading = QLabel(title)
+    heading.setStyleSheet("font-size: 16px; font-weight: 700; color: #d4380d;")
+    layout.addWidget(heading)
+
+    body = QLabel(str(message)[:1800])
+    body.setWordWrap(True)
+    body.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+    body.setTextInteractionFlags(Qt.TextSelectableByMouse)
+    body.setStyleSheet("font-size: 13px; color: #333333;")
+    layout.addWidget(body, 1)
+
+    support_info = QLabel(
+        "遇到这个错误，请把日志和报错信息复制后发给作者，方便我尽快修复：\n"
+        "QQ：2273962061 / 3241417097\n"
+        "用户交流QQ群：714822491")
+    support_info.setWordWrap(True)
+    support_info.setStyleSheet("font-size: 12px; color: #595959;")
+    layout.addWidget(support_info)
+
+    line = QFrame()
+    line.setFrameShape(QFrame.HLine)
+    line.setFrameShadow(QFrame.Sunken)
+    line.setStyleSheet("color: #e8e8e8;")
+    layout.addWidget(line)
+
+    btn_row = QHBoxLayout()
+    btn_row.setSpacing(10)
+    copy_btn = QPushButton("一键复制日志")
+    copy_btn.setStyleSheet(
+        "QPushButton { background-color: #fafafa; color: #374151; border: 1px solid #d9d9d9; "
+        "border-radius: 4px; padding: 8px 16px; font-size: 13px; }"
+        "QPushButton:hover { background-color: #f0f0f0; }")
+    def _on_copy():
+        _copy_logs()
+        try:
+            from ui import windows_notify
+            windows_notify("日志已复制", "日志已复制到剪贴板，可直接粘贴发送给作者")
+        except Exception:
+            pass
+    copy_btn.clicked.connect(_on_copy)
+    btn_row.addWidget(copy_btn)
+
+    join_btn = QPushButton("加入交流群获取支持")
+    join_btn.setStyleSheet(
+        "QPushButton { background-color: #00a1d6; color: white; border: none; "
+        "border-radius: 4px; padding: 8px 16px; font-size: 13px; font-weight: 600; }"
+        "QPushButton:hover { background-color: #0091c2; }")
+    def _on_join():
+        _join_group()
+    join_btn.clicked.connect(_on_join)
+    btn_row.addWidget(join_btn)
+
+    exit_btn = QPushButton("退出")
+    exit_btn.setStyleSheet(
+        "QPushButton { background-color: #f5f5f5; color: #333333; border: 1px solid #d9d9d9; "
+        "border-radius: 4px; padding: 8px 20px; font-size: 13px; }"
+        "QPushButton:hover { background-color: #ebebeb; }")
+    exit_btn.clicked.connect(dlg.reject)
+    btn_row.addWidget(exit_btn)
+
+    btn_row.addStretch(1)
+    layout.addLayout(btn_row)
+
+    dlg.exec_()
+    return True
+
+
 def _fatal_error_exit(title, message):
     """启动阶段致命错误：写日志 + 弹窗 + 立即退出进程。
     绝不静默吞掉异常留下"进程活着但无窗口"的僵尸实例（会一直持有单实例锁）"""
@@ -26,15 +153,14 @@ def _fatal_error_exit(title, message):
         pass
     if sys.platform == 'win32':
         try:
-            import ctypes
-            ctypes.windll.user32.MessageBoxW(None, str(message)[:1800], title, 0x10)
+            if not _fatal_error_dialog(title, message):
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(None, str(message)[:1800], title, 0x10)
         except Exception:
             pass
     os._exit(1)
 
-# B站是国内站点，不需要走梯子/代理。在 import requests 之前清除所有代理环境变量，
-# 并设置 NO_PROXY=* 让 requests 对所有主机都不使用代理（包括系统注册表里的IE代理）。
-# 这样用户即使开着梯子，程序也能直连B站正常工作。
+# B站是国内站点：在 import requests 前清除所有代理环境变量并设 NO_PROXY=*（含注册表IE代理），用户开梯子也能直连
 for _k in ('HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy'):
     os.environ.pop(_k, None)
 os.environ['NO_PROXY'] = '*'
@@ -517,7 +643,6 @@ if __name__ == "__main__":
     try:
         import time
         start_time = time.time()
-        # 尝试导入PyQt5，如果失败则降级到CLI模式
         try:
             from PyQt5.QtCore import Qt, qInstallMessageHandler
         except ImportError as e:
@@ -554,6 +679,13 @@ if __name__ == "__main__":
         font = QFont(font_family, font_size)
         app.setFont(font)
         app.setStyle('Fusion')
+        # 注册通知 AUMID（后台线程），确保通知中心 Toast 能显示可执行按钮
+        if IS_WINDOWS:
+            try:
+                from toast_winrt import register_aumid_shortcut_async
+                register_aumid_shortcut_async()
+            except Exception:
+                pass
         # 设置应用级图标（确保任务栏显示）
         try:
             from PyQt5.QtGui import QIcon

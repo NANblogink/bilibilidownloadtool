@@ -615,7 +615,6 @@ class LiveParser:
         if not result["success"]:
             return result
         data = result["data"]
-        # 格式化分区数据
         area_list = []
         for parent in data:
             parent_id = parent.get("id", 0)

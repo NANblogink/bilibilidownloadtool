@@ -72,7 +72,7 @@ class ToolManager:
         need_bento4 = not os.path.exists(self.mp4decrypt_path)
 
         if not need_ffmpeg and not need_bento4:
-            return  # 工具都已就绪，无需回退
+            return
 
         logger.info("install_dir中工具不完整，尝试从本地查找...")
         local_tools = self._find_local_tools()

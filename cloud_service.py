@@ -54,7 +54,6 @@ class CloudService:
     }
 
     def __init__(self, current_version=None):
-        # 如果未传版本号，从 app_config 获取
         if current_version is None:
             try:
                 from app_config import VERSION_NUM
@@ -528,7 +527,6 @@ class CloudService:
             print(f"[DEBUG下载] GET响应: status={resp.status_code}, content-length={resp.headers.get('content-length')}, url={resp.url}")
             logger.info(f"[下载] GET响应: status={resp.status_code}, content-length={resp.headers.get('content-length')}")
 
-            # 检查HTTP状态码
             if resp.status_code != 200:
                 print(f"[DEBUG下载] 状态码非200: {resp.status_code}, 响应前200字符: {resp.text[:200]}")
                 logger.warning(f"[下载] 状态码非200: {resp.status_code}")
@@ -980,7 +978,6 @@ class CloudService:
 
     def report_crash(self, crash_type, crash_message, stack_trace="", system_info=""):
         """上报崩溃日志"""
-        # 用户未同意崩溃上报时不上报
         if not self.is_consent(self.CONSENT_CRASH):
             logger.debug(f"崩溃上报已跳过（用户未同意）: {crash_type}")
             return
@@ -1009,7 +1006,6 @@ class CloudService:
 
     def upload_crash_log(self, log_content, crash_id=None):
         """上传详细崩溃日志文件"""
-        # 用户未同意崩溃上报时不上报
         if not self.is_consent(self.CONSENT_CRASH):
             logger.debug("崩溃日志上传已跳过（用户未同意）")
             return

@@ -43,6 +43,9 @@ beta_bind.json
 
 # ==================== 打包构建产物（不上传） ====================
 build_*.py
+build_onefile/
+dist_onefile/
+sign_msix_test.ps1
 *.spec
 version_info_*.win
 patch_pyinstaller.py

@@ -392,7 +392,6 @@ class AudioParser:
         if not result["success"]:
             return result
         raw_list = (result["data"] or {}).get("list", {}) or {}
-        # 转换为按年份组织的列表
         periods = {}
         for year, arr in raw_list.items():
             periods[year] = [

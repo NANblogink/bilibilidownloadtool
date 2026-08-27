@@ -343,7 +343,7 @@ class EpisodeDownloadThread(QThread):
                     if str(selected_qn) in video_urls:
                         selected_qn = str(selected_qn)
                     else:
-                        selected_qn = max(video_urls.keys(), key=lambda k: int(k)) if video_urls else ''
+                        selected_qn = max((int(k[0]) if isinstance(k, tuple) else int(k)) for k in video_urls) if video_urls else ''
                 video_url, actual_codecid = self._find_video_url(video_urls, selected_qn, task_info.get('selected_codecid', 0) if task_info else 0, task_info.get('video_output_codec', None) if task_info else 0)
                 # 存储编码信息供merge_media使用
                 self.ep_info['actual_codecid'] = actual_codecid
@@ -1980,7 +1980,7 @@ class DownloadManager(QObject):
                 if 'video_urls' in ep_info:
                     video_urls = ep_info.get('video_urls', {})
                     if selected_qn not in video_urls:
-                        selected_qn = max(video_urls.keys(), key=lambda k: int(k)) if video_urls else ''
+                        selected_qn = max((int(k[0]) if isinstance(k, tuple) else int(k)) for k in video_urls) if video_urls else ''
                     video_url, actual_codecid = self._find_video_url(video_urls, selected_qn, task_info.get('selected_codecid', 0) if task_info else 0, task_info.get('video_output_codec', None) if task_info else None)
                     logger.info(f"[编码诊断] _find_video_url返回: actual_codecid={actual_codecid}, video_urls可用编码={[(k,v[:30]+'...') for k,v in video_urls.items() if isinstance(k,tuple)]}")
                     audio_url = ep_info.get('audio_url', '')
@@ -2003,7 +2003,7 @@ class DownloadManager(QObject):
                         raise Exception(error)
                     video_urls = play_info['video_urls']
                     if selected_qn not in video_urls:
-                        selected_qn = max(video_urls.keys(), key=lambda k: int(k)) if video_urls else ''
+                        selected_qn = max((int(k[0]) if isinstance(k, tuple) else int(k)) for k in video_urls) if video_urls else ''
                     video_url, actual_codecid = self._find_video_url(video_urls, selected_qn, task_info.get('selected_codecid', 0) if task_info else 0, task_info.get('video_output_codec', None) if task_info else None)
                     audio_url = play_info.get('audio_url', '')
                     kid = play_info.get('kid', None)
@@ -2044,7 +2044,7 @@ class DownloadManager(QObject):
                     audio_url = ep_info.get('audio_url', '')
                     kid = ep_info.get('kid', None)
                 if selected_qn not in video_urls:
-                    selected_qn = max(video_urls.keys(), key=lambda k: int(k)) if video_urls else ''
+                    selected_qn = max((int(k[0]) if isinstance(k, tuple) else int(k)) for k in video_urls) if video_urls else ''
                 video_url, actual_codecid = self._find_video_url(video_urls, selected_qn, task_info.get('selected_codecid', 0) if task_info else 0, task_info.get('video_output_codec', None) if task_info else None)
                 ep_info['actual_codecid'] = actual_codecid
             else:
@@ -2107,7 +2107,7 @@ class DownloadManager(QObject):
                     kid = ep_info.get('kid', None)
 
                 if selected_qn not in video_urls:
-                    selected_qn = max(video_urls.keys(), key=lambda k: int(k)) if video_urls else ''
+                    selected_qn = max((int(k[0]) if isinstance(k, tuple) else int(k)) for k in video_urls) if video_urls else ''
                 video_url, actual_codecid = self._find_video_url(video_urls, selected_qn, task_info.get('selected_codecid', 0) if task_info else 0, task_info.get('video_output_codec', None) if task_info else None)
                 ep_info['actual_codecid'] = actual_codecid
             return video_url, audio_url, kid
@@ -2263,7 +2263,6 @@ class DownloadManager(QObject):
                         paused = True if task_info else False
                     self._mutex.unlock()
 
-                    # 将分片进度编码到状态字符串中，供UI层解析
                     emit_status = status
                     if chunk_progresses:
                         import json

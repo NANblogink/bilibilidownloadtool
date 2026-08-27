@@ -620,7 +620,6 @@ class AudioTab(QWidget):
         """填充音质下拉框"""
         self.quality_combo.clear()
         if full:
-            # 完整接口支持全部音质
             for qn, name in QUALITY_MAP.items():
                 self.quality_combo.addItem(f"{name} (qn={qn})", qn)
             # 默认选择高品质320K
