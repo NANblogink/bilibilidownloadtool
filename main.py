@@ -866,17 +866,14 @@ if __name__ == "__main__":
                 splash.update_progress(95, "加载完成...")
                 app.processEvents()
                 splash.close_with_animation()
-                # 设置默认窗口尺寸（供用户从最大化还原时使用合理大小）
+                # 设置默认窗口尺寸（供用户从最大化还原时使用合理大小）。
+                # 无边框窗口的 showMaximized() 在此 Qt 版本下不可靠（可能静默失效），
+                # 因此直接物理铺满可用区，保证打开即为全屏；守卫会兜底维持全屏。
                 saved_geo = config.get_app_setting("window_geometry", "")
                 if not saved_geo:
                     screen = QApplication.primaryScreen()
                     if screen:
-                        sg = screen.availableGeometry()
-                        w = int(sg.width() * 0.75)
-                        h = int(sg.height() * 0.8)
-                        x = sg.left() + (sg.width() - w) // 2
-                        y = sg.top() + (sg.height() - h) // 2
-                        window.setGeometry(x, y, w, h)
+                        window.setGeometry(screen.availableGeometry())
                 window.showMaximized()
                 window.raise_()
                 window.activateWindow()
@@ -1242,7 +1239,23 @@ if __name__ == "__main__":
                     if _cs is None:
                         from cloud_service import CloudService
                         _cs = CloudService()
-                    _cs.report_error(exc_type.__name__, str(exc_value), error_msg, {"file": file_path, "line": line_number})
+                    # 收集最近的日志文件内容
+                    log_content = ""
+                    try:
+                        import logging
+                        log_dir = os.path.join(os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__)), "logs")
+                        if os.path.isdir(log_dir):
+                            log_files = sorted([f for f in os.listdir(log_dir) if f.endswith('.log')], key=lambda x: os.path.getmtime(os.path.join(log_dir, x)), reverse=True)
+                            if log_files:
+                                log_path = os.path.join(log_dir, log_files[0])
+                                with open(log_path, 'r', encoding='utf-8', errors='replace') as lf:
+                                    log_content = lf.read()[-500000:]  # 最近500KB
+                    except Exception:
+                        pass
+                    _cs.report_error(exc_type.__name__, str(exc_value), error_msg,
+                                     {"file": file_path, "line": line_number},
+                                     error_line=line_number, error_file=file_path,
+                                     log_content=log_content)
                 except Exception:
                     pass
                 if window:

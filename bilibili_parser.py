@@ -330,11 +330,25 @@ from error_codes import ERROR_CODES
 requests.packages.urllib3.disable_warnings()
 
 class BilibiliParser:
+    def _create_browser_session(self):
+        """创建模拟真实 Chrome 浏览器的会话。
+        优先使用 curl_cffi（impersonate='chrome'，TLS/HTTP2 指纹与真实 Chrome 一致），
+        未安装时回退到 requests.Session()。返回的会话 API 与 requests 兼容。"""
+        try:
+            from curl_cffi import requests as _cr
+            _s = _cr.Session(impersonate='chrome')
+            return _s
+        except Exception as _e:
+            logger.warning(f"curl_cffi 不可用，回退 requests: {_e}")
+            return requests.Session()
+
     def __init__(self, config, cookie_path="cookie.txt"):
         self.config = config
         self.cookies = {}
         self.csrf_token = ""
-        self.session = requests.Session()
+        # 使用 curl_cffi 模拟真实 Chrome 浏览器（TLS/HTTP2 指纹一致），大幅降低 B 站风控
+        # 若未安装 curl_cffi 则回退到 requests
+        self.session = self._create_browser_session()
         self.user_info = None
         self.hevc_supported = False
         
@@ -406,7 +420,11 @@ class BilibiliParser:
         self.session.verify = False
         self.session.proxies = {}  # 强制禁用代理
         self.session.trust_env = False  # 不读取系统代理（含注册表IE代理），让开梯子也能直连B站
-        
+
+        # 注入验证过的 WebEngine 完整环境（UA + buvid + _uuid + 所有 cookie）
+        # 让 requests 伪装成跟风控验证时同一套浏览器环境，避免每次登录都触发风控
+        self.load_browser_env()
+
         self._load_cached_wbi_keys()
         threading.Thread(target=self._update_wbi_keys).start()
         
@@ -899,6 +917,57 @@ class BilibiliParser:
             print(f"Cookie保存失败：{str(e)}")
             return False
 
+    def _browser_env_path(self):
+        return os.path.join(os.path.dirname(self.cookie_path), "browser_env.json")
+
+    def save_browser_env(self, cookies_dict, user_agent=None, extra_headers=None):
+        """保存验证通过的 WebEngine 完整浏览器环境，下次请求时复用同一套指纹。"""
+        try:
+            import json as _json
+            env = {
+                "ua": user_agent or "",
+                "cookies": dict(cookies_dict) if isinstance(cookies_dict, dict) else {},
+                "headers": dict(extra_headers) if isinstance(extra_headers, dict) else {},
+            }
+            with open(self._browser_env_path(), 'w', encoding='utf-8') as f:
+                _json.dump(env, f, ensure_ascii=False, indent=2)
+            logger.info(f"浏览器环境已保存：cookie_keys={list(env['cookies'].keys())}, ua={env['ua'][:40]}...")
+            return True
+        except Exception as e:
+            logger.error(f"保存浏览器环境失败：{e}")
+            return False
+
+    def load_browser_env(self):
+        """加载浏览器环境并注入到当前 session，使 requests 伪装成验证过的浏览器。"""
+        try:
+            p = self._browser_env_path()
+            if not os.path.exists(p):
+                return False
+            import json as _json
+            with open(p, 'r', encoding='utf-8') as f:
+                env = _json.load(f)
+            if env.get('ua'):
+                self.session.headers['User-Agent'] = env['ua']
+            if env.get('headers'):
+                for k, v in env['headers'].items():
+                    if k and v and k.lower() not in ('host', 'content-length', 'connection'):
+                        self.session.headers[k] = v
+            cookies = env.get('cookies') or {}
+            if cookies:
+                for k, v in cookies.items():
+                    if k and v and isinstance(k, str) and isinstance(v, str):
+                        self.session.cookies.set(k, v, domain='.bilibili.com')
+                        self.cookies[k] = v
+                if cookies.get('bili_jct'):
+                    self.csrf_token = cookies['bili_jct']
+                    self.session.headers['X-CSRF-Token'] = self.csrf_token
+                logger.info(f"浏览器环境已注入：{len(cookies)} cookies, ua={self.session.headers.get('User-Agent', '')[:40]}...")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"加载浏览器环境失败：{e}")
+            return False
+
     def _is_valid_cookie_kv(self, key, value):
         """检查cookie键值对是否有效，过滤被日志等数据污染的脏数据"""
         if not isinstance(key, str) or not isinstance(value, str):
@@ -1071,6 +1140,12 @@ class BilibiliParser:
                             if retry < max_retries - 1:
                                 continue
                             return False, {"error": "请求频率过高，请稍后再试"}
+                        if resp.status_code == 429:
+                            logger.warning("触发429限流，等待后重试")
+                            time.sleep(3 + retry * 3)
+                            if retry < max_retries - 1:
+                                continue
+                            return False, {"error": "请求过于频繁，请稍后再试"}
                         return False, {"error": f"请求错误（code={resp.status_code}）"}
 
                     content = resp.text.strip()
@@ -2598,9 +2673,132 @@ class BilibiliParser:
                 "error": str(e)
             }
             
+    def _strip_login_cookies_from_session(self):
+        """密码登录前剔除 session 里残留的已登录会话 cookie（SESSDATA/bili_jct/DedeUserID 等）。
+        否则"主动退出后重新登录"时，环境里还带着旧的登录态，B 站会判定环境异常再次触发风控。"""
+        try:
+            login_keys = ('SESSDATA', 'bili_jct', 'DedeUserID', 'DedeUserID__ckMd5', 'sid')
+            for k in list(self.session.cookies.keys()):
+                if k in login_keys:
+                    self.session.cookies.pop(k, None)
+            for k in login_keys:
+                if k in self.cookies:
+                    del self.cookies[k]
+            if 'X-CSRF-Token' in self.session.headers:
+                del self.session.headers['X-CSRF-Token']
+            logger.debug("登录前已剔除残留登录态 cookie")
+        except Exception as e:
+            logger.warning(f"剔除登录态 cookie 失败: {e}")
+
+    def _load_device_fingerprint_only(self):
+        """仅从已验证的 browser_env.json 加载设备指纹（buvid3/buvid4/_uuid/sid），不加载登录态 cookie。
+        设备指纹保持稳定一致，登录请求不带旧会话，从而在"主动退出后重新登录"时不触发风控。"""
+        try:
+            p = self._browser_env_path()
+            if not os.path.exists(p):
+                return False
+            import json as _json
+            with open(p, 'r', encoding='utf-8') as f:
+                env = _json.load(f)
+            ua = env.get('ua') or ''
+            headers = env.get('headers') or {}
+            cookies = env.get('cookies') or {}
+
+            fp_cookies = {}
+            fp_prefixes = ('buvid', '_uuid', 'sid', 'b_nut', 'buvid4', 'buvid_fp', 'Current-QN', 'b_lsid', 'buvid3')
+            for k, v in cookies.items():
+                if (k and v and isinstance(k, str) and isinstance(v, str)
+                        and k not in ('SESSDATA', 'bili_jct', 'DedeUserID', 'DedeUserID__ckMd5', 'sid')
+                        and (k.startswith('buvid') or k in ('_uuid',) or k in fp_cookies or k in ('b_nut', 'b_lsid', 'Current-QN'))
+                        or k in fp_prefixes):
+                    fp_cookies[k] = v
+
+            if ua:
+                self.session.headers['User-Agent'] = ua
+            if headers:
+                for k, v in headers.items():
+                    if k and v and k.lower() not in ('host', 'content-length', 'connection', 'cookie', 'x-csrf-token'):
+                        self.session.headers[k] = v
+            if fp_cookies:
+                for k, v in fp_cookies.items():
+                    self.session.cookies.set(k, v, domain='.bilibili.com')
+                logger.info(f"已复用已验证设备指纹：{list(fp_cookies.keys())}, ua={ua[:40]}")
+                return True
+            return bool(ua)
+        except Exception as e:
+            logger.error(f"加载设备指纹失败: {e}")
+            return False
+
+    def warmup_before_login(self):
+        """密码登录前先访问 B 站，让服务端下发 buvid3/buvid4/_uuid 等完整浏览器指纹 cookie。
+        优先复用已通过设备验证的浏览器环境（同一套设备指纹），并剔除残留登录态，避免每次登录都被判定为可疑环境再次触发风控。"""
+        try:
+            # 先剔除 session 里可能残留的旧登录态 cookie，确保登录请求干净
+            self._strip_login_cookies_from_session()
+
+            # 优先复用已保存的（已通过设备验证的）设备指纹，保证指纹一致，不重复触发风控
+            if self._load_device_fingerprint_only():
+                try:
+                    self.session.get("https://api.bilibili.com/x/web-interface/nav", timeout=10)
+                except Exception as e:
+                    logger.warning(f"warmup 复用环境刷新失败: {e}")
+                got = list(self.session.cookies.get_dict().keys())
+                logger.info(f"warmup 复用已验证设备指纹，session cookie keys: {got}")
+                return True
+
+            warmup_ua = (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+            )
+            warmup_headers = {
+                "User-Agent": warmup_ua,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "zh-CN,zh;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache",
+                "Upgrade-Insecure-Requests": "1",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+            }
+            self.session.headers.update(warmup_headers)
+
+            # 1) 访问 www.bilibili.com 首页，拿 buvid3 / buvid4 / _uuid
+            try:
+                self.session.get("https://www.bilibili.com/", timeout=10, allow_redirects=True)
+            except Exception as e:
+                logger.warning(f"warmup 访问首页失败: {e}")
+
+            # 2) 访问 passport 入口，让服务端下发 passport 相关 cookie
+            try:
+                self.session.get("https://passport.bilibili.com/login", timeout=10, allow_redirects=True)
+            except Exception as e:
+                logger.warning(f"warmup 访问 passport 失败: {e}")
+
+            # 3) 访问 nav 接口，补全 buvid 指纹
+            try:
+                self.session.get("https://api.bilibili.com/x/web-interface/nav", timeout=10)
+            except Exception as e:
+                logger.warning(f"warmup 访问 nav 失败: {e}")
+
+            got = list(self.session.cookies.get_dict().keys())
+            logger.info(f"warmup 完成，当前 session cookie keys: {got}")
+
+            # 保存浏览器环境，后续启动也能用上
+            self.save_browser_env(self.session.cookies.get_dict(), user_agent=warmup_ua, extra_headers=warmup_headers)
+            return True
+        except Exception as e:
+            logger.error(f"warmup_before_login 失败：{e}")
+            return False
+
     def login_with_password(self, username, password, token, challenge, validate):
         try:
-            
+
+            # 登录前必须先建好浏览器指纹环境，否则 B 站必然触发风控
+            self.warmup_before_login()
+
             key_result = self.get_login_key()
             if not key_result.get("success"):
                 return key_result
@@ -2629,8 +2827,10 @@ class BilibiliParser:
             logger = logging.getLogger(__name__)
             
             
+            # 复用 warmup 注入的已验证 UA（与验证页一致），不要硬编码覆盖，避免被 B 站判定为不同设备
+            _current_ua = self.session.headers.get('User-Agent') or 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'User-Agent': _current_ua,
                 'Referer': 'https://www.bilibili.com/',
                 'Accept': 'application/json, text/plain, */*',
                 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
@@ -3261,6 +3461,8 @@ class BilibiliParser:
 
             if media_type == "av":
                 try:
+                    if progress_callback:
+                        progress_callback(12, "正在获取视频信息...")
                     av_data = self._get_av_info(media_id)
                     logger.info(f"获取AV数据成功")
                     
@@ -3455,8 +3657,12 @@ class BilibiliParser:
                 if not bvid:
                     bvid = media_id
                 if not cid:
+                    if progress_callback:
+                        progress_callback(15, "正在获取视频分P信息...")
                     cid = self._get_cid(media_type, bvid)
                 if not title or not collection:
+                    if progress_callback:
+                        progress_callback(16, "正在获取视频详情...")
                     video_info = self._get_video_main_info(bvid)
                     if not title:
                         title = self._sanitize_filename(video_info['title'])
@@ -4734,6 +4940,8 @@ class BilibiliParser:
             raise Exception(f"CID获取失败：{str(e)}（类型={media_type}, ID={media_id}）")
 
     def _get_collection_info(self, bvid, max_items=None, progress_callback=None):
+        if progress_callback:
+            progress_callback(18, "正在检测合集/分P...")
         try:
             url = self.config.get_api_url("video_info_api").format(bvid=bvid)
             

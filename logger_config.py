@@ -115,6 +115,9 @@ def get_log_files():
     files = []
     if os.path.exists(LOG_DIR):
         for f in os.listdir(LOG_DIR):
+            # 排除已打包的zip，避免把历史压缩包再次打包导致无限膨胀
+            if f.lower().endswith('.zip'):
+                continue
             fp = os.path.join(LOG_DIR, f)
             if os.path.isfile(fp):
                 stat = os.stat(fp)
@@ -149,6 +152,20 @@ def clear_old_logs(days=KEEP_DAYS):
                 freed += size
             except Exception:
                 pass
+    # 清理过期的日志压缩包（get_log_files已排除zip，需单独处理）
+    if os.path.exists(LOG_DIR):
+        for f in os.listdir(LOG_DIR):
+            if not f.lower().endswith('.zip'):
+                continue
+            fp = os.path.join(LOG_DIR, f)
+            try:
+                if os.path.isfile(fp) and datetime.fromtimestamp(os.path.getmtime(fp)) < cutoff:
+                    size = os.path.getsize(fp)
+                    os.remove(fp)
+                    removed += 1
+                    freed += size
+            except Exception:
+                pass
     logger = logging.getLogger(__name__)
     logger.info("清理了 %d 个旧日志文件，释放 %.2f MB", removed, freed / (1024 * 1024))
     return removed, freed
@@ -163,13 +180,25 @@ def package_logs(output_path=None):
         logger.warning("没有可打包的日志文件")
         return None
     
+    # 限制打包总量，避免日志过大导致压缩耗时过长/占用磁盘
+    max_pack_size = 50 * 1024 * 1024
+    files_to_pack = []
+    total_size = 0
+    for f in log_files:
+        if total_size + f['size'] > max_pack_size:
+            break
+        files_to_pack.append(f)
+        total_size += f['size']
+    if not files_to_pack:
+        files_to_pack = [log_files[0]]
+    
     if output_path is None:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_path = os.path.join(LOG_DIR, f'logs_{timestamp}.zip')
     
     try:
         with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for f in log_files:
+            for f in files_to_pack:
                 arc_name = os.path.join('logs', f['name'])
                 zf.write(f['path'], arc_name)
         

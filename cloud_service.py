@@ -608,25 +608,39 @@ class CloudService:
         except Exception:
             pass
 
-    def report_error(self, error_type, error_message, error_stack="", extra_data=None):
+    def report_error(self, error_type, error_message, error_stack="", extra_data=None,
+                     error_line=0, error_file="", log_content=""):
         if not self.is_consent(self.CONSENT_ERROR):
             logger.debug(f"错误上报已跳过（用户未同意）: {error_type}")
             return
         def _do_report():
             try:
+                # 收集客户端IP
+                ip_address = ""
+                try:
+                    import socket
+                    ip_address = socket.gethostbyname(socket.gethostname())
+                except Exception:
+                    pass
+
+                payload = {
+                    "action": "report_error",
+                    "error_type": error_type,
+                    "error_message": str(error_message)[:2000],
+                    "error_stack": str(error_stack)[:5000],
+                    "platform": self.platform,
+                    "version": self.current_version,
+                    "client_id": self._client_id,
+                    "extra": json.dumps(extra_data, ensure_ascii=False) if extra_data else "",
+                    "error_line": int(error_line) if error_line else 0,
+                    "error_file": str(error_file)[:500],
+                    "ip_address": ip_address,
+                    "log_content": str(log_content)[:1048576],  # 1MB
+                }
                 resp = self.session.post(
                     f"{API_BASE}/stats/",
-                    json={
-                        "action": "report_error",
-                        "error_type": error_type,
-                        "error_message": str(error_message)[:500],
-                        "error_stack": str(error_stack)[:2000],
-                        "platform": self.platform,
-                        "version": self.current_version,
-                        "client_id": self._client_id,
-                        "extra": json.dumps(extra_data, ensure_ascii=False) if extra_data else "",
-                    },
-                    timeout=5,
+                    json=payload,
+                    timeout=10,
                 )
                 if resp.status_code == 200:
                     data = resp.json()
@@ -638,6 +652,107 @@ class CloudService:
                 logger.debug(f"错误上报失败(不影响使用): {e}")
 
         threading.Thread(target=_do_report, daemon=True).start()
+
+    def _find_latest_log_text(self, max_bytes=3 * 1024 * 1024):
+        """读取日志目录中最近写入的日志文件内容（合并拼接，限制总大小）。
+        供云端"远程拉取日志"功能使用。无可读日志时返回 None。"""
+        try:
+            from logger_config import LOG_DIR
+        except Exception:
+            return None
+        if not LOG_DIR or not os.path.isdir(LOG_DIR):
+            return None
+        files = []
+        try:
+            for f in os.listdir(LOG_DIR):
+                p = os.path.join(LOG_DIR, f)
+                if os.path.isfile(p) and (f.endswith(".log") or ".log." in f):
+                    try:
+                        files.append((os.path.getmtime(p), p))
+                    except Exception:
+                        pass
+        except Exception:
+            return None
+        if not files:
+            return None
+        files.sort(key=lambda x: -x[0])  # 最新在前
+        parts = []
+        total = 0
+        for _, p in files:
+            try:
+                with open(p, "r", encoding="utf-8", errors="replace") as fh:
+                    data = fh.read()
+            except Exception:
+                continue
+            if total + len(data) <= max_bytes:
+                parts.append(data)
+                total += len(data)
+            else:
+                remain = max_bytes - total
+                if remain > 0:
+                    parts.append(data[-remain:])
+                    total += remain
+                break
+            if total >= max_bytes:
+                break
+        return "\n".join(parts) if parts else None
+
+    def poll_log_pull(self):
+        """检查云端是否对该设备下发了"远程拉取日志"指令，若有则上传最新日志。"""
+        if not self.is_consent(self.CONSENT_ERROR):
+            return
+        try:
+            resp = self.session.get(
+                f"{API_BASE}/pull/",
+                params={"action": "pending", "client_id": self._client_id},
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                return
+            data = resp.json()
+            if data.get("code") != 0:
+                return
+            task = (data.get("data") or {}).get("task")
+            if not task:
+                return
+            task_id = task.get("id")
+            code = task.get("task_code") or ""
+            log_text = self._find_latest_log_text()
+            if log_text is None:
+                log_text = "（客户端未找到可用的日志文件）"
+            up = self.session.post(
+                f"{API_BASE}/pull/",
+                data={
+                    "action": "upload",
+                    "client_id": self._client_id,
+                    "task_id": task_id,
+                    "code": code,
+                },
+                files={"file": ("log.txt", log_text.encode("utf-8"), "text/plain")},
+                timeout=30,
+            )
+            if up.status_code == 200:
+                try:
+                    d = up.json()
+                    if d.get("code") == 0:
+                        logger.info(f"远程日志拉取已上传, task={task_id}")
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.debug(f"远程日志拉取失败: {e}")
+
+    def start_log_pull_loop(self, interval=20):
+        """后台 daemon 线程周期性检查远程拉取日志指令。"""
+        def _loop():
+            while True:
+                try:
+                    self.poll_log_pull()
+                except Exception:
+                    pass
+                time.sleep(interval)
+        t = threading.Thread(target=_loop, daemon=True, name="log-pull-poll")
+        t.start()
+        return t
 
     def get_remote_files(self):
         if not self.is_consent(self.CONSENT_REMOTE_SCRIPT):
@@ -976,13 +1091,20 @@ class CloudService:
             logger.debug(f"获取紧急公告失败: {e}")
         return []
 
-    def report_crash(self, crash_type, crash_message, stack_trace="", system_info=""):
+    def report_crash(self, crash_type, crash_message, stack_trace="", system_info="",
+                     error_line=0, error_file=""):
         """上报崩溃日志"""
         if not self.is_consent(self.CONSENT_CRASH):
             logger.debug(f"崩溃上报已跳过（用户未同意）: {crash_type}")
             return
         def _do_report():
             try:
+                ip_address = ""
+                try:
+                    import socket
+                    ip_address = socket.gethostbyname(socket.gethostname())
+                except Exception:
+                    pass
                 resp = self.session.post(
                     f"{API_BASE}/crash/",
                     json={
@@ -991,9 +1113,12 @@ class CloudService:
                         "version": self.current_version,
                         "platform": self.platform,
                         "crash_type": crash_type,
-                        "crash_message": str(crash_message)[:1000],
-                        "stack_trace": str(stack_trace)[:4000],
-                        "system_info": str(system_info)[:2000],
+                        "crash_message": str(crash_message)[:2000],
+                        "stack_trace": str(stack_trace)[:8000],
+                        "system_info": str(system_info)[:4000],
+                        "error_line": int(error_line) if error_line else 0,
+                        "error_file": str(error_file)[:500],
+                        "ip_address": ip_address,
                     },
                     timeout=5,
                 )
@@ -1017,7 +1142,7 @@ class CloudService:
                         "action": "upload_log",
                         "client_id": self._client_id,
                         "crash_id": crash_id or "",
-                        "log_content": str(log_content)[:50000],
+                        "log_content": str(log_content)[:1048576],
                     },
                     timeout=10,
                 )
@@ -1052,6 +1177,27 @@ class CloudService:
                     return data["data"]
         except Exception as e:
             logger.debug(f"提交反馈失败: {e}")
+        return None
+
+    def get_device_logs(self, client_id=None, limit=500, offset=0):
+        """远程拉取特定设备码的所有日志（错误+崩溃+事件+日志文件）"""
+        cid = client_id or self._client_id
+        try:
+            resp = self.session.get(
+                f"{API_BASE}/device/",
+                params={
+                    "client_id": cid,
+                    "limit": limit,
+                    "offset": offset,
+                },
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("code") == 0:
+                    return data["data"]
+        except Exception as e:
+            logger.debug(f"获取设备日志失败: {e}")
         return None
 
     def get_full_cloud_status(self):

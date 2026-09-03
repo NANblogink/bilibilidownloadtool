@@ -309,8 +309,17 @@ def _log_thread_exception(args):
     try:
         import traceback as _tb
         _stack = ''.join(_tb.format_exception(args.exc_type, args.exc_value, args.exc_traceback))
+        error_line = 0
+        error_file = ""
+        if args.exc_traceback:
+            tb = args.exc_traceback
+            while tb.tb_next:
+                tb = tb.tb_next
+            error_line = tb.tb_lineno
+            error_file = tb.tb_frame.f_code.co_filename
         from cloud_service import CloudService
-        CloudService().report_error(args.exc_type.__name__, str(args.exc_value), _stack)
+        CloudService().report_error(args.exc_type.__name__, str(args.exc_value), _stack,
+                                    error_line=error_line, error_file=error_file)
     except Exception:
         pass
 
@@ -2633,23 +2642,26 @@ def windows_notify_with_actions(title, message):
         except Exception:
             pass
     actions = [("joingroup", "加入交流群", _join_group, "foreground")]
-    try:
-        from logger_config import package_logs
-        log_file = package_logs()
-        if log_file and os.path.exists(log_file):
-            def _copy_log_file():
+    # 一键复制日志：打包耗时可能较长（日志文件大），必须放后台线程，避免阻塞主线程导致UI卡死
+    def _copy_log_file():
+        try:
+            def _worker():
                 try:
-                    abs_log = os.path.abspath(log_file)
-                    subprocess.Popen(
-                        ["powershell", "-Sta", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
-                         "-Command", "Get-Item '" + abs_log.replace("'", "''") + "' | Set-Clipboard"],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                        **subprocess_no_window_kwargs())
+                    from logger_config import package_logs
+                    log_file = package_logs()
+                    if log_file and os.path.exists(log_file):
+                        abs_log = os.path.abspath(log_file)
+                        subprocess.Popen(
+                            ["powershell", "-Sta", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
+                             "-Command", "Get-Item '" + abs_log.replace("'", "''") + "' | Set-Clipboard"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            **subprocess_no_window_kwargs())
                 except Exception:
                     pass
-            actions.insert(0, ("copylogs", "一键复制日志", _copy_log_file, "foreground"))
-    except Exception:
-        pass
+            threading.Thread(target=_worker, daemon=True).start()
+        except Exception:
+            pass
+    actions.insert(0, ("copylogs", "一键复制日志", _copy_log_file, "foreground"))
     # 错误类通知：左侧用真实警告图标(感叹号)，顶部归属文字标明应用名
     return _winrt_toast(title, message, actions,
                         attribution="B站视频下载工具",
@@ -2813,6 +2825,11 @@ class ParseProgressWindow(QDialog):
         self.progress_bar.setAlignment(Qt.AlignCenter)
         progress_layout.addWidget(self.progress_bar)
         
+        self.elapsed_label = QLabel("")
+        self.elapsed_label.setAlignment(Qt.AlignCenter)
+        self.elapsed_label.setStyleSheet(scale_style("color: #909399; font-size: 12px;"))
+        progress_layout.addWidget(self.elapsed_label)
+        
         content_layout.addLayout(progress_layout)
 
         # 操作按钮（停止 + 取消）
@@ -2849,6 +2866,17 @@ class ParseProgressWindow(QDialog):
         # 连接信号到槽
         self.update_progress_signal.connect(self._update_progress_slot)
         self.add_log_signal.connect(self._add_log_slot)
+        
+        # 解析耗时/活动监测：避免用户误以为卡死
+        self._last_activity_time = time.time()
+        self._start_time = time.time()
+        self._last_log_progress = None
+        self._last_log_msg = None
+        self._log_line_count = 0
+        self._activity_timer = QTimer(self)
+        self._activity_timer.timeout.connect(self._update_activity_hint)
+        self._activity_timer.start(1000)
+        self._update_activity_hint()
         
         # 鼠标拖动相关变量
         self.drag_position = None
@@ -2933,22 +2961,60 @@ class ParseProgressWindow(QDialog):
     
     def _update_progress_slot(self, progress, message):
         try:
-            print(f"更新进度: {progress}%, 消息: {message}")
             self.progress_bar.setValue(progress)
             self.progress_label.setText(message)
+            self._last_activity_time = time.time()
             log_message = f"[{progress}%] {message}"
-            print(f"添加日志: {log_message}")
-            self.log_text.append(log_message)
-            self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
+            # 去重：进度值和消息都相同时不重复追加（例如循环重试阶段）
+            if not (progress == self._last_log_progress and message == self._last_log_msg):
+                self._append_log(log_message)
+            self._last_log_progress = progress
+            self._last_log_msg = message
         except Exception as e:
             logger.error(f"更新进度异常: {e}")
+    
+    def _append_log(self, line):
+        try:
+            if self._log_line_count >= 500:
+                cursor = self.log_text.textCursor()
+                cursor.movePosition(cursor.Start)
+                cursor.select(cursor.LineUnderCursor)
+                cursor.removeSelectedText()
+                cursor.deleteChar()
+                self._log_line_count -= 1
+            self.log_text.append(line)
+            self._log_line_count += 1
+            self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
+        except Exception:
+            pass
+    
+    def _update_activity_hint(self):
+        try:
+            elapsed = int(time.time() - self._start_time)
+            if self.progress_bar.value() >= 100:
+                self.elapsed_label.setText(f"解析完成，共耗时 {elapsed} 秒")
+                return
+            idle = time.time() - self._last_activity_time
+            if idle > 3:
+                self.elapsed_label.setText(f"正在解析中，已耗时 {elapsed} 秒，请稍候...")
+            else:
+                self.elapsed_label.setText(f"已耗时 {elapsed} 秒")
+        except Exception:
+            pass
+    
+    def closeEvent(self, event):
+        try:
+            if hasattr(self, '_activity_timer') and self._activity_timer:
+                self._activity_timer.stop()
+        except Exception:
+            pass
+        super().closeEvent(event)
     
     def add_log(self, message):
         self.add_log_signal.emit(message)
     
     def _add_log_slot(self, message):
-        self.log_text.append(message)
-        self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
+        self._append_log(message)
     
     def _on_stop(self):
         """停止解析：保留已解析结果，不再继续"""
@@ -3125,7 +3191,12 @@ class BaseWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
+        # FramelessWindowHint 会移除 WS_MAXIMIZEBOX 导致 Windows 拒绝最大化请求，
+        # 必须显式加上三个 ButtonHint（按钮本身因无边框不会显示，但 Windows 内部状态正确）
+        self.setWindowFlags(
+            Qt.FramelessWindowHint | Qt.Window |
+            Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint | Qt.WindowCloseButtonHint
+        )
         self.setAutoFillBackground(True)
 
         # 边缘缩放窄条（8方向），提供悬浮光标与拖拽缩放
@@ -5933,6 +6004,8 @@ class UpdateDialog(QDialog):
                 }}
                 QLabel#updateIcon {{ background: transparent; }}
                 QLabel#updateTitle {{ font-size: {scale(16)}px; font-weight: 700; color: #ffffff; background: transparent; }}
+                QLabel#updateCloseBtn {{ font-size: {scale(20)}px; font-weight: 600; color: #ffffff; background: transparent; }}
+                QLabel#updateCloseBtn:hover {{ background-color: rgba(255,255,255,0.22); color: #ffffff; }}
                 QLabel#updateVersionBadge {{
                     background-color: #ffffff;
                     color: {accent}; font-size: {scale(13)}px; font-weight: 700;
@@ -5965,23 +6038,16 @@ class UpdateDialog(QDialog):
             ic_lbl.setAlignment(Qt.AlignCenter)
             title_lyt.addWidget(ic_lbl)
 
-            ttl = QLabel("检查更新" if not auto_mode else "继续更新")
+            latest_str = str(update_info.get('latest_version', '') or '')
+            ttl = QLabel(("继续更新" if auto_mode else "检查更新") + " 已发现最新版" + latest_str)
             ttl.setObjectName("updateTitle")
             title_lyt.addWidget(ttl, 1)
 
-            ver_lbl = QLabel(" " + str(update_info.get('latest_version', '')) + " ")
-            ver_lbl.setObjectName("updateVersionBadge")
-            ver_lbl.setFixedHeight(scale(26))
-            ver_lbl.setAlignment(Qt.AlignCenter)
-            title_lyt.addWidget(ver_lbl)
-
             close_btn = QLabel("\u00d7")
+            close_btn.setObjectName("updateCloseBtn")
             close_btn.setAlignment(Qt.AlignCenter)
-            close_btn.setFixedSize(scale(30), scale(30))
+            close_btn.setFixedSize(scale(32), scale(32))
             close_btn.setCursor(Qt.PointingHandCursor)
-            close_btn.setStyleSheet(
-                f"font-size:{scale(18)}px; color:#ffffff;"
-                f"QLabel:hover {{ background-color: rgba(255,255,255,0.2); }}")
             close_btn.mousePressEvent = lambda e: self.reject()
             title_lyt.addWidget(close_btn)
 
@@ -6093,7 +6159,7 @@ class UpdateDialog(QDialog):
                 skip.setStyleSheet(f"""
                     QPushButton {{
                         background-color: #ffffff; color: #555555;
-                        border: 1px solid #d9d9d9; border-radius: 4px;
+                        border: 1px solid #d9d9d9; border-radius: 2px;
                         font-size: {scale(13)}px; padding: 0 {scale(18)}px;
                     }}
                     QPushButton:hover {{ border-color: {accent}; color: {accent}; }}
@@ -6107,7 +6173,7 @@ class UpdateDialog(QDialog):
             self.download_btn.setStyleSheet(f"""
                 QPushButton {{
                     background-color: {accent}; color: #ffffff; border: none;
-                    border-radius: 4px; font-size: {scale(13)}px; font-weight: 500;
+                    border-radius: 2px; font-size: {scale(13)}px; font-weight: 500;
                     padding: 0 {scale(20)}px;
                 }}
                 QPushButton:hover {{ background-color: {"#a61d24" if is_force else "#0958d8"}; }}
@@ -7209,7 +7275,8 @@ class _WindowResizeFilter(QObject):
             return super().eventFilter(obj, event)
         et = event.type()
         if et == QEvent.HoverMove:
-            self._update_cursor(event.globalPos())
+            # QHoverEvent 无 globalPos()，改用 QCursor.pos() 取全局坐标
+            self._update_cursor(QCursor.pos())
         elif et == QEvent.MouseButtonPress:
             if event.button() == Qt.LeftButton and self._start_resize(event):
                 return True
@@ -7311,7 +7378,7 @@ class ResizableDialog(QDialog):
     
     def eventFilter(self, obj, event):
         if obj == self and event.type() == QEvent.HoverMove:
-            self._update_cursor(event.globalPos())
+            self._update_cursor(QCursor.pos())
         return super().eventFilter(obj, event)
     
     def _update_cursor(self, global_pos):
@@ -12303,11 +12370,18 @@ class BilibiliDownloader(BaseWindow):
 
         from cloud_service import CloudService
         self.cloud_service = CloudService(version_info.get("version"))
+        # 后台周期性检查云端下发的"远程拉取日志"指令（软件运行时才会响应）
+        try:
+            self.cloud_service.start_log_pull_loop(interval=20)
+        except Exception:
+            pass
         from download_history import DownloadHistory
         self.download_history = DownloadHistory()
         QTimer.singleShot(1500, self._show_data_consent_notice)
         QTimer.singleShot(2000, self._report_launch_stats)
         QTimer.singleShot(3000, self._check_cloud_info)
+        # 商店(MSIX)版首次启动：隐私权限说明弹窗
+        QTimer.singleShot(2600, self._maybe_show_privacy_consent)
         # 内测包启动时验证QQ授权
         try:
             import app_config
@@ -12415,6 +12489,19 @@ class BilibiliDownloader(BaseWindow):
     def _show_data_consent_notice(self):
         """首次启动时显示数据采集提示（美观的自定义对话框）"""
         try:
+            # 商店版（MSIX）环境：跳过可见的数据采集弹窗。
+            # 该环境在权限页会生成一个不可见的模态窗口，反复触发系统提示音，
+            # 只能靠 Ctrl+F4 关闭，严重影响首次启动体验。改为静默采集、不做首启询问。
+            try:
+                from main import _is_msix_environment
+                if _is_msix_environment():
+                    try:
+                        self.cloud_service.mark_consent_notified()
+                    except Exception:
+                        pass
+                    return
+            except Exception:
+                pass
             if not (hasattr(self, 'cloud_service') and self.cloud_service):
                 return
             if self.cloud_service.consent_notified:
@@ -12771,6 +12858,110 @@ class BilibiliDownloader(BaseWindow):
             QTimer.singleShot(100, self.close)
 
 
+    def _maybe_show_privacy_consent(self):
+        """商店(MSIX)版首次启动的隐私权限说明弹窗。
+        普通版(绿色版/安装版)以UAC和系统提示体现权限，商店沙箱版不会自动出现隐私提示，
+        因此首次启动时主动弹窗告知并获取同意。同意后不再弹出。"""
+        try:
+            # 仅在 MSIX 沙箱环境弹窗
+            try:
+                _exe = os.path.abspath(sys.executable).lower().replace('\\', '/')
+                _is_msix = 'windowsapps' in _exe
+            except Exception:
+                _is_msix = False
+            if not _is_msix:
+                return
+            if self.config and self.config.get_app_setting("privacy_consent_done", False):
+                return
+            from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
+            dlg = QDialog(self)
+            dlg.setWindowTitle("隐私权限说明")
+            dlg.setAttribute(Qt.WA_DeleteOnClose)
+            dlg.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.Dialog)
+            make_resizable(dlg)
+            dlg.setObjectName("privacyDialog")
+            screen = QApplication.primaryScreen()
+            sg = screen.geometry() if screen else None
+            base_w, base_h = scale(480), scale(360)
+            if sg:
+                win_w = min(base_w, int(sg.width() * 0.85))
+                win_h = min(base_h, int(sg.height() * 0.9))
+                dlg.resize(win_w, win_h)
+                dlg.move((sg.width() - win_w) // 2, (sg.height() - win_h) // 2)
+            else:
+                dlg.resize(base_w, base_h)
+            dlg.setStyleSheet(f"""
+                QDialog#privacyDialog {{ background-color: #ffffff; border: 2px solid #1677ff; }}
+                QWidget#pTitleBar {{ background-color: #1677ff; }}
+                QLabel#pTitle {{ font-size: {scale(16)}px; font-weight: 700; color: #ffffff; background: transparent; }}
+                QLabel#pText {{ font-size: {scale(13)}px; color: #333; background: transparent; }}
+                QLabel#pSub {{ font-size: {scale(12)}px; color: #8a8f98; background: transparent; }}
+            """)
+            lay = QVBoxLayout(dlg)
+            lay.setContentsMargins(0, 0, 0, 0)
+            lay.setSpacing(0)
+            bar = QWidget()
+            bar.setObjectName("pTitleBar")
+            bar.setAttribute(Qt.WA_StyledBackground, True)
+            bar.setFixedHeight(scale(50))
+            bar_lyt = QHBoxLayout(bar)
+            bar_lyt.setContentsMargins(scale(16), 0, scale(6), 0)
+            ttl = QLabel("隐私权限说明")
+            ttl.setObjectName("pTitle")
+            bar_lyt.addWidget(ttl, 1)
+            close_btn = QLabel("\u00d7")
+            close_btn.setAlignment(Qt.AlignCenter)
+            close_btn.setFixedSize(scale(30), scale(30))
+            close_btn.setCursor(Qt.PointingHandCursor)
+            close_btn.setStyleSheet(f"font-size:{scale(18)}px; color:#ffffff; QLabel:hover {{ background-color: rgba(255,255,255,0.2); }}")
+            close_btn.mousePressEvent = lambda e: dlg.reject()
+            bar_lyt.addWidget(close_btn)
+            lay.addWidget(bar)
+            _enable_window_drag(bar, skip=(close_btn,))
+            body = QVBoxLayout()
+            body.setContentsMargins(scale(22), scale(18), scale(22), scale(18))
+            body.setSpacing(scale(12))
+            t1 = QLabel("为了正常使用下载功能，本应用需要以下权限：")
+            t1.setObjectName("pText")
+            body.addWidget(t1)
+            t2 = QLabel("· 网络访问：用于解析和下载B站视频资源")
+            t2.setObjectName("pText")
+            body.addWidget(t2)
+            t3 = QLabel("· 文件系统：用于将下载的视频保存到你选择的本地目录")
+            t3.setObjectName("pText")
+            body.addWidget(t3)
+            t4 = QLabel("· 后台工作：在网络请求过程中保持任务运行")
+            t4.setObjectName("pText")
+            body.addWidget(t4)
+            sub = QLabel("我们不会收集任何与身份相关的敏感信息，仅处理你主动发起的下载任务。")
+            sub.setObjectName("pSub")
+            sub.setWordWrap(True)
+            body.addWidget(sub)
+            body.addStretch(1)
+            btn_lyt = QHBoxLayout()
+            agree_btn = QPushButton("同意并开始使用")
+            agree_btn.setMinimumSize(scale(110), scale(36))
+            agree_btn.setCursor(Qt.PointingHandCursor)
+            agree_btn.setStyleSheet(f"""
+                QPushButton {{ background-color: #1677ff; color: #ffffff; border: none; font-size: {scale(13)}px; padding: 0 {scale(18)}px; }}
+                QPushButton:hover {{ background-color: #0958d8; }}
+            """)
+            def _agree():
+                try:
+                    if self.config:
+                        self.config.set_app_setting("privacy_consent_done", True)
+                except Exception:
+                    pass
+                dlg.accept()
+            agree_btn.clicked.connect(_agree)
+            btn_lyt.addWidget(agree_btn)
+            btn_lyt.addStretch(1)
+            body.addLayout(btn_lyt)
+            lay.addLayout(body, 1)
+            dlg.exec_()
+        except Exception as e:
+            logger.error(f"显示隐私权限说明失败: {e}")
+
     def _check_cloud_info(self):
         self._check_pending_update_ready()
         # 检查是否开启了自动检查更新
@@ -12893,6 +13084,11 @@ class BilibiliDownloader(BaseWindow):
             if latest_parsed == (0, 0, 0) or current_parsed >= latest_parsed:
                 logger.info(f"UI层拦截：当前版本 {version_info.get('version', '')}({current_parsed}) >= 最新版本 {latest}({latest_parsed})，不显示更新")
                 return
+            # 已有已下载未安装的同版本更新包：只弹"更新已就绪"，不重复弹更新窗口
+            st = _read_update_state()
+            if st.get("downloaded") and st.get("target_version") == latest:
+                logger.info(f"已存在已下载的更新包 (v{latest})，跳过更新窗口，仅提示更新已就绪")
+                return
             policy = self.config.get_app_setting("update_policy", "ask") if self.config else "ask"
             if policy == "auto":
                 self._start_background_download(update_info, silent=True)
@@ -12927,7 +13123,17 @@ class BilibiliDownloader(BaseWindow):
         def _worker():
             try:
                 cs = CloudService()
-                ok = cs.download_update(download_url, save_path, None)
+                def _progress_cb(pct, done, total):
+                    # 保存下载进度，应用中途退出后也能从状态文件恢复
+                    try:
+                        st = _read_update_state()
+                        st["progress"] = max(0, min(100, int(pct))) if pct is not None else 0
+                        st["done_bytes"] = done
+                        st["total_bytes"] = total
+                        _save_update_state(st)
+                    except Exception:
+                        pass
+                ok = cs.download_update(download_url, save_path, _progress_cb)
                 st = _read_update_state()
                 if not ok:
                     return
@@ -12938,6 +13144,124 @@ class BilibiliDownloader(BaseWindow):
             except Exception as e:
                 logger.error(f"后台下载更新失败: {e}")
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _manual_check_update(self):
+        """手动检查更新（设置中的"检查更新"按钮触发，不受自动检查开关限制）。
+        与普通检查一致：有更新则按更新策略弹窗或自动下载；无更新提示已是最新。"""
+        try:
+            self._check_pending_update_ready()
+        except Exception:
+            pass
+        import threading as _thr
+        def _w():
+            try:
+                try:
+                    import app_config
+                    channel = "beta" if getattr(app_config, 'IS_BETA_BUILD', False) else "stable"
+                except Exception:
+                    channel = "stable"
+                info = self.cloud_service.check_update(channel=channel)
+                if info.get("has_update"):
+                    self.signal_emitter.update_available.emit(info)
+                else:
+                    run_on_main_thread(lambda: self.show_notification("当前已是最新版本", "success"))
+            except Exception as e:
+                run_on_main_thread(lambda: self.show_notification(f"检查更新失败：{e}", "error"))
+        _thr.Thread(target=_w, daemon=True).start()
+
+    def _show_about_dialog(self):
+        """设置中的"关于我们"：显示应用信息与联系方式。"""
+        try:
+            from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
+            ver = str(version_info.get("version", "")) or "2.0.0"
+            dlg = QDialog(self)
+            dlg.setWindowTitle("关于我们")
+            dlg.setAttribute(Qt.WA_DeleteOnClose)
+            dlg.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.Dialog)
+            make_resizable(dlg)
+            dlg.setObjectName("aboutDialog")
+            screen = QApplication.primaryScreen()
+            sg = screen.geometry() if screen else None
+            base_w, base_h = scale(440), scale(320)
+            if sg:
+                win_w = min(base_w, int(sg.width() * 0.85))
+                win_h = min(base_h, int(sg.height() * 0.9))
+                dlg.resize(win_w, win_h)
+                dlg.move((sg.width() - win_w) // 2, (sg.height() - win_h) // 2)
+            else:
+                dlg.resize(base_w, base_h)
+            dlg.setStyleSheet(f"""
+                QDialog#aboutDialog {{ background-color: #ffffff; border: 2px solid #409eff; }}
+                QWidget#aboutTitleBar {{ background-color: #409eff; }}
+                QLabel#aboutTitle {{ font-size: {scale(16)}px; font-weight: 700; color: #ffffff; background: transparent; }}
+                QLabel#aboutApp  {{ font-size: {scale(15)}px; font-weight: 600; color: #1f2329; }}
+                QLabel#aboutVer  {{ font-size: {scale(12)}px; color: #8a8f98; }}
+                QLabel#aboutDesc {{ font-size: {scale(12)}px; color: #4b5563; }}
+            """)
+            lay = QVBoxLayout(dlg)
+            lay.setContentsMargins(0, 0, 0, 0)
+            lay.setSpacing(0)
+            bar = QWidget()
+            bar.setObjectName("aboutTitleBar")
+            bar.setAttribute(Qt.WA_StyledBackground, True)
+            bar.setFixedHeight(scale(52))
+            bitch_lay = QHBoxLayout(bar)
+            bitch_lay.setContentsMargins(scale(16), 0, scale(6), 0)
+            ttl = QLabel("关于我们")
+            ttl.setObjectName("aboutTitle")
+            bitch_lay.addWidget(ttl, 1)
+            close_btn = QLabel("\u00d7")
+            close_btn.setAlignment(Qt.AlignCenter)
+            close_btn.setFixedSize(scale(30), scale(30))
+            close_btn.setCursor(Qt.PointingHandCursor)
+            close_btn.setStyleSheet(f"font-size:{scale(18)}px; color:#ffffff; QLabel:hover {{ background-color: rgba(255,255,255,0.2); }}")
+            close_btn.mousePressEvent = lambda e: dlg.reject()
+            bitch_lay.addWidget(close_btn)
+            lay.addWidget(bar)
+            _enable_window_drag(bar, skip=(close_btn,))
+            body = QVBoxLayout()
+            body.setContentsMargins(scale(22), scale(18), scale(22), scale(18))
+            body.setSpacing(scale(12))
+            app_lbl = QLabel(APP_NAME)
+            app_lbl.setObjectName("aboutApp")
+            body.addWidget(app_lbl)
+            ver_lbl = QLabel(f"版本号：{ver}")
+            ver_lbl.setObjectName("aboutVer")
+            body.addWidget(ver_lbl)
+            desc = QLabel("B站视频解析下载工具，支持视频/音频/番剧/合集等内容解析与下载。")
+            desc.setObjectName("aboutDesc")
+            desc.setWordWrap(True)
+            body.addWidget(desc)
+            body.addStretch(1)
+            invite = QLabel("遇到问题？点击下方按钮加入交流群获取帮助。")
+            invite.setObjectName("aboutDesc")
+            invite.setWordWrap(True)
+            body.addWidget(invite)
+            btn_lyt = QHBoxLayout()
+            join_btn = QPushButton("加入交流群")
+            join_btn.setMinimumSize(scale(96), scale(34))
+            join_btn.setCursor(Qt.PointingHandCursor)
+            join_btn.setStyleSheet(f"""
+                QPushButton {{ background-color: #1677ff; color: #ffffff; border: none; font-size: {scale(13)}px; padding: 0 {scale(16)}px; }}
+                QPushButton:hover {{ background-color: #0958d8; }}
+            """)
+            join_btn.clicked.connect(lambda: join_support_group())
+            ok_btn = QPushButton("知道了")
+            ok_btn.setMinimumSize(scale(90), scale(34))
+            ok_btn.setCursor(Qt.PointingHandCursor)
+            ok_btn.setStyleSheet(f"""
+                QPushButton {{ background-color: #ffffff; color: #555555; border: 1px solid #d9d9d9; font-size: {scale(13)}px; padding: 0 {scale(16)}px; }}
+                QPushButton:hover {{ border-color: #1677ff; color: #1677ff; }}
+            """)
+            ok_btn.clicked.connect(dlg.accept)
+            btn_lyt.addWidget(join_btn)
+            btn_lyt.addStretch(1)
+            btn_lyt.addWidget(ok_btn)
+            body.addLayout(btn_lyt)
+            lay.addLayout(body, 1)
+            dlg.exec_()
+        except Exception as e:
+            logger.error(f"显示关于我们失败: {e}")
 
     def on_update_package_ready(self, state, auto=False, dialog=None):
         try:
@@ -13976,7 +14300,7 @@ exit /b 0
             "$cpu=Get-CimInstance Win32_Processor | Select-Object -First 1;"
             "$gpu=@(Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name) -join ' | ';"
             "if(!$gpu){$gpu='未知'}"
-            "$free=[math]::Round(($os.FreePhysicalMemory/1KB),1);"
+            "$free=[math]::Round(($os.FreePhysicalMemory/1MB),1);"
             "[PSCustomObject]@{"
             "os=$os.Caption;"
             "version=$os.Version;"
@@ -14650,11 +14974,32 @@ exit /b 0
                     if self.floating_toolbar_enabled and self.floating_ball:
                         self.floating_ball.hide()
                     self.update_progress_bar_position()
+                # 启动守卫：初始化期间若被被动顶出最大化（最小尺寸收敛等）
+                # 立即纠正回最大化，直到窗口稳定后守卫自动解除
+                if getattr(self, '_startup_guard', False):
+                    if not (self.windowState() & Qt.WindowMinimized) and not self.isMaximized():
+                        self.showMaximized()
         except Exception:
             pass
     
     def resizeEvent(self, event):
         try:
+            # 诊断：定位运行期窗口从最大化被缩小为普通尺寸的来源（临时）
+            try:
+                if getattr(self, '_diag_armed', False):
+                    was_max = getattr(self, '_diag_prev_max', False)
+                    now_max = bool(self.windowState() & Qt.WindowMaximized)
+                    if was_max and not now_max:
+                        path = self._diag_log_path()
+                        import traceback as _tb
+                        with open(path, "a", encoding="utf-8") as _f:
+                            _f.write("=== RESIZE de-max @ size=%dx%d ===\n" % (
+                                self.width(), self.height()))
+                            _tb.print_stack(file=_f)
+                            _f.write("\n")
+                    self._diag_prev_max = now_max
+            except Exception:
+                pass
             super().resizeEvent(event)
             self.update_progress_bar_position()
             # 窗口过矮（小屏或用户缩小）时切换紧凑布局，避免内容互相重叠
@@ -14674,9 +15019,112 @@ exit /b 0
             if (not getattr(self, '_min_size_reenforced', False)
                     and not getattr(self, '_init_enforce_scheduled', False)):
                 self._init_enforce_scheduled = True
+                self._diag_armed = True
+                # 持续窗口尺寸日志：每秒记录启动后秒数与窗口大小，
+                # 用于定位窗口被缩小的时机（临时诊断）
+                try:
+                    import time as _t
+                    self._diag_start_ts = _t.monotonic()
+                    from PyQt5.QtCore import QTimer as _QTd
+                    self._size_log_timer = _QTd(self)
+                    self._size_log_timer.timeout.connect(self._log_window_size)
+                    self._size_log_timer.start(1000)
+                except Exception:
+                    pass
+                # 轮询式启动守卫：周期性检查并强制保持最大化，覆盖
+                # setMinimumSize 等不会触发 WindowStateChange 的几何变化
+                self._startup_guard = True
+                from PyQt5.QtCore import QTimer as _QT
+                self._guard_timer = _QT(self)
+                self._guard_timer.timeout.connect(self._poll_startup_guard)
+                self._guard_timer.start(300)
                 QTimer.singleShot(160, self._delayed_enforce_min_size)
+                QTimer.singleShot(60000, self._disarm_startup_guard)
         except Exception:
             pass
+
+    def _diag_log_path(self):
+        """日志写到系统临时目录，避免 MSIX 沙箱安装目录只读导致失败"""
+        try:
+            import tempfile
+            return os.path.join(tempfile.gettempdir(), "bili_window_size_diag.log")
+        except Exception:
+            return os.path.join(os.path.dirname(os.path.abspath(__file__)), "_window_size_diag.log")
+
+    def _log_window_size(self):
+        """每秒记录一次窗口尺寸与状态，附带启动后秒数（临时诊断日志）"""
+        try:
+            import time as _t
+            elapsed = int((_t.monotonic() - getattr(self, '_diag_start_ts', _t.monotonic())) * 10)
+            secs = elapsed / 10
+            state = self.windowState()
+            maximized = 1 if (state & Qt.WindowMaximized) else 0
+            minimized = 1 if (state & Qt.WindowMinimized) else 0
+            line = "t=%6.1fs size=%dx%d max=%d min=%d state=%d\n" % (
+                secs, self.width(), self.height(), maximized, minimized, int(state))
+            path = self._diag_log_path()
+            with open(path, "a", encoding="utf-8") as _f:
+                _f.write(line)
+            # 尺寸相对上一秒明显变小（被缩小）时记录调用栈
+            prev = getattr(self, '_prev_diag_size', None)
+            cur = (self.width(), self.height())
+            if (prev is not None and not minimized
+                    and cur[0] < int(prev[0] * 0.9) and cur[1] < int(prev[1] * 0.9)):
+                import traceback as _tb
+                with open(path, "a", encoding="utf-8") as _f:
+                    _f.write("=== SHRINK @ t=%.1fs %dx%d -> %dx%d ===\n" % (
+                        secs, prev[0], prev[1], cur[0], cur[1]))
+                    _tb.print_stack(file=_f)
+                    _f.write("\n")
+            self._prev_diag_size = cur
+        except Exception:
+            pass
+
+    def _poll_startup_guard(self):
+        """启动守卫轮询：比较实际几何与屏幕可用区，物理保证窗口铺满。
+        不信任 Qt 的 isMaximized()（无边框窗口下可能谎报为 True），
+        只要实际尺寸未铺满可用区就强制 setGeometry 铺满，抵消任何缩小"""
+        try:
+            if not getattr(self, '_startup_guard', False):
+                return
+            if getattr(self, '_destroying', False):
+                return
+            screen = QApplication.primaryScreen()
+            if not screen:
+                return
+            if self.windowState() & Qt.WindowMinimized:
+                return
+            wa = screen.availableGeometry()
+            cur = self.geometry()
+            # 判断是否物理铺满可用区（允许小误差，含任务栏/DPI）
+            tol = 12
+            if (abs(cur.width() - wa.width()) > tol
+                    or abs(cur.height() - wa.height()) > tol
+                    or abs(cur.x() - wa.x()) > tol
+                    or abs(cur.y() - wa.y()) > tol):
+                self.setGeometry(wa)
+        except Exception:
+            pass
+
+    def _disarm_startup_guard(self):
+        """初始化完成、窗口已稳定后解除启动守卫，恢复正常可缩放行为"""
+        try:
+            self._startup_guard = False
+            t = getattr(self, '_guard_timer', None)
+            if t is not None:
+                t.stop()
+            screen = QApplication.primaryScreen()
+            if screen:
+                wa = screen.availableGeometry()
+                cur = self.geometry()
+                tol = 12
+                if (abs(cur.width() - wa.width()) > tol
+                        or abs(cur.height() - wa.height()) > tol
+                        or abs(cur.x() - wa.x()) > tol
+                        or abs(cur.y() - wa.y()) > tol):
+                    self.setGeometry(wa)
+        except Exception:
+            self._startup_guard = False
 
     def _delayed_enforce_min_size(self):
         if getattr(self, '_destroying', False):
@@ -15040,19 +15488,11 @@ exit /b 0
         help_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         help_btn.setStyleSheet(scale_style("""
             QPushButton#helpBtn {
-                color: rgba(255,255,255,0.9);
+                color: rgba(255,255,255,0.8);
                 font-size: 11px;
-                background-color: rgba(255,255,255,0.15);
-                border: 1px solid rgba(255,255,255,0.3);
-                border-radius: 10px;
-                padding: 2px 10px;
-            }
-            QPushButton#helpBtn:hover {
-                background-color: rgba(255,255,255,0.25);
-                border: 1px solid rgba(255,255,255,0.5);
-            }
-            QPushButton#helpBtn:pressed {
-                background-color: rgba(255,255,255,0.1);
+                background-color: transparent;
+                border: none;
+                padding: 2px 4px;
             }
         """))
         help_btn.setCursor(QCursor(Qt.PointingHandCursor))
@@ -15073,12 +15513,24 @@ exit /b 0
         self.avatar_label.setAlignment(Qt.AlignCenter)
         self.login_info_layout.addWidget(self.avatar_label)
         
-        self.login_info_label = QLabel("如果想要解析会员内容请登录")
-        self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 12px; padding: 0px;"))
+        self.login_info_label = QLabel("")
+        self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 12px; padding: 0px; font-weight: bold;"))
         self.login_info_label.setAlignment(Qt.AlignCenter)
         self.login_info_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         # 设置用户名标签的边距，确保与头像紧贴
         self.login_info_layout.addWidget(self.login_info_label)
+
+        # 醒目的登录按钮：未登录显示，登录后隐藏（用户名显示在 login_info_label）
+        self.login_btn = QPushButton("登录")
+        self.login_btn.setObjectName("loginBtn")
+        self.login_btn.setStyleSheet(scale_style(
+            "background-color: transparent; color: #ffffff; border: none; "
+            "font-size: 12px; padding: 2px 4px;"
+            "min-width: 40px; max-width: 40px; min-height: 22px; max-height: 22px;"))
+        self.login_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self.login_btn.clicked.connect(self.on_login_click)
+        self.login_info_layout.addWidget(self.login_btn)
+        self.login_btn.raise_()
         
         # 确保布局紧凑
         self.login_info_widget.adjustSize()
@@ -18686,7 +19138,7 @@ exit /b 0
                 self.signal_emitter.show_parse_progress.emit()
                 
                 # 发送进度更新信号（解析阶段进度条保持0%，只更新文字）
-                progress_callback(0, "解析URL...")
+                progress_callback(0, "正在识别链接类型...")
                 media_parse_video_info = self.parser.parse_media_url(url)
                 if media_parse_video_info.get("error"):
 
@@ -22493,7 +22945,7 @@ exit /b 0
 
     def _update_user_info_impl(self, user_info):
         if user_info.get("success"):
-            self.user_info_label.setText("已登录")
+            self.user_info_label.setText(user_info.get("uname", user_info.get("msg", "已登录")))
             if user_info.get("is_vip"):
                 self.vip_label.setText("√ 会员")
                 self.vip_label.setStyleSheet("color: #faad14;")
@@ -22505,6 +22957,8 @@ exit /b 0
                 username = user_info.get("uname", user_info.get("msg", "用户"))
                 self.login_info_label.setText(username)
                 self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 12px;"))
+                if hasattr(self, 'login_btn'):
+                    self.login_btn.hide()
                 
                 if hasattr(self, 'login_info_widget'):
                     self.login_info_widget.setCursor(QCursor(Qt.PointingHandCursor))
@@ -22543,10 +22997,9 @@ exit /b 0
             self.vip_label.setStyleSheet("color: #6b7280;")
             
             if hasattr(self, 'login_info_label'):
-                self.login_info_label.setText("如果想要解析会员内容请登录")
-                self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 12px;"))
-                self.login_info_label.setCursor(QCursor(Qt.PointingHandCursor))
-                self.login_info_label.mousePressEvent = self.on_login_click
+                self.login_info_label.setText("")
+            if hasattr(self, 'login_btn'):
+                self.login_btn.show()
             
             self.load_default_avatar()
             
@@ -22608,6 +23061,118 @@ exit /b 0
             logger.error(f"登录后刷新UI失败：{e}")
             self._apply_user_info_to_ui(None)
 
+    def _open_web_risk_verify(self, url, parent_dialog, login_dialog_ref):
+        """内嵌 B 站官方手机号验证页面完成风控；登录成功则保存会话并返回 True。"""
+        from PyQt5.QtCore import QUrl, QTimer
+        from PyQt5.QtWebEngineWidgets import QWebEngineView
+        try:
+            # API url -> H5 完整验证页
+            h5_url = url or ""
+            if "/x/passport-login" in h5_url:
+                h5_url = h5_url.replace("/x/passport-login/web/h5-second/", "/h5-second/")
+                h5_url = h5_url.replace("/x/passport-login/h5-second/", "/h5-second/")
+            logger.info(f"内嵌风控验证 URL（转换后）：{h5_url}")
+
+            dlg = QDialog(parent_dialog)
+            dlg.setWindowTitle("B站手机号验证")
+            dlg.resize(scale(560), scale(640))
+            dlg.setMinimumSize(scale(480), scale(560))
+            lay = QVBoxLayout(dlg)
+            lay.setContentsMargins(0, 0, 0, 0)
+            view = QWebEngineView(dlg)
+            lay.addWidget(view)
+
+            _got = {}
+            _all = {}
+            _finished = [False]
+
+            def _try_finish():
+                if 'SESSDATA' in _got and 'DedeUserID' in _got and not _finished[0]:
+                    _finished[0] = True
+                    cookie_str = '; '.join(f'{k}={v}' for k, v in _all.items())
+                    logger.info(f"内嵌风控验证捕获到登录 cookie: {list(_all.keys())}")
+                    # 1) 保存 cookie 到 parser
+                    self.parser.save_cookies(cookie_str)
+                    # 2) 同时保存 WebEngine 的完整浏览器环境（UA + buvid3/_uuid 等）
+                    try:
+                        _ua = view.page().profile().httpUserAgent()
+                        _headers = {
+                            "User-Agent": _ua,
+                            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                            "Accept-Language": "zh-CN,zh;q=0.9",
+                            "Accept-Encoding": "gzip, deflate, br",
+                            "Referer": "https://passport.bilibili.com/",
+                            "Origin": "https://passport.bilibili.com",
+                        }
+                        self.parser.save_browser_env(_all, user_agent=_ua, extra_headers=_headers)
+                        # 3) 把验证页的指纹 cookie（buvid3/buvid4/_uuid 等）注入 requests session，
+                        #    使 requests 与验证页使用同一套设备指纹，下次登录复用时不重复触发风控
+                        try:
+                            for _k, _v in _all.items():
+                                if _k and _v and isinstance(_k, str) and isinstance(_v, str):
+                                    self.parser.session.cookies.set(_k, _v, domain='.bilibili.com')
+                            if _all.get('bili_jct'):
+                                self.parser.session.headers['X-CSRF-Token'] = _all['bili_jct']
+                        except Exception as _ie:
+                            logger.error(f"注入验证指纹到 session 失败：{_ie}")
+                    except Exception as _be:
+                        logger.error(f"保存浏览器环境失败：{_be}")
+                    self._on_login_success_refresh()
+                    self.show_notification("手机号验证成功，登录完成！", "success")
+                    try:
+                        login_dialog_ref.accept()
+                    except Exception:
+                        pass
+                    self.login_dialog = None
+                    dlg.accept()
+
+            def _on_cookie(cookie):
+                try:
+                    name = bytes(cookie.name()).decode('utf-8', 'ignore')
+                    val = bytes(cookie.value()).decode('utf-8', 'ignore')
+                    _all[name] = val
+                    if name in ('SESSDATA', 'bili_jct', 'DedeUserID', 'DedeUserID__ckMd5'):
+                        logger.info(f"内嵌验证捕获关键 cookie: {name}")
+                        _got[name] = val
+                    _try_finish()
+                except Exception as e:
+                    logger.error(f"内嵌验证 cookie 处理异常: {e}")
+
+            def _on_url_changed(new_url):
+                try:
+                    u = new_url.toString() if hasattr(new_url, 'toString') else str(new_url)
+                    if ('bilibili.com' in u) and not _finished[0]:
+                        _try_finish()
+                except Exception:
+                    pass
+
+            store = view.page().profile().cookieStore()
+            store.cookieAdded.connect(_on_cookie)
+            try:
+                view.urlChanged.connect(_on_url_changed)
+            except Exception:
+                pass
+
+            # allCookies() 在 PyQt5 里异步返回空列表，不能用；这里只做定时器 guard
+            def _poll_guard():
+                if not _finished[0]:
+                    _timer.start(800)
+
+            _timer = QTimer()
+            _timer.timeout.connect(_poll_guard)
+            _timer.start(800)
+            view.setUrl(QUrl(h5_url))
+            dlg.exec_()
+            _timer.stop()
+            try:
+                store.cookieAdded.disconnect(_on_cookie)
+            except Exception:
+                pass
+            return _finished[0]
+        except Exception as e:
+            logger.error(f"内嵌风控验证失败：{e}")
+            return False
+
     def update_login_info_display(self):
         if hasattr(self, 'login_info_widget') and hasattr(self, 'login_info_label') and hasattr(self, 'avatar_label'):
             if hasattr(self, 'parser') and self.parser and hasattr(self.parser, 'cookies') and self.parser.cookies:
@@ -22640,6 +23205,8 @@ exit /b 0
     def _apply_user_info_to_ui(self, user_info):
         try:
             if user_info and user_info.get("success"):
+                if hasattr(self, 'login_btn'):
+                    self.login_btn.hide()
                 username = user_info.get("uname", "用户")
                 self.login_info_label.setText(username)
                 self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 12px;"))
@@ -22672,7 +23239,7 @@ exit /b 0
                 self.login_info_widget.mousePressEvent = handle_click
                 
                 if hasattr(self, 'user_info_label') and hasattr(self, 'vip_label'):
-                    self.user_info_label.setText("已登录")
+                    self.user_info_label.setText(username)
                     if user_info.get("is_vip"):
                         self.vip_label.setText("√ 会员")
                         self.vip_label.setStyleSheet("color: #faad14;")
@@ -22682,8 +23249,9 @@ exit /b 0
                 
                 self.hide_cookie_ui()
             else:
-                self.login_info_label.setText("如果想要解析会员内容请登录")
-                self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 12px;"))
+                self.login_info_label.setText("")
+                if hasattr(self, 'login_btn'):
+                    self.login_btn.show()
                 
                 self.login_info_widget.setCursor(QCursor(Qt.PointingHandCursor))
                 self.login_info_widget.mousePressEvent = self.on_login_click
@@ -22696,8 +23264,9 @@ exit /b 0
                 self.load_default_avatar()
         except Exception as e:
             logger.error(f"应用用户信息到UI失败：{e}")
-            self.login_info_label.setText("如果想要解析会员内容请登录")
-            self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 12px;"))
+            self.login_info_label.setText("")
+            if hasattr(self, 'login_btn'):
+                self.login_btn.show()
             
             self.login_info_widget.setCursor(QCursor(Qt.PointingHandCursor))
             self.login_info_widget.mousePressEvent = self.on_login_click
@@ -22708,22 +23277,6 @@ exit /b 0
                 self.vip_label.setStyleSheet("color: #6b7280;")
             
             self.load_default_avatar()
-        else:
-                
-                self.login_info_label.setText("如果想要解析会员内容请登录")
-                self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 12px;"))
-                
-                self.login_info_widget.setCursor(QCursor(Qt.PointingHandCursor))
-                self.login_info_widget.mousePressEvent = self.on_login_click
-                
-                if hasattr(self, 'user_info_label') and hasattr(self, 'vip_label'):
-                    self.user_info_label.setText("未登录")
-                    self.vip_label.setText("× 未登录")
-                    self.vip_label.setStyleSheet("color: #6b7280;")
-                
-                self.load_default_avatar()
-                
-                self.show_cookie_ui()
 
     def on_avatar_loaded(self, avatar_data):
         try:
@@ -23589,7 +24142,8 @@ exit /b 0
         self.tray_icon.setToolTip(f"{APP_NAME}{version_info['version']}")
         
         
-        self.tray_menu = QMenu()
+        self.tray_menu = QMenu(self)
+        self.tray_menu.setAttribute(Qt.WA_DeleteOnClose, False)
         
         
         show_action = self.tray_menu.addAction("显示主窗口")
@@ -26006,6 +26560,10 @@ exit /b 0
         
         
         def on_dialog_close():
+            try:
+                _save_login_form()
+            except Exception:
+                pass
             
             if login_poll_thread:
                 if login_poll_thread.isRunning():
@@ -26096,7 +26654,30 @@ exit /b 0
         password_edit.setMinimumHeight(scale(44))
         password_edit.setStyleSheet(scale_style("font-size: 14px; padding: 0 16px;"))
         password_layout.addWidget(password_edit)
-        
+
+        # 记忆登录表单：开启时回填上一次输入的账号/密码
+        def _save_login_form():
+            try:
+                if not (hasattr(self, 'config') and self.config):
+                    return
+                if not self.config.get_app_setting("remember_login", True):
+                    return
+                self.config.set_app_setting("remember_login_username", username_edit.text().strip())
+                self.config.set_app_setting("remember_login_password", password_edit.text())
+            except Exception:
+                pass
+
+        if hasattr(self, 'config') and self.config and self.config.get_app_setting("remember_login", True):
+            try:
+                saved_u = self.config.get_app_setting("remember_login_username", "")
+                saved_p = self.config.get_app_setting("remember_login_password", "")
+                if saved_u:
+                    username_edit.setText(saved_u)
+                if saved_p:
+                    password_edit.setText(saved_p)
+            except Exception:
+                pass
+
         login_btn = QPushButton("登录")
         login_btn.setMinimumHeight(scale(44))
         login_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; font-weight: 500; font-size: 14px;"))
@@ -26431,6 +27012,10 @@ exit /b 0
         
         
         def on_password_login():
+            try:
+                _save_login_form()
+            except Exception:
+                pass
             username = username_edit.text().strip()
             password = password_edit.text().strip()
             if not username or not password:
@@ -26438,7 +27023,16 @@ exit /b 0
                 return
 
             login_btn.setEnabled(False)
-            self.show_notification("正在获取验证码参数...", "info")
+            self.show_notification("正在建立登录环境...", "info")
+
+            # 发起登录前必须先建好浏览器指纹环境（buvid3/buvid4/_uuid 等），
+            # 否则 B 站把 requests 视为"无指纹的可疑环境" → 必然触发风控
+            def _do_warmup():
+                try:
+                    self.parser.warmup_before_login()
+                except Exception as e:
+                    logger.warning(f"登录环境预热失败: {e}")
+                return self.parser.get_captcha()
 
             def _do_get_captcha():
                 try:
@@ -26495,6 +27089,18 @@ exit /b 0
                                         password_form.risk_label.setText(status)
 
                                         def on_verify_click():
+                                            _web_view_cls = None
+                                            try:
+                                                from PyQt5.QtWebEngineWidgets import QWebEngineView
+                                                _web_view_cls = QWebEngineView
+                                            except Exception:
+                                                _web_view_cls = None
+                                            # 优先内嵌 B 站官方手机号验证页面，验证成功后保持登录会话
+                                            if _web_view_cls is not None and url:
+                                                _web_ok = self._open_web_risk_verify(url, login_dialog, login_dialog_ref)
+                                                if _web_ok:
+                                                    return
+
                                             risk_sms_dialog = QDialog(login_dialog)
                                             risk_sms_dialog.setWindowTitle("手机号验证")
                                             risk_sms_dialog.setMinimumSize(scale(380), scale(320))
@@ -26716,6 +27322,9 @@ exit /b 0
                                         password_form.verify_btn.clicked.connect(on_verify_click)
 
                                         switch_tab(1)
+
+                                        # 触发风控时自动跳出内嵌的 B 站官方手机号验证页面
+                                        QTimer.singleShot(400, on_verify_click)
                                     else:
                                         if "环境" in error_msg or "异常" in error_msg:
                                             self.show_notification(f"{error_msg}\n\n请检查网络环境或尝试使用其他登录方式。", "warning")
@@ -26731,7 +27340,7 @@ exit /b 0
                 show_captcha_dialog(gt, challenge, captcha_callback, login_dialog)
 
             def _run_captcha():
-                result = _do_get_captcha()
+                result = _do_warmup()
                 run_on_main_thread(lambda: _on_captcha_ready(result))
 
             threading.Thread(target=_run_captcha, daemon=True).start()
@@ -27229,7 +27838,7 @@ exit /b 0
 
         sidebar = QListWidget()
         sidebar.setFixedWidth(scale(160))
-        sidebar_items = ["下载设置", "网络设置", "窗口设置", "其他设置", "数据与隐私"]
+        sidebar_items = ["下载设置", "网络设置", "窗口设置", "其他设置", "数据与隐私", "关于我们"]
         for item_text in sidebar_items:
             item = QListWidgetItem(item_text)
             sidebar.addItem(item)
@@ -27240,12 +27849,11 @@ exit /b 0
                 border: none;
                 border-right: 1px solid #e9ecef;
                 outline: none;
-                padding: 8px 4px;
+                padding: 0 0 4px 0;
             }
             QListWidget::item {
                 padding: 12px 16px;
-                margin: 4px 6px;
-                border-radius: 8px;
+                margin: 0;
                 color: #333333;
                 font-size: 14px;
                 font-weight: 500;
@@ -28063,6 +28671,11 @@ exit /b 0
         clipboard_detect_checkbox = QCheckBox("自动检测剪贴板中的B站链接")
         clipboard_detect_checkbox.setChecked(self.config.get_app_setting("clipboard_auto_detect", True))
         other_checkbox_layout.addWidget(clipboard_detect_checkbox, 3, 0, 1, 3)
+
+        # 记住登录账号密码
+        remember_login_checkbox = QCheckBox("记住登录账号密码")
+        remember_login_checkbox.setChecked(self.config.get_app_setting("remember_login", True))
+        other_checkbox_layout.addWidget(remember_login_checkbox, 4, 0, 1, 3)
         
         other_layout.addLayout(other_checkbox_layout)
 
@@ -28675,6 +29288,300 @@ exit /b 0
         page5_scroll.setWidget(page5_widget)
         stacked_widget.addWidget(page5_scroll)
 
+        # ===== 关于我们 =====
+        page6_scroll = QScrollArea()
+        page6_scroll.setWidgetResizable(True)
+        page6_scroll.setStyleSheet("QScrollArea { border: none; }")
+        page6_widget = QWidget()
+        page6_layout = QVBoxLayout(page6_widget)
+        page6_layout.setContentsMargins(scale(18), scale(18), scale(18), scale(18))
+        page6_layout.setSpacing(scale(16))
+
+        # ---- 应用名称与版本 ----
+        _about_ver = str(version_info.get("version", "")) or "2.0.0"
+        _about_author = "寒烟似雪"
+
+        # 头部：实色蓝主视觉
+        app_header = QWidget()
+        app_header.setStyleSheet(scale_style("background-color: #1677ff;"))
+        app_header_lay = QHBoxLayout(app_header)
+        app_header_lay.setContentsMargins(scale(28), scale(32), scale(28), scale(32))
+        app_header_lay.setSpacing(scale(22))
+        app_logo = QLabel()
+        app_logo.setFixedSize(scale(88), scale(88))
+        app_logo.setAlignment(Qt.AlignCenter)
+        try:
+            _pix = get_app_icon_pixmap(getattr(self, "config", None), scale(78), scale(78))
+            app_logo.setPixmap(_pix)
+        except Exception:
+            pass
+        app_header_lay.addWidget(app_logo, 0, Qt.AlignVCenter)
+
+        app_text = QWidget()
+        app_text_lay = QVBoxLayout(app_text)
+        app_text_lay.setContentsMargins(0, 0, 0, 0)
+        app_text_lay.setSpacing(scale(10))
+        app_name_row = QHBoxLayout()
+        app_name_row.setSpacing(scale(12))
+        app_name_lbl = QLabel(APP_NAME)
+        app_name_lbl.setStyleSheet(scale_style("font-size: 34px; font-weight: 800; color: #ffffff;"))
+        app_name_row.addWidget(app_name_lbl)
+        ver_badge = QLabel("V" + _about_ver)
+        ver_badge.setStyleSheet(scale_style("background-color: rgba(255,255,255,0.18); color: #ffffff; font-size: 14px; font-weight: 700; padding: 3px 14px;"))
+        ver_badge.setAlignment(Qt.AlignCenter)
+        app_name_row.addWidget(ver_badge, 0, Qt.AlignVCenter)
+        app_name_row.addStretch(1)
+        app_text_lay.addLayout(app_name_row)
+        app_sub_lbl = QLabel("作者：{0}　·　一款简洁高效的 B 站视频解析与下载工具".format(_about_author))
+        app_sub_lbl.setStyleSheet(scale_style("font-size: 15px; color: rgba(255,255,255,0.88);"))
+        app_text_lay.addWidget(app_sub_lbl)
+        app_text_lay.addStretch(1)
+        app_header_lay.addWidget(app_text, 1)
+
+        about_check_btn = QPushButton("检查更新")
+        about_check_btn.setCursor(Qt.PointingHandCursor)
+        about_check_btn.setMinimumHeight(scale(40))
+        about_check_btn.setStyleSheet(scale_style("""
+            QPushButton { background-color: #ffffff; color: #1677ff; font-size: 14px; font-weight: 700; padding: 0 22px; border: none; }
+            QPushButton:hover { background-color: #e8f1ff; }
+        """))
+        about_check_btn.clicked.connect(lambda: self._manual_check_update() if hasattr(self, '_manual_check_update') else None)
+        app_header_lay.addWidget(about_check_btn, 0, Qt.AlignTop)
+        page6_layout.addWidget(app_header)
+
+        # ---- 本机信息 ----
+        device_card = QWidget()
+        device_card.setStyleSheet(scale_style("background-color: #ffffff;"))
+        device_lay = QGridLayout(device_card)
+        device_lay.setContentsMargins(scale(22), scale(18), scale(22), scale(18))
+        device_lay.setHorizontalSpacing(scale(24))
+        device_lay.setVerticalSpacing(scale(15))
+
+        device_title = QLabel("本机信息")
+        device_title.setStyleSheet(scale_style("font-size: 17px; font-weight: 700; color: #1a1a1a;"))
+        device_lay.addWidget(device_title, 0, 0, 1, 2)
+
+        def _about_key(text):
+            k = QLabel(text)
+            k.setStyleSheet(scale_style("font-size: 14px; font-weight: 600; color: #6b7280;"))
+            return k
+
+        def _about_val(text):
+            v = QLabel(text)
+            v.setWordWrap(True)
+            v.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            v.setStyleSheet(scale_style("font-size: 14px; color: #1f2329;"))
+            return v
+
+        device_code = ""
+        if hasattr(self, 'cloud_service') and self.cloud_service:
+            try:
+                device_code = getattr(self.cloud_service, 'client_id', '') or ''
+            except Exception:
+                device_code = ''
+        device_code = device_code or "未知"
+
+        hw_rows = [
+            ("操作系统", "检测中..."),
+            ("设备型号", "检测中..."),
+            ("处理器", "检测中..."),
+            ("显卡", "检测中..."),
+            ("内存", "检测中..."),
+        ]
+        hw_value_labels = {}
+        _ri = 1
+        _kr = _about_key("设备码")
+        _kr.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        device_lay.addWidget(_kr, _ri, 0)
+        device_lay.addWidget(_about_val(device_code), _ri, 1)
+        _ri += 1
+        for k, v in hw_rows:
+            _kr = _about_key(k)
+            _kr.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            device_lay.addWidget(_kr, _ri, 0)
+            v_lbl = _about_val(v)
+            device_lay.addWidget(v_lbl, _ri, 1)
+            hw_value_labels[k] = v_lbl
+            _ri += 1
+        device_lay.setColumnStretch(1, 1)
+        page6_layout.addWidget(device_card)
+
+        # 后台采集硬件信息
+        def _refresh_hw():
+            try:
+                if IS_WINDOWS:
+                    data = self._collect_windows_hardware()
+                else:
+                    data = {}
+                os_line = data.get("os", "")
+                machine = data.get("machine", "") or "未知"
+                mapping = {
+                    "操作系统": os_line,
+                    "设备型号": machine,
+                    "处理器": data.get("cpu", "未知"),
+                    "显卡": data.get("gpu", "未知"),
+                    "内存": data.get("ram", "未知"),
+                }
+                def _apply():
+                    for k, v in mapping.items():
+                        lbl = hw_value_labels.get(k)
+                        if lbl is not None:
+                            lbl.setText(v or "未知")
+                run_on_main_thread(_apply)
+            except Exception:
+                pass
+        import threading as _hw_thr
+        _hw_thr.Thread(target=_refresh_hw, daemon=True).start()
+
+        # ---- 资源解析（二维码/图标，兼容源码运行与打包后）----
+        def _about_resolve(rel):
+            cands = []
+            if getattr(sys, 'frozen', False):
+                _exe = os.path.dirname(os.path.abspath(sys.executable))
+                cands += [os.path.join(_exe, rel), os.path.join(_exe, '_internal', rel)]
+            if hasattr(sys, '_MEIPASS'):
+                cands.append(os.path.join(sys._MEIPASS, rel))
+            cands.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), rel))
+            for c in cands:
+                if os.path.exists(c):
+                    return c
+            return ""
+
+        def _about_icon(filename, size):
+            from PyQt5.QtCore import QByteArray
+            p = _about_resolve(os.path.join("assets", "icons", filename))
+            if p and os.path.exists(p):
+                try:
+                    with open(p, 'r', encoding='utf-8') as f:
+                        data = f.read()
+                    r = QSvgRenderer()
+                    if r.load(QByteArray(data.encode('utf-8'))):
+                        pm = QPixmap(max(int(size), 1), max(int(size), 1))
+                        pm.fill(Qt.transparent)
+                        pa = QPainter(pm)
+                        pa.setRenderHint(QPainter.Antialiasing)
+                        r.render(pa)
+                        pa.end()
+                        return pm
+                except Exception:
+                    pass
+            return QPixmap()
+
+        # ---- 联系与合作 ----
+        contact_card = QWidget()
+        contact_card.setStyleSheet(scale_style("background-color: #ffffff;"))
+        contact_body = QVBoxLayout(contact_card)
+        contact_body.setContentsMargins(scale(22), scale(18), scale(22), scale(20))
+        contact_body.setSpacing(scale(16))
+
+        contact_title = QLabel("联系与合作")
+        contact_title.setStyleSheet(scale_style("font-size: 17px; font-weight: 700; color: #1a1a1a;"))
+        contact_body.addWidget(contact_title)
+
+        def _about_qr(path, title):
+            box = QWidget()
+            b = QVBoxLayout(box)
+            b.setContentsMargins(0, 0, 0, 0)
+            b.setSpacing(scale(8))
+            img = QLabel()
+            img.setAlignment(Qt.AlignCenter)
+            img.setFixedSize(scale(118), scale(118))
+            p = _about_resolve(path)
+            if p and os.path.exists(p):
+                pm = QPixmap(p)
+                if not pm.isNull():
+                    img.setPixmap(pm.scaled(scale(110), scale(110), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            b.addWidget(img)
+            cap = QLabel(title)
+            cap.setAlignment(Qt.AlignCenter)
+            cap.setStyleSheet(scale_style("font-size: 13px; color: #4b5563;"))
+            b.addWidget(cap)
+            return box
+
+        qr_row = QHBoxLayout()
+        qr_row.setSpacing(scale(40))
+        qr_row.addWidget(_about_qr("qunqrcode.png", "QQ交流群 714822491"))
+        qr_row.addWidget(_about_qr("myqrcode.png", "作者QQ 2273962061"))
+        qr_row.addStretch(1)
+        contact_body.addLayout(qr_row)
+
+        def _about_link(icon_file, text, href, color="#1677ff"):
+            row = QWidget()
+            row_lay = QHBoxLayout(row)
+            row_lay.setContentsMargins(0, 0, 0, 0)
+            row_lay.setSpacing(scale(10))
+            ic = QLabel()
+            ic.setFixedSize(scale(22), scale(22))
+            pm = _about_icon(icon_file, scale(20))
+            if not pm.isNull():
+                ic.setPixmap(pm)
+            else:
+                ic.setText("·")
+            ic.setAlignment(Qt.AlignCenter)
+            row_lay.addWidget(ic)
+            lbl = QLabel(f"<a href='{href}' style='color:{color}; text-decoration:none; font-size:{scale(14)}px;'>{text}</a>")
+            lbl.setOpenExternalLinks(True)
+            lbl.setTextInteractionFlags(Qt.TextBrowserInteraction)
+            lbl.setStyleSheet("background: transparent;")
+            row_lay.addWidget(lbl)
+            row_lay.addStretch(1)
+            return row
+
+        links_lay = QVBoxLayout()
+        links_lay.setSpacing(scale(9))
+        links_lay.addWidget(_about_link("website.svg", "个人网站：www.myblog.ink", "https://www.myblog.ink"))
+        links_lay.addWidget(_about_link("bilibili.svg", "B站：不会玩Python的man", "https://space.bilibili.com/3546841002019157", color="#00A1D6"))
+        links_lay.addWidget(_about_link("github.svg", "GitHub 仓库：bilibilidownloadtool", "https://github.com/NANblogink/bilibilidownloadtool", color="#181717"))
+        contact_body.addLayout(links_lay)
+
+        page6_layout.addWidget(contact_card)
+
+        # ---- 广告横幅 ----
+        ad_banner = QWidget()
+        ad_banner.setStyleSheet(scale_style("background-color: #eef4ff;"))
+        ad_lay = QHBoxLayout(ad_banner)
+        ad_lay.setContentsMargins(scale(16), scale(14), scale(16), scale(14))
+        ad_lay.setSpacing(scale(12))
+        ad_badge = QLabel()
+        ad_badge.setFixedSize(scale(26), scale(26))
+        ad_badge.setAlignment(Qt.AlignCenter)
+        _pm = _about_icon("qq_blue.svg", scale(24))
+        if not _pm.isNull():
+            ad_badge.setPixmap(_pm)
+        ad_badge.setScaledContents(False)
+        ad_lay.addWidget(ad_badge)
+        ad_text = QLabel()
+        ad_text.setWordWrap(True)
+        ad_text.setTextFormat(Qt.RichText)
+        ad_text.setText(
+            "<span style='font-size:{0}px; color:#0958d8; font-weight:600;'>"
+            "专业接爬虫开发，合法就接　QQ详谈　带价来</span>&nbsp;&nbsp;"
+            "<span style='font-size:{0}px; color:#1677ff;'>QQ：2273962061</span>".format(scale(13))
+        )
+        ad_lay.addWidget(ad_text, 1)
+        page6_layout.addWidget(ad_banner)
+
+        # ---- 底部操作 ----
+        about_actions = QHBoxLayout()
+        about_actions.setSpacing(scale(10))
+        join_qun_btn = QPushButton("加入交流群")
+        join_qun_btn.setCursor(Qt.PointingHandCursor)
+        join_qun_btn.setStyleSheet(scale_style("""
+            QPushButton { background-color: #1677ff; color: #ffffff; border: none; padding: 7px 16px; font-size: 13px; }
+            QPushButton:hover { background-color: #0958d8; }
+        """))
+        join_qun_btn.clicked.connect(lambda: join_support_group())
+        about_actions.addWidget(join_qun_btn)
+        about_actions.addStretch(1)
+        about_hint = QLabel("遇到问题？可加入交流群获取帮助")
+        about_hint.setStyleSheet(scale_style("font-size: 11px; color: #909399;"))
+        about_actions.addWidget(about_hint)
+        page6_layout.addLayout(about_actions)
+
+        page6_layout.addStretch(1)
+        page6_scroll.setWidget(page6_widget)
+        stacked_widget.addWidget(page6_scroll)
+
         sidebar.currentRowChanged.connect(stacked_widget.setCurrentIndex)
         body_layout.addWidget(stacked_widget, stretch=1)
         main_layout.addLayout(body_layout, stretch=1)
@@ -28776,6 +29683,7 @@ exit /b 0
 
             # 保存并立即应用剪贴板自动检测设置
             self.config.set_app_setting("clipboard_auto_detect", clipboard_detect_checkbox.isChecked())
+            self.config.set_app_setting("remember_login", remember_login_checkbox.isChecked())
             self._apply_clipboard_auto_detect(clipboard_detect_checkbox.isChecked())
 
             # 立即应用录制托盘显示设置
