@@ -1,0 +1,88 @@
+# ==================== Python ====================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+.pytest_cache/
+.cache/
+
+# ==================== 虚拟环境 & 依赖 ====================
+.venv/
+venv/
+env/
+*.egg
+
+# ==================== IDE / 编辑器 ====================
+.idea/
+.vscode/
+.trae/
+*.swp
+*.swo
+*~
+
+# ==================== 打包构建产物（不入库） ====================
+build/
+build_onefile/
+dist/
+dist_onefile/
+dist_nuitka/
+output/
+msix_staging/
+*.spec
+version_info_*.win
+
+# ==================== 运行时数据（不入库） ====================
+log/
+logs/
+temp/
+runs/
+app_config.json
+download_tasks.json
+download_history.json
+wbi_cache.json
+dismissed_announcements.json
+client_id.txt
+cookie.txt
+cookies.json
+data_consent.json
+beta_bind.json
+browser_env.json
+*.log
+
+# ==================== 证书文件（敏感，不入库） ====================
+*.pfx
+*.cer
+*.p12
+*.key
+
+# ==================== 第三方工具包（【刻意入库】） ====================
+# ffmpeg/ bento4/ mpv/ upx_tool/ 纳入版本管理：
+# 打包离线安装包时必须随包分发，且需要版本可复现。
+# 体积较大，首次 clone 较慢；若日后想瘦身，改用 Git LFS 而非忽略：
+#     git lfs track "ffmpeg/**" "mpv/**" "bento4/**" "upx_tool/**"
+
+# ==================== 测试 / 调试脚本（不入库） ====================
+_test_*.py
+check_class.py
+_fix_*.py
+_patch_*.py
+_refactor_*.py
+*_do_mod.py
+*_probe.py
+_rebuild_*.py
+_download_zhongying.py
+
+# ==================== 下载的视频文件（不入库） ====================
+# 注意：不使用 *.mp4 全局规则，避免误伤示例/演示素材
+B站下载/
+
+# ==================== 杂项 ====================
+软著材料/
+mac_adapter/
+_整理/
+.dev/
+.DS_Store
+Thumbs.db
