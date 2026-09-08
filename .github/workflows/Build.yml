@@ -1,0 +1,33 @@
+name: Windows CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: 语法编译 / 版本一致性 / 资源 / 导入 / 工具包自检
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install PyQt5 requests curl_cffi orjson Pillow psutil qrcode cryptography pywin32 browser-cookie3 pycryptodome
+
+      - name: Compile all sources (语法编译检查)
+        run: python -m compileall -q . -x "(__pycache__|build|dist|output|msix_staging|ffmpeg|mpv|bento4|upx_tool)"
+
+      - name: Repo self-check (版本一致性 / 资源 / 导入 / 平台函数 / 工具包)
+        run: python .github/ci_checks.py
