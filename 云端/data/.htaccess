@@ -1,0 +1,9 @@
+# 完全禁止访问data目录
+Order Allow,Deny
+Deny from all
+
+# 同时禁止执行任何脚本
+<FilesMatch "\.(php|php3|php4|php5|php7|phtml|jsp|asp|aspx|pl|py)$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>

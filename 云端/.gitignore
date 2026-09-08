@@ -1,0 +1,42 @@
+# ==================== 敏感运行时数据（绝不入库） ====================
+data/*.db
+data/*.db-journal
+data/*.sqlite
+data/sessions/
+data/*.log
+
+config/api_config.json
+config/app_config.json
+config.zip
+
+web/uploads/*
+!web/uploads/index.html
+!web/uploads/.htaccess
+web/.well-known/acme-challenge/*
+
+# ==================== PHP ====================
+vendor/
+composer.lock
+*.php~
+*.php.swp
+
+# ==================== 日志与缓存 ====================
+*.log
+logs/
+cache/
+tmp/
+temp/
+
+# ==================== 编辑器 / 系统 ====================
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*~
+*.swp
+
+# ==================== 备份文件 ====================
+*.bak
+*.old
+*.orig
+*_backup.*
