@@ -3188,11 +3188,21 @@ class FlowLayout(QLayout):
                  min_item_width=380, max_columns=3):
         super().__init__(parent)
         self._items = []
+        self._spans = {}
         self._h_spacing = h_spacing
         self._v_spacing = v_spacing
         self._min_item_width = min_item_width
         self._max_columns = max_columns
         self.setContentsMargins(margin, margin, margin, margin)
+
+    def add_item(self, widget, span=1):
+        """加入一个卡片；span>1 时该卡片占多列（用于整行宽的高卡片）。"""
+        self.addWidget(widget)
+        self._spans[widget] = max(1, int(span))
+
+    def _span_of(self, item):
+        w = item.widget() if item is not None else None
+        return self._spans.get(w, 1) if w is not None else 1
 
     # ---- QLayout 必须实现的接口 ----
     def addItem(self, item):
@@ -3253,30 +3263,48 @@ class FlowLayout(QLayout):
         total_h_spacing = self._h_spacing * (cols - 1)
         col_w = max((width - total_h_spacing) // cols, 1)
 
-        x0 = eff.x()
-        y = eff.y()
-        row_h = 0
-        used = 0
+        def col_x(c):
+            return eff.x() + c * (col_w + self._h_spacing)
 
-        for i, item in enumerate(self._items):
+        def width_for_cols(n):
+            return col_w * n + self._h_spacing * (n - 1)
+
+        # 第一遍：按 span 分配到行列，记录每行高度
+        placed = []          # (item, col, row_index, span, height)
+        row_heights = []
+        col = 0
+        row = 0
+        for item in self._items:
             if not item or item.isEmpty():
                 continue
-            col = used % cols
-            if col == 0:
-                row_h = 0
-            x = x0 + col * (col_w + self._h_spacing)
+            span = min(self._span_of(item), cols)
+            remaining = cols - col
+            if span > remaining:
+                # 本行剩余列放不下 -> 换行
+                col = 0
+                row += 1
+                if row >= len(row_heights):
+                    row_heights.append(0)
+            if row >= len(row_heights):
+                row_heights.append(0)
             h = item.sizeHint().height()
-            # 每列占满列宽，使卡片左右对齐、内部控件有稳定宽度
-            if not test_only:
-                item.setGeometry(QRect(x, y, col_w, max(h, 1)))
-            row_h = max(row_h, h)
-            used += 1
-            if used % cols == 0:
-                y += row_h + self._v_spacing
-                row_h = 0
+            placed.append((item, col, row, span, h))
+            row_heights[row] = max(row_heights[row], h)
+            col += span
+            if col >= cols:
+                col = 0
+                row += 1
 
-        if used % cols != 0:
-            y += row_h + self._v_spacing
+        # 第二遍：按行高对齐（同行卡片等高，视觉更整齐）
+        y = eff.y()
+        for r, rh in enumerate(row_heights):
+            for item, c, rr, span, h in placed:
+                if rr != r:
+                    continue
+                if not test_only:
+                    item.setGeometry(QRect(col_x(c), y, width_for_cols(span), max(rh, 1)))
+            y += rh + self._v_spacing
+
         return y - rect.y() + m.bottom()
 
 
@@ -27989,6 +28017,124 @@ exit /b 0
         if not hasattr(self, 'settings_dialog') or self.settings_dialog is None:
             self._create_settings_dialog()
     
+    # ==================== 设置窗口设计系统 ====================
+    # 统一设置窗口的视觉与间距，避免各分组各写一套样式导致风格不一致、控件拥挤。
+    SETTINGS_QSS = """
+        /* 分组卡片：柔和底色 + 淡边框，标题用强调色 */
+        QGroupBox {
+            background-color: #fbfcfe;
+            border: 1px solid #e8ecf3;
+            border-radius: 10px;
+            margin-top: 14px;
+            padding: 16px 14px 14px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #1f2d3d;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            left: 12px;
+            padding: 2px 8px;
+            color: #2563eb;
+            background-color: #fbfcfe;
+        }
+        QGroupBox QLabel { font-size: 12px; color: #5a6577; font-weight: 400; }
+        QGroupBox QCheckBox { font-size: 12px; color: #374151; font-weight: 400; }
+        QGroupBox QRadioButton { font-size: 12px; color: #374151; font-weight: 400; }
+
+        /* 设置页复选框：加大勾选框尺寸，留出充足点击区域 */
+        QCheckBox[settingsCheck="true"] {
+            padding: 7px 10px 7px 4px;
+            spacing: 10px;
+            border-radius: 7px;
+            font-size: 12px;
+            color: #374151;
+        }
+        QCheckBox[settingsCheck="true"]:hover { background-color: #eef4ff; }
+        QCheckBox[settingsCheck="true"]::indicator {
+            width: 17px; height: 17px;
+            border: 1.5px solid #b9c2d0;
+            border-radius: 5px;
+            background: #ffffff;
+        }
+        QCheckBox[settingsCheck="true"]::indicator:hover { border-color: #409eff; }
+        QCheckBox[settingsCheck="true"]::indicator:checked {
+            background: #409eff;
+            border-color: #409eff;
+        }
+
+        /* 输入控件统一观感 */
+        QGroupBox QLineEdit, QGroupBox QComboBox, QGroupBox QSpinBox,
+        QGroupBox QDoubleSpinBox, QGroupBox QTextEdit, QGroupBox QTextBrowser {
+            border: 1px solid #dfe5ee;
+            border-radius: 7px;
+            padding: 6px 9px;
+            background: #ffffff;
+            font-size: 12px;
+            min-height: 20px;
+        }
+        QGroupBox QLineEdit:focus, QGroupBox QComboBox:focus,
+        QGroupBox QSpinBox:focus, QGroupBox QDoubleSpinBox:focus {
+            border-color: #409eff;
+        }
+        QGroupBox QComboBox::drop-down { border: none; width: 20px; }
+
+        /* 侧栏 */
+        QListWidget#settingsSidebar {
+            background-color: #f6f8fc;
+            border: none;
+            border-right: 1px solid #e8ecf3;
+            outline: none;
+            padding: 10px 8px;
+        }
+        QListWidget#settingsSidebar::item {
+            padding: 11px 12px;
+            margin: 3px 0;
+            border-radius: 8px;
+            color: #4b5563;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        QListWidget#settingsSidebar::item:selected {
+            background-color: #409eff;
+            color: #ffffff;
+        }
+        QListWidget#settingsSidebar::item:hover:!selected {
+            background-color: #e8f1ff;
+            color: #2563eb;
+        }
+
+        QScrollArea { border: none; background: transparent; }
+        QScrollArea > QWidget > QWidget { background: #ffffff; }
+    """
+
+    @staticmethod
+    def _settings_checkbox(parent, text):
+        """创建风格统一的设置项复选框（带 settingsCheck 属性，供 QSS 选中）。"""
+        cb = QCheckBox(text, parent)
+        cb.setProperty("settingsCheck", True)
+        cb.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        return cb
+
+    @classmethod
+    def _settings_checkbox_grid(cls, parent, checkboxes, columns=2):
+        """把复选框排成网格：加大行列间距，避免挤在一起。
+
+        相比原先 scale(8) 的紧凑网格：
+          - 行间距 14、列间距 34，勾选框之间留出明显空隙
+          - 按列数均分可用宽度，长标签也能完整显示
+        """
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(scale(34))
+        grid.setVerticalSpacing(scale(14))
+        grid.setContentsMargins(0, 0, 0, 0)
+        for i, cb in enumerate(checkboxes):
+            grid.addWidget(cb, i // columns, i % columns)
+        for c in range(columns):
+            grid.setColumnStretch(c, 1)
+        return grid
+
     def _create_settings_dialog(self, target_page=None):
         """创建设置窗口（不显示）"""
         if hasattr(self, 'settings_dialog') and self.settings_dialog is not None:
@@ -28034,6 +28180,10 @@ exit /b 0
             }
         """)
         dialog.setStyleSheet(custom_style)
+        # 应用设置窗口统一设计系统（分组卡片 / 复选框间距 / 侧栏 / 输入控件）
+        dialog.setStyleSheet(custom_style + self.SETTINGS_QSS)
+        # 供下方控件构造引用（作为父对象 + QSS 作用域）
+        _dlg_ref = dialog
         
         
         main_layout = QVBoxLayout(dialog)
@@ -28086,36 +28236,14 @@ exit /b 0
         body_layout.setSpacing(scale(0))
 
         sidebar = QListWidget()
+        sidebar.setObjectName("settingsSidebar")   # 由 SETTINGS_QSS 统一美化
         sidebar.setFixedWidth(scale(150))
         sidebar_items = ["下载设置", "网络设置", "窗口设置", "其他设置", "数据与隐私", "关于我们"]
         for item_text in sidebar_items:
             item = QListWidgetItem(item_text)
+            item.setSizeHint(QSize(0, scale(40)))
             sidebar.addItem(item)
         sidebar.setCurrentRow(0)
-        sidebar.setStyleSheet(scale_style("""
-            QListWidget {
-                background-color: #f5f7fa;
-                border: none;
-                border-right: 1px solid #e9ecef;
-                outline: none;
-                padding: 0 0 4px 0;
-            }
-            QListWidget::item {
-                padding: 12px 16px;
-                margin: 0;
-                color: #333333;
-                font-size: 14px;
-                font-weight: 500;
-            }
-            QListWidget::item:selected {
-                background-color: #409eff;
-                color: white;
-            }
-            QListWidget::item:hover:!selected {
-                background-color: #e8f4ff;
-                color: #333333;
-            }
-        """))
         body_layout.addWidget(sidebar)
 
         stacked_widget = QStackedWidget()
@@ -28124,7 +28252,6 @@ exit /b 0
         
         # 默认下载路径
         path_group = QGroupBox("默认下载路径")
-        path_group.setStyleSheet(scale_style("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }"))
         path_layout = QVBoxLayout(path_group)
         path_layout.setContentsMargins(scale(10), scale(10), scale(10), scale(10))
         path_layout.setSpacing(scale(8))
@@ -28155,7 +28282,6 @@ exit /b 0
         
         # 下载线程数
         thread_group = QGroupBox("下载线程数")
-        thread_group.setStyleSheet(scale_style("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }"))
         thread_layout = QVBoxLayout(thread_group)
         thread_layout.setContentsMargins(scale(10), scale(10), scale(10), scale(10))
         
@@ -28171,7 +28297,6 @@ exit /b 0
         
         
         tray_group = QGroupBox("系统托盘")
-        tray_group.setStyleSheet(scale_style("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; } QCheckBox { spacing: 8px; font-size: 13px; }"))
         tray_layout = QVBoxLayout(tray_group)
         tray_layout.setContentsMargins(scale(10), scale(10), scale(10), scale(10))
         
@@ -28183,7 +28308,6 @@ exit /b 0
 
         
         window_group = QGroupBox("窗口设置")
-        window_group.setStyleSheet(scale_style("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; } QCheckBox { spacing: 8px; font-size: 13px; }"))
         window_layout = QVBoxLayout(window_group)
         window_layout.setContentsMargins(scale(10), scale(10), scale(10), scale(10))
         
@@ -28318,7 +28442,6 @@ exit /b 0
 
         # 折叠功能Tab：勾选后从顶部Tab栏折叠到右侧“更多”箭头菜单
         fold_group = QGroupBox("折叠功能Tab")
-        fold_group.setStyleSheet(scale_style("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; } QCheckBox { spacing: 8px; font-size: 13px; }"))
         fold_layout = QGridLayout(fold_group)
         fold_layout.setContentsMargins(scale(10), scale(10), scale(10), scale(10))
         fold_layout.setHorizontalSpacing(scale(16))
@@ -28344,7 +28467,6 @@ exit /b 0
         window_layout.addWidget(fold_group)
 
         icon_group = QGroupBox("程序图标")
-        icon_group.setStyleSheet(scale_style("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; } QLabel { font-size: 12px; color: #606266; }"))
         icon_layout = QVBoxLayout(icon_group)
         icon_layout.setContentsMargins(scale(10), scale(10), scale(10), scale(10))
         icon_layout.setSpacing(scale(8))
@@ -28508,7 +28630,6 @@ exit /b 0
 
         # 下载设置组
         download_group = QGroupBox("下载设置")
-        download_group.setStyleSheet(scale_style("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; } QLabel { font-size: 13px; } QCheckBox { spacing: 8px; font-size: 13px; } QComboBox { max-width: 200px; }"))
         download_layout = QVBoxLayout(download_group)
         download_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
         download_layout.setSpacing(scale(8))
@@ -28568,48 +28689,29 @@ exit /b 0
         quality_layout.addWidget(quality_combo, stretch=1)
         download_layout.addLayout(quality_layout)
         
-        # 复选框布局（三列）
-        checkbox_layout = QGridLayout()
-        checkbox_layout.setSpacing(scale(8))
-
-        # Row 0: 三列短选项
-        auto_cover_checkbox = QCheckBox("自动下载视频封面")
-        auto_cover_checkbox.setMinimumHeight(scale(22))
+        # 复选框区：由 _settings_checkbox_grid 统一排布并加大间距，
+        # 避免原先 scale(8) 紧凑网格造成的复选框相互挤压
+        auto_cover_checkbox = self._settings_checkbox(_dlg_ref, "自动下载视频封面")
         auto_cover_checkbox.setChecked(self.config.get_app_setting("auto_download_cover", True))
-        checkbox_layout.addWidget(auto_cover_checkbox, 0, 0)
 
-        auto_danmaku_checkbox = QCheckBox("自动下载弹幕文件")
-        auto_danmaku_checkbox.setMinimumHeight(scale(22))
+        auto_danmaku_checkbox = self._settings_checkbox(_dlg_ref, "自动下载弹幕文件")
         auto_danmaku_checkbox.setChecked(self.config.get_app_setting("auto_download_danmaku", False))
-        checkbox_layout.addWidget(auto_danmaku_checkbox, 0, 1)
 
-        auto_open_folder_checkbox = QCheckBox("下载完成后打开文件夹")
-        auto_open_folder_checkbox.setMinimumHeight(scale(22))
+        auto_open_folder_checkbox = self._settings_checkbox(_dlg_ref, "下载完成后打开文件夹")
         auto_open_folder_checkbox.setChecked(self.config.get_app_setting("auto_open_folder", False))
-        checkbox_layout.addWidget(auto_open_folder_checkbox, 0, 2)
 
-        # Row 1: 三列
-        play_sound_checkbox = QCheckBox("下载完成后播放提示音")
-        play_sound_checkbox.setMinimumHeight(scale(22))
+        play_sound_checkbox = self._settings_checkbox(_dlg_ref, "下载完成后播放提示音")
         play_sound_checkbox.setChecked(self.config.get_app_setting("play_sound_on_complete", True))
-        checkbox_layout.addWidget(play_sound_checkbox, 1, 0)
 
-        add_episode_prefix_checkbox = QCheckBox("文件名添加集数前缀")
-        add_episode_prefix_checkbox.setMinimumHeight(scale(22))
+        add_episode_prefix_checkbox = self._settings_checkbox(_dlg_ref, "文件名添加集数前缀")
         add_episode_prefix_checkbox.setChecked(self.config.get_app_setting("add_episode_to_filename", True))
-        checkbox_layout.addWidget(add_episode_prefix_checkbox, 1, 1)
 
-        batch_download_first_checkbox = QCheckBox("批量先下载后合并")
-        batch_download_first_checkbox.setMinimumHeight(scale(22))
+        batch_download_first_checkbox = self._settings_checkbox(_dlg_ref, "批量先下载后合并")
         batch_download_first_checkbox.setChecked(self.config.get_app_setting("batch_download_first", False))
-        checkbox_layout.addWidget(batch_download_first_checkbox, 1, 2)
 
-        # Row 2: 不处理标题 + GPU加速
-        raw_title_checkbox = QCheckBox("不处理标题（使用原始分P标题）")
-        raw_title_checkbox.setMinimumHeight(scale(22))
+        raw_title_checkbox = self._settings_checkbox(_dlg_ref, "不处理标题（使用原始分P标题）")
         raw_title_checkbox.setChecked(self.config.get_app_setting("raw_title", False))
         raw_title_checkbox.setToolTip("勾选后文件名直接使用视频原始标题（分P视频使用对应分P标题），不添加集数前缀也不替换字符")
-        checkbox_layout.addWidget(raw_title_checkbox, 2, 0)
 
         from platform_utils import detect_gpu
         gpu_acceleration_value = self.config.get_app_setting("gpu_acceleration", None)
@@ -28618,8 +28720,10 @@ exit /b 0
             gpu_acceleration_value = has_gpu
             self.config.set_app_setting("gpu_acceleration", gpu_acceleration_value)
 
-        gpu_acceleration_checkbox = QCheckBox(f"启用GPU加速{'（检测到：' + gpu_name + '）' if has_gpu else '（未检测到独立GPU）'}")
-        gpu_acceleration_checkbox.setMinimumHeight(scale(22))
+        gpu_acceleration_checkbox = self._settings_checkbox(
+            _dlg_ref,
+            f"启用GPU加速{'（检测到：' + gpu_name + '）' if has_gpu else '（未检测到独立GPU）'}",
+        )
         gpu_acceleration_checkbox.setChecked(bool(gpu_acceleration_value))
         gpu_acceleration_checkbox.setEnabled(has_gpu)
         if not has_gpu:
@@ -28630,42 +28734,49 @@ exit /b 0
             gpu_acceleration_checkbox.setToolTip("使用AMD AMF硬件编码器进行视频转码，大幅降低CPU负载")
         elif gpu_type == 'intel':
             gpu_acceleration_checkbox.setToolTip("使用Intel QSV硬件编码器进行视频转码，大幅降低CPU负载")
-        checkbox_layout.addWidget(gpu_acceleration_checkbox, 2, 1, 1, 2)
 
-        # Row 3: UP主/合集相关
-        filename_add_author_checkbox = QCheckBox("文件名添加UP主名 ([UP主] 标题)")
-        filename_add_author_checkbox.setMinimumHeight(scale(22))
+        filename_add_author_checkbox = self._settings_checkbox(_dlg_ref, "文件名添加UP主名 ([UP主] 标题)")
         filename_add_author_checkbox.setChecked(self.config.get_app_setting("filename_add_author", False))
         filename_add_author_checkbox.setToolTip("勾选后文件名变为 [UP主名] 视频标题")
-        checkbox_layout.addWidget(filename_add_author_checkbox, 3, 0)
 
-        use_author_folder_checkbox = QCheckBox("保存到UP主文件夹")
-        use_author_folder_checkbox.setMinimumHeight(scale(22))
+        use_author_folder_checkbox = self._settings_checkbox(_dlg_ref, "保存到UP主文件夹")
         use_author_folder_checkbox.setChecked(self.config.get_app_setting("use_author_folder", False))
         use_author_folder_checkbox.setToolTip("下载时在保存目录下按UP主名新建子文件夹")
-        checkbox_layout.addWidget(use_author_folder_checkbox, 3, 1)
 
-        use_collection_folder_checkbox = QCheckBox("创建合集文件夹")
-        use_collection_folder_checkbox.setMinimumHeight(scale(22))
+        use_collection_folder_checkbox = self._settings_checkbox(_dlg_ref, "创建合集文件夹")
         use_collection_folder_checkbox.setChecked(self.config.get_app_setting("use_collection_folder", False))
         use_collection_folder_checkbox.setToolTip("多P/合集视频单独放一个合集子文件夹")
-        checkbox_layout.addWidget(use_collection_folder_checkbox, 3, 2)
 
-        # Row 4: 合集文件夹位置 + 收藏夹刷新方式
+        # 复选框网格：卡片已整行占满（约 980px），可用 2 列 —— 既留足间距又不会过高
+        checkbox_layout = self._settings_checkbox_grid(_dlg_ref, [
+            auto_cover_checkbox,
+            auto_danmaku_checkbox,
+            auto_open_folder_checkbox,
+            play_sound_checkbox,
+            add_episode_prefix_checkbox,
+            batch_download_first_checkbox,
+            raw_title_checkbox,
+            gpu_acceleration_checkbox,
+            filename_add_author_checkbox,
+            use_author_folder_checkbox,
+            use_collection_folder_checkbox,
+        ], columns=2)
+
+        # 内联设置行：合集文件夹位置 / 收藏夹刷新方式
         collection_folder_mode_combo = QComboBox()
         collection_folder_mode_combo.addItem("UP主文件夹内", "author")
         collection_folder_mode_combo.addItem("独立", "root")
         collection_folder_mode_combo.setCurrentIndex(0 if self.config.get_app_setting("collection_folder_mode", "author") == "author" else 1)
-        collection_folder_mode_combo.setMinimumHeight(scale(22))
+        collection_folder_mode_combo.setMinimumHeight(scale(24))
         collection_folder_mode_combo.setToolTip("合集文件夹：放UP主文件夹内，或独立于保存目录")
         _col_mode_widget = QWidget()
         _col_mode_h = QHBoxLayout(_col_mode_widget)
         _col_mode_h.setContentsMargins(0, 0, 0, 0)
-        _col_mode_h.setSpacing(6)
+        _col_mode_h.setSpacing(scale(8))
         _col_mode_h.addWidget(QLabel("合集文件夹位置:"))
         _col_mode_h.addWidget(collection_folder_mode_combo, 1)
         _col_mode_h.addStretch(1)
-        checkbox_layout.addWidget(_col_mode_widget, 4, 0, 1, 2)
+        checkbox_layout.addWidget(_col_mode_widget, 5, 0, 1, 2)
         collection_folder_mode_combo.setEnabled(use_collection_folder_checkbox.isChecked())
         use_collection_folder_checkbox.toggled.connect(collection_folder_mode_combo.setEnabled)
 
@@ -28673,16 +28784,16 @@ exit /b 0
         favorites_refresh_mode_combo.addItem("手动", "manual")
         favorites_refresh_mode_combo.addItem("自动", "auto")
         favorites_refresh_mode_combo.setCurrentIndex(0 if self.config.get_app_setting("favorites_refresh_mode", "manual") == "manual" else 1)
-        favorites_refresh_mode_combo.setMinimumHeight(scale(22))
+        favorites_refresh_mode_combo.setMinimumHeight(scale(24))
         favorites_refresh_mode_combo.setToolTip("切到收藏夹标签时是否自动刷新一次收藏夹")
         _fav_mode_widget = QWidget()
         _fav_mode_h = QHBoxLayout(_fav_mode_widget)
         _fav_mode_h.setContentsMargins(0, 0, 0, 0)
-        _fav_mode_h.setSpacing(6)
+        _fav_mode_h.setSpacing(scale(8))
         _fav_mode_h.addWidget(QLabel("收藏夹刷新:"))
         _fav_mode_h.addWidget(favorites_refresh_mode_combo, 1)
         _fav_mode_h.addStretch(1)
-        checkbox_layout.addWidget(_fav_mode_widget, 4, 2)
+        checkbox_layout.addWidget(_fav_mode_widget, 6, 0, 1, 2)
 
         download_layout.addLayout(checkbox_layout)
         
@@ -28882,7 +28993,6 @@ exit /b 0
         
         # 网络设置组
         network_group = QGroupBox("网络设置")
-        network_group.setStyleSheet(scale_style("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; } QLabel { font-size: 13px; } QComboBox { max-width: 150px; }"))
         network_layout = QVBoxLayout(network_group)
         network_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
         network_layout.setSpacing(scale(10))
@@ -28947,59 +29057,50 @@ exit /b 0
         
         # 其他设置组
         other_group = QGroupBox("其他设置")
-        other_group.setStyleSheet(scale_style("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; } QCheckBox { spacing: 8px; font-size: 13px; }"))
         other_layout = QVBoxLayout(other_group)
         other_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
         other_layout.setSpacing(scale(8))
         
-        # 复选框布局（两行三列）
-        other_checkbox_layout = QGridLayout()
-        other_checkbox_layout.setSpacing(scale(8))
-        
-        # 自动检查更新
-        auto_update_checkbox = QCheckBox("启动时自动检查更新")
+        # 复选框区：统一由 _settings_checkbox_grid 排布（行距 14 / 列距 34），
+        # 取代原先 scale(8) 的紧凑三列网格 —— 这是"复选框挤在一起"的直接原因
+        auto_update_checkbox = self._settings_checkbox(_dlg_ref, "启动时自动检查更新")
         auto_update_checkbox.setChecked(self.config.get_app_setting("auto_check_update", True))
-        other_checkbox_layout.addWidget(auto_update_checkbox, 0, 0)
-        
-        # 显示下载速度
-        show_speed_checkbox = QCheckBox("显示下载速度")
+
+        show_speed_checkbox = self._settings_checkbox(_dlg_ref, "显示下载速度")
         show_speed_checkbox.setChecked(self.config.get_app_setting("show_download_speed", True))
-        other_checkbox_layout.addWidget(show_speed_checkbox, 0, 1)
-        
-        # 显示悬浮球
-        show_float_checkbox = QCheckBox("显示悬浮球")
+
+        show_float_checkbox = self._settings_checkbox(_dlg_ref, "显示悬浮球")
         show_float_checkbox.setChecked(self.config.get_app_setting("show_floating_ball", True))
-        other_checkbox_layout.addWidget(show_float_checkbox, 0, 2)
-        
-        # 显示录制托盘图标
-        show_recording_tray_checkbox = QCheckBox("显示录制托盘图标")
-        show_recording_tray_checkbox.setChecked(self.config.get_app_setting("show_recording_tray", True))
-        other_checkbox_layout.addWidget(show_recording_tray_checkbox, 1, 2)
-        
-        # 显示合并窗口
-        show_merge_window_checkbox = QCheckBox("显示合并进度窗口")
+
+        show_merge_window_checkbox = self._settings_checkbox(_dlg_ref, "显示合并进度窗口")
         show_merge_window_checkbox.setChecked(self.config.get_app_setting("show_merge_window", False))
-        other_checkbox_layout.addWidget(show_merge_window_checkbox, 1, 0)
 
-        # 自动转换不兼容视频
-        auto_convert_checkbox = QCheckBox("下载完成后自动转换不兼容视频(AV1/HEVC)")
+        auto_convert_checkbox = self._settings_checkbox(_dlg_ref, "下载完成后自动转换不兼容视频(AV1/HEVC)")
         auto_convert_checkbox.setChecked(self.config.get_app_setting("auto_convert_incompatible", False))
-        other_checkbox_layout.addWidget(auto_convert_checkbox, 1, 1)
 
-        # HEVC不支持时询问
-        hevc_not_support_ask_checkbox = QCheckBox("HEVC/AV1视频下载时询问是否安装解码器")
+        show_recording_tray_checkbox = self._settings_checkbox(_dlg_ref, "显示录制托盘图标")
+        show_recording_tray_checkbox.setChecked(self.config.get_app_setting("show_recording_tray", True))
+
+        hevc_not_support_ask_checkbox = self._settings_checkbox(_dlg_ref, "HEVC/AV1视频下载时询问是否安装解码器")
         hevc_not_support_ask_checkbox.setChecked(self.config.get_app_setting("hevc_not_supported_ask", True))
-        other_checkbox_layout.addWidget(hevc_not_support_ask_checkbox, 2, 0, 1, 3)
 
-        # 剪贴板自动检测B站链接
-        clipboard_detect_checkbox = QCheckBox("自动检测剪贴板中的B站链接")
+        clipboard_detect_checkbox = self._settings_checkbox(_dlg_ref, "自动检测剪贴板中的B站链接")
         clipboard_detect_checkbox.setChecked(self.config.get_app_setting("clipboard_auto_detect", True))
-        other_checkbox_layout.addWidget(clipboard_detect_checkbox, 3, 0, 1, 3)
 
-        # 记住登录账号密码
-        remember_login_checkbox = QCheckBox("记住登录账号密码")
+        remember_login_checkbox = self._settings_checkbox(_dlg_ref, "记住登录账号密码")
         remember_login_checkbox.setChecked(self.config.get_app_setting("remember_login", True))
-        other_checkbox_layout.addWidget(remember_login_checkbox, 4, 0, 1, 3)
+
+        other_checkbox_layout = self._settings_checkbox_grid(_dlg_ref, [
+            auto_update_checkbox,
+            show_speed_checkbox,
+            show_float_checkbox,
+            show_merge_window_checkbox,
+            auto_convert_checkbox,
+            show_recording_tray_checkbox,
+            hevc_not_support_ask_checkbox,
+            clipboard_detect_checkbox,
+            remember_login_checkbox,
+        ], columns=2)
         
         other_layout.addLayout(other_checkbox_layout)
 
@@ -29563,9 +29664,10 @@ exit /b 0
         page1_layout = FlowLayout(page1_widget, margin=scale(15), 
                                     h_spacing=scale(14), v_spacing=scale(14),
                                     min_item_width=scale(340))
-        page1_layout.addWidget(path_group)
-        page1_layout.addWidget(thread_group)
-        page1_layout.addWidget(download_group)
+        # 下载设置卡片内容多且高，让它整行占满（span=2），复选框可用宽度更大
+        page1_layout.add_item(path_group, span=1)
+        page1_layout.add_item(thread_group, span=1)
+        page1_layout.add_item(download_group, span=2)
         page1_scroll.setWidget(page1_widget)
         stacked_widget.addWidget(page1_scroll)
 
@@ -29614,9 +29716,10 @@ exit /b 0
         page4_layout = FlowLayout(page4_widget, margin=scale(15), 
                                     h_spacing=scale(14), v_spacing=scale(14),
                                     min_item_width=scale(340))
-        page4_layout.addWidget(other_group)
-        page4_layout.addWidget(log_group)
-        page4_layout.addWidget(storage_group)
+        # 其他设置卡片较长，整行占满后再让日志/存储并排
+        page4_layout.add_item(other_group, span=2)
+        page4_layout.add_item(log_group, span=1)
+        page4_layout.add_item(storage_group, span=1)
         page4_scroll.setWidget(page4_widget)
         stacked_widget.addWidget(page4_scroll)
 
@@ -29639,28 +29742,27 @@ exit /b 0
 
         # 使用统计组
         stats_group = QGroupBox("使用统计")
-        stats_group.setStyleSheet(scale_style("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }"))
         stats_layout = QGridLayout(stats_group)
         stats_layout.setContentsMargins(scale(12), scale(12), scale(12), scale(12))
         stats_layout.setHorizontalSpacing(scale(16))
         stats_layout.setVerticalSpacing(scale(10))
 
-        consent_install_cb = QCheckBox("安装事件上报")
+        consent_install_cb = self._settings_checkbox(_dlg_ref, "安装事件上报")
         consent_install_cb.setChecked(consent.get("event_install", False))
         consent_install_cb.setToolTip("首次安装软件时上报一次，用于统计安装量")
         stats_layout.addWidget(consent_install_cb, 0, 0)
 
-        consent_launch_cb = QCheckBox("启动事件上报")
+        consent_launch_cb = self._settings_checkbox(_dlg_ref, "启动事件上报")
         consent_launch_cb.setChecked(consent.get("event_launch", False))
         consent_launch_cb.setToolTip("每次启动软件时上报，用于统计活跃用户数")
         stats_layout.addWidget(consent_launch_cb, 0, 1)
 
-        consent_parse_cb = QCheckBox("解析事件上报")
+        consent_parse_cb = self._settings_checkbox(_dlg_ref, "解析事件上报")
         consent_parse_cb.setChecked(consent.get("event_parse_video", False))
         consent_parse_cb.setToolTip("每次解析视频时上报，用于统计功能使用频率，不含视频内容")
         stats_layout.addWidget(consent_parse_cb, 1, 0)
 
-        consent_download_cb = QCheckBox("下载事件上报")
+        consent_download_cb = self._settings_checkbox(_dlg_ref, "下载事件上报")
         consent_download_cb.setChecked(consent.get("event_download_video", False))
         consent_download_cb.setToolTip("每次下载视频时上报，用于统计下载功能使用量，不含视频内容")
         stats_layout.addWidget(consent_download_cb, 1, 1)
@@ -29669,18 +29771,17 @@ exit /b 0
 
         # 日志上报组
         log_group = QGroupBox("日志上报")
-        log_group.setStyleSheet(scale_style("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }"))
         log_layout = QGridLayout(log_group)
         log_layout.setContentsMargins(scale(12), scale(12), scale(12), scale(12))
         log_layout.setHorizontalSpacing(scale(16))
         log_layout.setVerticalSpacing(scale(10))
 
-        consent_crash_cb = QCheckBox("崩溃日志上报")
+        consent_crash_cb = self._settings_checkbox(_dlg_ref, "崩溃日志上报")
         consent_crash_cb.setChecked(consent.get("crash_report", True))
         consent_crash_cb.setToolTip("软件崩溃时上报崩溃类型、堆栈和系统信息，用于诊断和修复问题")
         log_layout.addWidget(consent_crash_cb, 0, 0)
 
-        consent_error_cb = QCheckBox("错误日志上报")
+        consent_error_cb = self._settings_checkbox(_dlg_ref, "错误日志上报")
         consent_error_cb.setChecked(consent.get("error_report", True))
         consent_error_cb.setToolTip("运行时异常上报，用于诊断和修复非崩溃性错误")
         log_layout.addWidget(consent_error_cb, 0, 1)
@@ -29689,18 +29790,17 @@ exit /b 0
 
         # 云端权限组
         remote_group = QGroupBox("云端权限")
-        remote_group.setStyleSheet(scale_style("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }"))
         remote_layout = QGridLayout(remote_group)
         remote_layout.setContentsMargins(scale(12), scale(12), scale(12), scale(12))
         remote_layout.setHorizontalSpacing(scale(16))
         remote_layout.setVerticalSpacing(scale(10))
 
-        consent_remote_config_cb = QCheckBox("远程配置读取")
+        consent_remote_config_cb = self._settings_checkbox(_dlg_ref, "远程配置读取")
         consent_remote_config_cb.setChecked(consent.get("remote_config", False))
         consent_remote_config_cb.setToolTip("允许从云端读取配置参数和功能开关，用于动态调整")
         remote_layout.addWidget(consent_remote_config_cb, 0, 0)
 
-        consent_remote_script_cb = QCheckBox("远程脚本执行")
+        consent_remote_script_cb = self._settings_checkbox(_dlg_ref, "远程脚本执行")
         consent_remote_script_cb.setChecked(consent.get("remote_script", False))
         consent_remote_script_cb.setToolTip("允许云端下发脚本并在本机执行，用于热更新功能扩展")
         remote_layout.addWidget(consent_remote_script_cb, 0, 1)
