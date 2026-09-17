@@ -18459,6 +18459,14 @@ exit /b 0
                 self.show_notification("请先解析视频链接哦", "warning")
                 return
 
+            # 防重入：同一次提交可能被多个按钮/信号重复触发（历史日志中出现过
+            # 同一合集在 11 秒内被创建 50 个任务），这里做一次节流拦截。
+            _now = time.time()
+            if _now - getattr(self, '_last_all_dl_ts', 0) < 3.0:
+                logger.warning("重复的下载提交已被忽略（3 秒内）")
+                return
+            self._last_all_dl_ts = _now
+
             if content_type is not None:
                 download_video = content_type in (0, 2)
                 download_audio = content_type in (0, 1)
@@ -22705,6 +22713,13 @@ exit /b 0
         if not self.current_video_info:
             self.show_notification("请先解析视频链接哦", "warning")
             return
+
+        # 防重入：该入口可能被多个按钮/信号重复触发，3 秒内的重复提交直接忽略
+        _now = time.time()
+        if _now - getattr(self, '_last_on_download_ts', 0) < 3.0:
+            logger.warning("重复的下载提交已被忽略（3 秒内）")
+            return
+        self._last_on_download_ts = _now
 
         if hasattr(self, 'tab_widget') and self.tab_widget.currentIndex() == 0 and hasattr(self, 'all_episode_list'):
             self._on_all_download_clicked(content_type=content_type)
