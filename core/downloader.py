@@ -7,6 +7,7 @@ from datetime import datetime
 from functools import partial
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from PyQt5.QtCore import QThread, pyqtSignal, QObject, Qt, QMutex, QWaitCondition
+import _pathsetup
 from utils import get_unique_filename
 from platform_utils import IS_MACOS, IS_WINDOWS, illegal_filename_chars
 
@@ -20,6 +21,34 @@ except ImportError:
 from bilibili_parser import BilibiliParser
 from typing import Tuple
 Task = Tuple[int, dict]
+
+
+def get_cache_dir(config=None, prefer_dir=None):
+    """返回缓存/临时目录（ASCII 安全，优先与下载目标同盘）。
+
+    用户可在「设置 → 存储」中自定义 cache_dir；留空则自动选择，
+    避免回退到系统盘 C: 导致 C 盘被临时文件写满。
+    """
+    cache_dir = ""
+    if config is not None:
+        try:
+            cache_dir = (config.get_app_setting("cache_dir", "") or "").strip()
+        except Exception:
+            cache_dir = ""
+    if not prefer_dir and config is not None:
+        try:
+            prefer_dir = (config.get_app_setting("default_save_path", "") or "").strip()
+        except Exception:
+            prefer_dir = ""
+    try:
+        from platform_utils import get_safe_temp_dir
+        return get_safe_temp_dir(
+            _pathsetup.project_root(), "temp",
+            cache_dir=cache_dir or None,
+            prefer_dir=prefer_dir or None,
+        )
+    except Exception:
+        return os.path.join(_pathsetup.project_root(), "temp")
 
 
 class EpisodeDownloadThread(QThread):
@@ -764,7 +793,7 @@ class EpisodeDownloadThread(QThread):
         # 清理失败的路径记录到全局待清理列表，下次启动时清理
         if failed_paths:
             try:
-                cache_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp", "_pending_cleanup.txt")
+                cache_file = os.path.join(get_cache_dir(self.config, self.save_path), "_pending_cleanup.txt")
                 os.makedirs(os.path.dirname(cache_file), exist_ok=True)
                 with open(cache_file, 'a', encoding='utf-8') as f:
                     for p in failed_paths:
@@ -772,38 +801,64 @@ class EpisodeDownloadThread(QThread):
             except Exception:
                 pass
 
+    # 缓存目录中可安全删除的临时文件特征
+    _ORPHAN_PATTERNS = ('.m4s', '.decrypted', '.part', '.ts', '.tmp')
+    _ORPHAN_PREFIXES = ('bili_merge_', 'transcode_', 'h264_convert_', '_bili_', 'bili_temp_')
+
     @staticmethod
-    def cleanup_pending_temp_files():
-        """启动时调用，清理上次遗留的临时文件"""
+    def cleanup_pending_temp_files(config=None, prefer_dir=None):
+        """启动时清理上次遗留的临时文件。
+
+        做两件事，且**互不依赖**（早期版本在 _pending_cleanup.txt 不存在时直接
+        返回，导致真正的缓存目录从不被扫描，临时文件长期堆积）：
+          1. 删除 _pending_cleanup.txt 中记录的、上次删除失败的文件
+          2. 扫描缓存目录，清掉所有本次运行不可能再用的遗留临时文件
+        """
+        import shutil
         try:
-            cache_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp", "_pending_cleanup.txt")
-            if not os.path.exists(cache_file):
-                return
-            import shutil
-            with open(cache_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    p = line.strip()
-                    if p and os.path.exists(p):
-                        try:
-                            os.remove(p)
-                        except Exception:
-                            try:
-                                shutil.rmtree(p, ignore_errors=True)
-                            except Exception:
-                                pass
+            cache_dir = get_cache_dir(config, prefer_dir)
+        except Exception:
+            return
+
+        # --- 1. 处理上次删除失败的记录 ---
+        cache_file = os.path.join(cache_dir, "_pending_cleanup.txt")
+        if os.path.exists(cache_file):
             try:
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        p = line.strip()
+                        if p and os.path.exists(p):
+                            try:
+                                os.remove(p)
+                            except Exception:
+                                try:
+                                    shutil.rmtree(p, ignore_errors=True)
+                                except Exception:
+                                    pass
                 os.remove(cache_file)
             except Exception:
                 pass
-            # 同时清理 temp 目录下的 .m4s 和 .decrypted 临时文件
-            temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
-            if os.path.isdir(temp_dir):
-                for fn in os.listdir(temp_dir):
-                    if fn.endswith('.m4s') or fn.endswith('.decrypted') or fn.startswith('bili_merge_'):
-                        try:
-                            os.remove(os.path.join(temp_dir, fn))
-                        except Exception:
-                            pass
+
+        # --- 2. 扫描缓存目录，清理遗留临时文件 ---
+        try:
+            if os.path.isdir(cache_dir):
+                now = time.time()
+                for fn in os.listdir(cache_dir):
+                    full = os.path.join(cache_dir, fn)
+                    try:
+                        if not os.path.isfile(full):
+                            continue
+                        low = fn.lower()
+                        is_orphan = (low.endswith(DownloadManager._ORPHAN_PATTERNS)
+                                     or fn.startswith(DownloadManager._ORPHAN_PREFIXES))
+                        if not is_orphan:
+                            continue
+                        # 跳过刚创建的文件（<10 分钟），避免误删并行实例正在用的临时文件
+                        if now - os.path.getmtime(full) < 600:
+                            continue
+                        os.remove(full)
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -1929,7 +1984,7 @@ class DownloadManager(QObject):
         # 清理失败的路径记录到全局待清理列表，下次启动时清理
         if failed_paths:
             try:
-                cache_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp", "_pending_cleanup.txt")
+                cache_file = os.path.join(get_cache_dir(self.config, self.save_path), "_pending_cleanup.txt")
                 os.makedirs(os.path.dirname(cache_file), exist_ok=True)
                 with open(cache_file, 'a', encoding='utf-8') as f:
                     for p in failed_paths:

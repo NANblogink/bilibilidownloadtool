@@ -2,11 +2,34 @@ import os
 import json
 import sys
 
+import _pathsetup
+
+
+def _default_download_dir():
+    """默认下载目录：程序所在目录下的 B站下载。
+
+    注意：本模块位于 core/ 子目录，必须用 project_root() 取项目根，
+    否则默认下载目录会落到 core/B站下载。
+    （打包后该目录只读时，下载设置里可自行改到可写盘。）
+    """
+    try:
+        if getattr(sys, 'frozen', False):
+            base = os.path.dirname(os.path.abspath(sys.executable))
+        else:
+            base = _pathsetup.project_root()
+        return os.path.join(base, "B站下载")
+    except Exception:
+        return os.path.join(os.path.expanduser("~"), "B站下载")
+
 
 def _get_app_dir():
     """返回可写的应用目录（绝对路径）。
     MSIX 沙箱安装目录只读，先尝试 exe 目录（绿色版可写），不可写则回退用户数据目录。
-    使用绝对路径避免因进程工作目录(cwd)不同导致设置被读写到别处而丢失。"""
+    使用绝对路径避免因进程工作目录(cwd)不同导致设置被读写到别处而丢失。
+
+    注意：本模块位于 core/ 子目录，必须用 _pathsetup.project_root() 取项目根，
+    否则配置会落到 core/app_config.json —— 用户原有的根目录配置会被忽略。
+    """
     try:
         if getattr(sys, 'frozen', False):
             exe_dir = os.path.dirname(sys.executable)
@@ -27,7 +50,10 @@ def _get_app_dir():
                 pass
     except Exception:
         pass
-    return os.path.dirname(os.path.abspath(__file__))
+    try:
+        return _pathsetup.project_root()
+    except Exception:
+        return os.path.dirname(os.path.abspath(__file__))
 
 
 class ConfigLoader:
@@ -74,8 +100,11 @@ class ConfigLoader:
                 "hevc_extension_url": "https://apps.microsoft.com/store/detail/microsoft-hevc-video-extension/9NMZQFK7HTR4"
             },
             "app_settings": {
-                "default_save_path": os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载"),
+                "default_save_path": _default_download_dir(),
                 "last_save_path": "",
+                # 缓存/临时目录：留空表示自动选择（优先与下载目标同盘，
+                # 避免把临时文件写到系统盘 C: 导致 C 盘爆满）
+                "cache_dir": "",
                 "max_threads": 2,
                 "auto_convert_incompatible": False,
                 "hevc_not_supported_ask": True,
@@ -108,12 +137,46 @@ class ConfigLoader:
                             for subkey, subvalue in value.items():
                                 if subkey not in config[key]:
                                     config[key][subkey] = subvalue
+                    self._migrate_settings(config)
                     return config
             except Exception as e:
                 print(f"加载配置文件失败：{str(e)}")
                 return self._get_default_config()
         else:
             return self._get_default_config()
+
+    @staticmethod
+    def _migrate_settings(config):
+        """修正历史遗留的错误默认值。
+
+        代码分层后 core/config.py 的 __file__ 指向 core/，曾导致默认下载路径被写成
+        <项目根>/core/B站下载。已存在的配置文件里这个错误值会被保留，
+        这里在加载时纠正为项目根下的 B站下载（用户手动改过的路径不动）。
+        """
+        try:
+            s = config.get("app_settings")
+            if not isinstance(s, dict):
+                return
+            cur = (s.get("default_save_path") or "").strip()
+            if not cur:
+                s["default_save_path"] = _default_download_dir()
+                return
+            # 仅当路径恰好是"某个 core/B站下载"时才纠正，避免误改用户自定义目录
+            norm = os.path.normpath(cur).replace("/", "\\").lower()
+            if norm.endswith("\\core\\b站下载"):
+                s["default_save_path"] = _default_download_dir()
+                return
+
+            # 历史配置里可能保存了已被删除/移动的目录（例如早期版本的
+            # "V2.0.8 TO Github\B站下载"）。指向不存在的父目录会导致下载无处可存，
+            # 这里回落到项目根下的 B站下载，并在日志中说明。
+            parent = os.path.dirname(cur)
+            if parent and not os.path.isdir(parent):
+                fallback = _default_download_dir()
+                print(f"下载目录已失效（{cur}），已自动改为：{fallback}")
+                s["default_save_path"] = fallback
+        except Exception:
+            pass
     def save_config(self):
         try:
             with open(self.config_file, 'w', encoding='utf-8') as f:

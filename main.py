@@ -1081,7 +1081,14 @@ if __name__ == "__main__":
                 print("=== handle_parse_media被调用 ===")
                 if parse_mode == "auto" or not parse_mode:
                     parse_mode = None
-                print(f"URL: {url}, is_tv_mode: {is_tv_mode}, episode_page: {episode_page}, parse_mode: {parse_mode}")
+                # 集数范围由主解析 Tab 的输入框提供（该控件不随信号传递，
+                # 直接读取可避免改动信号签名影响其它发射点）
+                try:
+                    _rw = getattr(window, 'episode_range_edit', None)
+                    episode_range = _rw.text().strip() if _rw else ""
+                except Exception:
+                    episode_range = ""
+                print(f"URL: {url}, is_tv_mode: {is_tv_mode}, episode_page: {episode_page}, parse_mode: {parse_mode}, episode_range: {episode_range}")
                 def progress_callback(progress, message):
                     print(f"解析进度: {progress}%, {message}")
                     window.signal_emitter.parse_progress.emit(int(progress), message)
@@ -1112,7 +1119,7 @@ if __name__ == "__main__":
                             if url_page and not episode_page and parse_mode != "video_only":
                                 episode_page = url_page
                             ep = episode_page if episode_page and episode_page > 0 else None
-                            media_info = parser[0].parse_media(media_type, media_id, is_tv_mode, progress_callback, episode_page=ep, parse_mode=parse_mode)
+                            media_info = parser[0].parse_media(media_type, media_id, is_tv_mode, progress_callback, episode_page=ep, parse_mode=parse_mode, episode_range=episode_range)
                             print(f"media_info获取成功，发送信号")
                             window.signal_emitter.parse_finished.emit(media_info)
                         except Exception as e:
