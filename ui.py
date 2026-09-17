@@ -26336,8 +26336,11 @@ exit /b 0
                 login_dialog.accept()
                 self.login_dialog = None
             else:
-                
-                message = video_info.get("message", video_info.get("status", "未知状态"))
+                # 优先展示可读状态；拿不到 status 时回落到 error，避免只显示"未知状态"
+                message = (video_info.get("status")
+                           or video_info.get("message")
+                           or video_info.get("error")
+                           or "登录状态更新中…")
                 # 防止URL泄露到界面显示（如crossDomain URL）
                 if any(keyword in message for keyword in ['passport', 'bilibili.com', 'crossDomain', 'http://', 'https://']):
                     if len(message) > 60:
@@ -26345,6 +26348,9 @@ exit /b 0
                     else:
                         message = "登录处理中..."
                 qr_status.setText(message)
+                # 解析失败（无 status/code）说明是异常而非扫码状态，写日志便于排查
+                if not video_info.get("status") and not video_info.get("code") and video_info.get("error"):
+                    logger.warning(f"扫码轮询异常：{video_info.get('error')}")
                 
                 
                 if video_info.get("risk"):

@@ -549,6 +549,30 @@ python .github/ci_checks.py   # 版本一致性 / 资源 / 导入 / 平台函数
 并在「注释是块内唯一语句」时自动跳过 —— 该守卫实际拦下了 2 处
 会导致 `IndentationError` 的误删。
 
+### 本次修复的问题
+
+| 现象 | 根因 | 修复 |
+|------|------|------|
+| **下载完 C 盘爆满**（明明选了 E 盘） | 项目路径含中文，且卷的 8.3 短路径不可用 → `get_safe_temp_dir` 逐级回退后落到系统 Temp `C:\Users\...\Temp`。临时分片/转码文件全写进 C 盘 | 回退顺序改为：**用户配置的缓存目录 → 与下载目标同盘的盘根 ASCII 目录（如 `E:\_bili_cache`）** → 程序目录 → 系统盘。不再碰 C 盘 |
+| 想改缓存位置但没入口 | — | 设置 → 数据与隐私 → 存储与缓存：新增缓存目录显示、**修改**、恢复自动、按实际缓存目录统计与清理 |
+| 缓存清理不生效 | 分层后 `temp` 路径变成 `core/temp`；且 `_pending_cleanup.txt` 不存在时函数直接 return，真正的缓存目录从不被扫描 | 统一走 `get_cache_dir()`；扫描缓存目录清理 `transcode_*` `h264_convert_*` `*.m4s` 等遗留文件（跳过 10 分钟内新文件） |
+| **分P番剧爬不到** / 整季为空 | `_get_bangumi_full_info` 用 `elif` 链，`main_section` 存在就再不看 `sections`，分P/OVA/花絮全丢 | 遍历 `main_section` + 全部 `sections` 并按主键去重 |
+| 课程批量解析卡住不进行 | 兜底端点调用了 `cheese/api/playurl` 且写死 `cid=1`，必然失败还拖慢解析 | 改为课程实际可用的 `pugv/view/web/season` 端点 |
+| 解析失败只报 `IndexError` | 空剧集列表直接取 `[0]` | 改为可读提示（区分"仅限港澳台/需会员"等） |
+| **扫码登录一登录就过期** | `curl_cffi` 的 `cookies.update(dict)` **不写 domain**，cookie 无域信息 → 请求 `api.bilibili.com` 时根本不发送 `SESSDATA` | 新增 `_apply_cookies_to_session()`，统一以 `domain=.bilibili.com` 写入 |
+| **只想下中间几集** | 只能整季解析后自己找 | 解析 Tab 新增**「集数范围」**，如 `1-5,8,10-12`。剧集列表仍完整显示，但**只对命中的集请求播放地址**，范围外标记 `out_of_range` —— 大合集/长课程明显更快 |
+| 解析 Tab 的「范围 / 指定分P」没反应 | 控件被创建成 `batch_parse_mode_combo` / `batch_episode_page_spin`，而 `on_parse` 读的是 `parse_mode_combo` / `episode_page_spin` —— **界面上有、实际读不到值** | 恢复为 `on_parse` 期望的名字 |
+| 设置界面设置项挤压 | 页面内容无最小宽度，`widgetResizable(True)` 下窗口变窄就把控件压扁 | 6 个设置页内容设 `minimumWidth(430)`，窄窗口交由滚动条承接；窗口最小/初始尺寸按屏幕比例放宽 |
+
+**另外修复了本次「代码分层」引入的 3 个回归**（说明分层必须回归验证）：
+
+- `_get_app_dir()` 返回 `core/` → 应用去读 `core/app_config.json`，**用户原有设置被忽略**。已改为 `project_root()`。
+- 默认下载路径被写成 `core/B站下载`。新增迁移：自动纠正该错误值。
+- 设置页统计/清理指向已失效的路径。
+
+配置迁移还会处理一种历史情况：配置里保存的下载目录已被删除（如 `V2.0.8 TO Github\B站下载`），
+加载时自动回落到项目根下的 `B站下载`，避免下载无处可存。
+
 ---
 
 ## 版本历史

@@ -956,6 +956,80 @@ class BilibiliParser:
                     pass
         return applied
 
+    # 登录态 cookie 名称（QR/密码登录成功后服务端下发的集合）
+    LOGIN_COOKIE_KEYS = ('DedeUserID', 'DedeUserID__ckMd5', 'SESSDATA', 'bili_jct', 'sid', 'buvid3')
+
+    def _harvest_login_cookies(self, resp, login_data):
+        """从多个来源尽力收集登录 cookie，返回 {name: value}。
+
+        按可靠性依次尝试：
+          1. resp.cookies（curl_cffi 解析出的 cookie jar）
+          2. data.url（crossDomain 查询参数）—— B站成功响应常把凭证放这里
+          3. 原始 Set-Cookie 响应头 —— curl_cffi 有时不填充 resp.cookies
+          4. 当前会话 jar（轮询过程中可能已写入）
+        任一来源命中即返回，避免"确认后拿不到 cookie"直接失败。
+        """
+        def _pick(d):
+            return {k: v for k, v in (d or {}).items()
+                    if k in self.LOGIN_COOKIE_KEYS and v}
+
+        # 1) resp.cookies
+        try:
+            got = _pick({c.name: c.value for c in resp.cookies})
+            if got:
+                logger.info(f"登录cookie来源1(resp.cookies): {list(got.keys())}")
+                return got
+        except Exception:
+            pass
+
+        # 2) crossDomain URL
+        try:
+            cd_url = (login_data or {}).get('url') or ''
+            if cd_url:
+                from urllib.parse import urlparse, parse_qs
+                params = parse_qs(urlparse(cd_url).query, keep_blank_values=True)
+                got = _pick({k: v[0] for k, v in params.items() if v})
+                if got:
+                    logger.info(f"登录cookie来源2(crossDomain URL): {list(got.keys())}")
+                    return got
+        except Exception as e:
+            logger.warning(f"解析 crossDomain URL 失败: {e}")
+
+        # 3) 原始 Set-Cookie 头
+        try:
+            raw = resp.headers.get('set-cookie') or resp.headers.get('Set-Cookie') or ''
+            parsed = {}
+            for part in re.split(r',\s*(?=[A-Za-z0-9_\-]+=)', raw):
+                head = part.split(';', 1)[0].strip()
+                if '=' in head:
+                    k, v = head.split('=', 1)
+                    if k.strip() in self.LOGIN_COOKIE_KEYS and v.strip():
+                        parsed[k.strip()] = v.strip()
+            if parsed:
+                logger.info(f"登录cookie来源3(Set-Cookie 头): {list(parsed.keys())}")
+                return parsed
+        except Exception as e:
+            logger.warning(f"解析 Set-Cookie 头失败: {e}")
+
+        # 4) 会话 jar
+        try:
+            got = _pick(self.session.cookies.get_dict() or {})
+            if got:
+                logger.info(f"登录cookie来源4(会话 jar): {list(got.keys())}")
+                return got
+        except Exception:
+            pass
+
+        logger.error(
+            "登录成功但四个来源均未取到 cookie。诊断：data.code=%r, data.url=%r, "
+            "set-cookie=%r, jar=%r, status_code=%r",
+            (login_data or {}).get('code'), ((login_data or {}).get('url') or '')[:120],
+            (resp.headers.get('set-cookie') or '')[:200],
+            list((self.session.cookies.get_dict() or {}).keys()),
+            getattr(resp, 'status_code', None),
+        )
+        return {}
+
     def _finalize_login(self, cookies):
         """扫码/密码登录成功后统一收尾：落盘 cookie、刷新用户信息。
 
@@ -965,11 +1039,33 @@ class BilibiliParser:
         ok = self.save_cookies(cookies)
         if not ok:
             logger.warning("登录 cookie 保存失败，登录态可能无法持久化")
-        user_info = self.get_user_info() or {}
+
+        # 登录后立刻查用户信息前，确保 session 网络初始化已完成，
+        # 否则可能拿到初始化前的旧状态（表现为"刚登录就说未登录"）。
+        try:
+            self._wait_session_ready(timeout=10)
+        except Exception:
+            pass
+
+        user_info = {}
+        for attempt in range(3):
+            try:
+                user_info = self.get_user_info(force_refresh=True) or {}
+            except Exception as e:
+                logger.warning(f"登录后获取用户信息异常（第{attempt + 1}次）：{e}")
+                user_info = {}
+            if user_info.get('success'):
+                break
+            # 服务端 cookie 生效可能有极短延迟，退避重试
+            time.sleep(0.6 + attempt * 0.4)
+
         logger.info(
-            "登录收尾：save_cookies=%s, isLogin=%s, uname=%s",
+            "登录收尾：save_cookies=%s, isLogin=%s, uname=%s, cookies=%s",
             ok, user_info.get('success'), user_info.get('uname', ''),
+            list(cookies.keys()) if isinstance(cookies, dict) else type(cookies).__name__,
         )
+        if not user_info.get('success'):
+            logger.warning(f"登录后仍显示未登录：{user_info.get('msg', '')}")
         return user_info
 
     def save_cookies(self, cookies):
@@ -1675,27 +1771,8 @@ class BilibiliParser:
                     "code": login_code
                 }
             
-            cookies = {}
-            for cookie in resp.cookies:
-                cookies[cookie.name] = cookie.value
-            
-            # B站QR登录成功时，cookie可能不在Set-Cookie中，而在crossDomain URL的查询参数里
-            if not cookies and login_data.get('url'):
-                try:
-                    from urllib.parse import urlparse, parse_qs
-                    cd_url = login_data['url']
-                    parsed = urlparse(cd_url)
-                    params = parse_qs(parsed.query, keep_blank_values=True)
-                    if params:
-                        # parse_qs 返回 list 值，取第一个
-                        cookies = {k: v[0] for k, v in params.items()
-                                   if k in ('DedeUserID', 'DedeUserID__ckMd5', 'SESSDATA',
-                                            'bili_jct', 'sid', 'buvid3')}
-                        if cookies:
-                            logger.info(f"从crossDomain URL提取到cookie: {list(cookies.keys())}")
-                except Exception as url_e:
-                    logger.warning(f"解析crossDomain URL失败: {url_e}")
-            
+            cookies = self._harvest_login_cookies(resp, login_data)
+
             if cookies:
                 user_info = self._finalize_login(cookies)
                 return {
@@ -1703,8 +1780,7 @@ class BilibiliParser:
                     "status": "登录成功",
                     "user_info": user_info
                 }
-            else:
-                raise Exception("登录成功但未获取到cookie（resp.cookies为空且无法从crossDomain URL提取）")
+            raise Exception("登录成功但未获取到cookie（已尝试 resp.cookies / crossDomain URL / Set-Cookie 头 / 会话缓存）")
         except ImportError as e:
             import logging
             logger = logging.getLogger(__name__)
@@ -1771,25 +1847,7 @@ class BilibiliParser:
                         "code": login_code
                     }
                 
-                cookies = {}
-                for cookie in resp.cookies:
-                    cookies[cookie.name] = cookie.value
-                
-                # B站QR登录成功时，cookie可能不在Set-Cookie中，而在crossDomain URL的查询参数里
-                if not cookies and login_data.get('url'):
-                    try:
-                        from urllib.parse import urlparse, parse_qs
-                        cd_url = login_data['url']
-                        parsed = urlparse(cd_url)
-                        params = parse_qs(parsed.query, keep_blank_values=True)
-                        if params:
-                            cookies = {k: v[0] for k, v in params.items()
-                                       if k in ('DedeUserID', 'DedeUserID__ckMd5', 'SESSDATA',
-                                                'bili_jct', 'sid', 'buvid3')}
-                            if cookies:
-                                logger.info(f"从crossDomain URL提取到cookie(no brotli): {list(cookies.keys())}")
-                    except Exception as url_e:
-                        logger.warning(f"解析crossDomain URL失败: {url_e}")
+                cookies = self._harvest_login_cookies(resp, login_data)
                 
                 if cookies:
                     user_info = self._finalize_login(cookies)
@@ -1798,8 +1856,7 @@ class BilibiliParser:
                         "status": "登录成功",
                         "user_info": user_info
                     }
-                else:
-                    raise Exception("登录成功但未获取到cookie（resp.cookies为空且无法从crossDomain URL提取）")
+                raise Exception("登录成功但未获取到cookie（已尝试 resp.cookies / crossDomain URL / Set-Cookie 头 / 会话缓存）")
             except Exception as e:
                 logger.error(f"轮询登录状态失败：{str(e)}")
                 return {
