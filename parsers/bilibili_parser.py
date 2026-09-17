@@ -399,8 +399,22 @@ class BilibiliParser:
             self.current_dir = os.path.dirname(os.path.abspath(__file__))
 
         # 预计算ASCII安全的临时目录，用于C++工具(mp4decrypt/ffmpeg/ffprobe)调用时避免中文路径问题
-        # 解决中文用户名/中文安装路径导致的工具崩溃和解密失败
-        self.safe_temp_dir = get_safe_temp_dir(self.current_dir, "temp")
+        # 解决中文用户名/中文安装路径导致的工具崩溃和解密失败。
+        # 优先使用"用户配置的缓存目录"，其次与下载目标同盘，避免临时文件中转到系统盘(C:)把 C 盘写满。
+        _pref_cache_dir = ""
+        _pref_download_dir = ""
+        try:
+            if config is not None:
+                _pref_cache_dir = (config.get_app_setting("cache_dir", "") or "").strip()
+                _pref_download_dir = (config.get_app_setting("default_save_path", "") or "").strip()
+        except Exception:
+            pass
+        self.safe_temp_dir = get_safe_temp_dir(
+            self.current_dir, "temp",
+            cache_dir=_pref_cache_dir or None,
+            prefer_dir=_pref_download_dir or None,
+        )
+        logger.info(f"临时/缓存目录: {self.safe_temp_dir}")
         
         if hasattr(sys, '_MEIPASS'):
             self.cookie_path = os.path.join(os.getcwd(), cookie_path)
@@ -445,7 +459,9 @@ class BilibiliParser:
         
         self.cookies = self._load_cookies()
         logger.info(f"从文件加载的cookie：{self.cookies}")
-        self.session.cookies.update(self.cookies)
+        # 必须带 domain 写入：仅用 update(dict) 会导致 cookie 无域信息，
+        # 请求 api.bilibili.com 时不被发送，登录态表现为"立刻失效"。
+        self._apply_cookies_to_session(self.cookies, clear_first=True)
         
         self.csrf_token = self.cookies.get('bili_jct', '')
         if self.csrf_token:
@@ -909,6 +925,53 @@ class BilibiliParser:
         return cookies
 
 
+    # B站 cookie 的父域：设置在该域下，api./www./passport. 等子域均可发送。
+    # 绝不能只用 update(dict) —— curl_cffi 的 update 不会写入 domain，
+    # 得到的 cookie 没有域信息，请求 api.bilibili.com 时不会被带上，
+    # 表现为"扫码登录成功但立刻提示过期/未登录"。
+    COOKIE_DOMAIN = ".bilibili.com"
+
+    def _apply_cookies_to_session(self, cookies, clear_first=True):
+        """把 {name: value} 写入 session cookie jar（带 domain，确保能发送）。
+
+        返回成功写入的条数。
+        """
+        if not isinstance(cookies, dict) or not cookies:
+            return 0
+        if clear_first:
+            self.session.cookies.clear()
+        applied = 0
+        for k, v in cookies.items():
+            if not k or v is None or not isinstance(k, str):
+                continue
+            try:
+                self.session.cookies.set(k, str(v), domain=self.COOKIE_DOMAIN)
+                applied += 1
+            except Exception:
+                # 个别 cookie 名非法时降级为无域写入，至少不丢数据
+                try:
+                    self.session.cookies.update({k: str(v)})
+                    applied += 1
+                except Exception:
+                    pass
+        return applied
+
+    def _finalize_login(self, cookies):
+        """扫码/密码登录成功后统一收尾：落盘 cookie、刷新用户信息。
+
+        关键点：save_cookies 会把 cookie 以带 domain 的方式写入 session，
+        因此之后请求 api.bilibili.com 才会带上登录态。
+        """
+        ok = self.save_cookies(cookies)
+        if not ok:
+            logger.warning("登录 cookie 保存失败，登录态可能无法持久化")
+        user_info = self.get_user_info() or {}
+        logger.info(
+            "登录收尾：save_cookies=%s, isLogin=%s, uname=%s",
+            ok, user_info.get('success'), user_info.get('uname', ''),
+        )
+        return user_info
+
     def save_cookies(self, cookies):
         try:
             if isinstance(cookies, str):
@@ -937,8 +1000,7 @@ class BilibiliParser:
                 std_json.dump(cookie_list, f, ensure_ascii=False, indent=2)
 
             self.cookies = cookies
-            self.session.cookies.clear()
-            self.session.cookies.update(cookies)
+            self._apply_cookies_to_session(cookies, clear_first=True)
             self.csrf_token = cookies.get('bili_jct', '')
             if self.csrf_token:
                 self.session.headers.update({'X-CSRF-Token': self.csrf_token})
@@ -988,9 +1050,9 @@ class BilibiliParser:
                         self.session.headers[k] = v
             cookies = env.get('cookies') or {}
             if cookies:
+                self._apply_cookies_to_session(cookies, clear_first=False)
                 for k, v in cookies.items():
                     if k and v and isinstance(k, str) and isinstance(v, str):
-                        self.session.cookies.set(k, v, domain='.bilibili.com')
                         self.cookies[k] = v
                 if cookies.get('bili_jct'):
                     self.csrf_token = cookies['bili_jct']
@@ -1635,8 +1697,7 @@ class BilibiliParser:
                     logger.warning(f"解析crossDomain URL失败: {url_e}")
             
             if cookies:
-                self.save_cookies(cookies)
-                user_info = self.get_user_info()
+                user_info = self._finalize_login(cookies)
                 return {
                     "success": True,
                     "status": "登录成功",
@@ -1731,8 +1792,7 @@ class BilibiliParser:
                         logger.warning(f"解析crossDomain URL失败: {url_e}")
                 
                 if cookies:
-                    self.save_cookies(cookies)
-                    user_info = self.get_user_info()
+                    user_info = self._finalize_login(cookies)
                     return {
                         "success": True,
                         "status": "登录成功",
@@ -3462,7 +3522,55 @@ class BilibiliParser:
                 "error": str(e)
             }
 
-    def parse_media(self, media_type, media_id, is_tv_mode=False, progress_callback=None, permission_denied_retries=1, cancel_check=None, episode_page=None, max_episodes=200, parse_mode=None):
+    @staticmethod
+    def parse_episode_range(spec):
+        """解析集数范围表达式，返回 (set或None, 错误信息)。
+
+        支持："1-5", "1,3,5", "1-3,7,10-12", "5"（等价 5-5）。
+        返回 None 表示"全部"（空字符串或无法解析但为空）。
+        """
+        if spec is None:
+            return None, ""
+        s = str(spec).strip()
+        if not s:
+            return None, ""
+        # 兼容中文逗号、顿号、空格
+        for ch in ('，', '、', ' ', ';', '；'):
+            s = s.replace(ch, ',')
+        picked = set()
+        try:
+            for part in s.split(','):
+                part = part.strip()
+                if not part:
+                    continue
+                if '-' in part:
+                    a, b = part.split('-', 1)
+                    a, b = int(a.strip()), int(b.strip())
+                    if a > b:
+                        a, b = b, a
+                    if b - a > 2000:
+                        return None, f"范围过大：{part}"
+                    picked.update(range(a, b + 1))
+                else:
+                    picked.add(int(part))
+        except Exception:
+            return None, f"无法识别的集数格式：{spec}（示例：1-5,8,10-12）"
+        return (picked or None), ""
+
+    @staticmethod
+    def _ep_number(ep):
+        """从剧集字典中取出用于范围匹配的集号。"""
+        for key in ('ep_index', 'index', 'ep', 'page'):
+            val = ep.get(key)
+            if isinstance(val, int):
+                return val
+            if isinstance(val, str):
+                m = re.search(r'(\d+)', val)
+                if m:
+                    return int(m.group(1))
+        return None
+
+    def parse_media(self, media_type, media_id, is_tv_mode=False, progress_callback=None, permission_denied_retries=1, cancel_check=None, episode_page=None, max_episodes=200, parse_mode=None, episode_range=None):
         """解析媒体信息
         
         Args:
@@ -3471,8 +3579,17 @@ class BilibiliParser:
                 "collection" - 强制加载完整合集（不限集数）
                 "video_only" - 仅解析当前视频的分P，跳过合集
                 "page_only" - 仅解析指定单集（通过episode_page指定）
+            episode_range: 仅解析指定集数范围，如 "1-5,8,10-12"。
+                番剧/课程的剧集列表仍会完整返回（一次 API 调用，成本很低），
+                但只会为命中的集数请求播放地址，避免为不需要的集数消耗大量请求与时间。
         """
         self._wait_session_ready()
+        # 解析集数范围（用于番剧/课程按需解析）
+        ep_filter, _range_err = self.parse_episode_range(episode_range)
+        if _range_err:
+            return {"success": False, "error": _range_err}
+        if ep_filter:
+            logger.info(f"集数范围过滤已启用：{sorted(ep_filter)[:50]}{'...' if len(ep_filter) > 50 else ''}")
         # parse_mode 决定合集加载策略
         load_collection = parse_mode not in ("video_only", "page_only")
         force_full_collection = parse_mode == "collection"
@@ -3545,6 +3662,8 @@ class BilibiliParser:
                                     if progress_callback:
                                         progress_callback(20, "正在获取番剧信息...")
                                     bangumi_full_info = self._get_bangumi_full_info(bangumi_id)
+                                    if not bangumi_full_info.get('episodes'):
+                                        raise Exception("番剧未返回任何剧集")
                                     logger.info(f"番剧信息获取成功")
                                     bangumi_info = bangumi_full_info
                                     season_title = bangumi_full_info['season_title']
@@ -3880,6 +3999,13 @@ class BilibiliParser:
                 if progress_callback:
                     progress_callback(20, "正在获取番剧信息...")
                 bangumi_full_info = self._get_bangumi_full_info(media_id)
+                if not bangumi_full_info.get('success'):
+                    raise Exception(bangumi_full_info.get('error') or "番剧信息获取失败")
+                if not bangumi_full_info.get('episodes'):
+                    raise Exception(
+                        "未能解析到任何剧集（可能原因：该番剧仅限港澳台/需大会员、"
+                        "或链接指向的是分P而非番剧）。请确认链接后在设置中切换线路重试。"
+                    )
                 bangumi_info = bangumi_full_info
                 season_title = bangumi_full_info['season_title']
                 first_ep = bangumi_full_info['episodes'][0]
@@ -3887,12 +4013,19 @@ class BilibiliParser:
                 cid = first_ep['cid']
                 first_ep_title = first_ep.get('ep_title', f"第1集")
                 title = self._sanitize_filename(f"{season_title}_{first_ep_title}")
-                logger.info(f"番剧信息处理完成: {season_title}")
+                logger.info(f"番剧信息处理完成: {season_title}（共 {len(bangumi_full_info['episodes'])} 集）")
 
             elif media_type == "cheese":
                 if progress_callback:
                     progress_callback(20, "正在获取课程信息...")
                 cheese_full_info = self._get_cheese_full_info(media_id)
+                if not cheese_full_info.get('success'):
+                    raise Exception(cheese_full_info.get('error') or "课程信息获取失败")
+                if not cheese_full_info.get('episodes'):
+                    raise Exception(
+                        "未能解析到任何课程集数（可能原因：课程需购买/登录态失效、"
+                        "或该课程链接无效）。"
+                    )
                 cheese_info = cheese_full_info
                 season_title = cheese_full_info['season_title']
                 first_ep = cheese_full_info['episodes'][0]
@@ -3902,7 +4035,7 @@ class BilibiliParser:
                 ep_id = first_ep.get('ep_id', '')
                 first_ep_title = first_ep.get('ep_title', f"第1集")
                 title = self._sanitize_filename(f"{season_title}_{first_ep_title}")
-                logger.info(f"课程信息处理完成: {season_title}")
+                logger.info(f"课程信息处理完成: {season_title}（共 {len(cheese_full_info['episodes'])} 集）")
 
             
             if progress_callback:
@@ -3929,6 +4062,14 @@ class BilibiliParser:
                 
                 total_episodes = len(episodes)
                 for i, ep in enumerate(episodes):
+                    # 集数范围过滤：范围外的集跳过播放地址请求（省时省流量），
+                    # 用独立标记 out_of_range，不占用 permission_denied 语义
+                    if ep_filter is not None:
+                        _n = self._ep_number(ep)
+                        if _n is None or _n not in ep_filter:
+                            episodes[i]['out_of_range'] = True
+                            continue
+                        episodes[i]['out_of_range'] = False
                     try:
                         if cancel_check and cancel_check():
                             return {"success": False, "error": "解析已取消"}
@@ -3975,6 +4116,13 @@ class BilibiliParser:
                 # 为每集单独检查权限
                 total_episodes = len(episodes)
                 for i, ep in enumerate(episodes):
+                    # 集数范围过滤：范围外的集跳过播放地址请求
+                    if ep_filter is not None:
+                        _n = self._ep_number(ep)
+                        if _n is None or _n not in ep_filter:
+                            episodes[i]['out_of_range'] = True
+                            continue
+                        episodes[i]['out_of_range'] = False
                     try:
                         if cancel_check and cancel_check():
                             return {"success": False, "error": "解析已取消"}
@@ -4168,23 +4316,53 @@ class BilibiliParser:
             logger.debug(f"result数据结构：{list(result.keys()) if result else '空'}")
             
             episodes = []
-            
-            if 'main_section' in result and 'episodes' in result['main_section']:
-                episodes = result['main_section']['episodes']
-                logger.debug(f"从main_section获取剧集数量：{len(episodes)}")
-            elif not episodes and 'sections' in result:
-                for section in result['sections']:
-                    if 'episodes' in section and section['episodes']:
-                        episodes = section['episodes']
-                        logger.debug(f"从sections获取剧集数量：{len(episodes)}")
-                        break
-            elif not episodes and 'episodes' in result:
-                episodes = result['episodes']
-                logger.debug(f"从result直接获取剧集数量：{len(episodes)}")
-            elif not episodes and 'ep' in result:
-                
+
+            # 收集剧集：必须遍历 [正片 main_section] + [其余 sections]，
+            # 早期实现用 elif 链，只要 main_section 存在（哪怕 episodes 为空）就
+            # 再也不会去看 sections，导致"分P/花絮/OVA 全丢"或整季解析为空。
+            def _collect(section):
+                got = []
+                if not isinstance(section, dict):
+                    return got
+                for key in ('episodes', 'ep_list'):
+                    val = section.get(key)
+                    if isinstance(val, list) and val:
+                        got.extend(val)
+                return got
+
+            episodes.extend(_collect(result.get('main_section')))
+
+            sections = result.get('sections')
+            if isinstance(sections, list):
+                for section in sections:
+                    episodes.extend(_collect(section))
+
+            # 去重（按 ep 主键），保留首次出现顺序
+            if episodes:
+                _seen = set()
+                _deduped = []
+                for _ep in episodes:
+                    if not isinstance(_ep, dict):
+                        continue
+                    _key = (_ep.get('id') or _ep.get('ep_id') or _ep.get('cid')
+                            or _ep.get('bvid') or _ep.get('aid'))
+                    if _key is None:
+                        _deduped.append(_ep)
+                        continue
+                    if _key in _seen:
+                        continue
+                    _seen.add(_key)
+                    _deduped.append(_ep)
+                episodes = _deduped
+                logger.debug(f"番剧剧集收集完成：共 {len(episodes)} 集")
+
+            # 再兜底：result 顶层直接给 episodes / ep
+            if not episodes:
+                top = result.get('episodes')
+                if isinstance(top, list) and top:
+                    episodes = top
+            if not episodes and isinstance(result.get('ep'), dict):
                 episodes = [result['ep']]
-                logger.debug(f"从ep字段获取剧集数量：{len(episodes)}")
 
             if not episodes:
                 logger.error(f"API未返回剧集数据，result: {_json_dumps(result)[:1000]}...")
@@ -4390,9 +4568,13 @@ class BilibiliParser:
                 if not success:
                     logger.error(f"API请求失败：{api_data['error']}")
                     logger.info("尝试使用其他API端点...")
+                    # 注意：原先这里包含 cheese/api/playurl 且写死 cid="1"，
+                    # 该端点与参数都不对（playurl 需要真实 cid），必然失败还会拖慢解析。
+                    # 改为课程实际可用的端点。
                     api_endpoints = [
+                        ("https://api.bilibili.com/pugv/view/web/season", {"season_id": id_value}),
+                        ("https://api.bilibili.com/pugv/view/web/season", {"ep_id": id_value}),
                         ("https://api.bilibili.com/cheese/api/subject/info", {"season_id": id_value}),
-                        ("https://api.bilibili.com/cheese/api/playurl", {"season_id": id_value, "cid": "1"})
                     ]
                     
                     for api_url, api_params in api_endpoints:

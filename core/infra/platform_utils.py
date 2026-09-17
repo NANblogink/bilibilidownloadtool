@@ -417,65 +417,101 @@ def to_short_path(path):
         return path
 
 
-def get_safe_temp_dir(base_dir, sub_dir="temp"):
-    """获取ASCII安全的临时目录，用于调用C++工具(mp4decrypt/ffmpeg等)时避免中文路径问题
+def _is_usable_dir(path):
+    """目录是否存在、可写、且不依赖中文路径（供 C++ 工具使用）。"""
+    if not path:
+        return False
+    try:
+        os.makedirs(path, exist_ok=True)
+        probe = os.path.join(path, ".bili_write_probe")
+        with open(probe, "w") as fh:
+            fh.write("ok")
+        os.remove(probe)
+    except Exception:
+        return False
+    if not has_non_ascii(path):
+        return True
+    short = to_short_path(path)
+    return short != path and not has_non_ascii(short)
 
-    多级回退策略（按优先级）：
-    1. base_dir/sub_dir（如程序目录/temp）- 不含中文时直接用
-    2. base_dir/sub_dir 的8.3短路径名 - 含中文时尝试转换
-    3. 系统Temp目录 - 不含中文时使用
-    4. 系统Temp目录的8.3短路径名 - 含中文时尝试转换
-    5. %PUBLIC%/bili_temp（C:\\Users\\Public，纯ASCII且所有用户可写）
-    6. 兜底：base_dir所在驱动器根的 _bili_temp（可能需要管理员权限）
+
+def _resolve_ascii_candidate(path):
+    """返回可用的 ASCII 路径（必要时转 8.3 短路径），不可用则返回 None。"""
+    if not path:
+        return None
+    try:
+        os.makedirs(path, exist_ok=True)
+    except Exception:
+        return None
+    if not has_non_ascii(path):
+        return path
+    short = to_short_path(path)
+    if short != path and not has_non_ascii(short):
+        return short
+    return None
+
+
+def get_safe_temp_dir(base_dir, sub_dir="temp", cache_dir=None, prefer_dir=None):
+    """获取 ASCII 安全的临时目录，用于调用 C++ 工具(mp4decrypt/ffmpeg等)时避免中文路径问题。
+
+    回退顺序（按优先级）：
+    1. 用户在设置里指定的缓存目录（cache_dir）
+    2. prefer_dir 所在盘符的根级 ASCII 目录（如 E:\\_bili_cache）——
+       关键：优先与"下载目标盘"同盘，避免把临时文件中转到系统盘(C:)把 C 盘写满
+    3. base_dir/sub_dir（程序目录下的 temp）
+    4. base_dir 所在盘符的根级 ASCII 目录
+    5. 系统 Temp
+
+    注意：C++ 工具无法处理含中文的路径，而 8.3 短路径在部分系统/卷上被禁用，
+    因此这里会主动构造盘符根目录下的纯 ASCII 目录作为首选回退，
+    而不是直接落到系统 Temp。
 
     Args:
         base_dir: 基础目录（通常是程序工作目录）
-        sub_dir: 子目录名（如"temp"）
+        sub_dir: 程序目录下的子目录名（如 "temp"）
+        cache_dir: 用户配置的缓存目录（优先使用）
+        prefer_dir: 期望同盘的目录（通常是下载保存路径）
 
     Returns:
-        ASCII安全的临时目录路径
+        ASCII 安全的临时目录路径
     """
     import tempfile
 
-    # 候选目录列表，按优先级排序
-    candidates = [
-        os.path.join(base_dir, sub_dir),
-        tempfile.gettempdir(),
-    ]
+    candidates = []
+
+    # 1. 用户配置的缓存目录
+    if cache_dir:
+        candidates.append(cache_dir)
+
+    # 2. 与下载目标同盘的 ASCII 目录（避免占用 C 盘）
+    if prefer_dir:
+        try:
+            drive = os.path.splitdrive(os.path.abspath(prefer_dir))[0]
+            if drive:
+                candidates.append(os.path.join(drive + os.sep, "_bili_cache"))
+        except Exception:
+            pass
+
+    # 3. 程序目录下的 temp
+    if base_dir:
+        candidates.append(os.path.join(base_dir, sub_dir))
+
+    # 4. 程序所在盘符根目录
+    if base_dir:
+        try:
+            drive = os.path.splitdrive(os.path.abspath(base_dir))[0]
+            if drive:
+                candidates.append(os.path.join(drive + os.sep, "_bili_cache"))
+        except Exception:
+            pass
 
     for candidate in candidates:
-        try:
-            os.makedirs(candidate, exist_ok=True)
-        except Exception:
-            continue
+        resolved = _resolve_ascii_candidate(candidate)
+        if resolved and _is_usable_dir(resolved):
+            return resolved
 
-        # 不含中文，直接使用
-        if not has_non_ascii(candidate):
-            return candidate
+    # 5. 兜底：系统 Temp
+    sys_temp = tempfile.gettempdir()
+    resolved = _resolve_ascii_candidate(sys_temp)
+    return resolved or sys_temp
 
-        # 含中文，尝试转换为8.3短路径
-        short = to_short_path(candidate)
-        if short != candidate and not has_non_ascii(short):
-            return short
-
-    # 上述方案都失败（含中文且8.3被禁用），尝试 %PUBLIC% 目录
-    # C:\Users\Public 总是纯ASCII，且所有用户都有写权限
-    try:
-        public_dir = os.environ.get('PUBLIC', r'C:\Users\Public')
-        if not has_non_ascii(public_dir):
-            public_temp = os.path.join(public_dir, 'bili_temp')
-            os.makedirs(public_temp, exist_ok=True)
-            if not has_non_ascii(public_temp):
-                return public_temp
-    except Exception:
-        pass
-
-    # 最后兜底：驱动器根的 _bili_temp（可能需要管理员权限）
-    try:
-        drive = os.path.splitdrive(base_dir)[0] or 'C:'
-        fallback = os.path.join(drive, '_bili_temp')
-        os.makedirs(fallback, exist_ok=True)
-        return fallback
-    except Exception:
-        # 实在没办法，返回系统Temp（即使含中文）
-        return tempfile.gettempdir()

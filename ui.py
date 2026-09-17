@@ -1129,6 +1129,19 @@ class ExpandedCard(QDialog):
         self.episode_page_spin.setStyleSheet(f"padding: {scale(8)}px; border: {scale(1)}px solid #dee2e6; border-radius: {scale(8)}px; font-size: {scale(11)}px; background-color: #f8fafc; min-width: {scale(50)}px;")
         self.episode_page_spin.setMinimumHeight(scale(36))
         url_layout.addWidget(self.episode_page_spin)
+
+        # 集数范围：只解析指定的几集，范围外不请求播放地址（大合集/长课程省时省流量）
+        self.episode_range_edit = QLineEdit()
+        self.episode_range_edit.setPlaceholderText("集数范围")
+        self.episode_range_edit.setToolTip(
+            "只解析指定的集，例如：1-5、8、10-12，也可混用 1-3,7,10-12\n"
+            "留空=全部。范围外的集不会请求播放地址，明显更快。\n"
+            "适用于番剧/课程等按集编号的内容。"
+        )
+        self.episode_range_edit.setStyleSheet(f"padding: {scale(8)}px; border: {scale(1)}px solid #dee2e6; border-radius: {scale(8)}px; font-size: {scale(11)}px; background-color: #f8fafc; min-width: {scale(80)}px;")
+        self.episode_range_edit.setMinimumHeight(scale(36))
+        self.episode_range_edit.setMaximumWidth(scale(110))
+        url_layout.addWidget(self.episode_range_edit)
         initial_layout.addLayout(url_layout)
         
         mode_layout = QHBoxLayout()
@@ -15818,13 +15831,17 @@ exit /b 0
         mode_label = QLabel("范围:")
         mode_label.setStyleSheet(f"font-size: {scale(11)}px; color: #606266;")
         parse_ctrl_layout.addWidget(mode_label)
+        # 这里是主解析 Tab 唯一的解析控制区（BilibiliDownloader 类内），
+        # 名称必须与 on_parse() 读取的一致：parse_mode_combo / episode_page_spin。
+        # 历史问题：曾被创建成 batch_parse_mode_combo / batch_episode_page_spin，
+        # 而 on_parse 读的是不带前缀的名字，导致"范围/指定分P"界面上有、实际不生效。
         self.parse_mode_combo = QComboBox()
-        self.parse_mode_combo.addItem("自动", "auto")
+        self.parse_mode_combo.addItem("自动（合集/分P）", "auto")
         self.parse_mode_combo.addItem("仅当前视频分P", "video_only")
         self.parse_mode_combo.addItem("仅指定单集", "page_only")
         self.parse_mode_combo.addItem("完整合集", "collection")
         self.parse_mode_combo.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dee2e6; border-radius: {scale(6)}px; font-size: {scale(11)}px; background-color: #f8fafc;")
-        self.parse_mode_combo.setToolTip("自动:根据视频类型选择 | 仅当前视频分P:跳过合集 | 仅指定单集:只解析指定集 | 完整合集:加载全部不限制")
+        self.parse_mode_combo.setToolTip("自动:按视频类型自动决定 | 仅当前视频分P:跳过合集 | 仅指定单集:只解析指定集 | 完整合集:加载全部不限制")
         parse_ctrl_layout.addWidget(self.parse_mode_combo)
         parse_ctrl_layout.addSpacing(scale(4))
         ep_label = QLabel("指定分P:")
@@ -15834,9 +15851,24 @@ exit /b 0
         self.episode_page_spin.setRange(0, 99999)
         self.episode_page_spin.setValue(0)
         self.episode_page_spin.setSpecialValueText("全部")
-        self.episode_page_spin.setToolTip("0=全部，输入数字仅解析对应分P")
+        self.episode_page_spin.setToolTip("0=全部；输入数字仅解析对应分P")
         self.episode_page_spin.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dee2e6; border-radius: {scale(6)}px; font-size: {scale(11)}px; background-color: #f8fafc; min-width: {scale(45)}px;")
         parse_ctrl_layout.addWidget(self.episode_page_spin)
+        parse_ctrl_layout.addSpacing(scale(4))
+        ep_range_label = QLabel("集数范围:")
+        ep_range_label.setStyleSheet(f"font-size: {scale(11)}px; color: #606266;")
+        parse_ctrl_layout.addWidget(ep_range_label)
+        self.episode_range_edit = QLineEdit()
+        self.episode_range_edit.setPlaceholderText("如 1-5,8,10-12")
+        self.episode_range_edit.setToolTip(
+            "只解析指定的集（留空=全部），例如 1-5 / 8 / 10-12，可混用 1-3,7,10-12。\n"
+            "范围外的集不会请求播放地址，大合集/长课程明显更快。\n"
+            "适用于番剧、课程等按集编号的内容。"
+        )
+        self.episode_range_edit.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dee2e6; border-radius: {scale(6)}px; font-size: {scale(11)}px; background-color: #f8fafc;")
+        self.episode_range_edit.setMinimumWidth(scale(110))
+        self.episode_range_edit.setMaximumWidth(scale(150))
+        parse_ctrl_layout.addWidget(self.episode_range_edit)
         parse_ctrl_layout.addStretch(1)
         content_layout.addLayout(parse_ctrl_layout)
 
@@ -19289,10 +19321,13 @@ exit /b 0
                         if url_page and not episode_page and parse_mode != "video_only":
                             episode_page = url_page
                         ep = episode_page if episode_page and episode_page > 0 else None
+                        # 集数范围（如 "1-5,8,10-12"）：只解析命中的集，范围外不请求播放地址
+                        _range_widget = getattr(self, 'episode_range_edit', None)
+                        episode_range = _range_widget.text().strip() if _range_widget else ""
                         # 传入权限不足重试次数
                         def _cancel_check():
                             return self.parse_cancelled or self.parse_stopped
-                        media_info = self.parser.parse_media(media_type, media_id, False, progress_callback, permission_denied_retries=perm_retry, cancel_check=_cancel_check, episode_page=ep, parse_mode=parse_mode)
+                        media_info = self.parser.parse_media(media_type, media_id, False, progress_callback, permission_denied_retries=perm_retry, cancel_check=_cancel_check, episode_page=ep, parse_mode=parse_mode, episode_range=episode_range)
                         # 检查是否被停止或取消
                         if self.parse_cancelled:
                             return
@@ -24900,7 +24935,22 @@ exit /b 0
 
                     def _cancel_check():
                         return self.parse_cancelled or self.parse_stopped
-                    media_info = self.parser.parse_media(media_type, media_id, False, cancel_check=_cancel_check)
+                    # 复用主解析 Tab 的解析控制项（同一个 Tab 内）
+                    _b_ep = getattr(self, 'episode_page_spin', None)
+                    _b_ep = _b_ep.value() if _b_ep else 0
+                    _b_mode = getattr(self, 'parse_mode_combo', None)
+                    _b_mode = _b_mode.currentData() if _b_mode else None
+                    if _b_mode == "auto":
+                        _b_mode = None
+                    _b_range = getattr(self, 'episode_range_edit', None)
+                    _b_range = _b_range.text().strip() if _b_range else ""
+                    media_info = self.parser.parse_media(
+                        media_type, media_id, False,
+                        cancel_check=_cancel_check,
+                        episode_page=(_b_ep if _b_ep and _b_ep > 0 else None),
+                        parse_mode=_b_mode,
+                        episode_range=_b_range,
+                    )
                     if self.parse_cancelled or self.parse_stopped:
                         self.signal_emitter.batch_parse_result.emit(link_data, False, "用户停止解析")
                         return
@@ -27843,11 +27893,18 @@ exit /b 0
         screen = QApplication.primaryScreen()
         if screen:
             sg = screen.availableGeometry()
-            dialog.setMinimumSize(max(scale(500), int(sg.width() * 0.3)), max(scale(400), int(sg.height() * 0.3)))
-            dialog.resize(min(scale(900), int(sg.width() * 0.85)), min(scale(750), int(sg.height() * 0.85)))
+            # 最小尺寸按屏幕比例给足，避免小屏上内容被挤压；
+            # 内容本身有最小宽度 + 滚动条兜底，因此这里可以放心取较小值
+            min_w = max(scale(480), min(scale(560), int(sg.width() * 0.42)))
+            min_h = max(scale(380), min(scale(460), int(sg.height() * 0.45)))
+            dialog.setMinimumSize(min_w, min_h)
+            dialog.resize(
+                min(scale(920), int(sg.width() * 0.86)),
+                min(scale(760), int(sg.height() * 0.86)),
+            )
         else:
-            dialog.setMinimumSize(scale(500), scale(400))
-            dialog.resize(scale(900), scale(750))
+            dialog.setMinimumSize(scale(560), scale(460))
+            dialog.resize(scale(920), scale(760))
         
         try:
             apply_window_icon(dialog, self.config)
@@ -29143,22 +29200,35 @@ exit /b 0
                 return f"{bytes_val / (1024*1024*1024):.2f} GB"
 
         def _get_app_dir():
-            if getattr(sys, 'frozen', False):
-                return os.path.dirname(sys.executable)
-            return os.path.dirname(os.path.abspath(__file__))
+            # 项目根（本文件在根目录）；不能再用 __file__ 的目录，
+            # 因为设置页逻辑与 core/ 分层后 __file__ 可能指向子目录
+            try:
+                import _pathsetup
+                if getattr(sys, 'frozen', False):
+                    return os.path.dirname(sys.executable)
+                return _pathsetup.project_root()
+            except Exception:
+                return os.path.dirname(os.path.abspath(__file__))
+
+        def _get_effective_cache_dir():
+            """当前生效的缓存/临时目录（与下载引擎使用的一致）。"""
+            try:
+                from downloader import get_cache_dir
+                return get_cache_dir(self.config)
+            except Exception:
+                return os.path.join(_get_app_dir(), "temp")
 
         def _get_cache_dirs():
+            """需要统计/清理的缓存目录：实际缓存目录 + 日志 + 字节码缓存。"""
             app_dir = _get_app_dir()
             dirs = []
-            temp_dir = os.path.join(app_dir, "temp")
-            if os.path.isdir(temp_dir):
-                dirs.append(temp_dir)
-            logs_dir = os.path.join(app_dir, "logs")
-            if os.path.isdir(logs_dir):
-                dirs.append(logs_dir)
-            pycache_dir = os.path.join(app_dir, "__pycache__")
-            if os.path.isdir(pycache_dir):
-                dirs.append(pycache_dir)
+            eff = _get_effective_cache_dir()
+            if eff and os.path.isdir(eff):
+                dirs.append(eff)
+            for name in ("logs", "log", "__pycache__"):
+                d = os.path.join(app_dir, name)
+                if os.path.isdir(d) and d not in dirs:
+                    dirs.append(d)
             return dirs
 
         def _calc_dir_size(dir_path):
@@ -29191,7 +29261,8 @@ exit /b 0
                     text = (
                         f"软件大小：{_fmt_size(max(app_only, 0))}\n"
                         f"缓存大小：{_fmt_size(cache_total)}\n"
-                        f"总计占用：{_fmt_size(app_total)}"
+                        f"总计占用：{_fmt_size(app_total)}\n"
+                        f"缓存位置：{_get_effective_cache_dir()}"
                     )
                     run_on_main_thread(lambda: storage_info_label.setText(text))
                 except Exception as e:
@@ -29203,6 +29274,82 @@ exit /b 0
         refresh_storage_info()
 
         storage_layout.addWidget(storage_info_label)
+
+        # ---- 缓存目录（可修改）----
+        # 说明为什么重要：程序若装在含中文的路径下，C++ 工具(ffmpeg/mp4decrypt)
+        # 无法使用该路径，旧版本会退回到系统盘 C:\Users\...\Temp，
+        # 下载大文件时把 C 盘写满。这里允许指定缓存目录，默认自动选同盘。
+        cache_tip = QLabel("缓存目录（下载中转/合并的临时文件存放位置）")
+        cache_tip.setWordWrap(True)
+        cache_tip.setStyleSheet(scale_style("font-size: 12px; color: #6b7280; font-weight: 600;"))
+        storage_layout.addWidget(cache_tip)
+
+        cache_path_row = QHBoxLayout()
+        cache_path_row.setSpacing(scale(8))
+        cache_path_edit = QLineEdit()
+        cache_path_edit.setReadOnly(True)
+        cache_path_edit.setStyleSheet(scale_style("padding: 6px 8px; border: 1px solid #dee2e6; border-radius: 6px; font-size: 12px; background: #f8fafc;"))
+        cache_path_edit.setMinimumWidth(scale(150))
+        cache_path_row.addWidget(cache_path_edit, stretch=1)
+
+        browse_cache_btn = QPushButton("修改…")
+        browse_cache_btn.setStyleSheet(scale_style("""
+            QPushButton { background-color: #409eff; color: white; border: none; padding: 7px 14px; border-radius: 6px; font-size: 12px; }
+            QPushButton:hover { background-color: #66b1ff; }
+        """))
+        cache_path_row.addWidget(browse_cache_btn)
+
+        reset_cache_btn = QPushButton("恢复自动")
+        reset_cache_btn.setStyleSheet(scale_style("""
+            QPushButton { background-color: #909399; color: white; border: none; padding: 7px 14px; border-radius: 6px; font-size: 12px; }
+            QPushButton:hover { background-color: #a6a9ad; }
+        """))
+        cache_path_row.addWidget(reset_cache_btn)
+        storage_layout.addLayout(cache_path_row)
+
+        cache_note = QLabel()
+        cache_note.setWordWrap(True)
+        cache_note.setStyleSheet(scale_style("font-size: 11px; color: #909399;"))
+        storage_layout.addWidget(cache_note)
+
+        def _refresh_cache_path_text():
+            configured = (self.config.get_app_setting("cache_dir", "") or "").strip()
+            eff = _get_effective_cache_dir()
+            cache_path_edit.setText(eff)
+            if configured:
+                cache_note.setText(f"已手动指定：{configured}")
+            else:
+                cache_note.setText("当前为自动选择（优先与下载目标同盘，不会占用系统盘 C:）")
+            reset_cache_btn.setEnabled(bool(configured))
+
+        def on_browse_cache():
+            start_dir = _get_effective_cache_dir() or _get_app_dir()
+            chosen = QFileDialog.getExistingDirectory(dialog, "选择缓存目录", start_dir)
+            if not chosen:
+                return
+            try:
+                os.makedirs(chosen, exist_ok=True)
+                probe = os.path.join(chosen, ".bili_write_probe")
+                with open(probe, "w") as fh:
+                    fh.write("ok")
+                os.remove(probe)
+            except Exception as e:
+                QMessageBox.warning(dialog, "不可写", f"该目录无法写入：\n{e}")
+                return
+            self.config.set_app_setting("cache_dir", chosen)
+            _refresh_cache_path_text()
+            refresh_storage_info()
+            self.show_notification("缓存目录已更新，下次解析/下载生效", "success")
+
+        def on_reset_cache():
+            self.config.set_app_setting("cache_dir", "")
+            _refresh_cache_path_text()
+            refresh_storage_info()
+            self.show_notification("已恢复为自动选择缓存目录", "info")
+
+        browse_cache_btn.clicked.connect(on_browse_cache)
+        reset_cache_btn.clicked.connect(on_reset_cache)
+        _refresh_cache_path_text()
 
         storage_btn_layout = QHBoxLayout()
         storage_btn_layout.setSpacing(scale(10))
@@ -29292,6 +29439,9 @@ exit /b 0
         page1_scroll.setWidgetResizable(True)
         page1_scroll.setStyleSheet("QScrollArea { border: none; }")
         page1_widget = QWidget()
+        # 设定最小内容宽度：窗口变窄时由外层 QScrollArea 出横向滚动条，
+        # 而不是把控件挤压重叠（原问题：设置项太多时相互挤压）
+        page1_widget.setMinimumWidth(scale(430))
         page1_layout = QVBoxLayout(page1_widget)
         page1_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
         page1_layout.setSpacing(scale(15))
@@ -29306,6 +29456,9 @@ exit /b 0
         page2_scroll.setWidgetResizable(True)
         page2_scroll.setStyleSheet("QScrollArea { border: none; }")
         page2_widget = QWidget()
+        # 设定最小内容宽度：窗口变窄时由外层 QScrollArea 出横向滚动条，
+        # 而不是把控件挤压重叠（原问题：设置项太多时相互挤压）
+        page2_widget.setMinimumWidth(scale(430))
         page2_layout = QVBoxLayout(page2_widget)
         page2_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
         page2_layout.setSpacing(scale(15))
@@ -29318,6 +29471,9 @@ exit /b 0
         page3_scroll.setWidgetResizable(True)
         page3_scroll.setStyleSheet("QScrollArea { border: none; }")
         page3_widget = QWidget()
+        # 设定最小内容宽度：窗口变窄时由外层 QScrollArea 出横向滚动条，
+        # 而不是把控件挤压重叠（原问题：设置项太多时相互挤压）
+        page3_widget.setMinimumWidth(scale(430))
         page3_layout = QVBoxLayout(page3_widget)
         page3_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
         page3_layout.setSpacing(scale(15))
@@ -29331,6 +29487,9 @@ exit /b 0
         page4_scroll.setWidgetResizable(True)
         page4_scroll.setStyleSheet("QScrollArea { border: none; }")
         page4_widget = QWidget()
+        # 设定最小内容宽度：窗口变窄时由外层 QScrollArea 出横向滚动条，
+        # 而不是把控件挤压重叠（原问题：设置项太多时相互挤压）
+        page4_widget.setMinimumWidth(scale(430))
         page4_layout = QVBoxLayout(page4_widget)
         page4_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
         page4_layout.setSpacing(scale(15))
@@ -29345,6 +29504,9 @@ exit /b 0
         page5_scroll.setWidgetResizable(True)
         page5_scroll.setStyleSheet("QScrollArea { border: none; }")
         page5_widget = QWidget()
+        # 设定最小内容宽度：窗口变窄时由外层 QScrollArea 出横向滚动条，
+        # 而不是把控件挤压重叠（原问题：设置项太多时相互挤压）
+        page5_widget.setMinimumWidth(scale(430))
         page5_layout = QVBoxLayout(page5_widget)
         page5_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
         page5_layout.setSpacing(scale(15))
@@ -29443,6 +29605,9 @@ exit /b 0
         page6_scroll.setWidgetResizable(True)
         page6_scroll.setStyleSheet("QScrollArea { border: none; }")
         page6_widget = QWidget()
+        # 设定最小内容宽度：窗口变窄时由外层 QScrollArea 出横向滚动条，
+        # 而不是把控件挤压重叠（原问题：设置项太多时相互挤压）
+        page6_widget.setMinimumWidth(scale(430))
         page6_layout = QVBoxLayout(page6_widget)
         page6_layout.setContentsMargins(scale(18), scale(18), scale(18), scale(18))
         page6_layout.setSpacing(scale(16))
