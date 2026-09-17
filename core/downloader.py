@@ -1268,13 +1268,43 @@ class DownloadManager(QObject):
         current_url = download_params.get('url')
         current_qn = download_params.get('qn')
         current_episodes = download_params.get('episodes', [])
-        
+        # 共享同一 save_path 时用目录名区分不同合集（url 可能因分P参数不同而不同）
+        current_save = download_params.get('save_path', '')
+
         current_ep_indices = set()
         for ep in current_episodes:
             ep_idx = ep.get('ep_index', ep.get('page'))
             if ep_idx is not None:
                 current_ep_indices.add(ep_idx)
-        
+
+        # 短时重复提交拦截：同一 (url, qn, 集数, 保存目录) 在 5 秒内重复到达，
+        # 判定为重复提交。历史日志中出现过同一合集 11 秒内被创建 50 个任务，
+        # 而常规的 active/queue 比对因为 url 或集号细节不一致而全部漏过。
+        _dedup_sig = (str(current_url), str(current_qn), len(current_episodes),
+                      os.path.normcase(os.path.normpath(current_save)) if current_save else '')
+        _now = time.time()
+        if not hasattr(self, '_recent_submit'):
+            self._recent_submit = {}
+        _last_ts = self._recent_submit.get(_dedup_sig, 0)
+        if _now - _last_ts < 5.0:
+            logger.warning(
+                "重复提交已被拦截：url=%s qn=%s 集数=%s 目录=%s（距上次 %.2fs）",
+                current_url, current_qn, len(current_episodes),
+                os.path.basename(current_save) if current_save else '', _now - _last_ts,
+            )
+            return
+        self._recent_submit[_dedup_sig] = _now
+        # 清理过期记录，避免字典无限增长
+        if len(self._recent_submit) > 200:
+            self._recent_submit = {k: v for k, v in self._recent_submit.items() if _now - v < 60}
+
+        # 诊断：记录去重键，便于定位"重复创建任务"
+        logger.debug(
+            "去重检查：url=%s qn=%s 集数=%s 集号样例=%s active=%s queue=%s",
+            current_url, current_qn, len(current_episodes),
+            sorted(map(str, current_ep_indices))[:6], len(self.active_tasks), len(self.task_queue),
+        )
+
         for existing_task_id, existing_task in list(self.active_tasks.items()):
             if (existing_task.get('url') == current_url and 
                 existing_task.get('qn') == current_qn):
