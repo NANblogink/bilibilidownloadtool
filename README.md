@@ -57,9 +57,12 @@ BilibiliDownloader/                  ← 仓库根（即本目录）
 ├─ 文档
 │   ├─ README.md             本文件
 │   ├─ CHANGELOG.md          更新日志草稿
-│   └─ docs/reference/       第三方接口参考
-│       ├─ wbi签名.md
-│       └─ 用户空间接口.md
+│   └─ docs/
+│       ├─ 内测程序打包指南.md            正式包 / 内测包区分与打包流程
+│       ├─ 内测安装包授权系统设计文档.md    内测授权（QQ 白名单）设计
+│       └─ reference/        第三方接口参考（来自 bilibili-API-collect）
+│           ├─ wbi签名.md
+│           └─ 用户空间接口.md
 │
 ├─ CI
 │   ├─ .github/workflows/Build.yml   GitHub Actions
@@ -67,6 +70,9 @@ BilibiliDownloader/                  ← 仓库根（即本目录）
 │
 └─ .gitignore
 ```
+
+云端后端另含 `云端/_deploy_history/`，保存 2026-09-03 那批云端热更包的原始 zip
+（**内容均已合入当前 `云端/` 代码**，此处仅作部署留档）。
 
 > **关于第三方工具包**：`ffmpeg/` `bento4/` `mpv/` `upx_tool/` **刻意纳入版本管理**，
 > 因为打包离线安装包时必须随包分发且需版本可复现。
@@ -412,6 +418,52 @@ python .github/ci_checks.py   # 版本一致性 / 资源 / 导入 / 平台函数
 
 提示：Cookie 有效期通常为数周至数月，过期后需重新获取。
 </details>
+
+---
+
+## 仓库整理记录
+
+本次整理把原先堆积在父目录下的 **8 个源码树**收敛为单一规范仓库。
+
+| | 整理前 | 整理后 |
+|---|---|---|
+| 源码树数量 | 8 个（其中 6 个是同项目不同版本的副本） | 1 个仓库 |
+| 文件总数 | 16,864 | 365（受版本管理） |
+| 目录体积 | 19.85 GB | 414.6 MB |
+| 版本管理 | 无 | git，`main` 分支，10 个分阶段提交 |
+| CI | 缺失（仅有 2.0.7 时代的旧版） | `.github/workflows/Build.yml` + 仓内自检 |
+
+**清理掉的内容**
+
+| 目录 | 版本 | 说明 |
+|------|------|------|
+| `bilibilidownloadtool-master` | 2.1 | 旧开发树 + dist/build + 一个钉在 2.0.5 的浅克隆 `.git` |
+| `推送` | 2.1.2 | 旧开发树 + dist/build |
+| `github_upload` | 2.0.7 | 旧上传目录 |
+| `V2.0.8 TO Github` | 2.0.9 | 旧上传目录 |
+| `新建文件夹` | 2.0.5 | 旧上传目录 + 一次性补丁脚本 |
+| `.idea` | — | 单工程 IDE 残留 |
+
+删除前已逐项核对：**这 6 个目录中没有任何独有的源码文件**
+（`.py`/`.php`/`.md`/`.iss`/`.ps1`/`.yml` 全部为空集），
+且 262 个搬运文件经 SHA256 逐一比对与源文件完全一致。
+
+**抢救保留的内容**
+
+- `docs/reference/wbi签名.md`、`docs/reference/用户空间接口.md`
+  —— 仅存于旧目录的第三方接口文档（来自 [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)）
+- `docs/内测程序打包指南.md`、`docs/内测安装包授权系统设计文档.md`
+- `云端/_deploy_history/` —— 2026-09-03 云端热更包留档
+
+**顺带修掉的问题**
+
+- 23 个 PyInstaller `.spec` 全部硬编码 `E:\旧桌面备份\...` 绝对路径。
+  已确认是生成物（`build.py` 用命令行参数打包、**不读** `.spec`），直接排除，不入库。
+- `mpv/mpv.pdb`（218 MB 调试符号）—— `build.py` 本就显式跳过该文件，已移除。
+  第三方工具包体积因此从 577 MB 降到 358.7 MB。
+- `CHANGELOG.md` 自述「不随仓库上传」却实际存在，且未被忽略 —— 已改为正常入库说明。
+- 旧 `.gitignore` 中的无效规则 `_patch_*.py (不含 patch_pyinstaller.py)`（括号不是注释语法）。
+- README「目录结构」章节与真实结构完全不符 —— 已重写。
 
 ---
 

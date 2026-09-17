@@ -14,6 +14,7 @@ import threading
 import re
 import queue
 import socket
+import _pathsetup
 from datetime import datetime
 
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QSize
@@ -61,9 +62,11 @@ def _find_ffmpeg():
             p = os.path.join(d, exe('ffmpeg'))
             if os.path.exists(p):
                 return p
-    # 2. 当前目录
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    for d in [os.path.join(script_dir, 'ffmpeg'), script_dir]:
+    # 2. 项目根（本文件位于 parsers/，根在其上一级）
+    root_dir = _pathsetup.project_root()
+    for d in [os.path.join(root_dir, 'ffmpeg', 'bin'),
+              os.path.join(root_dir, 'ffmpeg'),
+              root_dir]:
         p = os.path.join(d, exe('ffmpeg'))
         if os.path.exists(p):
             return p

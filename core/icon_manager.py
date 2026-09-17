@@ -34,23 +34,40 @@ def _unique_paths(paths):
 
 
 def get_runtime_search_dirs():
-    dirs = []
+    """返回图标搜索目录（按优先级）。
+
+    图标资源按类型归入 assets/ 子目录：
+      assets/icons/    内置图标（logo.ico / logo_alt_kaisui.ico）
+      assets/images/   图片资源（二维码等）
+    同时根目录也保留 logo.ico / logo.png（打包脚本按根目录定位并随 _internal 分发），
+    因此把根与 assets 子目录都纳入搜索以兼容两种位置。
+    """
+    roots = []
     if hasattr(sys, "_MEIPASS"):
-        dirs.append(sys._MEIPASS)
-    dirs.append(os.path.dirname(os.path.abspath(__file__)))
+        roots.append(sys._MEIPASS)
+    # 本文件位于 core/，其上级即仓库根
+    roots.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     if getattr(sys, "frozen", False):
         exe_dir = os.path.dirname(sys.executable)
         internal_dir = os.path.join(exe_dir, "_internal")
         if os.path.isdir(internal_dir):
-            dirs.append(internal_dir)
-        dirs.append(exe_dir)
+            roots.append(internal_dir)
+        roots.append(exe_dir)
+
+    dirs = []
+    for root in roots:
+        dirs.append(root)
+        dirs.append(os.path.join(root, "assets", "icons"))
+        dirs.append(os.path.join(root, "assets", "images"))
     return _unique_paths(dirs)
 
 
 def get_writable_app_dir():
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
+    # 本文件位于 core/，其上级即仓库根
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 
 
 def normalize_icon_mode(mode):

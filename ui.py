@@ -11,6 +11,12 @@ import re
 import requests
 import threading
 import subprocess
+
+# 注入子目录搜索路径（core / parsers / build），使扁平 import 继续可用
+if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _pathsetup  # noqa: F401,E402
+
 from platform_utils import IS_MACOS, IS_WINDOWS, exe, subprocess_no_window_kwargs, get_system_proxy
 
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QPushButton, QScrollArea,
@@ -29686,8 +29692,8 @@ exit /b 0
 
         qr_row = QHBoxLayout()
         qr_row.setSpacing(scale(40))
-        qr_row.addWidget(_about_qr("qunqrcode.png", "QQ交流群 714822491"))
-        qr_row.addWidget(_about_qr("myqrcode.png", "作者QQ 2273962061"))
+        qr_row.addWidget(_about_qr(os.path.join("assets", "images", "qunqrcode.png"), "QQ交流群 714822491"))
+        qr_row.addWidget(_about_qr(os.path.join("assets", "images", "myqrcode.png"), "作者QQ 2273962061"))
         qr_row.addStretch(1)
         contact_body.addLayout(qr_row)
 
