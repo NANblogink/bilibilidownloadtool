@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 B站直播功能 Tab 页
 功能：直播间信息查询、直播流录制、回放下载
@@ -753,7 +752,6 @@ class LiveTab(QWidget):
         layout.setSpacing(scale(10))
         layout.setContentsMargins(scale(12), scale(12), scale(12), scale(12))
 
-        # 输入区
         input_group = QGroupBox("查询直播间")
         input_group.setStyleSheet(scale_style(self._GB))
         input_layout = QHBoxLayout(input_group)
@@ -948,7 +946,6 @@ class LiveTab(QWidget):
                 else:
                     label.setText(str(val) if val else "-")
 
-            # 加载封面
             cover_url = data.get("user_cover", "")
             if cover_url:
                 self._load_cover_image(cover_url)
@@ -1177,7 +1174,6 @@ class LiveTab(QWidget):
         layout.setSpacing(scale(10))
         layout.setContentsMargins(scale(12), scale(12), scale(12), scale(12))
 
-        # 录制设置
         settings_group = QGroupBox("录制设置")
         settings_group.setStyleSheet(scale_style(self._GB))
         settings_layout = QGridLayout(settings_group)
@@ -1245,7 +1241,6 @@ class LiveTab(QWidget):
 
         layout.addWidget(settings_group)
 
-        # 录制控制
         control_layout = QHBoxLayout()
         control_layout.setSpacing(scale(10))
         self.start_record_btn = QPushButton("开始录制")
@@ -1274,7 +1269,6 @@ class LiveTab(QWidget):
         control_layout.addStretch()
         layout.addLayout(control_layout)
 
-        # 录制状态
         status_group = QGroupBox("录制状态")
         status_group.setStyleSheet(scale_style(self._GB))
         status_layout = QVBoxLayout(status_group)
@@ -1639,7 +1633,6 @@ class LiveTab(QWidget):
         layout.setSpacing(scale(10))
         layout.setContentsMargins(scale(12), scale(12), scale(12), scale(12))
 
-        # 回放列表
         list_group = QGroupBox("直播回放列表")
         list_group.setStyleSheet(scale_style(self._GB))
         list_layout = QVBoxLayout(list_group)
@@ -1665,7 +1658,6 @@ class LiveTab(QWidget):
         btn_layout.addStretch()
         list_layout.addLayout(btn_layout)
 
-        # 搜索栏
         search_layout = QHBoxLayout()
         search_layout.setSpacing(scale(6))
         search_layout.addWidget(QLabel("搜索:"))
@@ -1693,14 +1685,12 @@ class LiveTab(QWidget):
         self.replay_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
         self.replay_table.setAlternatingRowColors(True)
         self.replay_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        # 右键菜单
         self.replay_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.replay_table.customContextMenuRequested.connect(self._show_replay_context_menu)
         list_layout.addWidget(self.replay_table)
 
         layout.addWidget(list_group)
 
-        # 下载设置
         dl_settings_group = QGroupBox("下载设置")
         dl_settings_group.setStyleSheet(scale_style(self._GB))
         dl_settings_layout = QHBoxLayout(dl_settings_group)
@@ -1724,7 +1714,6 @@ class LiveTab(QWidget):
 
         layout.addWidget(dl_settings_group)
 
-        # 下载状态
         dl_group = QGroupBox("下载状态")
         dl_group.setStyleSheet(scale_style(self._GB))
         dl_layout = QVBoxLayout(dl_group)
@@ -2082,7 +2071,6 @@ class LiveTab(QWidget):
         # 判断是否需要用ffmpeg下载（m3u8链接用ffmpeg）
         use_ffmpeg = '.m3u8' in download_url or 'm3u8' in download_url.lower()
 
-        # 开始下载
         self.replay_dl_status.setText("开始下载...")
         self.replay_download_thread = ReplayDownloadThread(download_url, save_path, use_ffmpeg=use_ffmpeg, content_type=content_type)
         self.replay_download_thread.progress_updated.connect(self._on_replay_dl_progress)

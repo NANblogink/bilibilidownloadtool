@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 录播工具托盘管理器
 - 独立的系统托盘图标，名称"录播工具"
@@ -108,7 +107,6 @@ class RecordingTrayManager(QObject):
         self.tray_icon.setIcon(QIcon(pixmap))
         self.tray_icon.setToolTip("录播工具")
 
-        # 右键菜单
         self.tray_menu = QMenu()
         self._rebuild_menu()
         self.tray_icon.setContextMenu(self.tray_menu)
@@ -118,7 +116,6 @@ class RecordingTrayManager(QObject):
 
         self._apply_visibility()
 
-        # 每秒更新
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._update_display)
         self._timer.start(1000)
@@ -314,7 +311,6 @@ class RecordingPanel(QDialog):
         layout_outer.setContentsMargins(1, 1, 1, 1)
         layout_outer.addWidget(container)
 
-        # 阴影效果
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(20)
         shadow.setColor(QColor(0, 0, 0, 60))
@@ -325,7 +321,6 @@ class RecordingPanel(QDialog):
         layout.setSpacing(scale(8))
         layout.setContentsMargins(scale(16), scale(14), scale(16), scale(14))
 
-        # 标题栏
         header = QHBoxLayout()
         title_lbl = QLabel("录播工具")
         title_lbl.setStyleSheet("font-size: 15px; font-weight: bold; color: #dc3545;")
@@ -348,7 +343,6 @@ class RecordingPanel(QDialog):
         line.setFixedHeight(1)
         layout.addWidget(line)
 
-        # 会话列表
         self.session_widgets = {}
         sessions = self.tray_manager.sessions
         for sid, session in sessions.items():
@@ -362,7 +356,6 @@ class RecordingPanel(QDialog):
             lbl.setAlignment(Qt.AlignCenter)
             layout.addWidget(lbl)
 
-        # 底部提示
         hint = QLabel("录制将在后台持续进行，关闭此窗口不影响录制")
         hint.setStyleSheet("color: #adb5bd; font-size: 11px;")
         hint.setAlignment(Qt.AlignCenter)
@@ -396,20 +389,17 @@ class RecordingPanel(QDialog):
         hdr.addStretch()
         lyt.addLayout(hdr)
 
-        # 大号时长
         tm = QLabel(session.get_elapsed_str())
         tm.setStyleSheet("font-size:26px;font-weight:bold;color:#00a1d6;")
         tm.setAlignment(Qt.AlignCenter)
         lyt.addWidget(tm)
 
-        # 路径
         pl = QLabel(os.path.basename(session.output_path))
         pl.setStyleSheet("color:#888;font-size:11px;")
         pl.setToolTip(session.output_path)
         pl.setAlignment(Qt.AlignCenter)
         lyt.addWidget(pl)
 
-        # 按钮
         btns = QHBoxLayout()
         btns.setSpacing(scale(6))
 

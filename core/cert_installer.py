@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 证书安装器 - 在新设备上安装 BilibiliDownloader 自签名证书
 
@@ -202,7 +201,6 @@ def main():
             input("按回车键退出...")
             sys.exit(1)
 
-    # 查找证书
     cer_path = find_cert_file()
     if not cer_path:
         print("[错误] 未找到证书文件 BilibiliDownloader_dev.cer")

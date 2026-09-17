@@ -24,52 +24,92 @@
 本仓库为**单仓库（monorepo）**，同时容纳桌面端程序与配套的云端后端服务：
 
 ```
-BilibiliDownloader/                  ← 仓库根（即本目录）
+BilibiliDownloader/                       ← 仓库根（即本目录）
 │
-├─ 桌面端源码（平铺在根，符合 build.py 的路径约定）
-│   ├─ main.py  boot.py  ui.py  downloader.py  bilibili_parser.py
-│   ├─ app_config.py  config.py  task_manager.py  tool_manager.py
-│   ├─ video_parser.py  audio_parser.py  live_parser.py  emoji_parser.py
-│   ├─ subtitle_tab.py  cloud_service.py  cli.py  ...
-│   └─ installer.py  uninstaller.py  cert_installer.py
+├─ 入口（必须在根：boot.py 用 runpy.run_module("main") 启动）
+│   ├─ main.py            应用入口，QApplication 初始化 & 主窗口启动
+│   ├─ boot.py            精简包入口（不 import PyQt5，按需引导）
+│   ├─ ui.py              全部 UI 定义（主窗口/Tab页/对话框/悬浮球）
+│   └─ _pathsetup.py      子目录搜索路径注入层（必须最先导入）
 │
-├─ 打包
-│   ├─ build.py              PyInstaller 打包主流程
-│   ├─ build_msix.py         MSIX（Microsoft Store）打包
-│   ├─ setup.iss             Inno Setup 安装脚本
-│   └─ version_info.win      exe 版本资源
+├─ core/                  核心业务
+│   ├─ app_config.py      应用元信息：名称/版本/作者/云端地址
+│   ├─ config.py          配置读写
+│   ├─ task_manager.py    任务 CRUD（JSON 持久化、状态机）
+│   ├─ downloader.py      下载引擎：并发、分片、FFmpeg 合并
+│   ├─ tool_manager.py    工具管理：GPU 探测、ffmpeg/bento4 装配
+│   ├─ cloud_service.py   云端：版本检查、公告推送、热更新
+│   ├─ download_history.py 下载历史
+│   ├─ env_checker.py     环境检测
+│   ├─ icon_manager.py    图标管理
+│   ├─ cert_installer.py  数字签名证书安装
+│   ├─ pyqt5_bootstrap.py PyQt5 运行时按需下载/解压/注入
+│   └─ infra/             基础设施
+│       ├─ api_request.py    HTTP 会话池、请求封装、代理
+│       ├─ wbi_sign.py       WBI (img_key + sub_key) 签名算法
+│       ├─ platform_utils.py 平台判断 (Windows/macOS/Linux)
+│       ├─ error_codes.py    错误码枚举与映射
+│       └─ logger_config.py  logging 配置：轮转、级别控制
 │
-├─ 资源
-│   ├─ logo.ico  logo.png  logo_alt_kaisui.ico  warning_icon.png
-│   ├─ myqrcode.png  qunqrcode.png
-│   ├─ assets/badges/        README 徽章
-│   ├─ assets/icons/         界面图标
-│   └─ Resources/zh-CN/      MSIX 本地化资源
+├─ parsers/               B站解析与功能界面
+│   ├─ bilibili_parser.py B站协议层：链接解析、API、DASH/DRM
+│   ├─ video_parser.py    视频容器/编码探测
+│   ├─ audio_parser.py    音频解析        + audio_tab.py
+│   ├─ live_parser.py     直播回放解析    + live_tab.py
+│   ├─ emoji_parser.py    表情包解析      + emoji_tab.py
+│   ├─ subtitle_tab.py    字幕解析（时间轴可视化 + SRT 导出）
+│   ├─ stream_player.py   流播放器（mpv 优先 / ffplay 回退）
+│   ├─ recording_tray.py  录制托盘
+│   └─ toast_winrt.py     Windows 通知中心 Toast
+│
+├─ build/                 打包与安装
+│   ├─ build.py           PyInstaller 打包主流程
+│   ├─ build_msix.py      MSIX（Microsoft Store）打包
+│   ├─ installer.py       Windows 安装程序（PyQt5 向导）
+│   ├─ uninstaller.py     Windows 卸载程序
+│   ├─ cli.py             命令行接口（GUI 降级）
+│   └─ setup.iss          Inno Setup 安装脚本
 │
 ├─ 第三方工具包（【已入库】离线打包必需）
-│   ├─ ffmpeg/bin/           ffmpeg.exe  ffprobe.exe  ffplay.exe
-│   ├─ bento4/               Bento4 MP4 SDK（mp4decrypt 等）
-│   ├─ mpv/                  mpv.exe  mpv.com  vulkan-1.dll
-│   └─ upx_tool/             UPX 可执行文件压缩
+│   ├─ ffmpeg/bin/        ffmpeg.exe  ffprobe.exe  ffplay.exe
+│   ├─ bento4/            Bento4 MP4 SDK（mp4decrypt 等）
+│   ├─ mpv/               mpv.exe  mpv.com  vulkan-1.dll
+│   └─ upx_tool/          UPX 可执行文件压缩
 │
-├─ 云端/                      PHP 云端后端（独立服务，见 云端/README.md）
+├─ 云端/                   PHP 云端后端（独立服务，见 云端/README.md）
+│
+├─ 资源
+│   ├─ logo.ico  logo.png            应用图标/Logo（根目录，打包脚本按此定位）
+│   ├─ warning_icon.png              Toast 错误图标
+│   ├─ assets/icons/                 内置图标（logo_alt_kaisui.ico 等）+ 界面 SVG
+│   ├─ assets/images/                二维码（myqrcode / qunqrcode）
+│   ├─ assets/badges/                README 徽章
+│   └─ Resources/zh-CN/              MSIX 本地化资源
 │
 ├─ 文档
-│   ├─ README.md             本文件
-│   ├─ CHANGELOG.md          更新日志草稿
+│   ├─ README.md  CHANGELOG.md
 │   └─ docs/
-│       ├─ 内测程序打包指南.md            正式包 / 内测包区分与打包流程
-│       ├─ 内测安装包授权系统设计文档.md    内测授权（QQ 白名单）设计
-│       └─ reference/        第三方接口参考（来自 bilibili-API-collect）
+│       ├─ 内测程序打包指南.md
+│       ├─ 内测安装包授权系统设计文档.md
+│       └─ reference/                第三方接口参考（bilibili-API-collect）
 │           ├─ wbi签名.md
 │           └─ 用户空间接口.md
 │
 ├─ CI
 │   ├─ .github/workflows/Build.yml   GitHub Actions
-│   └─ .github/ci_checks.py          仓内自检（版本一致性/资源/导入/工具包）
+│   └─ .github/ci_checks.py          仓内自检（版本/资源/导入/工具包）
 │
 └─ .gitignore
 ```
+
+> **关于子目录与 import**：模块被分到 `core/` `parsers/` `build/` 后，
+> 模块之间的 import 仍保持扁平写法（如 `from tool_manager import ToolManager`）——
+> 由根目录的 `_pathsetup.py` 在启动时把这些子目录加入 `sys.path`。
+> 新增子目录时只需在 `_pathsetup._SUBDIRS` 里登记，无需改动任何 import 语句。
+>
+> **为什么 `main.py` / `boot.py` / `ui.py` 留在根目录**：
+> `boot.py` 用 `runpy.run_module("main")` 启动，`main.py` 必须在根；
+> `ui.py` 与 `main.py` 相互 import（真实循环依赖），因此也留在根。
 
 云端后端另含 `云端/_deploy_history/`，保存 2026-09-03 那批云端热更包的原始 zip
 （**内容均已合入当前 `云端/` 代码**，此处仅作部署留档）。
@@ -464,6 +504,50 @@ python .github/ci_checks.py   # 版本一致性 / 资源 / 导入 / 平台函数
 - `CHANGELOG.md` 自述「不随仓库上传」却实际存在，且未被忽略 —— 已改为正常入库说明。
 - 旧 `.gitignore` 中的无效规则 `_patch_*.py (不含 patch_pyinstaller.py)`（括号不是注释语法）。
 - README「目录结构」章节与真实结构完全不符 —— 已重写。
+
+### 代码与资源归类
+
+原先 37 个 `.py` 全部平铺在根目录。现已按职责归入子目录：
+
+| 位置 | 内容 |
+|------|------|
+| 根 | `main.py` `boot.py` `ui.py` `_pathsetup.py`（入口与路径注入） |
+| `core/` | 配置、任务、下载、工具、云端、图标、证书 |
+| `core/infra/` | 网络、WBI 签名、平台、错误码、日志 |
+| `parsers/` | B站解析（视频/音频/直播/表情）+ 对应界面 + 播放器/托盘/通知 |
+| `build/` | 打包、安装、卸载、CLI、setup.iss |
+
+**模块名保持不变**，通过 `_pathsetup.py` 注入子目录到 `sys.path`，
+因此模块之间的 import 语句**零改动**，回归风险最小。
+
+资源同时归类：二维码 → `assets/images/`，备用图标 → `assets/icons/`。
+
+**归类过程中发现并修掉的实际缺陷**
+
+- `build/` 与 PyInstaller 默认工作目录重名：脚本移入 `build/` 后，
+  打包时清理 workpath 会**删掉源码本身**。已改为显式指定
+  `--workpath=build_dist` / `--distpath`，并把 `cwd` 改为项目根。
+- `build_msix.py` 的 `APP_VERSION` 硬编码为 `2.1.9.0`（实际 2.1.11），
+  已改为从 `app_config.VERSION_NUM` 读取，不再与项目版本脱节。
+- `stream_player.py` / `live_tab.py` / `toast_winrt.py` / `icon_manager.py`
+  用 `os.path.dirname(__file__)` 定位 `ffmpeg/`、`mpv/`、`logo.ico` ——
+  移入子目录后全部失效，已改用 `_pathsetup.project_root()`。
+- `core/infra/log/` 会随子目录移动而改变日志落点，已在 `.gitignore` 用
+  无前导斜杠的 `log/` 规则覆盖任意层级。
+
+### 注释精简
+
+实测注释占比仅 **5.0%**（2,035 条注释 / 65,265 行），并非过度注释；
+按 AST 分类后 **2,021 条（99.3%）都含实质说明**，因此只做了保守清理：
+
+- 移除 26 处 `# -*- coding: utf-8 -*-` —— Python 3 默认 UTF-8，
+  该声明对 Py3 完全无操作（项目最低要求 3.6+）
+- 移除 80 处单行纯标签注释（如 `# 去重`、`# 按钮`），不含超出相邻代码的信息
+- 合计 **106 行（占注释 5.2%）**，全部 docstring 与其余说明性注释保留
+
+清理脚本对每个文件做 `ast.parse` 语法校验，
+并在「注释是块内唯一语句」时自动跳过 —— 该守卫实际拦下了 2 处
+会导致 `IndentationError` 的误删。
 
 ---
 
