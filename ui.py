@@ -19,7 +19,7 @@ import _pathsetup  # noqa: F401,E402
 
 from platform_utils import IS_MACOS, IS_WINDOWS, exe, subprocess_no_window_kwargs, get_system_proxy
 
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QPushButton, QScrollArea,
+from PyQt5.QtWidgets import (QLayout, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QPushButton, QScrollArea,
                              QComboBox, QLabel, QFileDialog, QProgressBar, QMessageBox, QGroupBox,
                              QCheckBox, QTextEdit, QTextBrowser, QDialog, QListWidget, QListWidgetItem,
                              QTableWidget, QTableWidgetItem, QAbstractItemView,
@@ -3172,6 +3172,112 @@ class DataLoadingDialog(QDialog):
         if self.drag_position and event.buttons() & Qt.LeftButton:
             self.move(event.globalPos() - self.drag_position)
             event.accept()
+
+
+class FlowLayout(QLayout):
+    """按可用宽度自动换行的流式布局（用于设置页分组卡片）。
+
+    为什么需要它：设置页原先把所有分组塞进单列 QVBoxLayout，窗口一窄
+    每组内部控件就被压缩、相互挤压。改成流式布局后：
+      - 宽窗口：自动排成 2~3 列，充分利用横向空间
+      - 窄窗口：自动退回单列，并让外层 QScrollArea 出滚动条
+    每列最小宽度由 min_item_width 控制，保证控件不被压扁。
+    """
+
+    def __init__(self, parent=None, margin=0, h_spacing=14, v_spacing=14,
+                 min_item_width=380, max_columns=3):
+        super().__init__(parent)
+        self._items = []
+        self._h_spacing = h_spacing
+        self._v_spacing = v_spacing
+        self._min_item_width = min_item_width
+        self._max_columns = max_columns
+        self.setContentsMargins(margin, margin, margin, margin)
+
+    # ---- QLayout 必须实现的接口 ----
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, index):
+        if 0 <= index < len(self._items):
+            return self._items[index]
+        return None
+
+    def takeAt(self, index):
+        if 0 <= index < len(self._items):
+            return self._items.pop(index)
+        return None
+
+    def expandingDirections(self):
+        return Qt.Orientations(Qt.Orientation(0))
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._do_layout(rect, test_only=False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        m = self.contentsMargins()
+        size += QSize(m.left() + m.right(), m.top() + m.bottom())
+        return size
+
+    # ---- 布局计算 ----
+    def _columns_for_width(self, width):
+        m = self.contentsMargins()
+        avail = max(width - m.left() - m.right(), 1)
+        cols = (avail + self._h_spacing) // (self._min_item_width + self._h_spacing)
+        return max(1, min(int(cols), self._max_columns, max(len(self._items), 1)))
+
+    def _do_layout(self, rect, test_only):
+        m = self.contentsMargins()
+        eff = rect.adjusted(m.left(), m.top(), -m.right(), -m.bottom())
+        width = eff.width()
+        if width <= 0:
+            return 0
+
+        cols = self._columns_for_width(width)
+        total_h_spacing = self._h_spacing * (cols - 1)
+        col_w = max((width - total_h_spacing) // cols, 1)
+
+        x0 = eff.x()
+        y = eff.y()
+        row_h = 0
+        used = 0
+
+        for i, item in enumerate(self._items):
+            if not item or item.isEmpty():
+                continue
+            col = used % cols
+            if col == 0:
+                row_h = 0
+            x = x0 + col * (col_w + self._h_spacing)
+            h = item.sizeHint().height()
+            # 每列占满列宽，使卡片左右对齐、内部控件有稳定宽度
+            if not test_only:
+                item.setGeometry(QRect(x, y, col_w, max(h, 1)))
+            row_h = max(row_h, h)
+            used += 1
+            if used % cols == 0:
+                y += row_h + self._v_spacing
+                row_h = 0
+
+        if used % cols != 0:
+            y += row_h + self._v_spacing
+        return y - rect.y() + m.bottom()
 
 
 class _EdgeGrip(QWidget):
@@ -27897,20 +28003,24 @@ exit /b 0
         dialog.setAutoFillBackground(True)
         dialog.setWindowTitle("设置")
         screen = QApplication.primaryScreen()
+        # 内容区最小 724（刚好容纳 2 列分组卡片）+ 侧栏宽度 = 窗口最小宽度。
+        # 窗口再窄也不会挤压控件：内容区由 QScrollArea 出滚动条兜底。
+        SIDEBAR_W = scale(150)
+        CONTENT_MIN = scale(724)
+        _min_w = min(SIDEBAR_W + CONTENT_MIN + scale(30), scale(1000))
         if screen:
             sg = screen.availableGeometry()
-            # 最小尺寸按屏幕比例给足，避免小屏上内容被挤压；
-            # 内容本身有最小宽度 + 滚动条兜底，因此这里可以放心取较小值
-            min_w = max(scale(480), min(scale(560), int(sg.width() * 0.42)))
-            min_h = max(scale(380), min(scale(460), int(sg.height() * 0.45)))
-            dialog.setMinimumSize(min_w, min_h)
+            dialog.setMinimumSize(
+                min(_min_w, max(scale(560), int(sg.width() * 0.92))),
+                max(scale(400), min(scale(520), int(sg.height() * 0.5))),
+            )
             dialog.resize(
-                min(scale(920), int(sg.width() * 0.86)),
-                min(scale(760), int(sg.height() * 0.86)),
+                min(scale(1080), int(sg.width() * 0.9)),
+                min(scale(800), int(sg.height() * 0.88)),
             )
         else:
-            dialog.setMinimumSize(scale(560), scale(460))
-            dialog.resize(scale(920), scale(760))
+            dialog.setMinimumSize(_min_w, scale(520))
+            dialog.resize(scale(1080), scale(800))
         
         try:
             apply_window_icon(dialog, self.config)
@@ -27976,7 +28086,7 @@ exit /b 0
         body_layout.setSpacing(scale(0))
 
         sidebar = QListWidget()
-        sidebar.setFixedWidth(scale(160))
+        sidebar.setFixedWidth(scale(150))
         sidebar_items = ["下载设置", "网络设置", "窗口设置", "其他设置", "数据与隐私", "关于我们"]
         for item_text in sidebar_items:
             item = QListWidgetItem(item_text)
@@ -29447,14 +29557,15 @@ exit /b 0
         page1_widget = QWidget()
         # 设定最小内容宽度：窗口变窄时由外层 QScrollArea 出横向滚动条，
         # 而不是把控件挤压重叠（原问题：设置项太多时相互挤压）
-        page1_widget.setMinimumWidth(scale(430))
-        page1_layout = QVBoxLayout(page1_widget)
-        page1_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
-        page1_layout.setSpacing(scale(15))
+        page1_widget.setMinimumWidth(scale(724))
+        # 流式布局：宽窗口自动 2~3 列排布分组，窄窗口自动退回单列，
+        # 从根本上避免'设置项太多时相互挤压'
+        page1_layout = FlowLayout(page1_widget, margin=scale(15), 
+                                    h_spacing=scale(14), v_spacing=scale(14),
+                                    min_item_width=scale(340))
         page1_layout.addWidget(path_group)
         page1_layout.addWidget(thread_group)
         page1_layout.addWidget(download_group)
-        page1_layout.addStretch(1)
         page1_scroll.setWidget(page1_widget)
         stacked_widget.addWidget(page1_scroll)
 
@@ -29464,12 +29575,13 @@ exit /b 0
         page2_widget = QWidget()
         # 设定最小内容宽度：窗口变窄时由外层 QScrollArea 出横向滚动条，
         # 而不是把控件挤压重叠（原问题：设置项太多时相互挤压）
-        page2_widget.setMinimumWidth(scale(430))
-        page2_layout = QVBoxLayout(page2_widget)
-        page2_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
-        page2_layout.setSpacing(scale(15))
+        page2_widget.setMinimumWidth(scale(724))
+        # 流式布局：宽窗口自动 2~3 列排布分组，窄窗口自动退回单列，
+        # 从根本上避免'设置项太多时相互挤压'
+        page2_layout = FlowLayout(page2_widget, margin=scale(15), 
+                                    h_spacing=scale(14), v_spacing=scale(14),
+                                    min_item_width=scale(340))
         page2_layout.addWidget(network_group)
-        page2_layout.addStretch(1)
         page2_scroll.setWidget(page2_widget)
         stacked_widget.addWidget(page2_scroll)
 
@@ -29479,13 +29591,14 @@ exit /b 0
         page3_widget = QWidget()
         # 设定最小内容宽度：窗口变窄时由外层 QScrollArea 出横向滚动条，
         # 而不是把控件挤压重叠（原问题：设置项太多时相互挤压）
-        page3_widget.setMinimumWidth(scale(430))
-        page3_layout = QVBoxLayout(page3_widget)
-        page3_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
-        page3_layout.setSpacing(scale(15))
+        page3_widget.setMinimumWidth(scale(724))
+        # 流式布局：宽窗口自动 2~3 列排布分组，窄窗口自动退回单列，
+        # 从根本上避免'设置项太多时相互挤压'
+        page3_layout = FlowLayout(page3_widget, margin=scale(15), 
+                                    h_spacing=scale(14), v_spacing=scale(14),
+                                    min_item_width=scale(340))
         page3_layout.addWidget(tray_group)
         page3_layout.addWidget(window_group)
-        page3_layout.addStretch(1)
         page3_scroll.setWidget(page3_widget)
         stacked_widget.addWidget(page3_scroll)
 
@@ -29495,14 +29608,15 @@ exit /b 0
         page4_widget = QWidget()
         # 设定最小内容宽度：窗口变窄时由外层 QScrollArea 出横向滚动条，
         # 而不是把控件挤压重叠（原问题：设置项太多时相互挤压）
-        page4_widget.setMinimumWidth(scale(430))
-        page4_layout = QVBoxLayout(page4_widget)
-        page4_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
-        page4_layout.setSpacing(scale(15))
+        page4_widget.setMinimumWidth(scale(724))
+        # 流式布局：宽窗口自动 2~3 列排布分组，窄窗口自动退回单列，
+        # 从根本上避免'设置项太多时相互挤压'
+        page4_layout = FlowLayout(page4_widget, margin=scale(15), 
+                                    h_spacing=scale(14), v_spacing=scale(14),
+                                    min_item_width=scale(340))
         page4_layout.addWidget(other_group)
         page4_layout.addWidget(log_group)
         page4_layout.addWidget(storage_group)
-        page4_layout.addStretch(1)
         page4_scroll.setWidget(page4_widget)
         stacked_widget.addWidget(page4_scroll)
 
@@ -29512,10 +29626,12 @@ exit /b 0
         page5_widget = QWidget()
         # 设定最小内容宽度：窗口变窄时由外层 QScrollArea 出横向滚动条，
         # 而不是把控件挤压重叠（原问题：设置项太多时相互挤压）
-        page5_widget.setMinimumWidth(scale(430))
-        page5_layout = QVBoxLayout(page5_widget)
-        page5_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
-        page5_layout.setSpacing(scale(15))
+        page5_widget.setMinimumWidth(scale(724))
+        # 流式布局：宽窗口自动 2~3 列排布分组，窄窗口自动退回单列，
+        # 从根本上避免'设置项太多时相互挤压'
+        page5_layout = FlowLayout(page5_widget, margin=scale(15), 
+                                    h_spacing=scale(14), v_spacing=scale(14),
+                                    min_item_width=scale(340))
 
         consent = {}
         if hasattr(self, 'cloud_service') and self.cloud_service:
@@ -29602,7 +29718,6 @@ exit /b 0
         privacy_note.setWordWrap(True)
         page5_layout.addWidget(privacy_note)
 
-        page5_layout.addStretch(1)
         page5_scroll.setWidget(page5_widget)
         stacked_widget.addWidget(page5_scroll)
 
