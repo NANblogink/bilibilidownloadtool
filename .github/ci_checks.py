@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 CI 自检脚本 —— 由 .github/workflows/Build.yml 调用，也可本地直接运行：
 
@@ -22,6 +21,7 @@ import sys
 # 本脚本位于 .github/ 下，仓库根在上一层
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+import _pathsetup  # noqa: E402  注入 core/ parsers/ build/ 子目录
 
 failures = []
 notes = []
@@ -38,7 +38,7 @@ def check(name, fn):
 
 # ---------------------------------------------------------------- 1. 版本一致性
 def check_versions():
-    app_cfg_path = os.path.join(ROOT, "app_config.py")
+    app_cfg_path = os.path.join(ROOT, "core", "app_config.py")
     with open(app_cfg_path, encoding="utf-8") as fh:
         app_cfg = fh.read()
 
@@ -71,15 +71,20 @@ def check_versions():
 
 # ---------------------------------------------------------------- 2. 必需资源
 REQUIRED_ASSETS = [
+    # 入口（必须在仓库根：boot.py 用 runpy.run_module("main") 启动）
     "main.py",
     "boot.py",
     "ui.py",
-    "downloader.py",
-    "bilibili_parser.py",
-    "app_config.py",
-    "tool_manager.py",
-    "build.py",
-    "build_msix.py",
+    "_pathsetup.py",
+    # 子目录模块
+    "core/downloader.py",
+    "core/app_config.py",
+    "core/tool_manager.py",
+    "core/icon_manager.py",
+    "parsers/bilibili_parser.py",
+    "build/build.py",
+    "build/build_msix.py",
+    # 打包资源
     "setup.iss",
     "version_info.win",
     "version_info.json",
@@ -87,6 +92,7 @@ REQUIRED_ASSETS = [
     "logo.ico",
     "logo.png",
     "assets/icons",
+    "assets/images",
     "assets/badges/version.svg",
 ]
 

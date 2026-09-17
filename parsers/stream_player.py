@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 流媒体播放器工具（独立弹窗）
 方案：ffplay + SetParent 嵌入 + 持续尺寸校正
@@ -710,7 +709,6 @@ class StreamPlayerDialog(QDialog):
         main_layout.setSpacing(6)
         main_layout.setContentsMargins(8, 8, 8, 8)
 
-        # 工具栏
         toolbar = QFrame()
         toolbar.setStyleSheet(scale_style("QFrame{background:white;border-radius:4px;padding:2px}"))
         tl = QHBoxLayout(toolbar); tl.setSpacing(6); tl.setContentsMargins(8, 4, 8, 4)
@@ -763,7 +761,6 @@ class StreamPlayerDialog(QDialog):
         self._player_frame.setMinimumSize(scale(400), scale(280))
         main_layout.addWidget(self._player_frame, stretch=1)
 
-        # 状态栏
         sb = QHBoxLayout()
         self.status_label = QLabel("就绪 (mpv 内嵌)")
         self.status_label.setStyleSheet("font-size:12px;color:#666;")

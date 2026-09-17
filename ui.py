@@ -1192,7 +1192,6 @@ class ExpandedCard(QDialog):
         resolution_layout.addWidget(self.resolution_combo, stretch=1)
         video_info_layout.addLayout(resolution_layout)
         
-        # 保存路径
         path_layout = QHBoxLayout()
         path_layout.setSpacing(scale(5))
         path_layout.setContentsMargins(scale(5), 0, scale(5), 0)
@@ -1269,7 +1268,6 @@ class ExpandedCard(QDialog):
         download_type_layout.addStretch(1)
         video_info_layout.addLayout(download_type_layout)
         
-        # 操作按钮
         action_layout = QHBoxLayout()
         action_layout.setSpacing(scale(5))
         action_layout.setContentsMargins(scale(5), 0, scale(5), 0)
@@ -3976,7 +3974,6 @@ class VideoToolWindow(BaseWindow):
 
         outer_layout.addWidget(meta_group)
 
-        # 预设管理
         preset_group = QGroupBox("预设管理")
         preset_group.setStyleSheet(scale_style("""
             QGroupBox {
@@ -4086,7 +4083,6 @@ class VideoToolWindow(BaseWindow):
         """))
         layout.addWidget(self.progress_bar)
 
-        # 状态标签
         self.status_label = QLabel("就绪")
         self.status_label.setStyleSheet(scale_style("color: #606266; font-size: 12px; padding: 3px;"))
         layout.addWidget(self.status_label)
@@ -4801,7 +4797,6 @@ class VideoToolWindow(BaseWindow):
             cmd.extend(['-ss', start])
             cmd.extend(['-to', end])
 
-        # 输入文件
         cmd.extend(['-i', file_info['path']])
 
         # 判断是否为复制流模式
@@ -4905,7 +4900,6 @@ class VideoToolWindow(BaseWindow):
             elif "垂直翻转" in rotate_text:
                 vf_filters.append("vflip")
 
-            # 字幕烧入
             if self.subtitle_path and self.subtitle_mode_combo.currentIndex() == 0:
                 escaped_sub = self.subtitle_path.replace(':', '\\:').replace("'", "\\'")
                 vf_filters.append(f"subtitles='{escaped_sub}'")
@@ -4959,12 +4953,10 @@ class VideoToolWindow(BaseWindow):
         if comment:
             cmd.extend(['-metadata', f'comment={comment}'])
 
-        # 字幕外挂
         if self.subtitle_path and self.subtitle_mode_combo.currentIndex() == 1:
             cmd.extend(['-i', self.subtitle_path])
             cmd.extend(['-c:s', 'mov_text'])
 
-        # 输出
         cmd.append(output_path)
 
         return cmd
@@ -5684,7 +5676,6 @@ def _markdown_to_html(text):
             result.append(f'<h{level} style="margin:{margin_val}px 0 6px;font-size:{fs};color:{fc};font-weight:{fw}">{content}</h{level}>')
             continue
 
-        # 分割线
         if re.match(r'^[-*_]{3,}\s*$', line.strip()):
             _close_lists(result, in_ul, in_ol)
             in_ul = in_ol = False
@@ -5714,7 +5705,6 @@ def _markdown_to_html(text):
             result.append(f'<li style="margin:3px 0;line-height:1.7;color:#434343">{_md_inline(m.group(3))}</li>')
             continue
 
-        # 普通段落
         stripped = line.strip()
         if not stripped:
             _close_lists(result, in_ul, in_ol)
@@ -5723,7 +5713,6 @@ def _markdown_to_html(text):
 
         result.append(f'<p style="margin:3px 0;line-height:1.7;color:#434343">{_md_inline(stripped)}</p>')
 
-    # 收尾
     if in_bq and bq_lines:
         result.append('<br>'.join(bq_lines))
         result.append('</blockquote>')
@@ -7206,7 +7195,6 @@ class DanmakuSelectionDialog(QDialog):
         layout.setContentsMargins(scale(12), scale(12), scale(12), scale(12))
         layout.setSpacing(scale(8))
         
-        # 模式映射
         mode_map = {
             1: "滚动弹幕",
             4: "顶部弹幕",
@@ -8626,7 +8614,6 @@ class EpisodeSelectionDialog(ResizableDialog):
                 if keyword in (ep.get('ep_title', '').lower() if self.is_bangumi else ep.get('title', '').lower())
             ]
 
-        # 应用排序
         self.apply_sort()
 
         if self.list_radio.isChecked():
@@ -11262,7 +11249,6 @@ class SegmentedProgressBar(QWidget):
         h = self.height()
         n = self.segment_count
 
-        # 背景
         path = QPainterPath()
         path.addRoundedRect(0, 0, w, h, self._radius, self._radius)
         painter.fillPath(path, self._bg_color)
@@ -11272,7 +11258,6 @@ class SegmentedProgressBar(QWidget):
         seg_w = w / n
         for i in range(n):
             x = i * seg_w
-            # 进度填充
             prog = self.segment_progresses[i]
             if prog > 0:
                 fill_w = (seg_w - self._separator_width) * prog / 100
@@ -11290,7 +11275,6 @@ class SegmentedProgressBar(QWidget):
                 painter.setPen(pen)
                 painter.drawLine(int(x + seg_w - 0.5), 2, int(x + seg_w - 0.5), h - 2)
 
-        # 边框
         pen = QPen(self._border_color, 1)
         painter.setPen(pen)
         border_path = QPainterPath()
@@ -13960,7 +13944,6 @@ exit /b 0
         title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(title_label)
         
-        # 错误信息
         error_label = QLabel()
         error_label.setWordWrap(True)
         error_label.setStyleSheet(scale_style("font-size: 14px; color: #666;"))
@@ -14177,7 +14160,6 @@ exit /b 0
         main_lay.setContentsMargins(0, 0, 0, 0)
         main_lay.setSpacing(0)
 
-        # 标题栏
         title_bar = QWidget()
         title_bar.setObjectName("titleBar")
         title_bar.setAttribute(Qt.WA_StyledBackground, True)
@@ -14625,7 +14607,6 @@ exit /b 0
             except Exception as e:
                 results.append(f"  列出目录失败: {str(e)}")
         
-        # 显示结果
         print("\n".join(results))
         
         # 创建对话框显示结果
@@ -15705,14 +15686,12 @@ exit /b 0
         import platform
         import subprocess
         
-        # 系统信息
         system_info = platform.system()
         system_release = platform.release()
         system_version = platform.version()
         machine = platform.machine()
         processor = platform.processor()
         
-        # 屏幕信息
         screen = QApplication.primaryScreen()
         if screen:
             geometry = screen.geometry()
@@ -15738,14 +15717,12 @@ exit /b 0
         basic_info_layout = QHBoxLayout()
         basic_info_layout.setSpacing(scale(12))
 
-        # 系统信息
         system_label = QLabel(f"系统: {system_info} {system_release} {machine}")
         system_label.setWordWrap(True)
         system_label.setMinimumHeight(scale(20))
         system_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         basic_info_layout.addWidget(system_label)
 
-        # 屏幕信息
         screen_label = QLabel(f"屏幕: {screen_resolution}, DPI: {dpi}")
         screen_label.setWordWrap(True)
         screen_label.setMinimumHeight(scale(20))
@@ -17298,7 +17275,6 @@ exit /b 0
                     up_skeleton.setStyleSheet(skeleton_style)
                     skeleton_layout.addWidget(up_skeleton, alignment=Qt.AlignCenter)
                     
-                    # 时长骨架
                     duration_skeleton = QWidget()
                     duration_skeleton.setMinimumSize(scale(60), scale(12))
                     duration_skeleton.setStyleSheet(skeleton_style)
@@ -17508,7 +17484,6 @@ exit /b 0
                     up_skeleton.setStyleSheet(skeleton_style)
                     skeleton_layout.addWidget(up_skeleton, alignment=Qt.AlignCenter)
                     
-                    # 时长骨架
                     duration_skeleton = QWidget()
                     duration_skeleton.setMinimumSize(scale(60), scale(12))
                     duration_skeleton.setStyleSheet(skeleton_style)
@@ -18765,7 +18740,6 @@ exit /b 0
                     widget.setProperty("selected", "true")
                 else:
                     widget.setProperty("selected", "false")
-                # 刷新样式
                 widget.style().unpolish(widget)
                 widget.style().polish(widget)
                 widget.update()
@@ -20034,7 +20008,6 @@ exit /b 0
                 self.videos.sort(key=functools.cmp_to_key(cmp_func))
                 self._refresh_table()
 
-                # 恢复勾选
                 self.table.blockSignals(True)
                 for row in range(self.table.rowCount()):
                     if row < len(self.videos):
@@ -20719,7 +20692,6 @@ exit /b 0
                     top_layout.addLayout(info_layout, stretch=1)
                     content_layout.addLayout(top_layout)
 
-                    # 简介
                     desc = self.video.get('description', '')
                     self.desc_label = QLabel(f"简介：{desc if desc else '无'}")
                     self.desc_label.setWordWrap(True)
@@ -21123,7 +21095,6 @@ exit /b 0
         audio_format = self.config.get_app_setting("audio_output_format", "mp3")
         logger.info(f"视频格式：{video_format}, 音频格式：{audio_format}")
 
-        # 弹幕设置
         logger.info(f"弹幕设置：{download_danmaku}, 格式：{danmaku_format}")
 
         # 获取默认清晰度（如果未指定则使用配置中的默认值）
@@ -21327,7 +21298,6 @@ exit /b 0
         self.parser_thread.parse_done.connect(self.on_space_videos_parsed)
         self.parser_thread.error.connect(lambda error: self.show_notification(f"完全模式下载失败：{error}", "error"))
         
-        # 启动线程
         logger.info("启动空间视频解析线程")
         self.signal_emitter.parse_progress.emit(0, f"开始解析 {len(videos)} 个视频...")
         self.parser_thread.start()
@@ -21635,7 +21605,6 @@ exit /b 0
                         episodes = video_info["bangumi_info"].get("episodes", [])
                         if episodes:
                             cid = episodes[0].get("cid", "")
-                    # 检查课程
                     elif video_info.get("is_cheese") and video_info.get("cheese_info"):
                         episodes = video_info["cheese_info"].get("episodes", [])
                         if episodes:
@@ -22957,7 +22926,6 @@ exit /b 0
             
             self.batch_windows[task_id] = batch_window
         
-        # 开始下载
         if self.download_manager:
             self.download_manager.start_download(download_params)
             self.show_notification(f"完全模式：已开始下载{len(episodes)}集视频", "success")
@@ -23578,7 +23546,6 @@ exit /b 0
                     except Exception as e:
                         logger.warning(f"添加下载任务widget异常: {e}")
                 
-                # 更新进度
                 if task_key in self.download_tasks:
                     task_info = self.download_tasks[task_key]
                     try:
@@ -26029,13 +25996,11 @@ exit /b 0
         layout.setContentsMargins(scale(24), scale(24), scale(24), scale(20))
         layout.setSpacing(scale(14))
 
-        # 标题
         title_label = QLabel("需要登录解锁完整内容")
         title_label.setStyleSheet(scale_style(
             f"font-size: {scale(16)}px; font-weight: bold; color: #fa8c16;"))
         layout.addWidget(title_label)
 
-        # 详细说明
         msg_label = QLabel(
             f"当前内容包含 <b style='color:#fa8c16;'>{type_text}</b> 内容<br><br>"
             f"解锁对应权限并登录后才能获取完整内容，否则只能获取免费部分！"
@@ -26045,7 +26010,6 @@ exit /b 0
         msg_label.setStyleSheet(scale_style(f"font-size: {scale(13)}px; color: #333;"))
         layout.addWidget(msg_label)
 
-        # 按钮区
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
@@ -26067,7 +26031,6 @@ exit /b 0
         btn_layout.addWidget(login_btn)
         layout.addLayout(btn_layout)
 
-        # 用户选择
         user_choice = {'action': 'continue'}
 
         def on_continue():
@@ -28034,7 +27997,6 @@ exit /b 0
         
         
         
-        # 系统托盘
         tray_group = QGroupBox("系统托盘")
         tray_group.setStyleSheet(scale_style("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; } QCheckBox { spacing: 8px; font-size: 13px; }"))
         tray_layout = QVBoxLayout(tray_group)
@@ -28208,7 +28170,6 @@ exit /b 0
                 _frow += 1
         window_layout.addWidget(fold_group)
 
-        # 程序图标
         icon_group = QGroupBox("程序图标")
         icon_group.setStyleSheet(scale_style("QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; } QLabel { font-size: 12px; color: #606266; }"))
         icon_layout = QVBoxLayout(icon_group)
@@ -28753,7 +28714,6 @@ exit /b 0
         network_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
         network_layout.setSpacing(scale(10))
         
-        # 超时时间
         timeout_layout = QHBoxLayout()
         timeout_label = QLabel("网络超时时间（秒）：")
         timeout_spin = QComboBox()
@@ -28770,7 +28730,6 @@ exit /b 0
         timeout_layout.addWidget(timeout_spin, stretch=1)
         network_layout.addLayout(timeout_layout)
         
-        # 重试次数
         retry_layout = QHBoxLayout()
         retry_label = QLabel("下载失败重试次数：")
         retry_spin = QComboBox()
@@ -29464,7 +29423,6 @@ exit /b 0
 
         page5_layout.addWidget(remote_group)
 
-        # 隐私说明
         privacy_note = QLabel(
             "<span style='color:#888; font-size:11px; line-height:1.6'>"
             "• 所有上报数据仅用于改进软件体验，不会出售或与第三方共享<br>"
@@ -30129,7 +30087,6 @@ exit /b 0
             else:
                 register_time = "未知"
             
-            # 处理生日
             birthday_text = birthday if birthday else "未设置"
             
             # 处理会员类型
@@ -30312,7 +30269,6 @@ exit /b 0
             </html>
             '''
             
-            # 替换变量
             html = html.format(
                 avatar_url=avatar_url,
                 username=username,

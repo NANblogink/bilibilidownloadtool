@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 B站音频（歌曲）API 封装
 功能：歌曲信息查询、TAG、歌词、创作成员、音频流URL获取、收藏/投币状态、音频榜单
@@ -153,7 +152,6 @@ class AudioParser:
         m = re.search(r'audio/(\d+)', raw)
         if m:
             return m.group(1)
-        # 纯数字
         if raw.isdigit():
             return raw
         return ""

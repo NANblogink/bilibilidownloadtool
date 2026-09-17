@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 B站音频（歌曲）功能 Tab 页
 功能：歌曲信息解析、音频流下载、歌词获取、音频榜单浏览
@@ -582,7 +581,6 @@ class AudioTab(QWidget):
 
         stream_layout.addLayout(path_layout)
 
-        # 下载进度
         dl_layout = QHBoxLayout()
         dl_layout.setSpacing(scale(8))
         self.dl_progress = QProgressBar()
@@ -732,7 +730,6 @@ class AudioTab(QWidget):
         list_layout.setSpacing(scale(8))
         list_layout.setContentsMargins(scale(10), scale(14), scale(10), scale(10))
 
-        # 搜索栏
         search_layout = QHBoxLayout()
         search_layout.setSpacing(scale(6))
         search_layout.addWidget(QLabel("搜索:"))
@@ -762,7 +759,6 @@ class AudioTab(QWidget):
         self.rank_table.setAlternatingRowColors(True)
         self.rank_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.rank_table.setSelectionBehavior(QTableWidget.SelectRows)
-        # 右键菜单
         self.rank_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.rank_table.customContextMenuRequested.connect(self._show_rank_context_menu)
         list_layout.addWidget(self.rank_table)
@@ -1026,7 +1022,6 @@ class AudioTab(QWidget):
             return
 
         filename = self._build_audio_filename(self._current_song, self._current_stream)
-        # 去重
         full_path = os.path.join(save_dir, filename)
         if os.path.exists(full_path):
             name, ext = os.path.splitext(filename)

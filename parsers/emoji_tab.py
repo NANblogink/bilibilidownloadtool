@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 B站表情包功能 Tab 页
 功能：表情包列表浏览、表情预览、批量下载
@@ -105,7 +104,6 @@ class SkeletonWidget(QWidget):
         self._shimmer.setEndValue(1.0)
         self._shimmer.setLoopCount(-1)
         self._shimmer.setEasingCurve(QEasingCurve.InOutQuad)
-        # 淡出动画
         self._fade_anim = None
         self._opacity_effect = QGraphicsOpacityEffect(self)
         self._opacity_effect.setOpacity(1.0)
@@ -816,7 +814,6 @@ class EmojiTab(QWidget):
 
         def _make(host, kind, rows, cols):
             """在 host 上创建/替换骨架屏，返回新 widget"""
-            # 移除旧的
             old_key = "skeleton_left" if kind == "list" else "skeleton_right"
             old = sub.get(old_key)
             if old is not None:
@@ -1617,7 +1614,6 @@ class EmojiTab(QWidget):
             QMessageBox.warning(self, "提示", "当前有下载任务正在执行")
             return
 
-        # 重置进度
         progress = sub.get("progress")
         progress.setValue(0)
         progress.setFormat(f"0/{len(emotes)}")

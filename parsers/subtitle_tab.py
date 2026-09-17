@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 B站视频字幕解析 Tab 页
 功能：使用主界面全局输入框的视频链接，解析各分P的AI字幕，时间轴预览并下载SRT字幕（需登录，跟随全局解析）
@@ -672,7 +671,6 @@ class SubtitleTab(QWidget):
             item_part.setFlags(item_part.flags() & ~Qt.ItemIsEditable)
             self.sub_table.setItem(row, 2, item_part)
 
-            # 语言下拉
             subs = pg.get("subtitles", [])
             combo = QComboBox()
             combo.setStyleSheet(scale_style("padding: 2px 6px; font-size: 12px;"))
