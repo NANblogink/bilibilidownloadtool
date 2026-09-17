@@ -3237,19 +3237,47 @@ class FlowLayout(QLayout):
     def sizeHint(self):
         return self.minimumSize()
 
+    # ---- 布局计算 ----
+    def _needed_item_width(self):
+        """卡片实际需要的最小宽度。
+
+        取 max(配置的 min_item_width, 各卡片自身最小宽度的最大值)，
+        这样内容本身很宽的卡片（例如含 3 张 152px 图标卡的"程序图标"分组）
+        不会被分配到比它更窄的列里，从而避免卡片内部控件互相重叠。
+
+        但会做上限约束（默认 480）：否则任一含超长文本的控件都会把整页
+        压成单列，反而浪费横向空间。480 足以容纳最宽的内嵌内容
+        （"程序图标"分组的 3 张 152px 卡片共约 456px）。
+        """
+        need = self._min_item_width
+        for item in self._items:
+            if not item or item.isEmpty():
+                continue
+            try:
+                need = max(need, item.widget().minimumSizeHint().width())
+            except Exception:
+                pass
+        cap = max(self._min_item_width, 460)
+        return max(min(need, cap), 1)
+
     def minimumSize(self):
         size = QSize()
         for item in self._items:
-            size = size.expandedTo(item.minimumSize())
+            if not item or item.isEmpty():
+                continue
+            try:
+                size = size.expandedTo(item.widget().minimumSizeHint())
+            except Exception:
+                size = size.expandedTo(item.minimumSize())
         m = self.contentsMargins()
         size += QSize(m.left() + m.right(), m.top() + m.bottom())
         return size
 
-    # ---- 布局计算 ----
     def _columns_for_width(self, width):
         m = self.contentsMargins()
         avail = max(width - m.left() - m.right(), 1)
-        cols = (avail + self._h_spacing) // (self._min_item_width + self._h_spacing)
+        needed = self._needed_item_width()
+        cols = (avail + self._h_spacing) // (needed + self._h_spacing)
         return max(1, min(int(cols), self._max_columns, max(len(self._items), 1)))
 
     def _do_layout(self, rect, test_only):
@@ -28263,6 +28291,8 @@ exit /b 0
         path_edit = QLineEdit(current_default)
         path_edit.setMinimumHeight(scale(32))
         path_edit.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px;"))
+        # 限制最小宽度，避免超长路径把整页挤成单列
+        path_edit.setMinimumWidth(scale(240))
         path_layout.addWidget(path_edit)
         
         browse_btn = QPushButton("浏览")
@@ -28287,6 +28317,7 @@ exit /b 0
         
         thread_spin = QComboBox()
         thread_spin.setMinimumHeight(scale(32))
+        thread_spin.setMinimumWidth(scale(180))
         thread_spin.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px;"))
         for i in range(1, 11):
             thread_spin.addItem(str(i), i)
@@ -28558,6 +28589,11 @@ exit /b 0
         default_icon_btn.setIcon(QIcon(_resolve_builtin_preview("default")) if _resolve_builtin_preview("default") else self.style().standardIcon(QStyle.SP_FileIcon))
         alt_icon_btn.setIcon(QIcon(_resolve_builtin_preview("alt")) if _resolve_builtin_preview("alt") else self.style().standardIcon(QStyle.SP_FileIcon))
 
+        # 三张图标卡各需最小 152px（含边框），横向共需约 480px。
+        # 原先固定塞进 3 列网格，卡片宽度不足时会被压缩到互相重叠，
+        # 因此改用等宽水平排布，并把每列设为可拉伸，让三张卡自动均分宽度。
+        for _c in range(3):
+            icon_grid.setColumnStretch(_c, 1)
         icon_grid.addWidget(default_icon_btn, 0, 0)
         icon_grid.addWidget(alt_icon_btn, 0, 1)
         icon_grid.addWidget(custom_icon_btn, 0, 2)
@@ -28626,7 +28662,9 @@ exit /b 0
         browse_custom_icon_btn.clicked.connect(browse_custom_icon)
         clear_custom_icon_btn.clicked.connect(clear_custom_icon)
         custom_icon_path_edit.textChanged.connect(lambda _: refresh_custom_icon_card())
-        window_layout.addWidget(icon_group)
+        # 注意：icon_group 不再放进 window_group 内部。
+        # 三张图标卡最小宽度合计约 456px，塞进两列布局下的 window_group（仅约 440px）
+        # 会把卡片压到重叠。改为在页面层单独成卡片并按需占整行。
 
         # 下载设置组
         download_group = QGroupBox("下载设置")
@@ -28776,7 +28814,6 @@ exit /b 0
         _col_mode_h.addWidget(QLabel("合集文件夹位置:"))
         _col_mode_h.addWidget(collection_folder_mode_combo, 1)
         _col_mode_h.addStretch(1)
-        checkbox_layout.addWidget(_col_mode_widget, 5, 0, 1, 2)
         collection_folder_mode_combo.setEnabled(use_collection_folder_checkbox.isChecked())
         use_collection_folder_checkbox.toggled.connect(collection_folder_mode_combo.setEnabled)
 
@@ -28793,9 +28830,12 @@ exit /b 0
         _fav_mode_h.addWidget(QLabel("收藏夹刷新:"))
         _fav_mode_h.addWidget(favorites_refresh_mode_combo, 1)
         _fav_mode_h.addStretch(1)
-        checkbox_layout.addWidget(_fav_mode_widget, 6, 0, 1, 2)
 
+        # 复选框网格与两个内联设置行分开：若塞进同一 QGridLayout，
+        # 网格的列宽分配会把这两行压扁并挤到 y=0 与首行复选框重叠
         download_layout.addLayout(checkbox_layout)
+        download_layout.addWidget(_col_mode_widget)
+        download_layout.addWidget(_fav_mode_widget)
         
         # 视频输出格式
         video_format_layout = QHBoxLayout()
@@ -29663,7 +29703,7 @@ exit /b 0
         # 从根本上避免'设置项太多时相互挤压'
         page1_layout = FlowLayout(page1_widget, margin=scale(15), 
                                     h_spacing=scale(14), v_spacing=scale(14),
-                                    min_item_width=scale(340))
+                                    min_item_width=scale(440))
         # 下载设置卡片内容多且高，让它整行占满（span=2），复选框可用宽度更大
         page1_layout.add_item(path_group, span=1)
         page1_layout.add_item(thread_group, span=1)
@@ -29682,7 +29722,7 @@ exit /b 0
         # 从根本上避免'设置项太多时相互挤压'
         page2_layout = FlowLayout(page2_widget, margin=scale(15), 
                                     h_spacing=scale(14), v_spacing=scale(14),
-                                    min_item_width=scale(340))
+                                    min_item_width=scale(440))
         page2_layout.addWidget(network_group)
         page2_scroll.setWidget(page2_widget)
         stacked_widget.addWidget(page2_scroll)
@@ -29698,9 +29738,10 @@ exit /b 0
         # 从根本上避免'设置项太多时相互挤压'
         page3_layout = FlowLayout(page3_widget, margin=scale(15), 
                                     h_spacing=scale(14), v_spacing=scale(14),
-                                    min_item_width=scale(340))
-        page3_layout.addWidget(tray_group)
-        page3_layout.addWidget(window_group)
+                                    min_item_width=scale(440))
+        page3_layout.add_item(tray_group, span=1)
+        page3_layout.add_item(window_group, span=1)
+        page3_layout.add_item(icon_group, span=2)
         page3_scroll.setWidget(page3_widget)
         stacked_widget.addWidget(page3_scroll)
 
@@ -29715,7 +29756,7 @@ exit /b 0
         # 从根本上避免'设置项太多时相互挤压'
         page4_layout = FlowLayout(page4_widget, margin=scale(15), 
                                     h_spacing=scale(14), v_spacing=scale(14),
-                                    min_item_width=scale(340))
+                                    min_item_width=scale(440))
         # 其他设置卡片较长，整行占满后再让日志/存储并排
         page4_layout.add_item(other_group, span=2)
         page4_layout.add_item(log_group, span=1)
@@ -29734,7 +29775,7 @@ exit /b 0
         # 从根本上避免'设置项太多时相互挤压'
         page5_layout = FlowLayout(page5_widget, margin=scale(15), 
                                     h_spacing=scale(14), v_spacing=scale(14),
-                                    min_item_width=scale(340))
+                                    min_item_width=scale(440))
 
         consent = {}
         if hasattr(self, 'cloud_service') and self.cloud_service:
