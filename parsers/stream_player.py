@@ -16,6 +16,7 @@ import subprocess
 import threading
 import re
 import urllib.parse
+import _pathsetup
 from datetime import datetime
 
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
@@ -62,8 +63,9 @@ def _find_ffmpeg():
                   os.path.join(base, '_internal')]:
             p = os.path.join(d, exe('ffmpeg'))
             if os.path.exists(p): return p
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    for d in [os.path.join(script_dir, 'ffmpeg'), os.path.join(script_dir, 'ffmpeg', 'bin'), script_dir]:
+    # 源码运行：项目根（本文件位于 parsers/，根在其上一级）
+    root_dir = _pathsetup.project_root()
+    for d in [os.path.join(root_dir, 'ffmpeg'), os.path.join(root_dir, 'ffmpeg', 'bin'), root_dir]:
         p = os.path.join(d, exe('ffmpeg'))
         if os.path.exists(p): return p
     import shutil
@@ -838,9 +840,10 @@ class StreamPlayerDialog(QDialog):
 
     def _find_mpv(self):
         """查找 mpv.exe"""
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        for d in [os.path.join(script_dir, 'mpv'),
-                  os.path.join(script_dir, 'ffmpeg')]:
+        # 项目根（本文件位于 parsers/，根在其上一级）
+        root_dir = _pathsetup.project_root()
+        for d in [os.path.join(root_dir, 'mpv'),
+                  os.path.join(root_dir, 'ffmpeg')]:
             p = os.path.join(d, exe('mpv'))
             if os.path.exists(p): return p
         if getattr(sys, 'frozen', False):

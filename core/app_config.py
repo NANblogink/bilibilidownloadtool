@@ -2,6 +2,8 @@ import os
 import json
 import logging
 
+import _pathsetup
+
 logger = logging.getLogger(__name__)
 
 APP_NAME = "B站视频解析工具"
@@ -41,9 +43,11 @@ def load_version_info():
     if hasattr(sys, '_MEIPASS'):
         candidate_paths.append(os.path.join(sys._MEIPASS, 'version_info.json'))
 
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    candidate_paths.append(os.path.join(script_dir, 'version_info.json'))
-    candidate_paths.append(os.path.join(script_dir, 'config', 'version_info.json'))
+    # 本模块位于 core/，version_info.json 在项目根
+    root_dir = _pathsetup.project_root()
+    candidate_paths.append(os.path.join(root_dir, 'version_info.json'))
+    candidate_paths.append(os.path.join(root_dir, 'config', 'version_info.json'))
+    candidate_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'version_info.json'))
 
     for path in candidate_paths:
         if os.path.isfile(path):

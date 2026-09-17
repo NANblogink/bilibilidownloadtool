@@ -18,7 +18,10 @@ _here = os.path.dirname(os.path.abspath(__file__))
 if _here not in sys.path:
     sys.path.insert(0, _here)
 
-import pyqt5_bootstrap
+# 注入 core/ 等子目录，使 pyqt5_bootstrap 等模块可被导入
+import _pathsetup  # noqa: F401,E402  导入即完成路径注入
+
+import pyqt5_bootstrap  # noqa: E402
 
 
 def _fatal(msg):

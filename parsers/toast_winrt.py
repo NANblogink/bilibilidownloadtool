@@ -135,7 +135,10 @@ def _app_icon_path():
         tries = [os.path.join(_exe, "logo.ico"),
                  os.path.join(_exe, "_internal", "logo.ico")]
     else:
-        tries = [os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.ico")]
+        # 本文件位于 parsers/，项目根在其上一级；图标可能位于根或 assets/icons
+        _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        tries = [os.path.join(_root, "logo.ico"),
+                 os.path.join(_root, "assets", "icons", "logo.ico")]
     for _t in tries:
         if os.path.exists(_t):
             return _t.replace("/", "\\")

@@ -1,9 +1,11 @@
 import sys
 import os
 
+# 注入子目录搜索路径（core / parsers / build 等），必须在业务模块 import 之前
 # 确保脚本所在目录在 sys.path 中，以便正确导入本地模块
 if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _pathsetup  # noqa: F401  导入即完成路径注入
 
 
 def _is_msix_environment():

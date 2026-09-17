@@ -2272,8 +2272,8 @@ class BilibiliParser:
             import os
             import subprocess
 
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            hevc_appx = os.path.join(script_dir, "hevc安装.Appx")
+            # 项目根（本文件位于 parsers/，根在其上一级）
+            hevc_appx = os.path.join(_pathsetup.project_root(), "hevc安装.Appx")
 
             if not os.path.exists(hevc_appx):
                 return False, f"未找到HEVC安装文件：{hevc_appx}"

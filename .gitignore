@@ -35,6 +35,7 @@ msix_staging/
 version_info_*.win
 
 # ==================== 运行时数据（不入库） ====================
+# 注意用 log/ 而非 /log/：日志目录可能出现在子目录中（如 core/infra/log/）
 log/
 logs/
 temp/
