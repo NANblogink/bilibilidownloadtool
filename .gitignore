@@ -24,12 +24,18 @@ env/
 *~
 
 # ==================== 打包构建产物（不入库） ====================
-build/
+# 注意：不要写 build/ —— 顶层 build/ 是**源码目录**（打包/安装/卸载脚本，
+# 被 ci_checks.py、pyqt5_bootstrap.py 与 README 引用，必须入库）。
+# PyInstaller 的产物目录叫 build_dist/（内测渠道为 build_dist_beta/）。
+build_dist/
+build_dist_beta/
 build_onefile/
 dist/
+dist_beta/
 dist_onefile/
 dist_nuitka/
 output/
+output_beta/
 msix_staging/
 *.spec
 version_info_*.win
