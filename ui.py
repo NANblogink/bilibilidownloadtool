@@ -414,125 +414,254 @@ from app_config import load_version_info, APP_NAME
 version_info = load_version_info()
 
 _BASE_STYLE = """
-    /* 全局样式 */
-    QMainWindow { 
-        background-color: #f8f9fa; 
-        border: 1px solid #e9ecef;
+    /* ==================== 设计令牌（改这里即可全局换肤） ====================
+       说明：颜色/圆角/间距集中在此，子控件一律引用，避免各处硬编码色值
+       造成"五彩斑斓但不统一"。字体尺寸在运行时按 DPI 缩放。 */
+
+    /* 全局 */
+    QWidget {
+        font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif;
+        font-size: 13px;
+        color: #1f2937;
     }
-    QWidget { 
-        font-family: "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif; 
-        font-size: 13px; 
-        color: #333333;
+    QMainWindow, QDialog {
+        background-color: #f4f6fa;
     }
-    
-    /* 输入控件 */
-    QLineEdit, QTextEdit, QComboBox, QListWidget {
-        padding: 10px 12px;
-        border: 1px solid #dee2e6;
+    QToolTip {
+        background-color: #1f2937;
+        color: #ffffff;
+        border: none;
+        border-radius: 6px;
+        padding: 6px 9px;
+        font-size: 12px;
+    }
+
+    /* ==================== 卡片 / 分组 ==================== */
+    QGroupBox {
+        background-color: #ffffff;
+        border: 1px solid #e6eaf2;
+        border-radius: 12px;
+        margin-top: 20px;
+        padding: 18px 16px 16px 16px;
+        font-size: 13px;
+        font-weight: 600;
+    }
+    QGroupBox::title {
+        subcontrol-origin: margin;
+        subcontrol-position: top left;
+        left: 12px;
+        padding: 2px 10px;
+        color: #2563eb;
+        background-color: #ffffff;
+    }
+
+    /* ==================== 输入控件 ==================== */
+    QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox {
+        padding: 8px 11px;
+        border: 1px solid #dde3ed;
         border-radius: 8px;
-        background-color: white;
+        background-color: #ffffff;
+        selection-background-color: #409eff;
+        selection-color: #ffffff;
+        min-height: 18px;
     }
-    QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QListWidget:focus {
+    QLineEdit:hover, QTextEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {
+        border-color: #c3cede;
+    }
+    QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus,
+    QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {
         border-color: #409eff;
     }
-    
-    /* 按钮 */
-    QPushButton {
-        padding: 10px 20px;
-        border: none;
+    QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled {
+        background-color: #f5f7fa;
+        color: #9aa4b2;
+    }
+    QComboBox::drop-down { border: none; width: 22px; }
+    QComboBox QAbstractItemView {
+        border: 1px solid #e6eaf2;
         border-radius: 8px;
-        color: white;
+        background-color: #ffffff;
+        selection-background-color: #eef5ff;
+        selection-color: #2563eb;
+        padding: 4px;
+        outline: none;
+    }
+
+    /* ==================== 按钮（语义化：只用这几类颜色） ==================== */
+    QPushButton {
+        padding: 9px 18px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        color: #ffffff;
         background-color: #409eff;
         font-weight: 500;
     }
-    QPushButton:hover { 
-        background-color: #66b1ff; 
+    QPushButton:hover   { background-color: #5badff; }
+    QPushButton:pressed { background-color: #3a8ee6; }
+    QPushButton:disabled {
+        background-color: #e5e9f0;
+        color: #a3adbb;
+        border-color: transparent;
     }
-    QPushButton:pressed { 
-        background-color: #3a8ee6; 
+    /* 次要按钮：描边，用于"选择/取消"等非主操作 */
+    QPushButton[variant="ghost"] {
+        background-color: #ffffff;
+        color: #4b5563;
+        border: 1px solid #dde3ed;
     }
-    QPushButton:disabled { 
-        background-color: #d1d5db; 
+    QPushButton[variant="ghost"]:hover   { background-color: #f5f8ff; border-color: #409eff; color: #2563eb; }
+    QPushButton[variant="ghost"]:pressed { background-color: #eef5ff; }
+
+    QPushButton#cancelBtn         { background-color: #f56c6c; }
+    QPushButton#cancelBtn:hover   { background-color: #fa8585; }
+    QPushButton#hevcBtn           { background-color: #f59e0b; }
+    QPushButton#hevcBtn:hover     { background-color: #fbb03b; }
+    QPushButton#selectAllBtn      { background-color: #10b981; }
+    QPushButton#selectAllBtn:hover{ background-color: #34d399; }
+    QPushButton#deselectAllBtn    { background-color: #94a3b8; }
+    QPushButton#deselectAllBtn:hover { background-color: #a8b6c8; }
+    QPushButton#applyCookieBtn    { background-color: #8b5cf6; }
+    QPushButton#applyCookieBtn:hover { background-color: #a78bfa; }
+    QPushButton#bilibiliBtn       { background-color: #00a1d6; }
+    QPushButton#bilibiliBtn:hover { background-color: #1cb5e8; }
+
+    /* ==================== 标签页（分段控件观感） ==================== */
+    QTabWidget::pane {
+        border: 1px solid #e6eaf2;
+        border-radius: 12px;
+        background-color: #ffffff;
+        top: -1px;
     }
-    QPushButton#cancelBtn { background-color: #f56c6c; }
-    QPushButton#cancelBtn:hover { background-color: #f78989; }
-    QPushButton#hevcBtn { background-color: #fa8c16; }
-    QPushButton#hevcBtn:hover { background-color: #fb9e3c; }
-    QPushButton#selectAllBtn { background-color: #52c41a; }
-    QPushButton#selectAllBtn:hover { background-color: #73d13d; }
-    QPushButton#deselectAllBtn { background-color: #919191; }
-    QPushButton#deselectAllBtn:hover { background-color: #a8a8a8; }
-    QPushButton#applyCookieBtn { background-color: #9f7aea; }
-    QPushButton#applyCookieBtn:hover { background-color: #b392f0; }
-    QPushButton#bilibiliBtn { background-color: #00a1d6; }
-    QPushButton#bilibiliBtn:hover { background-color: #19b5e0; }
-    
-    /* 分组框 */
-    QGroupBox {
-        border: 1px solid #e9ecef;
+    QTabBar { qproperty-drawBase: 0; background: transparent; }
+    QTabBar::tab {
+        background: transparent;
+        color: #64748b;
+        border: none;
+        padding: 9px 16px;
+        margin: 4px 3px;
+        border-radius: 8px;
+        font-size: 13px;
+    }
+    QTabBar::tab:hover:!selected {
+        background-color: #eef5ff;
+        color: #2563eb;
+    }
+    QTabBar::tab:selected {
+        background-color: #409eff;
+        color: #ffffff;
+        font-weight: 600;
+    }
+
+    /* ==================== 进度条 ==================== */
+    QProgressBar {
+        min-height: 10px;
+        max-height: 10px;
+        border: none;
+        border-radius: 5px;
+        background-color: #e9edf4;
+        text-align: center;
+        color: transparent;
+    }
+    QProgressBar::chunk {
+        border-radius: 5px;
+        background-color: #409eff;
+    }
+
+    /* ==================== 列表 / 表格 ==================== */
+    QListWidget, QTreeWidget, QTableWidget {
+        border: 1px solid #e6eaf2;
         border-radius: 10px;
-        padding: 20px;
-        margin-top: 16px;
-        background-color: white;
+        background-color: #ffffff;
+        outline: none;
     }
-    QGroupBox::title { 
-        font-size: 14px; 
-        font-weight: 600; 
-        color: #2563eb; 
-        margin-left: 12px;
-        padding: 0 8px;
+    QListWidget::item {
+        padding: 10px 14px;
+        border-bottom: 1px solid #f1f4f9;
+        min-height: 40px;
     }
-    
-    /* 进度条 */
-    QProgressBar { 
-        min-height: 10px; 
-        border-radius: 5px; 
-        background-color: #e9ecef; 
+    QListWidget::item:hover    { background-color: #f7faff; }
+    QListWidget::item:selected { background-color: #eef5ff; color: #2563eb; }
+    QHeaderView::section {
+        background-color: #f7f9fc;
+        color: #64748b;
+        border: none;
+        border-bottom: 1px solid #e6eaf2;
+        padding: 8px 10px;
+        font-weight: 600;
     }
-    QProgressBar::chunk { 
-        border-radius: 5px; 
-        background-color: #409eff; 
+    QTableWidget::item:selected { background-color: #eef5ff; color: #2563eb; }
+
+    /* ==================== 勾选框 / 单选框 ==================== */
+    QCheckBox, QRadioButton { spacing: 8px; color: #374151; }
+    QCheckBox::indicator, QRadioButton::indicator { width: 16px; height: 16px; }
+    QCheckBox::indicator {
+        border: 1.5px solid #c3cede;
+        border-radius: 5px;
+        background: #ffffff;
     }
-    
-    /* 对话框 */
-    QDialog { 
-        border-radius: 10px; 
-        background-color: white;
+    QCheckBox::indicator:hover  { border-color: #409eff; }
+    QCheckBox::indicator:checked{ background: #409eff; border-color: #409eff; }
+    QRadioButton::indicator {
+        border: 1.5px solid #c3cede;
+        border-radius: 8px;
+        background: #ffffff;
     }
-    QDialog QLabel { font-size: 14px; }
-    
-    /* 列表控件 */
-    QListWidget { 
-        border-radius: 8px; 
-        background-color: white;
+    QRadioButton::indicator:checked { background: #409eff; border-color: #409eff; }
+
+    /* ==================== 滚动条（细窄、不抢视觉） ==================== */
+    QScrollBar:vertical {
+        background: transparent;
+        width: 10px;
+        margin: 4px 2px 4px 0;
     }
-    QListWidget::item { 
-        padding: 10px 16px; 
-        border-bottom: 1px solid #f0f2f5; 
-        min-height: 48px;
+    QScrollBar::handle:vertical {
+        background: #cfd8e5;
+        border-radius: 5px;
+        min-height: 32px;
     }
-    QListWidget::item:hover { 
-        background-color: #f8fafc; 
+    QScrollBar::handle:vertical:hover { background: #b3c0d3; }
+    QScrollBar:horizontal {
+        background: transparent;
+        height: 10px;
+        margin: 0 4px 2px 4px;
     }
-    QListWidget::item:selected { 
-        background-color: #e6f7ff; 
-        color: #2f5496;
+    QScrollBar::handle:horizontal {
+        background: #cfd8e5;
+        border-radius: 5px;
+        min-width: 32px;
     }
-    
-    /* 卡片视图 */
-    .card-view QListWidget::item { 
-        min-width: 140px; 
-        margin: 10px; 
-        border: 1px solid #e9ecef; 
-        border-radius: 8px; 
+    QScrollBar::handle:horizontal:hover { background: #b3c0d3; }
+    QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
+    QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+
+    /* ==================== 分割线 / 菜单 ==================== */
+    QSplitter::handle { background-color: #e6eaf2; }
+    QMenu {
+        background-color: #ffffff;
+        border: 1px solid #e6eaf2;
+        border-radius: 10px;
+        padding: 6px;
+    }
+    QMenu::item {
+        padding: 8px 22px 8px 14px;
+        border-radius: 6px;
+        color: #374151;
+    }
+    QMenu::item:selected { background-color: #eef5ff; color: #2563eb; }
+    QMenu::separator { height: 1px; background: #eef1f6; margin: 5px 8px; }
+
+    /* ==================== 卡片式列表（收藏夹/作品列表） ==================== */
+    .card-view QListWidget::item {
+        min-width: 140px;
+        margin: 8px;
+        border: 1px solid #e6eaf2;
+        border-radius: 10px;
         min-height: 90px;
     }
-    .card-view QListWidget::item:hover { 
-        background-color: #f8fafc; 
-    }
-    .card-view QListWidget::item:selected { 
-        border-color: #409eff; 
-        background-color: #e6f7ff;
+    .card-view QListWidget::item:hover { background-color: #f7faff; border-color: #c3cede; }
+    .card-view QListWidget::item:selected {
+        border-color: #409eff;
+        background-color: #eef5ff;
     }
 """
 
@@ -1116,7 +1245,7 @@ class ExpandedCard(QDialog):
         url_layout.setContentsMargins(scale(10), 0, scale(10), 0)
         self.url_edit = QLineEdit()
         self.url_edit.setPlaceholderText("输入B站视频链接，按回车解析...")
-        self.url_edit.setStyleSheet(f"padding: {scale(12)}px; border: {scale(1)}px solid #dee2e6; border-radius: {scale(8)}px; font-size: {scale(12)}px; background-color: #f8fafc;")
+        self.url_edit.setStyleSheet(f"padding: {scale(12)}px; border: {scale(1)}px solid #dde3ed; border-radius: {scale(8)}px; font-size: {scale(12)}px; background-color: #f8fafc;")
         self.url_edit.setMinimumHeight(scale(36))
         self.url_edit.returnPressed.connect(self.on_parse_clicked)
         url_layout.addWidget(self.url_edit, stretch=1)
@@ -1126,7 +1255,7 @@ class ExpandedCard(QDialog):
         self.episode_page_spin.setValue(0)
         self.episode_page_spin.setSpecialValueText("全部")
         self.episode_page_spin.setToolTip("指定分P/单集（0=全部，输入集数后仅解析该集）")
-        self.episode_page_spin.setStyleSheet(f"padding: {scale(8)}px; border: {scale(1)}px solid #dee2e6; border-radius: {scale(8)}px; font-size: {scale(11)}px; background-color: #f8fafc; min-width: {scale(50)}px;")
+        self.episode_page_spin.setStyleSheet(f"padding: {scale(8)}px; border: {scale(1)}px solid #dde3ed; border-radius: {scale(8)}px; font-size: {scale(11)}px; background-color: #f8fafc; min-width: {scale(50)}px;")
         self.episode_page_spin.setMinimumHeight(scale(36))
         url_layout.addWidget(self.episode_page_spin)
 
@@ -1138,7 +1267,7 @@ class ExpandedCard(QDialog):
             "留空=全部。范围外的集不会请求播放地址，明显更快。\n"
             "适用于番剧/课程等按集编号的内容。"
         )
-        self.episode_range_edit.setStyleSheet(f"padding: {scale(8)}px; border: {scale(1)}px solid #dee2e6; border-radius: {scale(8)}px; font-size: {scale(11)}px; background-color: #f8fafc; min-width: {scale(80)}px;")
+        self.episode_range_edit.setStyleSheet(f"padding: {scale(8)}px; border: {scale(1)}px solid #dde3ed; border-radius: {scale(8)}px; font-size: {scale(11)}px; background-color: #f8fafc; min-width: {scale(80)}px;")
         self.episode_range_edit.setMinimumHeight(scale(36))
         self.episode_range_edit.setMaximumWidth(scale(110))
         url_layout.addWidget(self.episode_range_edit)
@@ -1154,7 +1283,7 @@ class ExpandedCard(QDialog):
         self.parse_mode_combo.addItem("仅当前视频分P", "video_only")
         self.parse_mode_combo.addItem("仅指定单集", "page_only")
         self.parse_mode_combo.addItem("强制完整合集", "collection")
-        self.parse_mode_combo.setStyleSheet(f"padding: {scale(6)}px; border: {scale(1)}px solid #dee2e6; border-radius: {scale(8)}px; font-size: {scale(11)}px; background-color: #f8fafc;")
+        self.parse_mode_combo.setStyleSheet(f"padding: {scale(6)}px; border: {scale(1)}px solid #dde3ed; border-radius: {scale(8)}px; font-size: {scale(11)}px; background-color: #f8fafc;")
         self.parse_mode_combo.setMinimumHeight(scale(36))
         self.parse_mode_combo.setToolTip("选择解析范围：自动根据视频类型选择/仅当前视频分P/仅指定单集/强制加载完整合集")
         mode_layout.addWidget(self.parse_mode_combo, stretch=1)
@@ -1196,7 +1325,7 @@ class ExpandedCard(QDialog):
         resolution_label.setMinimumHeight(scale(28))
         resolution_label.setMinimumWidth(scale(60))
         self.resolution_combo = QComboBox()
-        self.resolution_combo.setStyleSheet(f"padding: {scale(6)}px; border: {scale(1)}px solid #dee2e6; border-radius: {scale(4)}px; font-size: {scale(12)}px;")
+        self.resolution_combo.setStyleSheet(f"padding: {scale(6)}px; border: {scale(1)}px solid #dde3ed; border-radius: {scale(4)}px; font-size: {scale(12)}px;")
         self.resolution_combo.setMinimumHeight(scale(28))
         # 默认只显示无需登录的分辨率，登录后会更新
         self.resolution_combo.addItems(["480P", "360P"])
@@ -1213,7 +1342,7 @@ class ExpandedCard(QDialog):
         path_label.setMinimumHeight(scale(28))
         path_label.setMinimumWidth(scale(60))
         self.path_edit = QLineEdit()
-        self.path_edit.setStyleSheet(f"padding: {scale(6)}px; border: {scale(1)}px solid #dee2e6; border-radius: {scale(4)}px; font-size: {scale(10)}px;")
+        self.path_edit.setStyleSheet(f"padding: {scale(6)}px; border: {scale(1)}px solid #dde3ed; border-radius: {scale(4)}px; font-size: {scale(10)}px;")
         self.path_edit.setMinimumHeight(scale(28))
         default_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载")
         self.path_edit.setText(default_path)
@@ -1230,7 +1359,7 @@ class ExpandedCard(QDialog):
         list_layout = QHBoxLayout()
         list_layout.setContentsMargins(scale(5), 0, scale(5), 0)
         self.video_list = QListWidget()
-        self.video_list.setStyleSheet(f"border: {scale(1)}px solid #dee2e6; border-radius: {scale(6)}px; font-size: {scale(10)}px;")
+        self.video_list.setStyleSheet(f"border: {scale(1)}px solid #dde3ed; border-radius: {scale(6)}px; font-size: {scale(10)}px;")
         self.video_list.setUniformItemSizes(True)
         self.video_list.setSelectionMode(QListWidget.ExtendedSelection)
         self.video_list.setMinimumHeight(scale(80))
@@ -1338,7 +1467,7 @@ class ExpandedCard(QDialog):
         
         self.download_scroll = QScrollArea()
         self.download_scroll.setWidgetResizable(True)
-        self.download_scroll.setStyleSheet(f"border: {scale(1)}px solid #dee2e6; border-radius: {scale(8)}px;")
+        self.download_scroll.setStyleSheet(f"border: {scale(1)}px solid #dde3ed; border-radius: {scale(8)}px;")
         
         self.download_container = QWidget()
         self.download_container_layout = QVBoxLayout(self.download_container)
@@ -2724,7 +2853,7 @@ class ParseProgressWindow(QDialog):
             QTextEdit {
                 background-color: #1e1e1e;
                 color: #4ec9b0;
-                border: 1px solid #dee2e6;
+                border: 1px solid #dde3ed;
                 border-radius: 8px;
                 padding: 12px;
                 font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
@@ -2775,7 +2904,7 @@ class ParseProgressWindow(QDialog):
             QProgressBar {
                 min-height: 12px;
                 border-radius: 6px;
-                background-color: #e9ecef;
+                background-color: #e6eaf2;
             }
             QProgressBar::chunk {
                 border-radius: 6px;
@@ -3078,7 +3207,7 @@ class DataLoadingDialog(QDialog):
             QProgressBar {
                 min-height: 14px;
                 border-radius: 7px;
-                background-color: #e9ecef;
+                background-color: #e6eaf2;
                 border: none;
             }
             QProgressBar::chunk {
@@ -3782,7 +3911,7 @@ class VideoToolWindow(BaseWindow):
         self.file_list_widget.setSelectionMode(QListWidget.SingleSelection)
         self.file_list_widget.setStyleSheet(scale_style("""
             QListWidget {
-                border: 1px solid #dcdfe6;
+                border: 1px solid #dde3ed;
                 border-radius: 4px;
                 background-color: white;
                 padding: 5px;
@@ -4201,7 +4330,7 @@ class VideoToolWindow(BaseWindow):
         group.setStyleSheet(scale_style("""
             QGroupBox {
                 font-weight: bold;
-                border: 1px solid #dcdfe6;
+                border: 1px solid #dde3ed;
                 border-radius: 6px;
                 margin-top: 12px;
                 padding-top: 10px;
@@ -4244,7 +4373,7 @@ class VideoToolWindow(BaseWindow):
         self.progress_bar.setTextVisible(True)
         self.progress_bar.setStyleSheet(scale_style("""
             QProgressBar {
-                border: 1px solid #dcdfe6;
+                border: 1px solid #dde3ed;
                 border-radius: 4px;
                 text-align: center;
                 height: 22px;
@@ -4391,7 +4520,7 @@ class VideoToolWindow(BaseWindow):
         list_widget.setSelectionMode(QListWidget.ExtendedSelection)
         list_widget.setStyleSheet("""
             QListWidget {
-                border: 1px solid #dcdfe6;
+                border: 1px solid #dde3ed;
                 border-radius: 4px;
                 background-color: white;
             }
@@ -5537,9 +5666,9 @@ class NotificationWidget(QWidget):
             self.message_label.setText(message)
 
             if notification_type == "success":
-                self.container.setStyleSheet(scale_style("background-color: #f0f9ff; border-left: 4px solid #1890ff; border-radius: 8px; border: 1px solid #e6f7ff;"))
+                self.container.setStyleSheet(scale_style("background-color: #f0f9ff; border-left: 4px solid #409eff; border-radius: 8px; border: 1px solid #e6f7ff;"))
                 self.icon_label.setText("✓")
-                self.icon_label.setStyleSheet(scale_style("font-size: 16px; color: #1890ff; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif;"))
+                self.icon_label.setStyleSheet(scale_style("font-size: 16px; color: #409eff; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif;"))
             elif notification_type == "error":
                 self.container.setStyleSheet(scale_style("background-color: #fff2f0; border-left: 4px solid #ff4d4f; border-radius: 8px; border: 1px solid #fff1f0;"))
                 self.icon_label.setText("×")
@@ -5649,7 +5778,7 @@ class AnnouncementDialog(QDialog):
         ann_type = announcement.get("type", "info")
 
         tc_map = {
-            "info": ("#1677ff", "#f0f5ff"),
+            "info": ("#409eff", "#f0f5ff"),
             "warning": ("#fa8c16", "#fff7e6"),
             "error": ("#ff4d4f", "#fff2f0"),
             "update": ("#52c41a", "#f6ffed"),
@@ -5845,7 +5974,7 @@ def _markdown_to_html(text):
             in_ul = in_ol = False
             level = len(m.group(1))
             content = _md_inline(m.group(2))
-            sizes = {1: ('18px', '#cf1322', '600'), 2: ('15px', '#1677ff', '600'), 3: ('14px', '#262626', '600')}
+            sizes = {1: ('18px', '#cf1322', '600'), 2: ('15px', '#409eff', '600'), 3: ('14px', '#262626', '600')}
             fs, fc, fw = sizes.get(level, ('13px', '#595959', 'normal'))
             margin_val = 12 - level
             result.append(f'<h{level} style="margin:{margin_val}px 0 6px;font-size:{fs};color:{fc};font-weight:{fw}">{content}</h{level}>')
@@ -5913,7 +6042,7 @@ def _md_inline(text):
         link_text = m.group(1)  # 已被转义
         url = m.group(2).replace('&amp;', '&')  # URL中的&恢复原样
         return (f'<a href="{url}" '
-                f'style="color:#1677ff;text-decoration:none;'
+                f'style="color:#409eff;text-decoration:none;'
                 f'border-bottom:1px solid rgba(22,119,255,0.3)">{link_text}</a>')
     text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', _link_repl, text)
 
@@ -5968,7 +6097,7 @@ class BetaAuthDialog(QDialog):
             QLabel#title { font-size: 18px; font-weight: bold; color: #00a1d6; }
             QLabel#desc { font-size: 13px; color: #555; line-height: 1.6; }
             QLabel#deviceIdLabel { font-size: 12px; color: #909399; }
-            QLineEdit { padding: 10px 14px; border: 2px solid #dcdfe6; border-radius: 8px; font-size: 15px; }
+            QLineEdit { padding: 10px 14px; border: 2px solid #dde3ed; border-radius: 8px; font-size: 15px; }
             QLineEdit:focus { border-color: #00a1d6; }
             QPushButton#verifyBtn { background: #00a1d6; color: white; border: none; border-radius: 8px; font-size: 15px; font-weight: bold; padding: 12px; }
             QPushButton#verifyBtn:hover { background: #0088b4; }
@@ -6169,7 +6298,7 @@ class UpdateDialog(QDialog):
             self._status_signal.connect(self._on_status_update)
 
             is_force = update_info.get("force_update", False)
-            accent = "#cf1322" if is_force else "#1677ff"
+            accent = "#cf1322" if is_force else "#409eff"
 
             # 自适应尺寸：随 DPI/屏幕占比自适应，可缩放，默认更大
             screen = QApplication.primaryScreen()
@@ -6668,7 +6797,7 @@ class AnnouncementBar(QWidget):
         dismissible = announcement.get("dismissible", True)
 
         colors = {
-            "info": {"bg": "#e8f4fd", "border": "#91d5ff", "text": "#1890ff", "accent": "#1890ff", "icon_char": "i"},
+            "info": {"bg": "#e8f4fd", "border": "#91d5ff", "text": "#409eff", "accent": "#409eff", "icon_char": "i"},
             "warning": {"bg": "#fff8e6", "border": "#ffe58f", "text": "#fa8c16", "accent": "#fa8c16", "icon_char": "!"},
             "error": {"bg": "#fff2f0", "border": "#ffccc7", "text": "#f5222d", "accent": "#f5222d", "icon_char": "x"},
         }
@@ -6944,7 +7073,7 @@ class MergeProgressWindow(QDialog):
             QTextEdit {
                 background-color: #1e1e1e;
                 color: #4ec9b0;
-                border: 1px solid #dee2e6;
+                border: 1px solid #dde3ed;
                 border-radius: 8px;
                 padding: 12px;
                 font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
@@ -7007,7 +7136,7 @@ class MergeProgressWindow(QDialog):
             QProgressBar {
                 min-height: 12px;
                 border-radius: 6px;
-                background-color: #e9ecef;
+                background-color: #e6eaf2;
             }
             QProgressBar::chunk {
                 border-radius: 6px;
@@ -7119,7 +7248,7 @@ class DanmakuSelectionDialog(QDialog):
                 border: 2px solid #409eff;
                 border-radius: 12px;
                 background-color: white;
-                border: 1px solid #e2e8f0;
+                border: 1px solid #e6eaf2;
             }
             QListWidget {
                 border: none;
@@ -7127,7 +7256,7 @@ class DanmakuSelectionDialog(QDialog):
             }
             QListWidget::item {
                 padding: 12px;
-                border-bottom: 1px solid #e2e8f0;
+                border-bottom: 1px solid #e6eaf2;
             }
             QListWidget::item:hover {
                 background-color: #e6f7ff;
@@ -7170,18 +7299,18 @@ class DanmakuSelectionDialog(QDialog):
 
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("搜索弹幕内容...")
-        self.search_edit.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px;"))
+        self.search_edit.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px;"))
         self.search_edit.textChanged.connect(self.on_search_changed)
         filter_layout.addWidget(self.search_edit, stretch=1)
 
         self.filter_combo = QComboBox()
-        self.filter_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px;"))
+        self.filter_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px;"))
         self.filter_combo.addItems(["全部弹幕", "滚动弹幕", "顶部弹幕", "底部弹幕", "逆向弹幕", "高级弹幕"])
         self.filter_combo.currentIndexChanged.connect(self.on_filter_changed)
         filter_layout.addWidget(self.filter_combo)
 
         self.sort_combo = QComboBox()
-        self.sort_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px;"))
+        self.sort_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px;"))
         self.sort_combo.addItems(["按时间排序", "按颜色排序", "按字体大小排序"])
         self.sort_combo.currentIndexChanged.connect(self.on_sort_changed)
         filter_layout.addWidget(self.sort_combo)
@@ -7831,7 +7960,7 @@ class EpisodeSelectionDialog(ResizableDialog):
             }
             QListWidget::item {
                 padding: 12px;
-                border-bottom: 1px solid #e2e8f0;
+                border-bottom: 1px solid #e6eaf2;
             }
             QListWidget::item:hover {
                 background-color: #e6f7ff;
@@ -7844,7 +7973,7 @@ class EpisodeSelectionDialog(ResizableDialog):
                 min-width: 200px;
                 min-height: 170px;
                 margin: 10px;
-                border: 1px solid #e2e8f0;
+                border: 1px solid #e6eaf2;
                 border-radius: 8px;
                 background-color: white;
             }
@@ -7892,12 +8021,12 @@ class EpisodeSelectionDialog(ResizableDialog):
         search_layout = QHBoxLayout()
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("搜索集数标题...")
-        self.search_edit.setStyleSheet(scale_style("padding: 10px 12px; border: 1px solid #dee2e6; border-radius: 8px;"))
+        self.search_edit.setStyleSheet(scale_style("padding: 10px 12px; border: 1px solid #dde3ed; border-radius: 8px;"))
         self.search_edit.textChanged.connect(self.filter_episodes)
         search_layout.addWidget(self.search_edit, stretch=1)
         
         self.sort_combo = QComboBox()
-        self.sort_combo.setStyleSheet(scale_style("padding: 10px 12px; border: 1px solid #dee2e6; border-radius: 8px;"))
+        self.sort_combo.setStyleSheet(scale_style("padding: 10px 12px; border: 1px solid #dde3ed; border-radius: 8px;"))
         self.sort_combo.addItems(["按集数排序", "按标题排序"])
         self.sort_combo.currentIndexChanged.connect(self.on_sort_changed)
         search_layout.addWidget(self.sort_combo)
@@ -7916,10 +8045,10 @@ class EpisodeSelectionDialog(ResizableDialog):
         view_layout.addWidget(self.list_radio)
         view_layout.addWidget(self.card_radio)
         self.expand_all_btn = QPushButton("展开全部")
-        self.expand_all_btn.setStyleSheet(scale_style("padding: 4px 12px; border: 1px solid #dee2e6; border-radius: 6px; background-color: white; color: #475569; font-size: 12px;"))
+        self.expand_all_btn.setStyleSheet(scale_style("padding: 4px 12px; border: 1px solid #dde3ed; border-radius: 6px; background-color: white; color: #475569; font-size: 12px;"))
         self.expand_all_btn.clicked.connect(lambda: self.list_view.expandAll())
         self.collapse_all_btn = QPushButton("折叠全部")
-        self.collapse_all_btn.setStyleSheet(scale_style("padding: 4px 12px; border: 1px solid #dee2e6; border-radius: 6px; background-color: white; color: #475569; font-size: 12px;"))
+        self.collapse_all_btn.setStyleSheet(scale_style("padding: 4px 12px; border: 1px solid #dde3ed; border-radius: 6px; background-color: white; color: #475569; font-size: 12px;"))
         self.collapse_all_btn.clicked.connect(lambda: self.list_view.collapseAll())
         view_layout.addWidget(self.expand_all_btn)
         view_layout.addWidget(self.collapse_all_btn)
@@ -7944,7 +8073,7 @@ class EpisodeSelectionDialog(ResizableDialog):
                 background-color: #f8fafc;
             }
             QTreeWidget::item {
-                border-bottom: 1px solid #e2e8f0;
+                border-bottom: 1px solid #e6eaf2;
             }
         """))
         self.populate_list_view()
@@ -8013,7 +8142,7 @@ class EpisodeSelectionDialog(ResizableDialog):
         cover_label = QLabel()
         cover_label.setMinimumSize(scale(96), scale(64))
         cover_label.setMaximumSize(scale(120), scale(80))
-        cover_label.setStyleSheet(scale_style("border: 1px solid #e2e8f0; border-radius: 6px; background-color: #f1f5f9;"))
+        cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 6px; background-color: #f1f5f9;"))
         cover_label.setAlignment(Qt.AlignCenter)
         cover_label.setText("无封面")
         layout.addWidget(cover_label)
@@ -8057,7 +8186,7 @@ class EpisodeSelectionDialog(ResizableDialog):
                             if not pixmap.isNull():
                                 scaled_pixmap = pixmap.scaled(scale(120), scale(80), Qt.KeepAspectRatio, Qt.SmoothTransformation)
                                 cover_label.setPixmap(scaled_pixmap)
-                                cover_label.setStyleSheet(scale_style("border: 1px solid #e2e8f0; border-radius: 6px;"))
+                                cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 6px;"))
                             else:
                                 cover_label.setText("加载失败")
                         else:
@@ -8909,7 +9038,7 @@ class EpisodeSelectionDialog(ResizableDialog):
                             else:
                                 scaled_pixmap = pixmap.scaled(target_w, target_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                                 cover_label.setPixmap(scaled_pixmap)
-                                cover_label.setStyleSheet(scale_style("border: 1px solid #e2e8f0; border-radius: 6px;"))
+                                cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 6px;"))
                         else:
                             cover_label.setText("加载失败")
                     else:
@@ -9360,7 +9489,7 @@ class TaskManagerWindow(BaseWindow):
         btn_layout.setSpacing(scale(12))
         btn_style_primary = scale_style("QPushButton { background-color: #3b82f6; color: white; padding: 6px 16px; border-radius: 6px; font-size: 12px; font-weight: 500; min-height: 32px; border: none; } QPushButton:hover { background-color: #2563eb; } QPushButton:pressed { background-color: #1d4ed8; }")
         btn_style_danger = scale_style("QPushButton { background-color: #ef4444; color: white; padding: 6px 16px; border-radius: 6px; font-size: 12px; font-weight: 500; min-height: 32px; border: none; } QPushButton:hover { background-color: #dc2626; } QPushButton:pressed { background-color: #b91c1c; }")
-        btn_style_secondary = scale_style("QPushButton { background-color: #f1f5f9; color: #475569; padding: 6px 16px; border-radius: 6px; font-size: 12px; font-weight: 500; min-height: 32px; border: 1px solid #e2e8f0; } QPushButton:hover { background-color: #e2e8f0; } QPushButton:pressed { background-color: #cbd5e1; }")
+        btn_style_secondary = scale_style("QPushButton { background-color: #f1f5f9; color: #475569; padding: 6px 16px; border-radius: 6px; font-size: 12px; font-weight: 500; min-height: 32px; border: 1px solid #e6eaf2; } QPushButton:hover { background-color: #e6eaf2; } QPushButton:pressed { background-color: #cbd5e1; }")
         btn_style_warning = scale_style("QPushButton { background-color: #f59e0b; color: white; padding: 6px 16px; border-radius: 6px; font-size: 12px; font-weight: 500; min-height: 32px; border: none; } QPushButton:hover { background-color: #d97706; } QPushButton:pressed { background-color: #b45309; }")
         self.refresh_btn = QPushButton("刷新列表")
         self.refresh_btn.setIcon(_task_icon("refresh", scale(16), "#ffffff"))
@@ -9488,7 +9617,7 @@ class TaskManagerWindow(BaseWindow):
         card_base_style = scale_style("""
             QWidget#taskCard {
                 background-color: white;
-                border: 1px solid #e2e8f0;
+                border: 1px solid #e6eaf2;
                 border-radius: 10px;
             }
             QWidget#taskCard:hover {
@@ -9712,7 +9841,7 @@ class TaskManagerWindow(BaseWindow):
             url_layout.addWidget(url_link, stretch=1)
             
             copy_btn = QPushButton("复制")
-            copy_btn.setStyleSheet(scale_style("QPushButton { background-color: transparent; color: #64748b; padding: 2px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #e2e8f0; } QPushButton:hover { background-color: #f8fafc; color: #475569; border: 1px solid #cbd5e1; }"))
+            copy_btn.setStyleSheet(scale_style("QPushButton { background-color: transparent; color: #64748b; padding: 2px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #e6eaf2; } QPushButton:hover { background-color: #f8fafc; color: #475569; border: 1px solid #cbd5e1; }"))
             copy_btn.clicked.connect(lambda checked, u=url: self.copy_to_clipboard(u))
             url_layout.addWidget(copy_btn)
             
@@ -9933,7 +10062,7 @@ class TaskManagerWindow(BaseWindow):
         status = task.get("status", "unknown")
         menu = QMenu(self)
         menu.setStyleSheet(scale_style("""
-            QMenu { background-color: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px; }
+            QMenu { background-color: white; border: 1px solid #e6eaf2; border-radius: 8px; padding: 6px; }
             QMenu::item { padding: 7px 22px; border-radius: 6px; font-size: 12px; }
             QMenu::item:selected { background-color: #eff6ff; color: #2563eb; }
         """))
@@ -9972,7 +10101,7 @@ class TaskManagerWindow(BaseWindow):
                 return
         menu = QMenu(self)
         menu.setStyleSheet(scale_style("""
-            QMenu { background-color: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px; }
+            QMenu { background-color: white; border: 1px solid #e6eaf2; border-radius: 8px; padding: 6px; }
             QMenu::item { padding: 7px 22px; border-radius: 6px; font-size: 12px; }
             QMenu::item:selected { background-color: #eff6ff; color: #2563eb; }
         """))
@@ -10145,7 +10274,7 @@ class TaskManagerWindow(BaseWindow):
                 background-color: white;
             }
             QGroupBox {
-                border: 1px solid #e9ecef;
+                border: 1px solid #e6eaf2;
                 border-radius: 10px;
                 padding: 20px;
                 margin-top: 16px;
@@ -10174,7 +10303,7 @@ class TaskManagerWindow(BaseWindow):
                 background-color: #3a8ee6;
             }
             QListWidget {
-                border: 1px solid #dee2e6;
+                border: 1px solid #dde3ed;
                 border-radius: 8px;
                 background-color: white;
             }
@@ -11089,7 +11218,7 @@ class TaskManagerWindow(BaseWindow):
                     background-color: white;
                 }
                 QListWidget {
-                    border: 1px solid #dee2e6;
+                    border: 1px solid #dde3ed;
                     border-radius: 8px;
                     font-family: Consolas, Monaco, 'Courier New', monospace;
                     font-size: 12px;
@@ -11561,7 +11690,7 @@ class BatchDownloadWindow(BaseWindow):
                 min-width: 50px;
             }
             #epLinkBtn {
-                background-color: #1890ff;
+                background-color: #409eff;
                 color: white;
                 padding: 4px 8px;
                 border-radius: 3px;
@@ -12781,7 +12910,7 @@ class BilibiliDownloader(BaseWindow):
 
             from PyQt5.QtWidgets import QGroupBox, QCheckBox, QVBoxLayout, QHBoxLayout
 
-            group_style = "QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e9ecef; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }"
+            group_style = "QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e6eaf2; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }"
             cb_style = "QCheckBox { color: #606266; font-size: 13px; spacing: 6px; } QCheckBox::indicator { width: 16px; height: 16px; } QCheckBox:disabled { color: #909399; }"
 
             def make_checkbox(text, checked, tip):
@@ -12870,7 +12999,7 @@ class BilibiliDownloader(BaseWindow):
             btn_ok = QPushButton("保存")
             btn_ok.setFixedHeight(36)
             btn_ok.setMinimumWidth(96)
-            btn_ok.setStyleSheet("QPushButton{background:#ffffff;color:#606266;border:1px solid #dcdfe6;border-radius:6px;font-size:13px;font-weight:500;padding:0 20px;}QPushButton:hover{color:#409eff;border-color:#c6e2ff;background:#ecf5ff;}QPushButton:pressed{color:#3a8ee6;border-color:#3a8ee6;}")
+            btn_ok.setStyleSheet("QPushButton{background:#ffffff;color:#606266;border:1px solid #dde3ed;border-radius:6px;font-size:13px;font-weight:500;padding:0 20px;}QPushButton:hover{color:#409eff;border-color:#c6e2ff;background:#ecf5ff;}QPushButton:pressed{color:#3a8ee6;border-color:#3a8ee6;}")
             btn_layout.addWidget(btn_ok)
             btn_layout.addWidget(btn_settings)
             body_layout.addLayout(btn_layout)
@@ -13074,8 +13203,8 @@ class BilibiliDownloader(BaseWindow):
             else:
                 dlg.resize(base_w, base_h)
             dlg.setStyleSheet(f"""
-                QDialog#privacyDialog {{ background-color: #ffffff; border: 2px solid #1677ff; }}
-                QWidget#pTitleBar {{ background-color: #1677ff; }}
+                QDialog#privacyDialog {{ background-color: #ffffff; border: 2px solid #409eff; }}
+                QWidget#pTitleBar {{ background-color: #409eff; }}
                 QLabel#pTitle {{ font-size: {scale(16)}px; font-weight: 700; color: #ffffff; background: transparent; }}
                 QLabel#pText {{ font-size: {scale(13)}px; color: #333; background: transparent; }}
                 QLabel#pSub {{ font-size: {scale(12)}px; color: #8a8f98; background: transparent; }}
@@ -13126,7 +13255,7 @@ class BilibiliDownloader(BaseWindow):
             agree_btn.setMinimumSize(scale(110), scale(36))
             agree_btn.setCursor(Qt.PointingHandCursor)
             agree_btn.setStyleSheet(f"""
-                QPushButton {{ background-color: #1677ff; color: #ffffff; border: none; font-size: {scale(13)}px; padding: 0 {scale(18)}px; }}
+                QPushButton {{ background-color: #409eff; color: #ffffff; border: none; font-size: {scale(13)}px; padding: 0 {scale(18)}px; }}
                 QPushButton:hover {{ background-color: #0958d8; }}
             """)
             def _agree():
@@ -13425,7 +13554,7 @@ class BilibiliDownloader(BaseWindow):
             join_btn.setMinimumSize(scale(96), scale(34))
             join_btn.setCursor(Qt.PointingHandCursor)
             join_btn.setStyleSheet(f"""
-                QPushButton {{ background-color: #1677ff; color: #ffffff; border: none; font-size: {scale(13)}px; padding: 0 {scale(16)}px; }}
+                QPushButton {{ background-color: #409eff; color: #ffffff; border: none; font-size: {scale(13)}px; padding: 0 {scale(16)}px; }}
                 QPushButton:hover {{ background-color: #0958d8; }}
             """)
             join_btn.clicked.connect(lambda: join_support_group())
@@ -13434,7 +13563,7 @@ class BilibiliDownloader(BaseWindow):
             ok_btn.setCursor(Qt.PointingHandCursor)
             ok_btn.setStyleSheet(f"""
                 QPushButton {{ background-color: #ffffff; color: #555555; border: 1px solid #d9d9d9; font-size: {scale(13)}px; padding: 0 {scale(16)}px; }}
-                QPushButton:hover {{ border-color: #1677ff; color: #1677ff; }}
+                QPushButton:hover {{ border-color: #409eff; color: #409eff; }}
             """)
             ok_btn.clicked.connect(dlg.accept)
             btn_lyt.addWidget(join_btn)
@@ -13568,7 +13697,7 @@ exit /b 0
 
     def _show_update_ready_prompt(self, state):
         latest = state.get("target_version", "")
-        accent = "#1677ff"
+        accent = "#409eff"
         dlg = QDialog(self)
         dlg.setWindowTitle("升级已就绪")
         dlg.setAttribute(Qt.WA_DeleteOnClose)
@@ -13869,7 +13998,7 @@ exit /b 0
             icon_lbl.setFixedSize(scale(28), scale(28))
             icon_lbl.setStyleSheet("""
                 QLabel {
-                    background-color: #1677ff;
+                    background-color: #409eff;
                     color: white;
                     border-radius: 6px;
                     font-size: 14px;
@@ -14307,7 +14436,7 @@ exit /b 0
             dialog.resize(base_w, base_h)
         dialog.setMinimumSize(scale(360), scale(440))
 
-        accent = "#1677ff"
+        accent = "#409eff"
         dialog.setStyleSheet(f"""
             QDialog {{ background-color: #f5f6f7; }}
             QWidget#titleBar {{
@@ -14544,7 +14673,7 @@ exit /b 0
         dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.Dialog)
         make_resizable(dialog)
         dialog.setObjectName("sysInfoDialog")
-        accent = "#1677ff"
+        accent = "#409eff"
 
         screen = QApplication.primaryScreen()
         sg = screen.geometry() if screen else None
@@ -14836,7 +14965,7 @@ exit /b 0
                 # 安装路径信息
                 path_info_label = QLabel(f"安装路径:\n{paths['install_dir']}")
                 path_info_label.setAlignment(Qt.AlignCenter)
-                path_info_label.setStyleSheet("font-weight: bold; color: #1890ff;")
+                path_info_label.setStyleSheet("font-weight: bold; color: #409eff;")
                 path_info_label.setWordWrap(True)
                 progress_layout.addWidget(path_info_label)
                 
@@ -14862,7 +14991,7 @@ exit /b 0
                     }
                     QProgressBar::chunk {
                         background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                            stop:0 #1890ff, stop:1 #36cfc9);
+                            stop:0 #409eff, stop:1 #36cfc9);
                         border-radius: 3px;
                     }
                 """))
@@ -15363,7 +15492,7 @@ exit /b 0
                 ("Python", diag.get("python", platform.python_version())),
                 ("处理器", diag.get("cpu", "未知")),
             ]
-            accent = "#1677ff"
+            accent = "#409eff"
             dialog = QDialog(self)
             dialog.setWindowTitle("系统信息")
             dialog.setAttribute(Qt.WA_DeleteOnClose)
@@ -15441,7 +15570,12 @@ exit /b 0
     def _update_tab_explicit_minimum(self):
         """按当前标签页真实内容设置 QTabWidget 的显式最小高度。
         显式最小高度会覆盖 QTabWidget 的 minimumSizeHint，若低于真实需要，
-        父布局会按过小的值分配空间，导致标签页内容互相重叠。"""
+        父布局会按过小的值分配空间，导致标签页内容互相重叠。
+
+        但同时必须给出上限：该最小高度是"全局"的（对所有标签页生效），
+        若直接采用内容需求，个别较高的标签页（如音频解析）会把整个窗口的
+        最小高度推到 1100+，在 768P/900P 笔记本上窗口无法缩小、超出屏幕。
+        因此按屏幕可用高度取一个合理上限。"""
         tab_widget = getattr(self, 'tab_widget', None)
         if tab_widget is None:
             return
@@ -15452,7 +15586,18 @@ exit /b 0
         if need <= 0:
             return
         tab_bar_h = tab_widget.tabBar().sizeHint().height()
-        tab_widget.setMinimumHeight(max(scale(200), need + tab_bar_h + scale(24)))
+        target = max(scale(200), need + tab_bar_h + scale(24))
+
+        # 上限：不超过屏幕可用高度的 45%（并保证至少 260），避免锁死窗口最小高度
+        try:
+            screen = QApplication.primaryScreen()
+            if screen:
+                avail_h = screen.availableGeometry().height()
+                target = min(target, max(scale(260), int(avail_h * 0.45)))
+        except Exception:
+            pass
+
+        tab_widget.setMinimumHeight(target)
 
     def _on_tab_changed_adaptive(self, _index):
         # 切换标签页后内容需求可能变大，同步抬高窗口最小值（只增不减，且不超过屏幕）
@@ -15490,8 +15635,16 @@ exit /b 0
             # 屏幕足够时按内容需要；屏幕过矮时退到屏幕92%，并由紧凑模式兜底
             target_w = min(need_w, clamp_w) if clamp_w else need_w
             target_h = min(self._full_min_height, clamp_h) if clamp_h else self._full_min_height
+
+            # 关键：窗口最小高度不能被"内容需求"锁死。
+            # 内容最小高度约 1100（某些标签页较高），若直接作为窗口最小值，
+            # 768P/900P 笔记本上窗口无法缩小且超出屏幕，用户无法使用。
+            # 因此给最小高度一个紧凑上限，保证窗口始终放得下。
+            compact_base = max(scale(480), int((clamp_h or target_h) * 0.55))
+            target_h = min(target_h, compact_base)
+
             new_min_w = max(self.minimumSize().width(), target_w)
-            new_min_h = max(self.minimumSize().height(), target_h)
+            new_min_h = max(min(self.minimumSize().height(), compact_base), target_h)
             # 最大化状态下收紧最小值会把无边框窗口顶出最大化导致"启动后瞬间变小"，
             # 因此最大化时只做测量、不改窗口最小值，等还原后再套用。
             if not self.isMaximized():
@@ -15545,6 +15698,28 @@ exit /b 0
             return False
         return True
     
+    def _wrap_tab_scrollable(self, page):
+        """把标签页内容包进纵向滚动区，使窗口可以缩到较小高度而不挤压内容。
+
+        说明：早期的注释担心 QScrollArea 会吞掉内部 QListWidget/QComboBox 的鼠标事件——
+        只要滚动区本身透明且 setWidgetResizable(True)，事件仍会落到子控件上。
+        这里保留横向不滚动（内容按宽度自适应），仅纵向兜底，
+        这样小屏笔记本上窗口缩小后是"滚动查看"，而不是控件重叠。
+        """
+        try:
+            scroll = QScrollArea()
+            scroll.setObjectName("tabScroll")
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.NoFrame)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            scroll.setStyleSheet("QScrollArea#tabScroll { border: none; background: transparent; }"
+                                 " QScrollArea#tabScroll > QWidget > QWidget { background: transparent; }")
+            scroll.setWidget(page)
+            return scroll
+        except Exception:
+            return page
+
     def _do_auto_shutdown(self):
         try:
             if IS_WINDOWS:
@@ -15745,9 +15920,10 @@ exit /b 0
         
         content_widget = QWidget()
         content_layout = QVBoxLayout(content_widget)
-        content_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
-        content_layout.setSpacing(scale(15))
+        content_layout.setContentsMargins(scale(18), scale(16), scale(18), scale(16))
+        content_layout.setSpacing(scale(14))
         content_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # 不做宽度上限：宽屏应铺满，靠内部字段的合理分组来避免"被拉散"。
 
         header_layout = QHBoxLayout()
         header_layout.setSpacing(scale(10))
@@ -15940,7 +16116,7 @@ exit /b 0
         self.sys_debug_summary_btn.setStyleSheet(scale_style("""
             QPushButton {
                 background-color: #f1f5f9;
-                border: 1px solid #e2e8f0;
+                border: 1px solid #e6eaf2;
                 border-radius: 0px;
                 color: #2563eb;
                 font-size: 12px;
@@ -16002,7 +16178,7 @@ exit /b 0
         self.parse_mode_combo.addItem("仅当前视频分P", "video_only")
         self.parse_mode_combo.addItem("仅指定单集", "page_only")
         self.parse_mode_combo.addItem("完整合集", "collection")
-        self.parse_mode_combo.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dee2e6; border-radius: {scale(6)}px; font-size: {scale(11)}px; background-color: #f8fafc;")
+        self.parse_mode_combo.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dde3ed; border-radius: {scale(6)}px; font-size: {scale(11)}px; background-color: #f8fafc;")
         self.parse_mode_combo.setToolTip("自动:按视频类型自动决定 | 仅当前视频分P:跳过合集 | 仅指定单集:只解析指定集 | 完整合集:加载全部不限制")
         parse_ctrl_layout.addWidget(self.parse_mode_combo)
         parse_ctrl_layout.addSpacing(scale(4))
@@ -16014,7 +16190,7 @@ exit /b 0
         self.episode_page_spin.setValue(0)
         self.episode_page_spin.setSpecialValueText("全部")
         self.episode_page_spin.setToolTip("0=全部；输入数字仅解析对应分P")
-        self.episode_page_spin.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dee2e6; border-radius: {scale(6)}px; font-size: {scale(11)}px; background-color: #f8fafc; min-width: {scale(45)}px;")
+        self.episode_page_spin.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dde3ed; border-radius: {scale(6)}px; font-size: {scale(11)}px; background-color: #f8fafc; min-width: {scale(45)}px;")
         parse_ctrl_layout.addWidget(self.episode_page_spin)
         parse_ctrl_layout.addSpacing(scale(4))
         ep_range_label = QLabel("集数范围:")
@@ -16027,7 +16203,7 @@ exit /b 0
             "范围外的集不会请求播放地址，大合集/长课程明显更快。\n"
             "适用于番剧、课程等按集编号的内容。"
         )
-        self.episode_range_edit.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dee2e6; border-radius: {scale(6)}px; font-size: {scale(11)}px; background-color: #f8fafc;")
+        self.episode_range_edit.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dde3ed; border-radius: {scale(6)}px; font-size: {scale(11)}px; background-color: #f8fafc;")
         self.episode_range_edit.setMinimumWidth(scale(110))
         self.episode_range_edit.setMaximumWidth(scale(150))
         parse_ctrl_layout.addWidget(self.episode_range_edit)
@@ -16044,43 +16220,18 @@ exit /b 0
         # minimumSizeHint，父布局会按过小的值分配空间，导致标签页内容被压缩重叠。
         # 真实最小高度由 _enforce_content_minimum_size 按各页需要计算后设置。
         self.tab_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.tab_widget.setStyleSheet(scale_style("""
-            QTabWidget {
-                background-color: white;
-                border-radius: 8px;
-            }
-            QTabBar {
-                background-color: #f8f9fa;
-                border-bottom: 1px solid #dee2e6;
-            }
-            QTabBar::tab {
-                background-color: #f8f9fa;
-                color: #6c757d;
-                padding: 8px 14px;
-                border: 1px solid #dee2e6;
-                border-bottom: none;
-                border-top-left-radius: 8px;
-                border-top-right-radius: 8px;
-                margin-right: 2px;
-            }
-            QTabBar::tab:hover {
-                background-color: #e9ecef;
-                color: #495057;
-            }
-            QTabBar::tab:selected {
-                background-color: white;
-                color: #2563eb;
-                border-color: #409eff;
-                border-bottom-color: white;
-            }
-            QTabWidget::pane {
-                background-color: white;
-                border: 1px solid #dee2e6;
-                border-top: none;
-                border-radius: 0 0 8px 8px;
-                padding: 10px;
-            }
-        """))
+        # 标签栏样式统一由 _BASE_STYLE 提供（分段控件观感）。
+        # 这里只做一项功能性配置：标签较多时允许横向滚动，
+        # 窗口变窄时不会把 10 个标签挤成一团。
+        try:
+            self.tab_widget.setUsesScrollButtons(True)
+            _tabbar = self.tab_widget.tabBar()
+            if _tabbar is not None:
+                _tabbar.setExpanding(False)
+                _tabbar.setElideMode(Qt.ElideNone)
+                _tabbar.setDrawBase(False)
+        except Exception:
+            pass
         
         # 视频解析标签页
         video_tab = QWidget()
@@ -16095,7 +16246,7 @@ exit /b 0
         self.cover_label = QLabel()
         self.cover_label.setMinimumSize(scale(100), scale(70))
         self.cover_label.setMaximumSize(scale(200), scale(130))
-        self.cover_label.setStyleSheet(scale_style("border: 1px solid #e2e8f0; border-radius: 8px; background-color: #f8fafc;"))
+        self.cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 8px; background-color: #f8fafc;"))
         self.cover_label.setAlignment(Qt.AlignCenter)
         self.cover_label.setText("无封面")
         
@@ -16116,7 +16267,7 @@ exit /b 0
                 background-color: #3b5de7;
             }
             QPushButton:disabled {
-                background-color: #e5e7eb;
+                background-color: #e6eaf2;
                 color: #9ca3af;
             }
         """))
@@ -16157,7 +16308,7 @@ exit /b 0
         duration_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.duration_label = QLabel("-")
         self.duration_label.setMinimumHeight(scale(24))
-        self.duration_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.duration_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         
         type_label = QLabel("类型：")
         type_label.setMinimumWidth(scale(40))
@@ -16165,12 +16316,16 @@ exit /b 0
         type_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.type_label = QLabel("未解析")
         self.type_label.setMinimumHeight(scale(24))
-        self.type_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.type_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         
+        # 不要把"时长/类型"的值设为 stretch=1：宽屏上两者会被推到布局两端，
+        # 形成"一个在左一个在最右"的散乱观感。改为按内容取自然宽度并整体靠左。
         meta_layout.addWidget(duration_label)
-        meta_layout.addWidget(self.duration_label, stretch=1)
+        meta_layout.addWidget(self.duration_label)
+        meta_layout.addSpacing(scale(28))
         meta_layout.addWidget(type_label)
-        meta_layout.addWidget(self.type_label, stretch=1)
+        meta_layout.addWidget(self.type_label)
+        meta_layout.addStretch(1)
         info_right_layout.addLayout(meta_layout)
         
         info_layout.addLayout(info_right_layout, stretch=1)
@@ -16194,7 +16349,7 @@ exit /b 0
         self.quality_combo.setStyleSheet(scale_style("""
             QComboBox {
                 padding: 4px 10px;
-                border: 1px solid #dee2e6;
+                border: 1px solid #dde3ed;
                 border-radius: 6px;
                 font-size: 14px;
                 min-height: 24px;
@@ -16212,7 +16367,7 @@ exit /b 0
                 background-color: #f5f5f5;
             }
             QComboBox QAbstractItemView {
-                border: 1px solid #dee2e6;
+                border: 1px solid #dde3ed;
                 border-radius: 6px;
                 padding: 5px;
                 background-color: white;
@@ -16246,7 +16401,7 @@ exit /b 0
         self.audio_quality_combo.setStyleSheet(scale_style("""
             QComboBox {
                 padding: 4px 10px;
-                border: 1px solid #dee2e6;
+                border: 1px solid #dde3ed;
                 border-radius: 6px;
                 font-size: 14px;
                 min-height: 24px;
@@ -16264,7 +16419,7 @@ exit /b 0
                 background-color: #f5f5f5;
             }
             QComboBox QAbstractItemView {
-                border: 1px solid #dee2e6;
+                border: 1px solid #dde3ed;
                 border-radius: 6px;
                 padding: 5px;
                 background-color: white;
@@ -16608,7 +16763,7 @@ exit /b 0
                 background-color: #b45309;
             }
             QPushButton:disabled {
-                background-color: #e5e7eb;
+                background-color: #e6eaf2;
                 color: #9ca3af;
             }
         """))
@@ -16635,7 +16790,7 @@ exit /b 0
                 background-color: #047857;
             }
             QPushButton:disabled {
-                background-color: #e5e7eb;
+                background-color: #e6eaf2;
                 color: #9ca3af;
             }
         """))
@@ -16790,7 +16945,7 @@ exit /b 0
                 background-color: #2a4cd6;
             }
             QPushButton:disabled {
-                background-color: #e5e7eb;
+                background-color: #e6eaf2;
                 color: #9ca3af;
             }
         """))
@@ -16816,7 +16971,7 @@ exit /b 0
                 background-color: #047857;
             }
             QPushButton:disabled {
-                background-color: #e5e7eb;
+                background-color: #e6eaf2;
                 color: #9ca3af;
             }
         """))
@@ -16963,7 +17118,7 @@ exit /b 0
         qn_label = QLabel("清晰度：")
         qn_label.setStyleSheet(scale_style("font-size: 12px; color: #555;"))
         self.all_qn_combo = QComboBox()
-        self.all_qn_combo.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dee2e6; border-radius: 4px; font-size: 12px;"))
+        self.all_qn_combo.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 12px;"))
         self.all_qn_combo.setMinimumHeight(scale(28))
         self.all_qn_combo.addItems(["480P", "360P"])
         self.all_qn_combo.setCurrentIndex(0)
@@ -16986,7 +17141,7 @@ exit /b 0
         sort_label = QLabel("排序:")
         sort_label.setStyleSheet(scale_style("font-size: 12px; color: #555;"))
         self.all_episode_sort_combo = QComboBox()
-        self.all_episode_sort_combo.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dee2e6; border-radius: 4px; font-size: 12px;"))
+        self.all_episode_sort_combo.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 12px;"))
         self.all_episode_sort_combo.setMinimumHeight(scale(26))
         self.all_episode_sort_combo.addItems(["默认顺序", "按时长升序", "按时长降序", "按标题排序"])
         self.all_episode_sort_combo.currentIndexChanged.connect(self._on_all_episode_sort_changed)
@@ -16997,7 +17152,7 @@ exit /b 0
         self.all_episode_list = QListWidget()
         self.all_episode_list.setStyleSheet(scale_style("""
             QListWidget {
-                border: 1px solid #dee2e6;
+                border: 1px solid #dde3ed;
                 border-radius: 6px;
                 background-color: #fafbfc;
                 font-size: 12px;
@@ -17008,7 +17163,7 @@ exit /b 0
             }
             QListWidget::item:selected {
                 background-color: #e6f4ff;
-                color: #1890ff;
+                color: #409eff;
             }
             QListWidget::item:hover {
                 background-color: #f5f5f5;
@@ -17050,7 +17205,7 @@ exit /b 0
         danmaku_format_label.setStyleSheet(scale_style("font-size: 11px; color: #888;"))
         self.all_danmaku_format_combo = QComboBox()
         self.all_danmaku_format_combo.addItems(["XML", "ASS"])
-        self.all_danmaku_format_combo.setStyleSheet(scale_style("padding: 2px 6px; border: 1px solid #dee2e6; border-radius: 3px; font-size: 11px;"))
+        self.all_danmaku_format_combo.setStyleSheet(scale_style("padding: 2px 6px; border: 1px solid #dde3ed; border-radius: 3px; font-size: 11px;"))
         self.all_danmaku_format_combo.setMaximumWidth(scale(70))
         extra_group_layout.addWidget(danmaku_format_label)
         extra_group_layout.addWidget(self.all_danmaku_format_combo)
@@ -17082,7 +17237,7 @@ exit /b 0
         last_path_all = self.config.get_app_setting("last_save_path")
         default_path_all = last_path_all if last_path_all else os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载")
         self.all_path_edit.setText(default_path_all)
-        self.all_path_edit.setStyleSheet(scale_style("padding: 6px 10px; border: 1px solid #dee2e6; border-radius: 6px; font-size: 12px;"))
+        self.all_path_edit.setStyleSheet(scale_style("padding: 6px 10px; border: 1px solid #dde3ed; border-radius: 6px; font-size: 12px;"))
         self.all_path_edit.setMinimumHeight(scale(34))
         path_select_btn = QPushButton("选择")
         path_select_btn.setStyleSheet(scale_style("background-color: #6c757d; color: white; padding: 6px 16px; border-radius: 6px; font-size: 12px;"))
@@ -17093,11 +17248,12 @@ exit /b 0
         path_layout.addWidget(path_select_btn)
         all_in_one_layout.addLayout(path_layout)
         
-        self.tab_widget.insertTab(0, all_in_one_tab, "综合下载")
-        self.tab_widget.addTab(video_tab, "视频解析")
-        self.tab_widget.addTab(danmaku_tab, "弹幕解析")
-        self.tab_widget.addTab(favorite_tab, "收藏夹")
-        self.tab_widget.addTab(cover_tab, "封面下载")
+        # 各标签页内容包一层纵向滚动区：窗口缩小时可滚动查看，避免控件互相重叠
+        self.tab_widget.insertTab(0, self._wrap_tab_scrollable(all_in_one_tab), "综合下载")
+        self.tab_widget.addTab(self._wrap_tab_scrollable(video_tab), "视频解析")
+        self.tab_widget.addTab(self._wrap_tab_scrollable(danmaku_tab), "弹幕解析")
+        self.tab_widget.addTab(self._wrap_tab_scrollable(favorite_tab), "收藏夹")
+        self.tab_widget.addTab(self._wrap_tab_scrollable(cover_tab), "封面下载")
         
         history_tab = QWidget()
         history_layout = QVBoxLayout(history_tab)
@@ -17109,7 +17265,7 @@ exit /b 0
         self.history_search_edit = QLineEdit()
         self.history_search_edit.setPlaceholderText("搜索历史记录...")
         self.history_search_edit.setMinimumHeight(scale(32))
-        self.history_search_edit.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dee2e6; border-radius: 4px; font-size: 12px;"))
+        self.history_search_edit.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 12px;"))
         history_search_btn = QPushButton("搜索")
         history_search_btn.setMinimumHeight(scale(32))
         history_search_btn.setMinimumWidth(scale(50))
@@ -17123,15 +17279,15 @@ exit /b 0
         history_filter_all.setCheckable(True)
         history_filter_all.setChecked(True)
         history_filter_all.setMinimumHeight(scale(28))
-        history_filter_all.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dee2e6; border-radius: 4px; font-size: 11px; } QPushButton:checked { background-color: #409eff; color: white; border-color: #409eff; }"))
+        history_filter_all.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 11px; } QPushButton:checked { background-color: #409eff; color: white; border-color: #409eff; }"))
         history_filter_success = QPushButton("成功")
         history_filter_success.setCheckable(True)
         history_filter_success.setMinimumHeight(scale(28))
-        history_filter_success.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dee2e6; border-radius: 4px; font-size: 11px; } QPushButton:checked { background-color: #52c41a; color: white; border-color: #52c41a; }"))
+        history_filter_success.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 11px; } QPushButton:checked { background-color: #52c41a; color: white; border-color: #52c41a; }"))
         history_filter_failed = QPushButton("失败")
         history_filter_failed.setCheckable(True)
         history_filter_failed.setMinimumHeight(scale(28))
-        history_filter_failed.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dee2e6; border-radius: 4px; font-size: 11px; } QPushButton:checked { background-color: #f56c6c; color: white; border-color: #f56c6c; }"))
+        history_filter_failed.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 11px; } QPushButton:checked { background-color: #f56c6c; color: white; border-color: #f56c6c; }"))
         
         self._history_filter_group = QButtonGroup(self)
         self._history_filter_group.setExclusive(True)
@@ -17162,7 +17318,7 @@ exit /b 0
         self.history_list = QListWidget()
         self.history_list.setStyleSheet(scale_style("""
             QListWidget {
-                border: 1px solid #dee2e6;
+                border: 1px solid #dde3ed;
                 border-radius: 6px;
                 font-size: 12px;
                 background-color: #fafafa;
@@ -17188,7 +17344,7 @@ exit /b 0
         self.history_status_label.setAlignment(Qt.AlignCenter)
         history_layout.addWidget(self.history_status_label)
         
-        self.tab_widget.addTab(history_tab, "下载历史")
+        self.tab_widget.addTab(self._wrap_tab_scrollable(history_tab), "下载历史")
         
         # 直播功能Tab
         try:
@@ -17249,7 +17405,7 @@ exit /b 0
         self._tab_fold_meta = [(self.tab_widget.tabText(i), i) for i in range(self.tab_widget.count())]
         self.fold_menu = QMenu(self)
         self.fold_menu.setStyleSheet(scale_style("""
-            QMenu { background-color: white; border: 1px solid #dee2e6; padding: 4px; }
+            QMenu { background-color: white; border: 1px solid #dde3ed; padding: 4px; }
             QMenu::item { padding: 6px 20px 6px 12px; color: #333; font-size: 13px; }
             QMenu::item:selected { background-color: #409eff; color: white; }
         """))
@@ -17258,8 +17414,8 @@ exit /b 0
         self.fold_btn.setFixedSize(scale(28), scale(28))
         self.fold_btn.setCursor(Qt.PointingHandCursor)
         self.fold_btn.setStyleSheet(scale_style("""
-            QPushButton { background-color: #f8f9fa; border: 1px solid #dee2e6; color: #6c757d; font-size: 14px; border-radius: 4px; }
-            QPushButton:hover { background-color: #e9ecef; color: #2563eb; border-color: #409eff; }
+            QPushButton { background-color: #f8f9fa; border: 1px solid #dde3ed; color: #6c757d; font-size: 14px; border-radius: 4px; }
+            QPushButton:hover { background-color: #e6eaf2; color: #2563eb; border-color: #409eff; }
         """))
         self.fold_btn.clicked.connect(self._show_fold_menu)
         self.tab_widget.setCornerWidget(self.fold_btn, Qt.TopRightCorner)
@@ -17306,53 +17462,64 @@ exit /b 0
 
         
         btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(scale(15))
+        btn_layout.setSpacing(scale(10))
         btn_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
+
+        # 底部操作区：由 7 种撞色收敛为「1 个主操作 + 描边次操作」。
+        # 各按钮不再各自 setStyleSheet，统一由 _BASE_STYLE 提供悬停/按下/禁用态。
+        _GHOST = 'QPushButton { background-color: #ffffff; color: #4b5563; border: 1px solid #dde3ed; }' \
+                 ' QPushButton:hover { background-color: #f5f8ff; color: #2563eb; border-color: #409eff; }' \
+                 ' QPushButton:pressed { background-color: #eef5ff; }' \
+                 ' QPushButton:disabled { background-color: #f5f7fa; color: #a3adbb; border-color: #e6eaf2; }'
+
         self.download_btn = QPushButton("下载完整视频")
         self.download_btn.setEnabled(False)
-        self.download_btn.setMinimumHeight(scale(44))
-        self.download_btn.setMinimumWidth(scale(90))
+        self.download_btn.setMinimumHeight(scale(42))
+        self.download_btn.setMinimumWidth(scale(110))
         self.download_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        self.download_btn.setStyleSheet("background-color: #28a745; color: white;")
         self.download_btn.clicked.connect(lambda: self.on_download(0))
 
         self.download_video_btn = QPushButton("下载画面")
         self.download_video_btn.setEnabled(False)
-        self.download_video_btn.setMinimumHeight(scale(44))
-        self.download_video_btn.setMinimumWidth(scale(70))
+        self.download_video_btn.setMinimumHeight(scale(42))
+        self.download_video_btn.setMinimumWidth(scale(80))
         self.download_video_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        self.download_video_btn.setStyleSheet("background-color: #17a2b8; color: white;")
+        self.download_video_btn.setStyleSheet(scale_style(_GHOST))
         self.download_video_btn.clicked.connect(lambda: self.on_download(2))
 
         self.download_audio_btn = QPushButton("下载音频")
         self.download_audio_btn.setEnabled(False)
-        self.download_audio_btn.setMinimumHeight(scale(44))
-        self.download_audio_btn.setMinimumWidth(scale(70))
+        self.download_audio_btn.setMinimumHeight(scale(42))
+        self.download_audio_btn.setMinimumWidth(scale(80))
         self.download_audio_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        self.download_audio_btn.setStyleSheet("background-color: #fd7e14; color: white;")
+        self.download_audio_btn.setStyleSheet(scale_style(_GHOST))
         self.download_audio_btn.clicked.connect(lambda: self.on_download(1))
+
         self.cancel_btn = QPushButton("取消")
         self.cancel_btn.setObjectName("cancelBtn")
         self.cancel_btn.setEnabled(False)
-        self.cancel_btn.setMinimumHeight(scale(44))
-        self.cancel_btn.setMinimumWidth(scale(50))
+        self.cancel_btn.setMinimumHeight(scale(42))
+        self.cancel_btn.setMinimumWidth(scale(64))
         self.cancel_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.cancel_btn.clicked.connect(self.on_cancel_download)
+
         self.task_manager_btn = QPushButton("任务")
-        self.task_manager_btn.setStyleSheet("background-color: #722ed1;")
-        self.task_manager_btn.setMinimumHeight(scale(44))
-        self.task_manager_btn.setMinimumWidth(scale(50))
+        self.task_manager_btn.setStyleSheet(scale_style(_GHOST))
+        self.task_manager_btn.setMinimumHeight(scale(42))
+        self.task_manager_btn.setMinimumWidth(scale(64))
         self.task_manager_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.task_manager_btn.clicked.connect(self.open_task_manager)
+
         self.video_tool_btn = QPushButton("视频工具")
-        self.video_tool_btn.setStyleSheet("background-color: #13c2c2;")
-        self.video_tool_btn.setMinimumHeight(scale(44))
-        self.video_tool_btn.setMinimumWidth(scale(60))
+        self.video_tool_btn.setStyleSheet(scale_style(_GHOST))
+        self.video_tool_btn.setMinimumHeight(scale(42))
+        self.video_tool_btn.setMinimumWidth(scale(80))
         self.video_tool_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.video_tool_btn.clicked.connect(self.open_video_tool)
+
         self.settings_btn = QPushButton("设置")
-        self.settings_btn.setStyleSheet("background-color: #94a3b8;")
-        self.settings_btn.setMinimumHeight(scale(44))
+        self.settings_btn.setStyleSheet(scale_style(_GHOST))
+        self.settings_btn.setMinimumHeight(scale(42))
         self.settings_btn.setMinimumWidth(scale(50))
         self.settings_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.settings_btn.clicked.connect(self.open_settings)
@@ -17367,10 +17534,26 @@ exit /b 0
         btn_layout.addWidget(self.settings_btn)
         content_layout.addLayout(btn_layout)
 
-        # 直接添加content_widget，不用QScrollArea包裹
-        # QScrollArea会拦截内部控件（如QListWidget、QComboBox）的鼠标事件，导致无法操作
+        # 整个内容列（含底部按钮栏）包进纵向滚动区：
+        # 窗口高度不足时整体滚动，而不是让按钮栏压到标签页内容上。
+        # 之前只有标签页内部可滚动，底部按钮栏是固定兄弟项，
+        # 窗口缩小时两者会重叠。
         content_widget.setAutoFillBackground(True)
-        main_layout.addWidget(content_widget, stretch=1)
+        # 给内容列一个合理的最小高度：低于此值才出现滚动条，
+        # 高于此值正常铺满，不影响宽屏观感。
+        content_widget.setMinimumHeight(scale(620))
+        _content_scroll = QScrollArea()
+        _content_scroll.setObjectName("contentScroll")
+        _content_scroll.setWidgetResizable(True)
+        _content_scroll.setFrameShape(QFrame.NoFrame)
+        _content_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        _content_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        _content_scroll.setStyleSheet(
+            "QScrollArea#contentScroll { border: none; background: transparent; }"
+            " QScrollArea#contentScroll > QWidget > QWidget { background: transparent; }"
+        )
+        _content_scroll.setWidget(content_widget)
+        main_layout.addWidget(_content_scroll, stretch=1)
 
         # 内容布局已完整构建，按内容真实最小尺寸收敛窗口最小值
         self._enforce_content_minimum_size()
@@ -19535,7 +19718,7 @@ exit /b 0
         self.type_label.setText("未解析")
         self.type_label.setStyleSheet("")
         self.cover_label.setText("无封面")
-        self.cover_label.setStyleSheet(scale_style("border: 1px solid #e2e8f0; border-radius: 8px; background-color: #f8fafc;"))
+        self.cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 8px; background-color: #f8fafc;"))
         
         video_info_group = self.findChild(QGroupBox, "video_info_group")
         if not video_info_group:
@@ -19923,7 +20106,7 @@ exit /b 0
 
                 self.avatar_label = QLabel("加载中...")
                 self.avatar_label.setFixedSize(scale(80), scale(80))
-                self.avatar_label.setStyleSheet(scale_style("background-color: #e2e8f0; border-radius: 40px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #64748b;"))
+                self.avatar_label.setStyleSheet(scale_style("background-color: #e6eaf2; border-radius: 40px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #64748b;"))
 
                 info_detail = QWidget()
                 info_detail_layout = QVBoxLayout(info_detail)
@@ -20263,7 +20446,7 @@ exit /b 0
                 table.setAlternatingRowColors(True)
                 table.setStyleSheet(scale_style("""
                     QTableWidget {
-                        border: 1px solid #e2e8f0;
+                        border: 1px solid #e6eaf2;
                         background-color: #ffffff;
                         alternate-background-color: #f8fafc;
                         border-radius: 6px;
@@ -20271,7 +20454,7 @@ exit /b 0
                     QHeaderView::section {
                         background-color: #f1f5f9;
                         padding: 4px;
-                        border: 1px solid #e2e8f0;
+                        border: 1px solid #e6eaf2;
                         font-weight: 600;
                         font-size: 12px;
                         color: #475569;
@@ -20483,7 +20666,7 @@ exit /b 0
 
                 cover_label = QLabel()
                 cover_label.setFixedSize(scale(60), scale(34))
-                cover_label.setStyleSheet(scale_style("background-color: #e2e8f0; border-radius: 2px;"))
+                cover_label.setStyleSheet(scale_style("background-color: #e6eaf2; border-radius: 2px;"))
                 cover_label.setScaledContents(True)
 
                 cover_url = video.get('pic', '')
@@ -20859,7 +21042,7 @@ exit /b 0
 
                     self.cover_label = QLabel("加载中...")
                     self.cover_label.setFixedSize(scale(320), scale(180))
-                    self.cover_label.setStyleSheet(scale_style("background-color: #e2e8f0; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; color: #64748b;"))
+                    self.cover_label.setStyleSheet(scale_style("background-color: #e6eaf2; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; color: #64748b;"))
                     self.cover_label.setScaledContents(True)
                     self.cover_label.setAlignment(Qt.AlignCenter)
                     top_layout.addWidget(self.cover_label)
@@ -21107,7 +21290,7 @@ exit /b 0
             
             if hasattr(self, 'cover_label'):
                 self.cover_label.setText("无封面")
-                self.cover_label.setStyleSheet(scale_style("border: 1px solid #e2e8f0; border-radius: 8px; background-color: #f8fafc;"))
+                self.cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 8px; background-color: #f8fafc;"))
             else:
                 print("错误：cover_label控件不存在")
             
@@ -21693,10 +21876,10 @@ exit /b 0
                         if not pixmap.isNull():
                             scaled_pixmap = pixmap.scaled(scale(180), scale(120), Qt.KeepAspectRatio, Qt.SmoothTransformation)
                             cover_label.setPixmap(scaled_pixmap)
-                            cover_label.setStyleSheet(scale_style("border: 1px solid #e2e8f0; border-radius: 8px;"))
+                            cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 8px;"))
                         else:
                             cover_label.setText("加载失败")
-                            cover_label.setStyleSheet(scale_style("border: 1px solid #e2e8f0; border-radius: 8px; background-color: #f8fafc;"))
+                            cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 8px; background-color: #f8fafc;"))
                     except Exception:
                         pass
 
@@ -21708,7 +21891,7 @@ exit /b 0
             else:
                 print("无封面")
                 cover_label.setText("无封面")
-                cover_label.setStyleSheet(scale_style("border: 1px solid #e2e8f0; border-radius: 8px; background-color: #f8fafc;"))
+                cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 8px; background-color: #f8fafc;"))
             
             # 启用相关控件
             print("启用控件")
@@ -24787,7 +24970,7 @@ exit /b 0
             QProgressBar {
                 min-height: 8px;
                 border-radius: 4px;
-                background-color: #e9ecef;
+                background-color: #e6eaf2;
                 border: none;
             }
             QProgressBar::chunk {
@@ -24867,7 +25050,7 @@ exit /b 0
                     background-color: #3b5de7;
                 }
                 QPushButton:disabled {
-                    background-color: #e5e7eb;
+                    background-color: #e6eaf2;
                     color: #9ca3af;
                 }
             """))
@@ -25648,7 +25831,7 @@ exit /b 0
             QPushButton#cancelBtn {
                 background-color: white;
                 color: #666;
-                border: 1px solid #dcdfe6;
+                border: 1px solid #dde3ed;
                 border-radius: 8px;
                 padding: 10px 28px;
                 font-size: 14px;
@@ -26251,7 +26434,7 @@ exit /b 0
         login_btn.setCursor(Qt.PointingHandCursor)
         login_btn.setStyleSheet(scale_style(
             f"padding: {scale(6)}px {scale(22)}px; "
-            f"background-color: #1890ff; color: white; "
+            f"background-color: #409eff; color: white; "
             f"border-radius: {scale(4)}px; font-size: {scale(13)}px;"))
 
         btn_layout.addWidget(continue_btn)
@@ -26361,7 +26544,7 @@ exit /b 0
                 border-color: #409eff;
             }
             QGroupBox {
-                border: 1px solid #e9ecef;
+                border: 1px solid #e6eaf2;
                 border-radius: 10px;
                 padding: 20px;
                 margin-top: 16px;
@@ -28110,7 +28293,7 @@ exit /b 0
         /* 输入控件统一观感 */
         QGroupBox QLineEdit, QGroupBox QComboBox, QGroupBox QSpinBox,
         QGroupBox QDoubleSpinBox, QGroupBox QTextEdit, QGroupBox QTextBrowser {
-            border: 1px solid #dfe5ee;
+            border: 1px solid #dde3ed;
             border-radius: 7px;
             padding: 6px 9px;
             background: #ffffff;
@@ -28305,7 +28488,7 @@ exit /b 0
         
         path_edit = QLineEdit(current_default)
         path_edit.setMinimumHeight(scale(32))
-        path_edit.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px;"))
+        path_edit.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px;"))
         # 限制最小宽度，避免超长路径把整页挤成单列
         path_edit.setMinimumWidth(scale(240))
         path_layout.addWidget(path_edit)
@@ -28333,7 +28516,7 @@ exit /b 0
         thread_spin = QComboBox()
         thread_spin.setMinimumHeight(scale(32))
         thread_spin.setMinimumWidth(scale(180))
-        thread_spin.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px;"))
+        thread_spin.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px;"))
         for i in range(1, 11):
             thread_spin.addItem(str(i), i)
         current_threads = self.config.get_app_setting("max_threads", 2)
@@ -28544,7 +28727,7 @@ exit /b 0
             btn.setText(build_icon_card_text(title, subtitle))
             btn.setStyleSheet(scale_style("""
                 QToolButton {
-                    border: 2px solid #dcdfe6;
+                    border: 2px solid #dde3ed;
                     border-radius: 12px;
                     background-color: #ffffff;
                     padding: 10px 8px;
@@ -28628,7 +28811,7 @@ exit /b 0
         custom_icon_path_edit = QLineEdit(current_custom_icon_path)
         custom_icon_path_edit.setPlaceholderText("请选择自定义图标文件")
         custom_icon_path_edit.setMinimumHeight(scale(32))
-        custom_icon_path_edit.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px;"))
+        custom_icon_path_edit.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px;"))
         icon_layout.addWidget(custom_icon_path_edit)
 
         custom_icon_btn_row = QHBoxLayout()
@@ -28693,7 +28876,7 @@ exit /b 0
         quality_label.setMinimumHeight(scale(22))
         quality_combo = QComboBox()
         quality_combo.setMinimumHeight(scale(26))
-        quality_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px; max-width: 200px;"))
+        quality_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px; max-width: 200px;"))
         
         # 获取用户登录状态
         is_vip = False
@@ -28858,7 +29041,7 @@ exit /b 0
         video_format_label.setMinimumHeight(scale(22))
         video_format_combo = QComboBox()
         video_format_combo.setMinimumHeight(scale(26))
-        video_format_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px; max-width: 200px;"))
+        video_format_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px; max-width: 200px;"))
         video_format_options = [
             ("MP4", "mp4"),
             ("MKV", "mkv"),
@@ -28940,7 +29123,7 @@ exit /b 0
         video_codec_label.setMinimumHeight(scale(22))
         video_codec_combo = QComboBox()
         video_codec_combo.setMinimumHeight(scale(26))
-        video_codec_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px; max-width: 200px;"))
+        video_codec_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px; max-width: 200px;"))
         video_codec_options = [
             ("H.264", "h264"),
             ("H.265/HEVC", "hevc"),
@@ -28966,7 +29149,7 @@ exit /b 0
         video_process_mode_label.setMinimumHeight(scale(22))
         video_process_mode_combo = QComboBox()
         video_process_mode_combo.setMinimumHeight(scale(26))
-        video_process_mode_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px; max-width: 200px;"))
+        video_process_mode_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px; max-width: 200px;"))
         video_process_mode_options = [
             ("复制数据流", "copy"),
             ("重新编码", "re-encode")
@@ -28989,7 +29172,7 @@ exit /b 0
         audio_quality_label.setMinimumHeight(scale(22))
         audio_quality_combo = QComboBox()
         audio_quality_combo.setMinimumHeight(scale(26))
-        audio_quality_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px; max-width: 200px;"))
+        audio_quality_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px; max-width: 200px;"))
         # 音质选项（动态支持B站API返回的所有音质ID）
         # 官方文档：30251=Hi-Res无损, 30250=杜比全景声, 30280=192K, 30232=132K, 30216=64K
         # API额外返回：100010=320K, 100009=192K, 100008=128K
@@ -29022,7 +29205,7 @@ exit /b 0
         danmaku_format_label.setMinimumHeight(scale(22))
         danmaku_format_combo = QComboBox()
         danmaku_format_combo.setMinimumHeight(scale(26))
-        danmaku_format_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px; max-width: 200px;"))
+        danmaku_format_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px; max-width: 200px;"))
         danmaku_format_options = [
             ("XML", "xml"),
             ("ASS", "ass"),
@@ -29056,7 +29239,7 @@ exit /b 0
         timeout_label = QLabel("网络超时时间（秒）：")
         timeout_spin = QComboBox()
         timeout_spin.setMinimumHeight(scale(28))
-        timeout_spin.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px; max-width: 150px;"))
+        timeout_spin.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px; max-width: 150px;"))
         for i in [5, 10, 15, 20, 30, 60]:
             timeout_spin.addItem(str(i), i)
         current_timeout = self.config.get_app_setting("network_timeout", 15)
@@ -29072,7 +29255,7 @@ exit /b 0
         retry_label = QLabel("下载失败重试次数：")
         retry_spin = QComboBox()
         retry_spin.setMinimumHeight(scale(28))
-        retry_spin.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px; max-width: 150px;"))
+        retry_spin.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px; max-width: 150px;"))
         for i in [1, 2, 3, 5, 10]:
             retry_spin.addItem(str(i), i)
         current_retry = self.config.get_app_setting("max_retry", 3)
@@ -29089,7 +29272,7 @@ exit /b 0
         perm_retry_label = QLabel("权限不足重试次数：")
         perm_retry_spin = QComboBox()
         perm_retry_spin.setMinimumHeight(scale(28))
-        perm_retry_spin.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dee2e6; border-radius: 6px; max-width: 150px;"))
+        perm_retry_spin.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px; max-width: 150px;"))
         for i in [0, 1, 2, 3, 5]:
             text = "不重试(仅标记)" if i == 0 else str(i)
             perm_retry_spin.addItem(text, i)
@@ -29171,7 +29354,7 @@ exit /b 0
         self.update_policy_combo.setStyleSheet(scale_style("""
             QComboBox {
                 padding: 6px 12px;
-                border: 1px solid #dee2e6;
+                border: 1px solid #dde3ed;
                 border-radius: 6px;
                 background-color: white;
                 font-size: 13px;
@@ -29204,7 +29387,7 @@ exit /b 0
         file_dialog_combo.setStyleSheet(scale_style("""
             QComboBox {
                 padding: 6px 12px;
-                border: 1px solid #dee2e6;
+                border: 1px solid #dde3ed;
                 border-radius: 6px;
                 background-color: white;
                 font-size: 13px;
@@ -29231,7 +29414,7 @@ exit /b 0
             QGroupBox {
                 font-weight: 600;
                 color: #2563eb;
-                border: 1px solid #e9ecef;
+                border: 1px solid #e6eaf2;
                 border-radius: 8px;
                 margin-top: 10px;
                 padding-top: 10px;
@@ -29445,7 +29628,7 @@ exit /b 0
             QGroupBox {
                 font-weight: 600;
                 color: #2563eb;
-                border: 1px solid #e9ecef;
+                border: 1px solid #e6eaf2;
                 border-radius: 8px;
                 margin-top: 10px;
                 padding-top: 10px;
@@ -29560,7 +29743,7 @@ exit /b 0
         cache_path_row.setSpacing(scale(8))
         cache_path_edit = QLineEdit()
         cache_path_edit.setReadOnly(True)
-        cache_path_edit.setStyleSheet(scale_style("padding: 6px 8px; border: 1px solid #dee2e6; border-radius: 6px; font-size: 12px; background: #f8fafc;"))
+        cache_path_edit.setStyleSheet(scale_style("padding: 6px 8px; border: 1px solid #dde3ed; border-radius: 6px; font-size: 12px; background: #f8fafc;"))
         cache_path_edit.setMinimumWidth(scale(150))
         cache_path_row.addWidget(cache_path_edit, stretch=1)
 
@@ -29895,7 +30078,7 @@ exit /b 0
 
         # 头部：实色蓝主视觉
         app_header = QWidget()
-        app_header.setStyleSheet(scale_style("background-color: #1677ff;"))
+        app_header.setStyleSheet(scale_style("background-color: #409eff;"))
         app_header_lay = QHBoxLayout(app_header)
         app_header_lay.setContentsMargins(scale(28), scale(32), scale(28), scale(32))
         app_header_lay.setSpacing(scale(22))
@@ -29934,7 +30117,7 @@ exit /b 0
         about_check_btn.setCursor(Qt.PointingHandCursor)
         about_check_btn.setMinimumHeight(scale(40))
         about_check_btn.setStyleSheet(scale_style("""
-            QPushButton { background-color: #ffffff; color: #1677ff; font-size: 14px; font-weight: 700; padding: 0 22px; border: none; }
+            QPushButton { background-color: #ffffff; color: #409eff; font-size: 14px; font-weight: 700; padding: 0 22px; border: none; }
             QPushButton:hover { background-color: #e8f1ff; }
         """))
         about_check_btn.clicked.connect(lambda: self._manual_check_update() if hasattr(self, '_manual_check_update') else None)
@@ -30097,7 +30280,7 @@ exit /b 0
         qr_row.addStretch(1)
         contact_body.addLayout(qr_row)
 
-        def _about_link(icon_file, text, href, color="#1677ff"):
+        def _about_link(icon_file, text, href, color="#409eff"):
             row = QWidget()
             row_lay = QHBoxLayout(row)
             row_lay.setContentsMargins(0, 0, 0, 0)
@@ -30148,7 +30331,7 @@ exit /b 0
         ad_text.setText(
             "<span style='font-size:{0}px; color:#0958d8; font-weight:600;'>"
             "专业接爬虫开发，合法就接　QQ详谈　带价来</span>&nbsp;&nbsp;"
-            "<span style='font-size:{0}px; color:#1677ff;'>QQ：2273962061</span>".format(scale(13))
+            "<span style='font-size:{0}px; color:#409eff;'>QQ：2273962061</span>".format(scale(13))
         )
         ad_lay.addWidget(ad_text, 1)
         page6_layout.addWidget(ad_banner)
@@ -30159,7 +30342,7 @@ exit /b 0
         join_qun_btn = QPushButton("加入交流群")
         join_qun_btn.setCursor(Qt.PointingHandCursor)
         join_qun_btn.setStyleSheet(scale_style("""
-            QPushButton { background-color: #1677ff; color: #ffffff; border: none; padding: 7px 16px; font-size: 13px; }
+            QPushButton { background-color: #409eff; color: #ffffff; border: none; padding: 7px 16px; font-size: 13px; }
             QPushButton:hover { background-color: #0958d8; }
         """))
         join_qun_btn.clicked.connect(lambda: join_support_group())
@@ -30180,7 +30363,7 @@ exit /b 0
 
         # 按钮布局（放在滚动区域外面）
         btn_widget = QWidget()
-        btn_widget.setStyleSheet(scale_style("background-color: #f8f9fa; border-top: 1px solid #e9ecef;"))
+        btn_widget.setStyleSheet(scale_style("background-color: #f8f9fa; border-top: 1px solid #e6eaf2;"))
         btn_layout = QHBoxLayout(btn_widget)
         btn_layout.setContentsMargins(scale(15), scale(10), scale(15), scale(10))
         btn_layout.setSpacing(scale(10))
