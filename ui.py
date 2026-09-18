@@ -113,6 +113,9 @@ _TASK_ICONS = {
     "bell": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9'/><path d='M10.3 21a1.94 1.94 0 0 0 3.4 0'/></svg>",
     "download": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'/><polyline points='7 10 12 15 17 10'/><line x1='12' x2='12' y1='15' y2='3'/></svg>",
     "info": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><path d='M12 16v-4'/><path d='M12 8h.01'/></svg>",
+    "activity": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><polyline points='22 12 18 12 15 21 9 3 6 12 2 12'/></svg>",
+    "speed_up": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 19V5'/><path d='m5 12 7-7 7 7'/></svg>",
+    "speed_down": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 5v14'/><path d='m19 12-7 7-7-7'/></svg>",
 }
 
 
@@ -517,7 +520,7 @@ _BASE_STYLE = """
     /* 全局 */
     QWidget {
         font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif;
-        font-size: 14px;
+        font-size: 15px;
         color: #1f2937;
     }
     QMainWindow, QDialog {
@@ -15841,14 +15844,15 @@ exit /b 0
             return page
 
     def _on_stats_updated(self, fps_text, up_bps, down_bps):
-        """刷新顶部栏的帧率 / 上行 / 下行显示。"""
+        """刷新顶部栏的帧率 / 上行 / 下行显示（无背景，图标 + 文字）。"""
         try:
-            if not hasattr(self, 'stats_label') or self.stats_label is None:
-                return
             fmt = RealtimeStatsMonitor._fmt_speed
-            self.stats_label.setText(
-                f"{fps_text} FPS   ↑ {fmt(up_bps)}   ↓ {fmt(down_bps)}"
-            )
+            if getattr(self, '_stat_fps_text', None) is not None:
+                self._stat_fps_text.setText(f"{fps_text} FPS")
+            if getattr(self, '_stat_up_text', None) is not None:
+                self._stat_up_text.setText(fmt(up_bps))
+            if getattr(self, '_stat_down_text', None) is not None:
+                self._stat_down_text.setText(fmt(down_bps))
         except Exception:
             pass
 
@@ -15896,6 +15900,14 @@ exit /b 0
                     x, y, w, h = parts
                     if screen:
                         sg = screen.availableGeometry()
+                        # 先夹紧"尺寸"再夹紧"位置"。
+                        # 原实现只夹位置不夹尺寸：若上次几何来自更大的显示器
+                        # （或 DPI 变化），恢复出来的窗口会比当前屏幕还大，
+                        # 表现为"窗口异常大、超出屏幕"。
+                        max_w = max(sg.width() - scale(20), scale(640))
+                        max_h = max(sg.height() - scale(20), scale(480))
+                        w = max(min(w, max_w), scale(640))
+                        h = max(min(h, max_h), scale(480))
                         x = max(sg.left(), min(x, sg.right() - w))
                         y = max(sg.top(), min(y, sg.bottom() - h))
                     self.setGeometry(x, y, w, h)
@@ -15990,15 +16002,44 @@ exit /b 0
         title_layout.addWidget(help_btn)
 
         # ===== 实时状态：UI 帧率 / 上行 / 下行 =====
-        self.stats_label = QLabel("— FPS   ↑ —   ↓ —")
-        self.stats_label.setObjectName("statsLabel")
-        self.stats_label.setStyleSheet(scale_style(
-            "color: rgba(255,255,255,0.92); font-size: 11px;"
-            " background: rgba(255,255,255,0.16); border-radius: 8px; padding: 2px 10px;"
-        ))
-        self.stats_label.setToolTip("界面帧率 / 实时上行 / 实时下行")
-        self.stats_label.setAlignment(Qt.AlignCenter)
-        title_layout.addWidget(self.stats_label)
+        # 无背景，纯文字 + 矢量图标（复用 _TASK_ICONS 的 SVG，不使用 emoji）
+        self._stats_icons = {}
+        for _k in ("activity", "speed_up", "speed_down"):
+            try:
+                self._stats_icons[_k] = _task_icon_pixmap(_k, scale(14), "#eaf2ff")
+            except Exception:
+                self._stats_icons[_k] = QPixmap()
+
+        def _mk_stat_label(text="—"):
+            lb = QLabel(text)
+            lb.setStyleSheet(scale_style("color: #ffffff; font-size: 13px; background: transparent;"))
+            return lb
+
+        self.stats_row = QWidget()
+        self.stats_row.setStyleSheet("background: transparent;")
+        _sr = QHBoxLayout(self.stats_row)
+        _sr.setContentsMargins(scale(8), 0, scale(8), 0)
+        _sr.setSpacing(scale(5))
+
+        self._stat_fps_icon = QLabel()
+        self._stat_fps_icon.setStyleSheet("background: transparent;")
+        self._stat_fps_icon.setPixmap(self._stats_icons.get("activity", QPixmap()))
+        self._stat_fps_text = _mk_stat_label()
+        self._stat_up_icon = QLabel()
+        self._stat_up_icon.setStyleSheet("background: transparent;")
+        self._stat_up_icon.setPixmap(self._stats_icons.get("speed_up", QPixmap()))
+        self._stat_up_text = _mk_stat_label()
+        self._stat_down_icon = QLabel()
+        self._stat_down_icon.setStyleSheet("background: transparent;")
+        self._stat_down_icon.setPixmap(self._stats_icons.get("speed_down", QPixmap()))
+        self._stat_down_text = _mk_stat_label()
+
+        for _w in (self._stat_fps_icon, self._stat_fps_text,
+                   self._stat_up_icon, self._stat_up_text,
+                   self._stat_down_icon, self._stat_down_text):
+            _sr.addWidget(_w)
+        self.stats_row.setToolTip("界面帧率 / 实时上行 / 实时下行")
+        title_layout.addWidget(self.stats_row)
 
         self._stats_monitor = RealtimeStatsMonitor(self)
         self._stats_monitor.stats_updated.connect(self._on_stats_updated)
@@ -27277,14 +27318,14 @@ exit /b 0
         username_edit = QLineEdit()
         username_edit.setPlaceholderText("请输入手机号/邮箱")
         username_edit.setMinimumHeight(scale(44))
-        username_edit.setStyleSheet(scale_style("font-size: 14px; padding: 0 16px;"))
+        username_edit.setStyleSheet(scale_style("font-size: 14px;"))
         password_layout.addWidget(username_edit)
         
         password_edit = QLineEdit()
         password_edit.setPlaceholderText("请输入密码")
         password_edit.setEchoMode(QLineEdit.Password)
         password_edit.setMinimumHeight(scale(44))
-        password_edit.setStyleSheet(scale_style("font-size: 14px; padding: 0 16px;"))
+        password_edit.setStyleSheet(scale_style("font-size: 14px;"))
         password_layout.addWidget(password_edit)
 
         # 记忆登录表单：开启时回填上一次输入的账号/密码
@@ -27329,7 +27370,7 @@ exit /b 0
         cid_combo = QComboBox()
         cid_combo.setEditable(True)  
         cid_combo.setMinimumHeight(scale(44))
-        cid_combo.setStyleSheet(scale_style("font-size: 14px; padding: 0 16px;"))
+        cid_combo.setStyleSheet(scale_style("font-size: 14px;"))
         cid_combo.setMaxVisibleItems(6)  
         sms_layout.addWidget(cid_combo)
         
@@ -27491,7 +27532,7 @@ exit /b 0
         tel_edit = QLineEdit()
         tel_edit.setPlaceholderText("请输入手机号")
         tel_edit.setMinimumHeight(scale(44))
-        tel_edit.setStyleSheet(scale_style("font-size: 14px; padding: 0 16px;"))
+        tel_edit.setStyleSheet(scale_style("font-size: 14px;"))
         sms_layout.addWidget(tel_edit)
         
         
@@ -27501,7 +27542,7 @@ exit /b 0
         code_edit = QLineEdit()
         code_edit.setPlaceholderText("请输入验证码")
         code_edit.setMinimumHeight(scale(44))
-        code_edit.setStyleSheet(scale_style("font-size: 14px; padding: 0 16px;"))
+        code_edit.setStyleSheet(scale_style("font-size: 14px;"))
         code_layout.addWidget(code_edit, stretch=1)
         
         send_code_btn = QPushButton("发送验证码")
@@ -27552,7 +27593,7 @@ exit /b 0
         cookie_edit = QTextEdit()
         cookie_edit.setPlaceholderText("请输入Cookie（SESSDATA/bili_jct/DedeUserID）")
         cookie_edit.setMinimumHeight(scale(120))
-        cookie_edit.setStyleSheet(scale_style("font-size: 14px; padding: 12px;"))
+        cookie_edit.setStyleSheet(scale_style("font-size: 14px;"))
         cookie_layout.addWidget(cookie_edit)
         
         cookie_login_btn = QPushButton("登录")
