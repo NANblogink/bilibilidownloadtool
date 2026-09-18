@@ -1594,6 +1594,27 @@ class DownloadManager(QObject):
 
             output_path = None
             clean_title = ep_title.replace("正片_", "")
+            # 文件名兜底：单视频（非合集）时 ep_info 往往没有 ep_title，
+            # 会退化成"第1集"这种无信息量名字（实测出现过 "第1集_v27-daily-a.mp3"）。
+            # 规则：ep_title 为空或只有"第N集"这类无信息量前缀时，用视频标题；
+            # 若后面还带真实标题（如"第1集_标题甲"），保留真实标题部分。
+            try:
+                _vt = (task_info.get('video_info') or {}).get('title', '') or ''
+                _vt = _vt.replace("正片_", "").strip()
+                _m = re.fullmatch(r'第\d+集[_\- ]*(.*)', clean_title or '')
+                if _m:
+                    _rest = (_m.group(1) or '').strip()
+                    if _rest and _rest not in ('未知标题', '未知'):
+                        clean_title = _rest
+                    elif _vt:
+                        clean_title = _vt
+                elif not clean_title and _vt:
+                    clean_title = _vt
+                if not clean_title:
+                    clean_title = f"第{ep_index + 1}集"
+            except Exception:
+                if not clean_title:
+                    clean_title = f"第{ep_index + 1}集"
             download_content_type = task_info.get('download_content_type', 0)
             download_video = task_info.get('download_video', True)
             download_audio = task_info.get('download_audio', True)

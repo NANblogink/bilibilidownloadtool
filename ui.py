@@ -30,7 +30,8 @@ from PyQt5.QtWidgets import (QLayout, QMainWindow, QWidget, QVBoxLayout, QHBoxLa
 from PyQt5.QtCore import QSize, Qt, pyqtSignal, QObject, QEvent, pyqtSlot, QPoint, QThread, QTimer, QEventLoop, QUrl, QCoreApplication, QMetaObject, Q_ARG, QDir, QTime, QDate, QRect
 from PyQt5.QtGui import QFont, QPalette, QColor, QCursor, QPixmap, QPainter, QBrush, QIcon, QPainterPath, QImage, QPen, QFontMetrics
 from PyQt5.QtSvg import QSvgRenderer
-from icon_manager import BUILTIN_ICON_OPTIONS, ensure_custom_icon_file, get_effective_icon_path, get_effective_icon_mode
+from icon_manager import (BUILTIN_ICON_OPTIONS, ensure_custom_icon_file, get_effective_icon_path,
+                          get_effective_icon_mode, resolve_builtin_icon_path)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 try:
@@ -46,6 +47,29 @@ def get_app_icon(config=None):
     icon_path = get_effective_icon_path(config)
     if icon_path and os.path.exists(icon_path):
         return QIcon(icon_path)
+    # 兜底：get_effective_icon_path 失败时（自定义图标被删、路径解析异常等）
+    # 直接按稳定顺序找任一可用图标，避免窗口/任务栏出现空白图标。
+    try:
+        for key in ("default", "alt"):
+            p = resolve_builtin_icon_path(key)
+            if p and os.path.exists(p):
+                return QIcon(p)
+    except Exception:
+        pass
+    try:
+        import _pathsetup
+        _root = _pathsetup.project_root()
+    except Exception:
+        _root = os.path.dirname(os.path.abspath(__file__))
+    _exe_dir = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else ""
+    for base in (os.path.join(_root, "assets", "icons"), _root, _exe_dir,
+                 os.path.join(_exe_dir, "_internal") if _exe_dir else ""):
+        if not base:
+            continue
+        for name in ("logo.ico", "logo.png", "logo_alt_kaisui.ico"):
+            p = os.path.join(base, name)
+            if os.path.exists(p):
+                return QIcon(p)
     return QIcon()
 
 
@@ -262,6 +286,78 @@ sys.excepthook = global_exception_hook
 import collections
 
 
+class RealtimeStatsMonitor(QObject):
+    """顶部栏实时状态：UI 帧率 + 网络上行/下行速度。
+
+    - 帧率：用一个 1 秒窗口内的事件循环 tick 数近似 UI 刷新率，
+      反映界面是否卡顿（值明显低于刷新率说明主线程被阻塞）。
+    - 网速：psutil.net_io_counters() 前后差值 / 时间差。
+    """
+
+    stats_updated = pyqtSignal(str, float, float)  # (fps 文本, 上行 B/s, 下行 B/s)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._tick = 0
+        self._last_io = None
+        self._last_ts = 0.0
+        self._tick_timer = QTimer(self)
+        self._tick_timer.setInterval(16)          # 约 60Hz
+        self._tick_timer.timeout.connect(self._on_tick)
+        self._sample_timer = QTimer(self)
+        self._sample_timer.setInterval(1000)
+        self._sample_timer.timeout.connect(self._sample)
+
+    def start(self):
+        self._tick = 0
+        self._last_ts = time.time()
+        try:
+            import psutil
+            self._last_io = psutil.net_io_counters()
+        except Exception:
+            self._last_io = None
+        self._tick_timer.start()
+        self._sample_timer.start()
+
+    def stop(self):
+        self._tick_timer.stop()
+        self._sample_timer.stop()
+
+    def _on_tick(self):
+        self._tick += 1
+
+    @staticmethod
+    def _fmt_speed(bps):
+        try:
+            bps = float(bps)
+        except Exception:
+            return "0 B/s"
+        if bps < 1024:
+            return f"{bps:.0f} B/s"
+        if bps < 1024 * 1024:
+            return f"{bps / 1024:.1f} KB/s"
+        return f"{bps / (1024 * 1024):.2f} MB/s"
+
+    def _sample(self):
+        now = time.time()
+        dt = max(now - self._last_ts, 0.001)
+        fps = self._tick / dt
+        self._tick = 0
+        self._last_ts = now
+
+        up = down = 0.0
+        try:
+            import psutil
+            io = psutil.net_io_counters()
+            if self._last_io is not None:
+                up = max(io.bytes_sent - self._last_io.bytes_sent, 0) / dt
+                down = max(io.bytes_recv - self._last_io.bytes_recv, 0) / dt
+            self._last_io = io
+        except Exception:
+            pass
+        self.stats_updated.emit(f"{fps:.0f}", up, down)
+
+
 class _SafeExecHelper(QObject):
     _trigger = pyqtSignal()
 
@@ -421,7 +517,7 @@ _BASE_STYLE = """
     /* 全局 */
     QWidget {
         font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif;
-        font-size: 13px;
+        font-size: 14px;
         color: #1f2937;
     }
     QMainWindow, QDialog {
@@ -433,7 +529,7 @@ _BASE_STYLE = """
         border: none;
         border-radius: 6px;
         padding: 6px 9px;
-        font-size: 12px;
+        font-size: 13px;
     }
 
     /* ==================== 卡片 / 分组 ==================== */
@@ -487,30 +583,54 @@ _BASE_STYLE = """
         outline: none;
     }
 
-    /* ==================== 按钮（语义化：只用这几类颜色） ==================== */
+    /* ==================== 按钮 ====================
+       三级层次：主操作（实心蓝）/ 次操作（浅底描边）/ 危险（红）。
+       禁用态保持可辨认（不再一律糊成灰字灰底，看起来像坏掉）。 */
     QPushButton {
         padding: 9px 18px;
         border: 1px solid transparent;
         border-radius: 8px;
         color: #ffffff;
         background-color: #409eff;
-        font-weight: 500;
+        font-weight: 600;
     }
-    QPushButton:hover   { background-color: #5badff; }
-    QPushButton:pressed { background-color: #3a8ee6; }
+    QPushButton:hover   { background-color: #58aaff; }
+    QPushButton:pressed { background-color: #348ae0; }
+    QPushButton:focus   { outline: none; }
     QPushButton:disabled {
-        background-color: #e5e9f0;
-        color: #a3adbb;
+        background-color: #dfe6f0;
+        color: #8f9bad;
         border-color: transparent;
     }
-    /* 次要按钮：描边，用于"选择/取消"等非主操作 */
+    /* 次操作：浅蓝底 + 描边，字色保持深色可读 */
     QPushButton[variant="ghost"] {
-        background-color: #ffffff;
-        color: #4b5563;
-        border: 1px solid #dde3ed;
+        background-color: #f4f7fd;
+        color: #334155;
+        border: 1px solid #d5deec;
+        font-weight: 500;
     }
-    QPushButton[variant="ghost"]:hover   { background-color: #f5f8ff; border-color: #409eff; color: #2563eb; }
-    QPushButton[variant="ghost"]:pressed { background-color: #eef5ff; }
+    QPushButton[variant="ghost"]:hover {
+        background-color: #e8f1ff;
+        border-color: #409eff;
+        color: #1d6fd6;
+    }
+    QPushButton[variant="ghost"]:pressed { background-color: #dbe9ff; }
+    QPushButton[variant="ghost"]:disabled {
+        background-color: #f3f5f9;
+        color: #a8b2c1;
+        border-color: #e4e9f2;
+    }
+    /* 危险操作 */
+    QPushButton[variant="danger"] {
+        background-color: #f56c6c;
+        color: #ffffff;
+    }
+    QPushButton[variant="danger"]:hover   { background-color: #fa8585; }
+    QPushButton[variant="danger"]:pressed { background-color: #e35b5b; }
+    QPushButton[variant="danger"]:disabled {
+        background-color: #f0dada;
+        color: #ffffff;
+    }
 
     QPushButton#cancelBtn         { background-color: #f56c6c; }
     QPushButton#cancelBtn:hover   { background-color: #fa8585; }
@@ -15720,6 +15840,18 @@ exit /b 0
         except Exception:
             return page
 
+    def _on_stats_updated(self, fps_text, up_bps, down_bps):
+        """刷新顶部栏的帧率 / 上行 / 下行显示。"""
+        try:
+            if not hasattr(self, 'stats_label') or self.stats_label is None:
+                return
+            fmt = RealtimeStatsMonitor._fmt_speed
+            self.stats_label.setText(
+                f"{fps_text} FPS   ↑ {fmt(up_bps)}   ↓ {fmt(down_bps)}"
+            )
+        except Exception:
+            pass
+
     def _do_auto_shutdown(self):
         try:
             if IS_WINDOWS:
@@ -15856,7 +15988,22 @@ exit /b 0
         help_btn.setCursor(QCursor(Qt.PointingHandCursor))
         help_btn.clicked.connect(self._show_help_dialog)
         title_layout.addWidget(help_btn)
-        
+
+        # ===== 实时状态：UI 帧率 / 上行 / 下行 =====
+        self.stats_label = QLabel("— FPS   ↑ —   ↓ —")
+        self.stats_label.setObjectName("statsLabel")
+        self.stats_label.setStyleSheet(scale_style(
+            "color: rgba(255,255,255,0.92); font-size: 11px;"
+            " background: rgba(255,255,255,0.16); border-radius: 8px; padding: 2px 10px;"
+        ))
+        self.stats_label.setToolTip("界面帧率 / 实时上行 / 实时下行")
+        self.stats_label.setAlignment(Qt.AlignCenter)
+        title_layout.addWidget(self.stats_label)
+
+        self._stats_monitor = RealtimeStatsMonitor(self)
+        self._stats_monitor.stats_updated.connect(self._on_stats_updated)
+        self._stats_monitor.start()
+
         title_layout.addStretch(1)
 
         self.login_info_widget = QWidget()
@@ -17465,12 +17612,11 @@ exit /b 0
         btn_layout.setSpacing(scale(10))
         btn_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
 
-        # 底部操作区：由 7 种撞色收敛为「1 个主操作 + 描边次操作」。
-        # 各按钮不再各自 setStyleSheet，统一由 _BASE_STYLE 提供悬停/按下/禁用态。
-        _GHOST = 'QPushButton { background-color: #ffffff; color: #4b5563; border: 1px solid #dde3ed; }' \
-                 ' QPushButton:hover { background-color: #f5f8ff; color: #2563eb; border-color: #409eff; }' \
-                 ' QPushButton:pressed { background-color: #eef5ff; }' \
-                 ' QPushButton:disabled { background-color: #f5f7fa; color: #a3adbb; border-color: #e6eaf2; }'
+        # 底部操作区：三级层次（主操作实心蓝 / 次操作浅底描边 / 危险红）。
+        # 用 QSS 的 variant 属性而非内联样式，避免与全局设计系统重复定义。
+        def _mark(btn, variant):
+            btn.setProperty("variant", variant)
+            return btn
 
         self.download_btn = QPushButton("下载完整视频")
         self.download_btn.setEnabled(False)
@@ -17479,46 +17625,40 @@ exit /b 0
         self.download_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.download_btn.clicked.connect(lambda: self.on_download(0))
 
-        self.download_video_btn = QPushButton("下载画面")
+        self.download_video_btn = _mark(QPushButton("下载画面"), "ghost")
         self.download_video_btn.setEnabled(False)
         self.download_video_btn.setMinimumHeight(scale(42))
         self.download_video_btn.setMinimumWidth(scale(80))
         self.download_video_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        self.download_video_btn.setStyleSheet(scale_style(_GHOST))
         self.download_video_btn.clicked.connect(lambda: self.on_download(2))
 
-        self.download_audio_btn = QPushButton("下载音频")
+        self.download_audio_btn = _mark(QPushButton("下载音频"), "ghost")
         self.download_audio_btn.setEnabled(False)
         self.download_audio_btn.setMinimumHeight(scale(42))
         self.download_audio_btn.setMinimumWidth(scale(80))
         self.download_audio_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        self.download_audio_btn.setStyleSheet(scale_style(_GHOST))
         self.download_audio_btn.clicked.connect(lambda: self.on_download(1))
 
-        self.cancel_btn = QPushButton("取消")
-        self.cancel_btn.setObjectName("cancelBtn")
+        self.cancel_btn = _mark(QPushButton("取消"), "danger")
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.setMinimumHeight(scale(42))
         self.cancel_btn.setMinimumWidth(scale(64))
         self.cancel_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.cancel_btn.clicked.connect(self.on_cancel_download)
 
-        self.task_manager_btn = QPushButton("任务")
-        self.task_manager_btn.setStyleSheet(scale_style(_GHOST))
+        self.task_manager_btn = _mark(QPushButton("任务"), "ghost")
         self.task_manager_btn.setMinimumHeight(scale(42))
         self.task_manager_btn.setMinimumWidth(scale(64))
         self.task_manager_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.task_manager_btn.clicked.connect(self.open_task_manager)
 
-        self.video_tool_btn = QPushButton("视频工具")
-        self.video_tool_btn.setStyleSheet(scale_style(_GHOST))
+        self.video_tool_btn = _mark(QPushButton("视频工具"), "ghost")
         self.video_tool_btn.setMinimumHeight(scale(42))
         self.video_tool_btn.setMinimumWidth(scale(80))
         self.video_tool_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.video_tool_btn.clicked.connect(self.open_video_tool)
 
-        self.settings_btn = QPushButton("设置")
-        self.settings_btn.setStyleSheet(scale_style(_GHOST))
+        self.settings_btn = _mark(QPushButton("设置"), "ghost")
         self.settings_btn.setMinimumHeight(scale(42))
         self.settings_btn.setMinimumWidth(scale(50))
         self.settings_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
@@ -28766,7 +28906,7 @@ exit /b 0
             "alt",
             alt_icon_meta["label"],
             f"作者：{alt_icon_meta['author']}",
-            BUILTIN_ICON_OPTIONS["alt"]["file_name"] and os.path.join(os.path.dirname(os.path.abspath(__file__)), BUILTIN_ICON_OPTIONS["alt"]["file_name"])
+            resolve_builtin_icon_path("alt")
         )
         custom_icon_btn = build_icon_card(
             "custom",
@@ -28775,14 +28915,15 @@ exit /b 0
             current_custom_icon_path
         )
 
+        # 统一用 icon_manager 的解析器查找内置图标。
+        # 原先这里只用 os.path.dirname(__file__) 拼文件名，
+        # 而备用图标实际位于 assets/icons/，"新奇"与"自定义"卡片因此显示为空白文件图标。
         def _resolve_builtin_preview(icon_key):
-            file_name = BUILTIN_ICON_OPTIONS[icon_key]["file_name"]
-            for base_dir in [os.path.dirname(os.path.abspath(__file__)), getattr(sys, "_MEIPASS", ""), os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else ""]:
-                if base_dir:
-                    candidate = os.path.join(base_dir, file_name)
-                    if os.path.exists(candidate):
-                        return candidate
-            return ""
+            try:
+                p = resolve_builtin_icon_path(icon_key)
+                return p if p and os.path.exists(p) else ""
+            except Exception:
+                return ""
 
         default_icon_btn.setIcon(QIcon(_resolve_builtin_preview("default")) if _resolve_builtin_preview("default") else self.style().standardIcon(QStyle.SP_FileIcon))
         alt_icon_btn.setIcon(QIcon(_resolve_builtin_preview("alt")) if _resolve_builtin_preview("alt") else self.style().standardIcon(QStyle.SP_FileIcon))
