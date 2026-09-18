@@ -16704,8 +16704,10 @@ exit /b 0
         cover_v_layout = QVBoxLayout()
         cover_v_layout.setSpacing(scale(4))
         cover_v_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
-        cover_v_layout.addWidget(self.cover_label)
+        self.cover_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        cover_v_layout.addWidget(self.cover_label, alignment=Qt.AlignTop)
         cover_v_layout.addWidget(self.save_main_cover_btn, alignment=Qt.AlignCenter)
+        cover_v_layout.addStretch(1)
         
         info_layout.addLayout(cover_v_layout)
         
@@ -16774,8 +16776,12 @@ exit /b 0
         _vcard = QVBoxLayout(self._video_card)
         _vcard.setContentsMargins(scale(14), scale(12), scale(14), scale(14))
         _vcard.setSpacing(scale(10))
+        # 信息区不参与纵向伸展：否则标题/时长留在顶部、清晰度被推到底部，
+        # 中间撑出一大段空白。让它保持自然高度、整体靠上。
         _vcard.addLayout(info_layout)
+        self._video_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         video_layout.addWidget(self._video_card)
+        video_layout.addStretch(1)
         
         quality_layout = QHBoxLayout()
         quality_layout.setSpacing(scale(12))
@@ -16936,7 +16942,8 @@ exit /b 0
         path_layout.addWidget(self.browse_btn)
         # 收进信息卡（与视频信息、清晰度等同属一张卡），不再单独占一行
         _vcard.addLayout(path_layout)
-        video_layout.addStretch(1)
+        # 路径行固定在卡片底部，余量集中在"视频信息"与"下载选项"之间，
+        # 由 info_layout 的 stretch 吸收，避免出现大片空白或封面被拉变形。
         
         # 弹幕解析标签页
         danmaku_tab = QWidget()
