@@ -788,8 +788,59 @@ _BASE_STYLE = """
     }
 """
 
+_ARROW_CACHE = {}
+
+
+def _combo_arrow_url(color="#64748b", size=None):
+    """为 QComboBox 生成下拉箭头图片，返回 QSS 可用的 url(...)。
+
+    QSS 的 ::down-arrow 不支持 SVG，只能给图片路径，所以这里把
+    矢量图标渲染成 PNG 落到缓存目录。颜色/尺寸变化时分别缓存。
+    """
+    sz = int(size or scale(12))
+    key = (color, sz)
+    if key in _ARROW_CACHE:
+        return _ARROW_CACHE[key]
+    url = ""
+    try:
+        pm = _task_icon_pixmap("speed_down", sz, color)
+        if not pm.isNull():
+            import tempfile
+            cache_dir = os.path.join(tempfile.gettempdir(), "bili_ui_assets")
+            os.makedirs(cache_dir, exist_ok=True)
+            path = os.path.join(cache_dir, f"combo_arrow_{color.lstrip('#')}_{sz}.png")
+            if not os.path.exists(path):
+                pm.save(path, "PNG")
+            url = path.replace("\\", "/") if os.path.exists(path) else ""
+    except Exception:
+        url = ""
+    _ARROW_CACHE[key] = url
+    return url
+
+
+def _combo_arrow_qss(selector="QComboBox", color="#64748b"):
+    url = _combo_arrow_url(color)
+    if not url:
+        return ""
+    return f"""
+    {selector}::drop-down {{
+        subcontrol-origin: padding;
+        subcontrol-position: center right;
+        width: 26px;
+        border: none;
+        background: transparent;
+    }}
+    {selector}::down-arrow {{
+        image: url({url});
+        width: {scale(12)}px;
+        height: {scale(12)}px;
+    }}
+    {selector}::down-arrow:on {{ image: url({url}); }}
+    """
+
+
 def get_base_style():
-    return scale_style(_BASE_STYLE)
+    return scale_style(_BASE_STYLE) + _combo_arrow_qss()
 
 
 def format_ep_name(ep, index, video_info=None):
@@ -15991,17 +16042,18 @@ exit /b 0
         title_label.setObjectName("titleLabel")
         # 标题栏文字加大一档（原来与正文同号，显得小气）
         title_label.setStyleSheet(scale_style("font-size: 18px; font-weight: 600; letter-spacing: 0.3px;"))
-        # 允许压缩并省略：标题栏的最小宽度会直接决定"窗口最小宽度"，
-        # 若不让它收缩，窗口窄到一定程度就会被迫出现横向滚动条。
-        title_label.setMinimumWidth(scale(120))
-        title_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        # 允许压缩：标题栏最小宽度会直接顶住"窗口最小宽度"，
+        # 但这里用 Preferred 而非 Ignored —— Ignored 会让标签被压到只剩几像素，
+        # 表现为"顶部栏的字全挤在一起"。
+        title_label.setMinimumWidth(0)
+        title_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         title_layout.addWidget(title_label)
         
         self.author_label = QLabel("作者：寒烟似雪(逸雨)")
         self.author_label.setStyleSheet(scale_style("color: rgba(255,255,255,0.8); font-size: 15px;"))
         self.author_label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
-        self.author_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.author_label.setMinimumWidth(0)
+        self.author_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         title_layout.addWidget(self.author_label)
         
         # 帮助入口：原标题过长（占 314px），直接把标题栏最小宽度顶高
