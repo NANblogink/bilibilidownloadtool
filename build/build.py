@@ -45,10 +45,17 @@ from app_config import (  # noqa: E402
 APP_NAME = APP_NAME_EN
 APP_NAME_ZH = APP_NAME_CN
 MAIN_SCRIPT = "main.py"
-UNINSTALLER_SCRIPT = "uninstaller.py"
-INSTALLER_SCRIPT = "installer.py"
 BOOT_SCRIPT = "boot.py"
 VERSION_FILE = "version_info.win"
+
+# 卸载/安装/证书安装器脚本在重构时已归入 build/ 目录（本文件所在目录）。
+# 而 main.py / boot.py 仍在项目根。
+# 构建脚本的工作目录是 ROOT_DIR，因此这里必须给出**绝对路径**，
+# 否则 PyInstaller 会报 "Script file 'uninstaller.py' does not exist"。
+UNINSTALLER_SCRIPT = os.path.join(SCRIPT_DIR, "uninstaller.py")
+INSTALLER_SCRIPT = os.path.join(SCRIPT_DIR, "installer.py")
+# 证书安装器在 core/ 下（非 build/）
+CERT_INSTALLER_SCRIPT = os.path.join(ROOT_DIR, "core", "cert_installer.py")
 
 # PyInstaller 需要知道源码子目录，否则无法静态分析子目录里的模块
 SOURCE_PATHS = [
@@ -65,6 +72,7 @@ for _p in SOURCE_PATHS:
 
 # 构建产物目录：注意工作目录不能叫 build/，否则会与本脚本所在目录
 # （也存放源码）冲突，PyInstaller 清理 workpath 时会删掉源码。
+BUILD_DIR = os.path.join(ROOT_DIR, "build_parts")
 DIST_DIR = os.path.join(ROOT_DIR, "dist")
 WORK_DIR = os.path.join(ROOT_DIR, "build_dist")
 OUTPUT_DIR = os.path.join(ROOT_DIR, "output")
@@ -170,7 +178,6 @@ UNINSTALL_EXTRA_ARGS = [
     UNINSTALLER_SCRIPT,
 ]
 
-CERT_INSTALLER_SCRIPT = "cert_installer.py"
 CERT_INSTALLER_EXTRA_ARGS = [
     "--name", "cert_installer",
     "--onefile",
@@ -374,7 +381,7 @@ def step2b_build_cert_installer():
     log("步骤2b: 打包证书安装器")
     log("=" * 60)
 
-    if not os.path.exists(os.path.join(ROOT_DIR, CERT_INSTALLER_SCRIPT)):
+    if not os.path.exists(CERT_INSTALLER_SCRIPT):
         log(f"  {CERT_INSTALLER_SCRIPT} 不存在，跳过")
         return True
 
@@ -1019,11 +1026,12 @@ def _run_build(min_size: bool, beta: bool):
     start_time = time.time()
     # 内测包输出到独立目录：clean_build_dirs() 会清空 OUTPUT_DIR，
     # 若两个渠道共用同一目录，后打的包会把先打的覆盖掉。
-    global OUTPUT_DIR, DIST_DIR, WORK_DIR
+    global OUTPUT_DIR, DIST_DIR, WORK_DIR, BUILD_DIR
     if beta:
         OUTPUT_DIR = os.path.join(ROOT_DIR, "output_beta")
         DIST_DIR = os.path.join(ROOT_DIR, "dist_beta")
         WORK_DIR = os.path.join(ROOT_DIR, "build_dist_beta")
+        BUILD_DIR = os.path.join(ROOT_DIR, "build_parts_beta")
         _refresh_pyinstaller_paths()
 
     print()

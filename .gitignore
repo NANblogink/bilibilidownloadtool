@@ -29,6 +29,8 @@ env/
 # PyInstaller 的产物目录叫 build_dist/（内测渠道为 build_dist_beta/）。
 build_dist/
 build_dist_beta/
+build_parts/
+build_parts_beta/
 build_onefile/
 dist/
 dist_beta/
