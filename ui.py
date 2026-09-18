@@ -863,6 +863,23 @@ def _combo_arrow_qss(selector="QComboBox", color="#64748b"):
     """
 
 
+def _fit_button_height(btn, font_px=15, extra=18):
+    """按字体大小给按钮一个不会挤压文字的最小高度。
+
+    此前若干按钮写死 scale(24)（实际约 36px），而字号已是 15px（实际约 22px），
+    叠加边框与内边距后文字会被上下挤压——窗口缩小、布局收紧时尤其明显。
+    这里按字体高度 + 余量计算，并保留比显式值更大的那个。
+    """
+    try:
+        need = int(font_px * global_dpi_scale * global_ui_shrink) + extra
+        cur = btn.minimumHeight()
+        if cur < need:
+            btn.setMinimumHeight(need)
+        return btn
+    except Exception:
+        return btn
+
+
 def get_base_style():
     return scale_style(_BASE_STYLE) + _combo_arrow_qss()
 
@@ -16400,7 +16417,7 @@ exit /b 0
         self.hevc_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.hevc_btn = QPushButton("安装HEVC扩展")
         self.hevc_btn.setObjectName("hevcBtn")
-        self.hevc_btn.setMinimumHeight(scale(24))
+        _fit_button_height(self.hevc_btn)
         self.hevc_btn.setMinimumWidth(scale(70))
         self.hevc_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.hevc_btn.setEnabled(False)
@@ -16493,7 +16510,7 @@ exit /b 0
         # 窗口过矮时折叠为单行概要，点击弹出完整系统信息
         self.sys_debug_summary_btn = QPushButton("系统详情 ▸")
         self.sys_debug_summary_btn.setObjectName("sysDebugSummaryBtn")
-        self.sys_debug_summary_btn.setMinimumHeight(scale(24))
+        _fit_button_height(self.sys_debug_summary_btn)
         self.sys_debug_summary_btn.setMinimumWidth(scale(150))
         self.sys_debug_summary_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.sys_debug_summary_btn.setCursor(Qt.PointingHandCursor)
@@ -16653,15 +16670,17 @@ exit /b 0
         info_layout.setSpacing(scale(15))
         
         self.cover_label = QLabel()
-        self.cover_label.setMinimumSize(scale(100), scale(70))
-        self.cover_label.setMaximumSize(scale(200), scale(130))
+        # 放大封面并放宽上限：原来最大只有 200x130，整张卡片偏矮、
+        # 在高窗口下下方留白明显。提高上限让封面能填充更多竖向空间。
+        self.cover_label.setMinimumSize(scale(120), scale(84))
+        self.cover_label.setMaximumSize(scale(300), scale(200))
         self.cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 0; background-color: #f8fafc;"))
         self.cover_label.setAlignment(Qt.AlignCenter)
         self.cover_label.setText("无封面")
         
         self.save_main_cover_btn = QPushButton("保存封面")
         self.save_main_cover_btn.setEnabled(False)
-        self.save_main_cover_btn.setMinimumHeight(scale(20))
+        _fit_button_height(self.save_main_cover_btn)
         self.save_main_cover_btn.setStyleSheet(scale_style("""
             QPushButton {
                 background-color: #4f6ef7;
@@ -16737,8 +16756,26 @@ exit /b 0
         meta_layout.addStretch(1)
         info_right_layout.addLayout(meta_layout)
         
+        # quality_layout / full_mode_layout 在下方构建后就近并入本卡右侧，
+        # 使封面 + 标题 + 时长/类型 + 清晰度/音质 + 完全模式集中在一张卡里，
+        # 而不是各自占一行、在下方留下大片空白。
+        self._video_info_extra_layout = info_right_layout
+
         info_layout.addLayout(info_right_layout, stretch=1)
-        video_layout.addLayout(info_layout)
+
+        # 用一个容器把「视频信息 + 下载选项 + 保存路径」收成一张卡片。
+        # 此前它们各自是 video_layout 的独立行，行与行之间、以及整块下方
+        # 留下大片空白（实测 827px 高只用到上半部分）。
+        self._video_card = QWidget()
+        self._video_card.setObjectName("videoInfoCard")
+        self._video_card.setStyleSheet(scale_style(
+            "QWidget#videoInfoCard { background-color: #ffffff;"
+            " border: 1px solid #e6eaf2; border-radius: 0; }"))
+        _vcard = QVBoxLayout(self._video_card)
+        _vcard.setContentsMargins(scale(14), scale(12), scale(14), scale(14))
+        _vcard.setSpacing(scale(10))
+        _vcard.addLayout(info_layout)
+        video_layout.addWidget(self._video_card)
         
         quality_layout = QHBoxLayout()
         quality_layout.setSpacing(scale(12))
@@ -16849,7 +16886,7 @@ exit /b 0
         
         self.select_episode_btn = QPushButton("选择集数")
         self.select_episode_btn.setEnabled(False)
-        self.select_episode_btn.setMinimumHeight(scale(24))
+        _fit_button_height(self.select_episode_btn)
         self.select_episode_btn.setMinimumWidth(scale(70))
         self.select_episode_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.select_episode_btn.clicked.connect(self.open_episode_selection)
@@ -16861,7 +16898,9 @@ exit /b 0
         quality_layout.addWidget(audio_quality_label)
         quality_layout.addWidget(self.audio_quality_combo, stretch=1)
         quality_layout.addWidget(self.select_episode_btn)
-        video_layout.addLayout(quality_layout)
+        # 并入信息卡右侧（见上方注释）
+        self._video_info_extra_layout.addSpacing(scale(6))
+        self._video_info_extra_layout.addLayout(quality_layout)
         
         full_mode_layout = QHBoxLayout()
         full_mode_layout.setSpacing(scale(12))
@@ -16871,7 +16910,8 @@ exit /b 0
         self.full_mode_checkbox.setEnabled(True)
         full_mode_layout.addWidget(self.full_mode_checkbox)
         full_mode_layout.addStretch(1)
-        video_layout.addLayout(full_mode_layout)
+        # 同样并入信息卡右侧，避免单独占一行
+        self._video_info_extra_layout.addLayout(full_mode_layout)
         
         path_layout = QHBoxLayout()
         path_layout.setSpacing(scale(12))
@@ -16894,7 +16934,9 @@ exit /b 0
         path_layout.addWidget(path_label)
         path_layout.addWidget(self.path_edit, stretch=1)
         path_layout.addWidget(self.browse_btn)
-        video_layout.addLayout(path_layout)
+        # 收进信息卡（与视频信息、清晰度等同属一张卡），不再单独占一行
+        _vcard.addLayout(path_layout)
+        video_layout.addStretch(1)
         
         # 弹幕解析标签页
         danmaku_tab = QWidget()
@@ -16932,13 +16974,13 @@ exit /b 0
         
         danmaku_options_layout = QVBoxLayout()
         self.danmaku_checkbox = QCheckBox("下载弹幕")
-        self.danmaku_checkbox.setMinimumHeight(scale(24))
+        _fit_button_height(self.danmaku_checkbox, extra=20)
         self.danmaku_checkbox.setStyleSheet(scale_style("font-size: 15px;"))
         self.danmaku_checkbox.setEnabled(False)  # 初始禁用
         danmaku_options_layout.addWidget(self.danmaku_checkbox)
         
         self.select_danmaku_btn = QPushButton("选择弹幕")
-        self.select_danmaku_btn.setMinimumHeight(scale(24))
+        _fit_button_height(self.select_danmaku_btn)
         self.select_danmaku_btn.setMinimumWidth(scale(70))
         self.select_danmaku_btn.setEnabled(False)
         self.select_danmaku_btn.clicked.connect(self.open_danmaku_selection)
@@ -17356,7 +17398,7 @@ exit /b 0
         """))
         
         self.save_cover_btn = QPushButton("保存封面")
-        self.save_cover_btn.setMinimumHeight(scale(22))
+        _fit_button_height(self.save_cover_btn)
         self.save_cover_btn.setEnabled(False)
         self.save_cover_btn.setStyleSheet(scale_style("""
             QPushButton {
@@ -17382,7 +17424,7 @@ exit /b 0
         self.save_cover_btn.clicked.connect(self.on_save_cover)
         
         self.batch_download_cover_btn = QPushButton("批量下载封面")
-        self.batch_download_cover_btn.setMinimumHeight(scale(22))
+        _fit_button_height(self.batch_download_cover_btn)
         self.batch_download_cover_btn.setEnabled(False)
         self.batch_download_cover_btn.setStyleSheet(scale_style("""
             QPushButton {
@@ -17558,11 +17600,11 @@ exit /b 0
         
         select_all_episodes_btn = QPushButton("全选")
         select_all_episodes_btn.setStyleSheet(scale_style("background-color: #52c41a; color: white; padding: 4px 14px; border-radius: 0; font-size: 15px;"))
-        select_all_episodes_btn.setMinimumHeight(scale(26))
+        _fit_button_height(select_all_episodes_btn)
         select_all_episodes_btn.clicked.connect(self._on_all_select_all_episodes)
         deselect_all_episodes_btn = QPushButton("取消全选")
         deselect_all_episodes_btn.setStyleSheet(scale_style("background-color: #919191; color: white; padding: 4px 14px; border-radius: 0; font-size: 15px;"))
-        deselect_all_episodes_btn.setMinimumHeight(scale(26))
+        _fit_button_height(deselect_all_episodes_btn)
         deselect_all_episodes_btn.clicked.connect(self._on_all_deselect_all_episodes)
         video_top_layout.addWidget(select_all_episodes_btn)
         video_top_layout.addWidget(deselect_all_episodes_btn)
@@ -20739,7 +20781,7 @@ exit /b 0
                 row.addWidget(dir_combo)
 
                 del_btn = QPushButton("删除")
-                del_btn.setMinimumHeight(scale(26))
+                _fit_button_height(del_btn)
                 del_btn.setStyleSheet(scale_style("padding: 0 8px; border: 1px solid #ef4444; border-radius: 0; font-size: 15px; background-color: white; color: #ef4444;"))
                 row.addWidget(del_btn)
 
@@ -30797,6 +30839,58 @@ exit /b 0
         about_actions.addWidget(about_hint)
         page6_layout.addLayout(about_actions)
 
+        # ---- 软件著作权 ----
+        cert_card = QWidget()
+        cert_card.setStyleSheet(scale_style("background-color: #ffffff;"))
+        cert_body = QVBoxLayout(cert_card)
+        cert_body.setContentsMargins(scale(22), scale(18), scale(22), scale(20))
+        cert_body.setSpacing(scale(12))
+
+        cert_title = QLabel("软件著作权")
+        cert_title.setStyleSheet(scale_style("font-size: 17px; font-weight: 700; color: #1a1a1a;"))
+        cert_body.addWidget(cert_title)
+
+        _ci = COPYRIGHT_INFO
+        cert_rows = QGridLayout()
+        cert_rows.setHorizontalSpacing(scale(24))
+        cert_rows.setVerticalSpacing(scale(8))
+        _cert_fields = [
+            ("软件名称", f"{_ci['name']}（登记版本 {_ci['registered_version']}）"),
+            ("著作权人", _ci['owner']),
+            ("登记号", _ci['reg_no']),
+            ("证书号", _ci['cert_no']),
+            ("登记日期", _ci['date']),
+            ("权利范围", "全部权利（原始取得）"),
+        ]
+        for _idx, (_k, _v) in enumerate(_cert_fields):
+            _kl = QLabel(_k)
+            _kl.setStyleSheet(scale_style("font-size: 15px; font-weight: 600; color: #6b7280;"))
+            _vl = QLabel(_v)
+            _vl.setStyleSheet(scale_style("font-size: 15px; color: #1f2937;"))
+            _vl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            cert_rows.addWidget(_kl, _idx // 2, (_idx % 2) * 2)
+            cert_rows.addWidget(_vl, _idx // 2, (_idx % 2) * 2 + 1)
+        cert_rows.setColumnStretch(1, 1)
+        cert_rows.setColumnStretch(3, 1)
+        cert_body.addLayout(cert_rows)
+
+        cert_btn_row = QHBoxLayout()
+        cert_btn_row.setSpacing(scale(10))
+        view_cert_btn = QPushButton("查看登记证书")
+        view_cert_btn.setStyleSheet(scale_style("""
+            QPushButton { background-color: #409eff; color: #ffffff; border: none; padding: 7px 16px; font-size: 15px; }
+            QPushButton:hover { background-color: #0958d8; }
+        """))
+        view_cert_btn.clicked.connect(lambda: show_copyright_certificate(_dlg_ref))
+        cert_btn_row.addWidget(view_cert_btn)
+        cert_btn_row.addStretch(1)
+        cert_note = QLabel("证书原件同时收录于仓库 copyright/ 目录")
+        cert_note.setStyleSheet(scale_style("font-size: 15px; color: #909399;"))
+        cert_btn_row.addWidget(cert_note)
+        cert_body.addLayout(cert_btn_row)
+
+        page6_layout.addWidget(cert_card)
+
         page6_layout.addStretch(1)
         page6_scroll.setWidget(page6_widget)
         stacked_widget.addWidget(page6_scroll)
@@ -31495,6 +31589,130 @@ class CookieTestDialog(QDialog):
             self.result_text.append(traceback.format_exc())
             self.progress_label.setText(f"测试出错: {str(e)}")
             self.cookie_info_label.setText("Cookie状态: 错误")
+
+
+# ==================== 软件著作权登记证书 ====================
+# 登记信息（2026-09-18 取得）。软件名称登记为 "B站视频解析工具 2.0.2"，
+# 即该版本通过登记；后续版本号变更不影响已登记的著作权归属。
+COPYRIGHT_INFO = {
+    "name": "B站视频解析工具",
+    "registered_version": "2.0.2",
+    "owner": "吴浩楠",
+    "reg_no": "2026SR0955077",
+    "cert_no": "软著登字第18169358号",
+    "date": "2026年09月18日",
+}
+
+
+def get_copyright_image_path():
+    """返回软著证书图片路径（随程序分发），找不到返回空串。"""
+    names = ("ruanzhu_certificate.jpg", "ruanzhu_certificate.png")
+    bases = []
+    try:
+        import _pathsetup
+        bases.append(_pathsetup.project_root())
+    except Exception:
+        bases.append(os.path.dirname(os.path.abspath(__file__)))
+    if getattr(sys, "_MEIPASS", ""):
+        bases.append(sys._MEIPASS)
+    if getattr(sys, "frozen", False):
+        _exe = os.path.dirname(sys.executable)
+        bases += [os.path.join(_exe, "_internal"), _exe]
+    for base in bases:
+        if not base:
+            continue
+        for sub in ("assets/copyright", "copyright", ""):
+            for n in names:
+                p = os.path.join(base, sub, n) if sub else os.path.join(base, n)
+                if os.path.exists(p):
+                    return p
+    return ""
+
+
+class CopyrightCertDialog(QDialog):
+    """软著证书查看窗口：可滚动查看，支持缩小/放大/原始大小。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("软件著作权登记证书")
+        try:
+            apply_window_icon(self, getattr(parent, "config", None))
+        except Exception:
+            pass
+        self.resize(scale(760), scale(880))
+        self._source = QPixmap()
+        self._zoom = 1.0
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(scale(12), scale(12), scale(12), scale(12))
+        lay.setSpacing(scale(10))
+
+        info = QLabel(
+            f"登记号：{COPYRIGHT_INFO['reg_no']}　　证书号：{COPYRIGHT_INFO['cert_no']}"
+            f"　　著作权人：{COPYRIGHT_INFO['owner']}"
+        )
+        info.setAlignment(Qt.AlignCenter)
+        info.setStyleSheet(scale_style("color: #1f2937; font-size: 15px; font-weight: 600;"))
+        lay.addWidget(info)
+
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setAlignment(Qt.AlignCenter)
+        self.scroll.setStyleSheet("QScrollArea { border: 1px solid #e6eaf2; background: #f7f9fc; }")
+        self.image_label = QLabel()
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.scroll.setWidget(self.image_label)
+        lay.addWidget(self.scroll, stretch=1)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(scale(8))
+        btn_row.addStretch(1)
+        for text, fn in (("缩小", lambda: self._set_zoom(self._zoom - 0.2)),
+                         ("原始大小", lambda: self._set_zoom(1.0)),
+                         ("放大", lambda: self._set_zoom(self._zoom + 0.2))):
+            b = QPushButton(text)
+            b.setProperty("variant", "ghost")
+            _fit_button_height(b)
+            b.clicked.connect(fn)
+            btn_row.addWidget(b)
+        close_b = QPushButton("关闭")
+        _fit_button_height(close_b)
+        close_b.clicked.connect(self.accept)
+        btn_row.addWidget(close_b)
+        lay.addLayout(btn_row)
+
+        self._load()
+        QTimer.singleShot(0, lambda: self._set_zoom(self._fit_zoom()))
+
+    def _load(self):
+        p = get_copyright_image_path()
+        if p:
+            self._source = QPixmap(p)
+        if self._source.isNull():
+            self.image_label.setText("未找到证书图片\n（应位于 assets/copyright/ruanzhu_certificate.jpg）")
+
+    def _fit_zoom(self):
+        if self._source.isNull():
+            return 1.0
+        avail_w = max(self.scroll.viewport().width() - scale(20), 1)
+        avail_h = max(self.scroll.viewport().height() - scale(20), 1)
+        return max(min(avail_w / self._source.width(), avail_h / self._source.height()), 0.05)
+
+    def _set_zoom(self, z):
+        if self._source.isNull():
+            return
+        self._zoom = max(0.1, min(z, 4.0))
+        w = max(int(self._source.width() * self._zoom), 1)
+        h = max(int(self._source.height() * self._zoom), 1)
+        self.image_label.setPixmap(self._source.scaled(w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self.image_label.resize(w, h)
+
+
+def show_copyright_certificate(parent=None):
+    """打开软著证书查看窗口。"""
+    dlg = CopyrightCertDialog(parent)
+    dlg.exec_()
+    return dlg
 
 
 if __name__ == "__main__":
