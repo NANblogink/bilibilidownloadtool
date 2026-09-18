@@ -8396,7 +8396,8 @@ class EpisodeSelectionDialog(ResizableDialog):
                         except Exception:
                             pass
 
-                def on_cover_loaded(img_data, label_index):
+                def on_cover_loaded(img_data, label_index, _retry=0):
+                    _ok = False
                     try:
                         if img_data:
                             pixmap = QPixmap()
@@ -8405,25 +8406,44 @@ class EpisodeSelectionDialog(ResizableDialog):
                                 scaled_pixmap = pixmap.scaled(scale(120), scale(80), Qt.KeepAspectRatio, Qt.SmoothTransformation)
                                 cover_label.setPixmap(scaled_pixmap)
                                 cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 0;"))
-                            else:
-                                cover_label.setText("加载失败")
-                        else:
-                            cover_label.setText("加载失败")
+                                _ok = True
                     except Exception:
-                        pass
+                        _ok = False
                     finally:
                         self.active_loaders -= 1
                         self.process_pending_cover_loading()
+
+                    if _ok:
+                        return
+                    # 失败：退避后重新排队，最多 3 次。
+                    # 此前列表模式失败就直接显示"加载失败"，封面接口偶发超时/限流时
+                    # 会看到一排"无封面/加载失败"，观感很差。
+                    if _retry < 3:
+                        try:
+                            cover_label.setText("加载中…")
+                        except Exception:
+                            pass
+                        self.pending_cover_loading.append(
+                            (cover_url, cover_label, scale(120), scale(80), False, _retry + 1))
+                        QTimer.singleShot(int(1200 * (_retry + 1)),
+                                          self.process_pending_cover_loading)
+                    else:
+                        try:
+                            cover_label.setText("加载失败")
+                        except Exception:
+                            pass
                 
-                def start_loader():
+                def start_loader(_retry=0):
                     if self.active_loaders < self.max_loaders:
                         self.active_loaders += 1
                         loader = CoverLoader(cover_url, index)
                         self.cover_loaders.append(loader)
-                        loader.signals.finished.connect(on_cover_loaded)
+                        loader.signals.finished.connect(
+                            lambda data, idx, r=_retry: on_cover_loaded(data, idx, r))
                         loader.start()
                     else:
-                        self.pending_cover_loading.append((cover_url, cover_label, scale(120), scale(80), False))
+                        self.pending_cover_loading.append(
+                            (cover_url, cover_label, scale(120), scale(80), False, _retry))
                 
                 start_loader()
             
@@ -9548,14 +9568,14 @@ border-radius: 0;
     def _recalc_grid(self, win_w):
         """按可用宽度推导列数，让网格刚好铺满、右侧不留空白。
 
-        win_w 已经是"卡片视图可用宽度"。
-        关键：QListWidget 的 gridSize 就是"单元格间距"本身（相邻单元格
-        起点相差一个 grid_w），卡片再在单元格内左右各留 _card_gap。
-        因此 cols*grid_w 必须等于可用宽度 ——
-        原实现在这里又减了一次 _card_spacing，等于把列间距重复扣掉，
-        结果每行右端空出一段（实测 1150 宽只剩 1020 用上）。
+        win_w 是"卡片视图可用宽度"。两处关键：
+        1. QListWidget 的 gridSize 就是单元格间距本身（相邻单元格起点相差
+           一个 grid_w），所以 cols*grid_w 应等于可用宽度，不能再减列间距。
+        2. 首列左侧还有 _card_margin 的内边距，网格可用宽度要扣掉它，
+           否则整行会超出视口约 2*_card_margin，Qt 会因此少放一列——
+           表现为"右边空出一整张卡片的宽度"。
         """
-        avail = max(int(win_w), self._min_card_w)
+        avail = max(int(win_w) - self._card_margin * 2, self._min_card_w)
         self._card_gap = scale(8)
 
         # 每个单元格至少要容纳 min_card_w + 左右 gap
