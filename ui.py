@@ -657,23 +657,30 @@ _BASE_STYLE = """
     }
     QTabBar { qproperty-drawBase: 0; background: transparent; }
     QTabBar::tab {
-        background: transparent;
-        color: #64748b;
-        border: none;
+        /* 未激活的标签也要看得出"是个标签"：
+           此前背景全透明，与页面底色无差别，完全看不出可点。
+           这里给未激活态一个浅灰底 + 顶边高亮线，激活态用主色实底。 */
+        background: #eef1f6;
+        color: #4b5563;
+        border: 1px solid #e0e6ef;
+        border-bottom: none;
         padding: 11px 22px;
-        margin: 2px 3px;
+        margin: 2px 2px 0 0;
         border-radius: 0;
         font-size: 15px;
     }
     QTabBar::tab:hover:!selected {
-        background-color: #eef5ff;
-        color: #2563eb;
+        background-color: #e2ecff;
+        color: #1d6fd6;
+        border-color: #b9d4ff;
     }
     QTabBar::tab:selected {
         background-color: #409eff;
         color: #ffffff;
+        border-color: #409eff;
         font-weight: 600;
     }
+    QTabBar::tab:disabled { color: #b0b8c4; background: #f4f6f9; }
 
     /* ==================== 进度条 ==================== */
     QProgressBar {
@@ -12777,6 +12784,8 @@ class BilibiliDownloader(BaseWindow):
         self.config = config
         self.task_manager = task_manager
         self.download_manager = download_manager
+        # 记录最大化之前的正常尺寸，供"最大化时拖动标题栏需先还原"使用
+        self._normal_geometry = None
         
         try:
             apply_window_icon(self, self.config)
@@ -12914,6 +12923,11 @@ class BilibiliDownloader(BaseWindow):
     def mousePressEvent(self, event):
         try:
             if event.button() == Qt.LeftButton and event.y() < scale(32):
+                # 拖动窗口也属于"用户手动改变窗口状态"，
+                # 必须同样解除启动守卫。此前只有边缘缩放会解除，
+                # 拖动标题栏时守卫仍每 300ms 把窗口强拽回全屏，
+                # 表现为"一拖顶部栏就直接最大化"。
+                self._disarm_resize_guard()
                 self.dragging = True
                 self.start_pos = event.globalPos() - self.frameGeometry().topLeft()
                 event.accept()
@@ -12925,6 +12939,16 @@ class BilibiliDownloader(BaseWindow):
     def mouseMoveEvent(self, event):
         try:
             if hasattr(self, 'dragging') and self.dragging and event.buttons() == Qt.LeftButton:
+                # 最大化状态下拖动：先还原为普通尺寸，并让光标保持在标题栏的相对位置
+                if self.isMaximized():
+                    self.showNormal()
+                    geo = getattr(self, '_normal_geometry', None)
+                    if geo is not None and geo.isValid():
+                        self.setGeometry(geo)
+                    self.start_pos = QPoint(
+                        int(self.width() * 0.5),
+                        max(event.pos().y(), 1),
+                    )
                 self.move(event.globalPos() - self.start_pos)
                 event.accept()
             else:
@@ -16087,10 +16111,11 @@ exit /b 0
         def _mk_stat_label(text="—"):
             lb = QLabel(text)
             lb.setStyleSheet(scale_style("color: #ffffff; font-size: 15px; background: transparent;"))
-            # 允许压缩：状态文字（如 "18.5 KB/s"）会随时间变长，
-            # 若按自然宽度参与最小宽度计算，会把标题栏最小宽度顶高 → 出现横向滚动条。
-            lb.setMinimumWidth(0)
-            lb.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            # 用 Preferred 而不是 Ignored：Ignored 会忽略尺寸提示，
+            # 实测把这几段文字压成 0 宽（数据算出来了但看不见）。
+            # 这里保留自然宽度，靠下面的最小宽度上限来防止顶高窗口最小宽度。
+            lb.setMinimumWidth(scale(52))
+            lb.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
             return lb
 
         self.stats_row = QWidget()
@@ -16228,8 +16253,9 @@ exit /b 0
         sys_info_group = QGroupBox("系统信息")
         sys_info_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         sys_layout = QVBoxLayout(sys_info_group)
-        sys_layout.setSpacing(scale(8))
-        sys_layout.setContentsMargins(scale(10), scale(10), scale(10), scale(10))
+        # 收紧内边距与行距：原来上下留白过多，整卡占用高度偏大
+        sys_layout.setSpacing(scale(2))
+        sys_layout.setContentsMargins(scale(8), scale(4), scale(8), scale(6))
 
         
         login_layout = QHBoxLayout()
@@ -16327,47 +16353,27 @@ exit /b 0
             "cpu": processor or "未知",
         }
         
-        # 优化布局：自适应不同分辨率和DPI
-        # 诊断信息（系统/屏幕/Python/处理器）放入独立容器，窗口过矮时可整体隐藏
-        info_layout = QVBoxLayout()
+        # 诊断信息（系统/屏幕/Python/处理器）放入独立容器，窗口过矮时可整体隐藏。
+        # 排成一行四项，避免原来两行占用过多竖向空间。
+        info_layout = QGridLayout()
         info_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
-        info_layout.setSpacing(scale(0))
+        info_layout.setHorizontalSpacing(scale(18))
+        info_layout.setVerticalSpacing(scale(2))
 
-        basic_info_layout = QHBoxLayout()
-        basic_info_layout.setSpacing(scale(12))
-
-        system_label = QLabel(f"系统: {system_info} {system_release} {machine}")
-        system_label.setWordWrap(True)
-        system_label.setMinimumHeight(scale(20))
-        system_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        basic_info_layout.addWidget(system_label)
-
-        screen_label = QLabel(f"屏幕: {screen_resolution}, DPI: {dpi}")
-        screen_label.setWordWrap(True)
-        screen_label.setMinimumHeight(scale(20))
-        screen_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        basic_info_layout.addWidget(screen_label)
-
-        # 第二行信息
-        secondary_info_layout = QHBoxLayout()
-        secondary_info_layout.setSpacing(scale(12))
-
-        # Python信息
-        python_label = QLabel(f"Python: {platform.python_version()}")
-        python_label.setWordWrap(True)
-        python_label.setMinimumHeight(scale(20))
-        python_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        secondary_info_layout.addWidget(python_label)
-
-        # 处理器信息
-        cpu_label = QLabel(f"处理器: {processor}")
-        cpu_label.setWordWrap(True)
-        cpu_label.setMinimumHeight(scale(20))
-        cpu_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        secondary_info_layout.addWidget(cpu_label)
-
-        info_layout.addLayout(basic_info_layout)
-        info_layout.addLayout(secondary_info_layout)
+        _info_pairs = [
+            (f"系统: {system_info} {system_release} {machine}", 0, 0),
+            (f"屏幕: {screen_resolution}, DPI: {dpi}", 0, 1),
+            (f"Python: {platform.python_version()}", 0, 2),
+            (f"处理器: {processor}", 0, 3),
+        ]
+        for _txt, _r, _c in _info_pairs:
+            _lb = QLabel(_txt)
+            _lb.setWordWrap(True)
+            _lb.setMinimumHeight(scale(18))
+            _lb.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            info_layout.addWidget(_lb, _r, _c)
+        for _c in range(4):
+            info_layout.setColumnStretch(_c, 1)
 
         self.sys_debug_widget = QWidget()
         self.sys_debug_widget.setLayout(info_layout)
@@ -16431,12 +16437,29 @@ exit /b 0
         url_layout.addWidget(self.batch_parse_btn)
         content_layout.addLayout(url_layout)
 
+        # 解析范围控制：原来挤成一行、字号只有 11px、控件高度不齐，
+        # 现改为对齐的字段组：统一高度/字号，标签与控件成对，右侧留白。
         parse_ctrl_layout = QHBoxLayout()
-        parse_ctrl_layout.setSpacing(scale(6))
-        parse_ctrl_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
-        mode_label = QLabel("范围:")
-        mode_label.setStyleSheet(f"font-size: {scale(11)}px; color: #606266;")
-        parse_ctrl_layout.addWidget(mode_label)
+        parse_ctrl_layout.setSpacing(scale(16))
+        parse_ctrl_layout.setContentsMargins(scale(0), 0, scale(0), 0)
+
+        _FIELD_H = scale(34)
+        _FIELD_QSS = (
+            f"padding: 0 {scale(8)}px; border: 1px solid #dde3ed; border-radius: 0;"
+            f" font-size: 15px; background-color: #ffffff; min-height: {_FIELD_H - 2}px;"
+        )
+        _LABEL_QSS = "font-size: 15px; color: #4b5563;"
+
+        def _field_label(text):
+            lb = QLabel(text)
+            lb.setStyleSheet(scale_style(_LABEL_QSS))
+            lb.setMinimumHeight(_FIELD_H)
+            lb.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
+            lb.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            return lb
+
+        # 「范围」组
+        parse_ctrl_layout.addWidget(_field_label("范围"))
         # 这里是主解析 Tab 唯一的解析控制区（BilibiliDownloader 类内），
         # 名称必须与 on_parse() 读取的一致：parse_mode_combo / episode_page_spin。
         # 历史问题：曾被创建成 batch_parse_mode_combo / batch_episode_page_spin，
@@ -16446,24 +16469,30 @@ exit /b 0
         self.parse_mode_combo.addItem("仅当前视频分P", "video_only")
         self.parse_mode_combo.addItem("仅指定单集", "page_only")
         self.parse_mode_combo.addItem("完整合集", "collection")
-        self.parse_mode_combo.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dde3ed; border-radius: 0; font-size: {scale(11)}px; background-color: #f8fafc;")
+        self.parse_mode_combo.setMinimumHeight(_FIELD_H)
+        self.parse_mode_combo.setMinimumWidth(scale(170))
+        self.parse_mode_combo.setStyleSheet(scale_style(_FIELD_QSS))
         self.parse_mode_combo.setToolTip("自动:按视频类型自动决定 | 仅当前视频分P:跳过合集 | 仅指定单集:只解析指定集 | 完整合集:加载全部不限制")
         parse_ctrl_layout.addWidget(self.parse_mode_combo)
-        parse_ctrl_layout.addSpacing(scale(4))
-        ep_label = QLabel("指定分P:")
-        ep_label.setStyleSheet(f"font-size: {scale(11)}px; color: #606266;")
-        parse_ctrl_layout.addWidget(ep_label)
+
+        parse_ctrl_layout.addSpacing(scale(10))
+
+        # 「指定分P」组
+        parse_ctrl_layout.addWidget(_field_label("指定分P"))
         self.episode_page_spin = QSpinBox()
         self.episode_page_spin.setRange(0, 99999)
         self.episode_page_spin.setValue(0)
         self.episode_page_spin.setSpecialValueText("全部")
         self.episode_page_spin.setToolTip("0=全部；输入数字仅解析对应分P")
-        self.episode_page_spin.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dde3ed; border-radius: 0; font-size: {scale(11)}px; background-color: #f8fafc; min-width: {scale(45)}px;")
+        self.episode_page_spin.setMinimumHeight(_FIELD_H)
+        self.episode_page_spin.setFixedWidth(scale(96))
+        self.episode_page_spin.setStyleSheet(scale_style(_FIELD_QSS))
         parse_ctrl_layout.addWidget(self.episode_page_spin)
-        parse_ctrl_layout.addSpacing(scale(4))
-        ep_range_label = QLabel("集数范围:")
-        ep_range_label.setStyleSheet(f"font-size: {scale(11)}px; color: #606266;")
-        parse_ctrl_layout.addWidget(ep_range_label)
+
+        parse_ctrl_layout.addSpacing(scale(10))
+
+        # 「集数范围」组
+        parse_ctrl_layout.addWidget(_field_label("集数范围"))
         self.episode_range_edit = QLineEdit()
         self.episode_range_edit.setPlaceholderText("如 1-5,8,10-12")
         self.episode_range_edit.setToolTip(
@@ -16471,10 +16500,11 @@ exit /b 0
             "范围外的集不会请求播放地址，大合集/长课程明显更快。\n"
             "适用于番剧、课程等按集编号的内容。"
         )
-        self.episode_range_edit.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dde3ed; border-radius: 0; font-size: {scale(11)}px; background-color: #f8fafc;")
-        self.episode_range_edit.setMinimumWidth(scale(110))
-        self.episode_range_edit.setMaximumWidth(scale(150))
+        self.episode_range_edit.setMinimumHeight(_FIELD_H)
+        self.episode_range_edit.setFixedWidth(scale(190))
+        self.episode_range_edit.setStyleSheet(scale_style(_FIELD_QSS))
         parse_ctrl_layout.addWidget(self.episode_range_edit)
+
         parse_ctrl_layout.addStretch(1)
         content_layout.addLayout(parse_ctrl_layout)
 
@@ -24476,10 +24506,15 @@ exit /b 0
         # 在最大化和还原之间切换，并更新按钮图标/提示
         if self.isMaximized():
             self.showNormal()
+            geo = getattr(self, '_normal_geometry', None)
+            if geo is not None and geo.isValid():
+                self.setGeometry(geo)
             if hasattr(self, 'maximize_btn'):
                 self.maximize_btn.setText("▢")
                 self.maximize_btn.setToolTip("最大化")
         else:
+            if not self.isMinimized():
+                self._normal_geometry = self.geometry()
             self.showMaximized()
             if hasattr(self, 'maximize_btn'):
                 self.maximize_btn.setText("❐")
