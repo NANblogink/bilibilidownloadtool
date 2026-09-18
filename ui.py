@@ -575,15 +575,32 @@ _BASE_STYLE = """
         background-color: #f5f7fa;
         color: #9aa4b2;
     }
-    QComboBox::drop-down { border: none; width: 22px; }
+    QComboBox::drop-down { border: none; width: 26px; }
+    /* 下拉展开列表：原来只有 4px 内边距、条目没有间隔，点开像一块白板。
+       这里给条目高度、行距与选中/悬停态，观感与整体扁平风格一致。 */
     QComboBox QAbstractItemView {
-        border: 1px solid #e6eaf2;
+        border: 1px solid #ccd6e4;
         border-radius: 0;
         background-color: #ffffff;
-        selection-background-color: #eef5ff;
-        selection-color: #2563eb;
-        padding: 4px;
+        selection-background-color: #409eff;
+        selection-color: #ffffff;
+        padding: 4px 0;
         outline: none;
+        font-size: 15px;
+    }
+    QComboBox QAbstractItemView::item {
+        min-height: 30px;
+        padding: 4px 12px;
+        border: none;
+        color: #374151;
+    }
+    QComboBox QAbstractItemView::item:hover {
+        background-color: #eaf2ff;
+        color: #1d6fd6;
+    }
+    QComboBox QAbstractItemView::item:selected {
+        background-color: #409eff;
+        color: #ffffff;
     }
 
     /* ==================== 按钮 ====================
@@ -8262,9 +8279,12 @@ class EpisodeSelectionDialog(ResizableDialog):
 
         self.card_view = QListWidget()
         self.card_view.setViewMode(QListWidget.IconMode)
-        self.card_view.setResizeMode(QListWidget.Adjust)
+        # 用 Fixed 而非 Adjust：Adjust 会把网格单元改小以塞进视口，
+        # 导致最后一列右侧留下一条空白。Fixed 尊重我们算好的网格尺寸。
+        self.card_view.setResizeMode(QListWidget.Fixed)
         self.card_view.setFlow(QListWidget.LeftToRight)
         self.card_view.setSpacing(0)
+        self.card_view.setMovement(QListWidget.Static)
         self.card_view.setSelectionMode(QListWidget.SingleSelection)
         self.card_view.setSelectionBehavior(QListWidget.SelectItems)
         self.card_view.setGridSize(QSize(self._grid_w, self._grid_h))
@@ -8590,7 +8610,8 @@ border-radius: 0;
                         except Exception:
                             pass
 
-                def on_cover_loaded(img_data, label_index):
+                def on_cover_loaded(img_data, label_index, _retry=0):
+                    _ok = False
                     try:
                         if img_data:
                             pixmap = QPixmap()
@@ -8606,28 +8627,43 @@ border-radius: 0;
                                 cropped = scaled_pixmap.copy(x, y, crop_w, crop_h)
                                 cover_label.setPixmap(cropped)
                                 cover_label.setStyleSheet("border: none;")
-                            else:
-                                cover_label.setText("加载失败")
-                        else:
-                            cover_label.setText("加载失败")
+                                _ok = True
                     except Exception:
-                        pass
+                        _ok = False
                     finally:
-
                         self.active_loaders -= 1
-
                         self.process_pending_cover_loading()
 
-                def start_loader():
+                    if _ok:
+                        return
+                    # 失败：退避后重新排队加载，最多 3 次（封面接口偶发超时/限流）
+                    if _retry < 3:
+                        try:
+                            cover_label.setText("加载中…")
+                        except Exception:
+                            pass
+                        QTimer.singleShot(
+                            int(1200 * (_retry + 1)),
+                            lambda: self.pending_cover_loading.append(
+                                (cover_url, cover_label, cw, cover_h, True, _retry + 1)) or
+                                self.process_pending_cover_loading())
+                    else:
+                        try:
+                            cover_label.setText("加载失败")
+                        except Exception:
+                            pass
+
+                def start_loader(_retry=0):
                     if self.active_loaders < self.max_loaders:
                         self.active_loaders += 1
                         loader = CoverLoader(cover_url, index)
                         self.cover_loaders.append(loader)
-                        loader.signals.finished.connect(on_cover_loaded)
+                        loader.signals.finished.connect(
+                            lambda data, idx, r=_retry: on_cover_loaded(data, idx, r))
                         loader.start()
                     else:
 
-                        self.pending_cover_loading.append((cover_url, cover_label, cw, cover_h, True))
+                        self.pending_cover_loading.append((cover_url, cover_label, cw, cover_h, True, _retry))
 
                 start_loader()
 
@@ -8654,6 +8690,9 @@ border-radius: 0;
             else:
                 episode_num = f"第{index+1}集"
 
+        # 兼容 ep_index 为整数的情况：QLabel 只接受字符串，
+        # 直接传 int 会抛 TypeError 导致整个选择对话框无法打开。
+        episode_num = str(episode_num)
         episode_label = QLabel(episode_num)
         episode_label.setStyleSheet(scale_style("""
             QLabel {
@@ -9170,7 +9209,13 @@ border-radius: 0;
     
     def process_pending_cover_loading(self):
         while self.pending_cover_loading and self.active_loaders < self.max_loaders:
-            cover_url, cover_label, target_w, target_h, use_crop = self.pending_cover_loading.pop(0)
+            entry = self.pending_cover_loading.pop(0)
+            # 兼容 5 元组（旧）与 6 元组（带重试计数）
+            if len(entry) >= 6:
+                cover_url, cover_label, target_w, target_h, use_crop, _retry = entry[:6]
+            else:
+                cover_url, cover_label, target_w, target_h, use_crop = entry[:5]
+                _retry = 0
             self.active_loaders += 1
             
             
@@ -9202,6 +9247,7 @@ border-radius: 0;
                         pass
 
             def on_cover_loaded(img_data):
+                _ok = False
                 try:
                     if img_data:
                         pixmap = QPixmap()
@@ -9220,17 +9266,29 @@ border-radius: 0;
                                 scaled_pixmap = pixmap.scaled(target_w, target_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                                 cover_label.setPixmap(scaled_pixmap)
                                 cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 0;"))
-                        else:
-                            cover_label.setText("加载失败")
-                    else:
-                        cover_label.setText("加载失败")
+                            _ok = True
                 except Exception:
-                    pass
+                    _ok = False
                 finally:
-
                     self.active_loaders -= 1
-
                     self.process_pending_cover_loading()
+
+                if _ok:
+                    return
+                # 失败：退避后重新排队，最多 3 次
+                if _retry < 3:
+                    try:
+                        cover_label.setText("加载中…")
+                    except Exception:
+                        pass
+                    self.pending_cover_loading.append(
+                        (cover_url, cover_label, target_w, target_h, use_crop, _retry + 1))
+                    QTimer.singleShot(int(1200 * (_retry + 1)), self.process_pending_cover_loading)
+                else:
+                    try:
+                        cover_label.setText("加载失败")
+                    except Exception:
+                        pass
             
             loader = CoverLoader(cover_url)
             self.cover_loaders.append(loader)
@@ -9471,25 +9529,32 @@ border-radius: 0;
             event.accept()
 
     def _recalc_grid(self, win_w):
-        """根据窗口宽度计算最优列数和卡片宽度，确保卡片之间有明显间距"""
-        avail = win_w - self._card_margin * 2
-        # 网格单元 = 卡片 + 左右间距，用 grid_size 控制卡片间距
-        # 实际卡片宽度 = 网格宽度 - 2 * card_gap
+        """按可用宽度推导列数，让网格刚好铺满、右侧不留空白。
+
+        win_w 已经是"卡片视图可用宽度"。
+        关键：QListWidget 的 gridSize 就是"单元格间距"本身（相邻单元格
+        起点相差一个 grid_w），卡片再在单元格内左右各留 _card_gap。
+        因此 cols*grid_w 必须等于可用宽度 ——
+        原实现在这里又减了一次 _card_spacing，等于把列间距重复扣掉，
+        结果每行右端空出一段（实测 1150 宽只剩 1020 用上）。
+        """
+        avail = max(int(win_w), self._min_card_w)
         self._card_gap = scale(8)
-        self._cols = 4
-        for c in [5, 4]:
-            cw = (avail - (c - 1) * self._card_spacing) / c - self._card_gap * 2
-            if cw >= self._min_card_w:
-                self._cols = c
-                break
-        self._card_w = (avail - (self._cols - 1) * self._card_spacing) / self._cols - self._card_gap * 2
+
+        # 每个单元格至少要容纳 min_card_w + 左右 gap
+        per_cell_min = self._min_card_w + self._card_gap * 2
+        self._cols = max(1, avail // per_cell_min)
+
+        # 单元格宽度 = 可用宽度 / 列数，整除保证不溢出
+        self._grid_w = max(avail // self._cols, per_cell_min)
+        self._card_w = self._grid_w - self._card_gap * 2
+        if self._card_w < scale(60):
+            self._card_w = scale(60)
+            self._grid_w = int(self._card_w + self._card_gap * 2)
         # 卡片高度按封面比例（16:9）+ 标题区约55px
         self._card_h = int(self._card_w * 9 / 16) + scale(55)
-        # 网格单元尺寸（卡片 + 上下左右间距）
-        self._grid_w = int(self._card_w + self._card_gap * 2)
-        self._grid_h = int(self._card_h + self._card_gap * 2)
-        self._opt_w = int(self._card_margin * 2 + self._cols * self._grid_w + (self._cols - 1) * self._card_spacing)
-        # 转整数供 setFixedSize / setGridSize 使用
+        self._grid_h = int(round(self._card_h + self._card_gap * 2))
+        self._opt_w = int(self._card_margin * 2 + self._cols * self._grid_w)
         self._card_w_int = int(self._card_w)
         self._card_h_int = int(self._card_h)
 
@@ -9497,18 +9562,28 @@ border-radius: 0;
         super().resizeEvent(event)
         if not hasattr(self, 'card_radio') or not self.card_radio.isChecked():
             return
-        # 限制最大宽度
-        max_w = scale(780)
-        if self.width() > max_w:
-            self._recalc_grid(max_w)
+        # 布局尚未稳定时 viewport 宽度是旧值，直接用会算偏，
+        # 导致卡片铺不满、右侧留一条空白。这里延迟到事件循环下一轮再算。
+        self._apply_card_grid()
+
+    def _apply_card_grid(self):
+        """按卡片视图"当前真实可用宽度"重算并应用网格尺寸。"""
+        try:
+            if not hasattr(self, 'card_view') or self.card_view is None:
+                return
+            avail_w = self.card_view.viewport().width()
+            if avail_w < scale(200):
+                avail_w = self.width()
+            self._recalc_grid(avail_w)
             self.card_view.setGridSize(QSize(self._grid_w, self._grid_h))
-            self.resize(self._opt_w, self.height())
-            return
-        old_cols = getattr(self, '_cols', None)
-        self._recalc_grid(self.width())
-        self.card_view.setGridSize(QSize(self._grid_w, self._grid_h))
-        if old_cols != self._cols or abs(self.width() - self._opt_w) > scale(8):
-            self.resize(self._opt_w, self.height())
+        except Exception:
+            pass
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # 首次显示后布局才稳定，此时再校准一次网格
+        if hasattr(self, 'card_radio') and self.card_radio.isChecked():
+            QTimer.singleShot(0, self._apply_card_grid)
 
 
 class TaskManagerWindow(BaseWindow):
@@ -15930,6 +16005,42 @@ exit /b 0
         except Exception:
             return page
 
+    def _populate_danmaku_preview(self, danmaku_payload=None):
+        """把解析到的弹幕填进"弹幕预览"列表（最多 300 条，避免大弹幕卡顿）。"""
+        try:
+            lst = getattr(self, 'danmaku_preview_list', None)
+            if lst is None:
+                return
+            payload = danmaku_payload if danmaku_payload is not None else getattr(self, 'current_danmaku_data', None)
+            items = []
+            if isinstance(payload, dict):
+                items = (payload.get('data') or {}).get('danmaku') or []
+            lst.clear()
+            total = len(items)
+            for dm in items[:300]:
+                if not isinstance(dm, dict):
+                    continue
+                text = (dm.get('content') or dm.get('text') or '').strip()
+                if not text:
+                    continue
+                prog = dm.get('progress')
+                if prog in (None, ''):
+                    prog = dm.get('time', 0)
+                try:
+                    secs = int(float(prog)) // 1000
+                except Exception:
+                    secs = 0
+                lst.addItem(f"[{secs // 60:02d}:{secs % 60:02d}]  {text}")
+            hint = getattr(self, 'danmaku_preview_hint', None)
+            if hint is not None:
+                if total > 0:
+                    more = "（仅显示前 300 条）" if total > 300 else ""
+                    hint.setText(f"共 {total} 条弹幕{more}")
+                else:
+                    hint.setText("尚未解析弹幕。在上方「视频链接」解析后，这里会显示弹幕内容。")
+        except Exception as e:
+            logger.debug(f"填充弹幕预览失败: {e}")
+
     def _on_stats_updated(self, fps_text, up_bps, down_bps):
         """刷新顶部栏的帧率 / 上行 / 下行显示（无背景，图标 + 文字）。"""
         try:
@@ -16836,6 +16947,27 @@ exit /b 0
         danmaku_info_layout.addLayout(danmaku_options_layout)
         
         danmaku_layout.addWidget(danmaku_info_group)
+
+        # 弹幕预览列表：此前该标签页只有一个信息分组，未解析时整片空白。
+        # 解析后把弹幕逐条列出，既提升空间利用率，也方便确认内容是否正常。
+        danmaku_preview_group = QGroupBox("弹幕预览")
+        danmaku_preview_layout = QVBoxLayout(danmaku_preview_group)
+        danmaku_preview_layout.setSpacing(scale(6))
+        danmaku_preview_layout.setContentsMargins(scale(8), scale(6), scale(8), scale(8))
+
+        self.danmaku_preview_list = QListWidget()
+        self.danmaku_preview_list.setAlternatingRowColors(False)
+        self.danmaku_preview_list.setSelectionMode(QListWidget.ExtendedSelection)
+        self.danmaku_preview_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.danmaku_preview_list.setMinimumHeight(scale(180))
+        danmaku_preview_layout.addWidget(self.danmaku_preview_list, stretch=1)
+
+        self.danmaku_preview_hint = QLabel("尚未解析弹幕。在上方「视频链接」解析后，这里会显示弹幕内容。")
+        self.danmaku_preview_hint.setStyleSheet(scale_style("color: #8a94a6; font-size: 15px;"))
+        self.danmaku_preview_hint.setAlignment(Qt.AlignCenter)
+        danmaku_preview_layout.addWidget(self.danmaku_preview_hint)
+
+        danmaku_layout.addWidget(danmaku_preview_group, stretch=1)
         
         # 收藏夹标签页
         favorite_tab = QWidget()
@@ -18367,7 +18499,14 @@ exit /b 0
                     except Exception:
                         pass
             
-            def on_cover_loaded(img_data):
+            def _start_cover_load(_attempt=0):
+                loader = CoverLoader(cover_url)
+                loader.signals.finished.connect(
+                    lambda data, a=_attempt: on_cover_loaded(data, a))
+                loader.start()
+                self.cover_loaders.append(loader)
+
+            def on_cover_loaded(img_data, attempt=0):
                 try:
                     if img_data:
                         pixmap = QPixmap()
@@ -18381,18 +18520,22 @@ exit /b 0
                             cropped = scaled_pixmap.copy(x, y, crop_w, crop_h)
                             cover_label.setPixmap(cropped)
                             cover_label.setStyleSheet("background: transparent; border: none;")
-                        else:
-                            cover_label.setText("加载失败")
+                            return
+                    # 失败（或解码失败）：退避后自动重试，最多 3 次。
+                    # 封面接口偶发超时/限流，直接显示"加载失败"观感很差。
+                    if attempt < 3:
+                        cover_label.setText("加载中…")
+                        delay = int(1200 * (attempt + 1))
+                        QTimer.singleShot(delay, lambda: _start_cover_load(attempt + 1))
                     else:
                         cover_label.setText("加载失败")
                 except Exception:
-                    pass
-            
-            loader = CoverLoader(cover_url)
-            loader.signals.finished.connect(on_cover_loaded)
-            loader.start()
-            
-            self.cover_loaders.append(loader)
+                    try:
+                        cover_label.setText("加载失败")
+                    except Exception:
+                        pass
+
+            _start_cover_load(0)
         
         layout.addSpacing(2)
         
@@ -22327,6 +22470,8 @@ exit /b 0
                                         logger.debug("更新\1")
                                         self.select_danmaku_btn.setEnabled(True)
                                         self.danmaku_count_label.setText(f"{count}条")
+                                        # 同步填充弹幕预览列表
+                                        self._populate_danmaku_preview()
                                         print("弹幕数量UI更新成功")
                                     except Exception as e:
                                         logger.warning(f"更新弹幕数量UI异常: {e}")
