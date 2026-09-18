@@ -530,7 +530,7 @@ _BASE_STYLE = """
         background-color: #1f2937;
         color: #ffffff;
         border: none;
-        border-radius: 6px;
+        border-radius: 0;
         padding: 6px 9px;
         font-size: 15px;
     }
@@ -539,7 +539,7 @@ _BASE_STYLE = """
     QGroupBox {
         background-color: #ffffff;
         border: 1px solid #e6eaf2;
-        border-radius: 12px;
+        border-radius: 0;
         margin-top: 20px;
         padding: 18px 16px 16px 16px;
         font-size: 15px;
@@ -558,7 +558,7 @@ _BASE_STYLE = """
     QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox {
         padding: 8px 11px;
         border: 1px solid #dde3ed;
-        border-radius: 8px;
+        border-radius: 0;
         background-color: #ffffff;
         selection-background-color: #409eff;
         selection-color: #ffffff;
@@ -578,7 +578,7 @@ _BASE_STYLE = """
     QComboBox::drop-down { border: none; width: 22px; }
     QComboBox QAbstractItemView {
         border: 1px solid #e6eaf2;
-        border-radius: 8px;
+        border-radius: 0;
         background-color: #ffffff;
         selection-background-color: #eef5ff;
         selection-color: #2563eb;
@@ -592,7 +592,7 @@ _BASE_STYLE = """
     QPushButton {
         padding: 9px 18px;
         border: 1px solid transparent;
-        border-radius: 8px;
+        border-radius: 0;
         color: #ffffff;
         background-color: #409eff;
         font-weight: 600;
@@ -651,7 +651,7 @@ _BASE_STYLE = """
     /* ==================== 标签页（分段控件观感） ==================== */
     QTabWidget::pane {
         border: 1px solid #e6eaf2;
-        border-radius: 12px;
+        border-radius: 0;
         background-color: #ffffff;
         top: -1px;
     }
@@ -662,7 +662,7 @@ _BASE_STYLE = """
         border: none;
         padding: 11px 22px;
         margin: 2px 3px;
-        border-radius: 9px;
+        border-radius: 0;
         font-size: 15px;
     }
     QTabBar::tab:hover:!selected {
@@ -680,20 +680,20 @@ _BASE_STYLE = """
         min-height: 10px;
         max-height: 10px;
         border: none;
-        border-radius: 5px;
+        border-radius: 0;
         background-color: #e9edf4;
         text-align: center;
         color: transparent;
     }
     QProgressBar::chunk {
-        border-radius: 5px;
+        border-radius: 0;
         background-color: #409eff;
     }
 
     /* ==================== 列表 / 表格 ==================== */
     QListWidget, QTreeWidget, QTableWidget {
         border: 1px solid #e6eaf2;
-        border-radius: 10px;
+        border-radius: 0;
         background-color: #ffffff;
         outline: none;
     }
@@ -719,14 +719,14 @@ _BASE_STYLE = """
     QCheckBox::indicator, QRadioButton::indicator { width: 16px; height: 16px; }
     QCheckBox::indicator {
         border: 1.5px solid #c3cede;
-        border-radius: 5px;
+        border-radius: 0;
         background: #ffffff;
     }
     QCheckBox::indicator:hover  { border-color: #409eff; }
     QCheckBox::indicator:checked{ background: #409eff; border-color: #409eff; }
     QRadioButton::indicator {
         border: 1.5px solid #c3cede;
-        border-radius: 8px;
+        border-radius: 0;
         background: #ffffff;
     }
     QRadioButton::indicator:checked { background: #409eff; border-color: #409eff; }
@@ -739,7 +739,7 @@ _BASE_STYLE = """
     }
     QScrollBar::handle:vertical {
         background: #cfd8e5;
-        border-radius: 5px;
+        border-radius: 0;
         min-height: 32px;
     }
     QScrollBar::handle:vertical:hover { background: #b3c0d3; }
@@ -750,7 +750,7 @@ _BASE_STYLE = """
     }
     QScrollBar::handle:horizontal {
         background: #cfd8e5;
-        border-radius: 5px;
+        border-radius: 0;
         min-width: 32px;
     }
     QScrollBar::handle:horizontal:hover { background: #b3c0d3; }
@@ -762,12 +762,12 @@ _BASE_STYLE = """
     QMenu {
         background-color: #ffffff;
         border: 1px solid #e6eaf2;
-        border-radius: 10px;
+        border-radius: 0;
         padding: 6px;
     }
     QMenu::item {
         padding: 8px 22px 8px 14px;
-        border-radius: 6px;
+        border-radius: 0;
         color: #374151;
     }
     QMenu::item:selected { background-color: #eef5ff; color: #2563eb; }
@@ -778,7 +778,7 @@ _BASE_STYLE = """
         min-width: 140px;
         margin: 8px;
         border: 1px solid #e6eaf2;
-        border-radius: 10px;
+        border-radius: 0;
         min-height: 90px;
     }
     .card-view QListWidget::item:hover { background-color: #f7faff; border-color: #c3cede; }
@@ -864,11 +864,11 @@ def show_captcha_dialog(gt, challenge, callback, parent=None):
             QDialog {
                 background-color: white;
                 border: 2px solid #409eff;
-                border-radius: %dpx;
+                border-radius: 0;
             }
             QPushButton {
                 padding: %dpx %dpx;
-                border-radius: %dpx;
+                border-radius: 0;
                 font-size: %dpx;
                 font-weight: 500;
             }
@@ -891,7 +891,7 @@ def show_captcha_dialog(gt, challenge, callback, parent=None):
         main_layout.setSpacing(scale(0))
         
         title_bar = QWidget()
-        title_bar.setStyleSheet(f"background-color: #409eff; color: white; min-height: {scale(40)}px; border-top-left-radius: {scale(10)}px; border-top-right-radius: {scale(10)}px;")
+        title_bar.setStyleSheet(f"background-color: #409eff; color: white; min-height: {scale(40)}px; border-radius: 0; border-radius: 0;")
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(scale(16), 0, scale(12), 0)
         title_layout.setSpacing(scale(10))
@@ -901,7 +901,7 @@ def show_captcha_dialog(gt, challenge, callback, parent=None):
         title_layout.addWidget(title_label, stretch=1)
         
         close_btn = QPushButton("×")
-        close_btn.setStyleSheet(f"background-color: transparent; border: none; color: white; font-size: {scale(18)}px; padding: 0; min-width: {scale(28)}px; min-height: {scale(28)}px; border-radius: {scale(14)}px;")
+        close_btn.setStyleSheet(f"background-color: transparent; border: none; color: white; font-size: {scale(18)}px; padding: 0; min-width: {scale(28)}px; min-height: {scale(28)}px; border-radius: 0;")
         close_btn.setToolTip("关闭")
         close_btn.clicked.connect(lambda: (callback(None, None, None), dialog.reject()))
         title_layout.addWidget(close_btn)
@@ -969,7 +969,7 @@ def show_captcha_dialog(gt, challenge, callback, parent=None):
             return None
         
         web_view.setMinimumSize(scale(380), scale(260))
-        web_view.setStyleSheet(f"border-radius: {scale(8)}px;")
+        web_view.setStyleSheet(f"border-radius: 0;")
         content_layout.addWidget(web_view)
         
         btn_layout = QHBoxLayout()
@@ -1023,7 +1023,7 @@ def show_captcha_dialog(gt, challenge, callback, parent=None):
                     margin: 0 auto;
                     background-color: #ffffff;
                     border: 1px solid #e0e0e0;
-                    border-radius: 8px;
+                    border-radius: 0;
                     padding: 20px;
                     position: relative;
                 }
@@ -1308,7 +1308,7 @@ class ExpandedCard(QDialog):
             QDialog {
                 background-color: white;
                 border: 2px solid #409eff;
-                border-radius: 10px;
+                border-radius: 0;
             }
         """))
         
@@ -1368,7 +1368,7 @@ class ExpandedCard(QDialog):
         url_layout.setContentsMargins(scale(10), 0, scale(10), 0)
         self.url_edit = QLineEdit()
         self.url_edit.setPlaceholderText("输入B站视频链接，按回车解析...")
-        self.url_edit.setStyleSheet(f"padding: {scale(12)}px; border: {scale(1)}px solid #dde3ed; border-radius: {scale(8)}px; font-size: {scale(12)}px; background-color: #f8fafc;")
+        self.url_edit.setStyleSheet(f"padding: {scale(12)}px; border: {scale(1)}px solid #dde3ed; border-radius: 0; font-size: {scale(12)}px; background-color: #f8fafc;")
         self.url_edit.setMinimumHeight(scale(36))
         self.url_edit.returnPressed.connect(self.on_parse_clicked)
         url_layout.addWidget(self.url_edit, stretch=1)
@@ -1378,7 +1378,7 @@ class ExpandedCard(QDialog):
         self.episode_page_spin.setValue(0)
         self.episode_page_spin.setSpecialValueText("全部")
         self.episode_page_spin.setToolTip("指定分P/单集（0=全部，输入集数后仅解析该集）")
-        self.episode_page_spin.setStyleSheet(f"padding: {scale(8)}px; border: {scale(1)}px solid #dde3ed; border-radius: {scale(8)}px; font-size: {scale(11)}px; background-color: #f8fafc; min-width: {scale(50)}px;")
+        self.episode_page_spin.setStyleSheet(f"padding: {scale(8)}px; border: {scale(1)}px solid #dde3ed; border-radius: 0; font-size: {scale(11)}px; background-color: #f8fafc; min-width: {scale(50)}px;")
         self.episode_page_spin.setMinimumHeight(scale(36))
         url_layout.addWidget(self.episode_page_spin)
 
@@ -1390,7 +1390,7 @@ class ExpandedCard(QDialog):
             "留空=全部。范围外的集不会请求播放地址，明显更快。\n"
             "适用于番剧/课程等按集编号的内容。"
         )
-        self.episode_range_edit.setStyleSheet(f"padding: {scale(8)}px; border: {scale(1)}px solid #dde3ed; border-radius: {scale(8)}px; font-size: {scale(11)}px; background-color: #f8fafc; min-width: {scale(80)}px;")
+        self.episode_range_edit.setStyleSheet(f"padding: {scale(8)}px; border: {scale(1)}px solid #dde3ed; border-radius: 0; font-size: {scale(11)}px; background-color: #f8fafc; min-width: {scale(80)}px;")
         self.episode_range_edit.setMinimumHeight(scale(36))
         self.episode_range_edit.setMaximumWidth(scale(110))
         url_layout.addWidget(self.episode_range_edit)
@@ -1406,7 +1406,7 @@ class ExpandedCard(QDialog):
         self.parse_mode_combo.addItem("仅当前视频分P", "video_only")
         self.parse_mode_combo.addItem("仅指定单集", "page_only")
         self.parse_mode_combo.addItem("强制完整合集", "collection")
-        self.parse_mode_combo.setStyleSheet(f"padding: {scale(6)}px; border: {scale(1)}px solid #dde3ed; border-radius: {scale(8)}px; font-size: {scale(11)}px; background-color: #f8fafc;")
+        self.parse_mode_combo.setStyleSheet(f"padding: {scale(6)}px; border: {scale(1)}px solid #dde3ed; border-radius: 0; font-size: {scale(11)}px; background-color: #f8fafc;")
         self.parse_mode_combo.setMinimumHeight(scale(36))
         self.parse_mode_combo.setToolTip("选择解析范围：自动根据视频类型选择/仅当前视频分P/仅指定单集/强制加载完整合集")
         mode_layout.addWidget(self.parse_mode_combo, stretch=1)
@@ -1417,13 +1417,13 @@ class ExpandedCard(QDialog):
         btn_layout.setSpacing(scale(8))
         
         parse_btn = QPushButton("解析")
-        parse_btn.setStyleSheet(f"background-color: #409eff; color: white; padding: {scale(12)}px; border-radius: {scale(8)}px; font-size: {scale(12)}px; font-weight: 600;")
+        parse_btn.setStyleSheet(f"background-color: #409eff; color: white; padding: {scale(12)}px; border-radius: 0; font-size: {scale(12)}px; font-weight: 600;")
         parse_btn.setMinimumHeight(scale(36))
         parse_btn.setMinimumWidth(scale(60))
         parse_btn.clicked.connect(self.on_parse_clicked)
         
         close_btn = QPushButton("关闭")
-        close_btn.setStyleSheet(f"background-color: #f56c6c; color: white; padding: {scale(12)}px; border-radius: {scale(8)}px; font-size: {scale(12)}px; font-weight: 600;")
+        close_btn.setStyleSheet(f"background-color: #f56c6c; color: white; padding: {scale(12)}px; border-radius: 0; font-size: {scale(12)}px; font-weight: 600;")
         close_btn.setMinimumHeight(scale(36))
         close_btn.setMinimumWidth(scale(60))
         close_btn.clicked.connect(self.on_close_clicked)
@@ -1448,7 +1448,7 @@ class ExpandedCard(QDialog):
         resolution_label.setMinimumHeight(scale(28))
         resolution_label.setMinimumWidth(scale(60))
         self.resolution_combo = QComboBox()
-        self.resolution_combo.setStyleSheet(f"padding: {scale(6)}px; border: {scale(1)}px solid #dde3ed; border-radius: {scale(4)}px; font-size: {scale(12)}px;")
+        self.resolution_combo.setStyleSheet(f"padding: {scale(6)}px; border: {scale(1)}px solid #dde3ed; border-radius: 0; font-size: {scale(12)}px;")
         self.resolution_combo.setMinimumHeight(scale(28))
         # 默认只显示无需登录的分辨率，登录后会更新
         self.resolution_combo.addItems(["480P", "360P"])
@@ -1465,12 +1465,12 @@ class ExpandedCard(QDialog):
         path_label.setMinimumHeight(scale(28))
         path_label.setMinimumWidth(scale(60))
         self.path_edit = QLineEdit()
-        self.path_edit.setStyleSheet(f"padding: {scale(6)}px; border: {scale(1)}px solid #dde3ed; border-radius: {scale(4)}px; font-size: {scale(10)}px;")
+        self.path_edit.setStyleSheet(f"padding: {scale(6)}px; border: {scale(1)}px solid #dde3ed; border-radius: 0; font-size: {scale(10)}px;")
         self.path_edit.setMinimumHeight(scale(28))
         default_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载")
         self.path_edit.setText(default_path)
         path_btn = QPushButton("选择")
-        path_btn.setStyleSheet(f"background-color: #6c757d; color: white; padding: {scale(6)}px {scale(8)}px; border-radius: {scale(4)}px; font-size: {scale(10)}px; font-weight: 500;")
+        path_btn.setStyleSheet(f"background-color: #6c757d; color: white; padding: {scale(6)}px {scale(8)}px; border-radius: 0; font-size: {scale(10)}px; font-weight: 500;")
         path_btn.setMinimumHeight(scale(28))
         path_btn.setMinimumWidth(scale(50))
         path_btn.clicked.connect(self.on_select_path_clicked)
@@ -1482,7 +1482,7 @@ class ExpandedCard(QDialog):
         list_layout = QHBoxLayout()
         list_layout.setContentsMargins(scale(5), 0, scale(5), 0)
         self.video_list = QListWidget()
-        self.video_list.setStyleSheet(f"border: {scale(1)}px solid #dde3ed; border-radius: {scale(6)}px; font-size: {scale(10)}px;")
+        self.video_list.setStyleSheet(f"border: {scale(1)}px solid #dde3ed; border-radius: 0; font-size: {scale(10)}px;")
         self.video_list.setUniformItemSizes(True)
         self.video_list.setSelectionMode(QListWidget.ExtendedSelection)
         self.video_list.setMinimumHeight(scale(80))
@@ -1538,31 +1538,31 @@ class ExpandedCard(QDialog):
         action_layout.setContentsMargins(scale(5), 0, scale(5), 0)
         
         back_btn = QPushButton("返回")
-        back_btn.setStyleSheet(f"background-color: #6c757d; color: white; padding: {scale(6)}px {scale(8)}px; border-radius: {scale(4)}px; font-size: {scale(10)}px; font-weight: 500;")
+        back_btn.setStyleSheet(f"background-color: #6c757d; color: white; padding: {scale(6)}px {scale(8)}px; border-radius: 0; font-size: {scale(10)}px; font-weight: 500;")
         back_btn.setMinimumHeight(scale(28))
         back_btn.setMinimumWidth(scale(50))
         back_btn.clicked.connect(self.on_back_clicked)
         
         select_all_btn = QPushButton("全选")
-        select_all_btn.setStyleSheet(f"background-color: #52c41a; color: white; padding: {scale(6)}px {scale(8)}px; border-radius: {scale(4)}px; font-size: {scale(10)}px; font-weight: 500;")
+        select_all_btn.setStyleSheet(f"background-color: #52c41a; color: white; padding: {scale(6)}px {scale(8)}px; border-radius: 0; font-size: {scale(10)}px; font-weight: 500;")
         select_all_btn.setMinimumHeight(scale(28))
         select_all_btn.setMinimumWidth(scale(50))
         select_all_btn.clicked.connect(self.on_select_all_clicked)
         
         download_video_btn = QPushButton("下载画面")
-        download_video_btn.setStyleSheet(f"background-color: #17a2b8; color: white; padding: {scale(6)}px {scale(8)}px; border-radius: {scale(4)}px; font-size: {scale(10)}px; font-weight: 500;")
+        download_video_btn.setStyleSheet(f"background-color: #17a2b8; color: white; padding: {scale(6)}px {scale(8)}px; border-radius: 0; font-size: {scale(10)}px; font-weight: 500;")
         download_video_btn.setMinimumHeight(scale(28))
         download_video_btn.setMinimumWidth(scale(60))
         download_video_btn.clicked.connect(lambda: self.on_download_clicked(2))
 
         download_audio_btn = QPushButton("下载音频")
-        download_audio_btn.setStyleSheet(f"background-color: #fd7e14; color: white; padding: {scale(6)}px {scale(8)}px; border-radius: {scale(4)}px; font-size: {scale(10)}px; font-weight: 500;")
+        download_audio_btn.setStyleSheet(f"background-color: #fd7e14; color: white; padding: {scale(6)}px {scale(8)}px; border-radius: 0; font-size: {scale(10)}px; font-weight: 500;")
         download_audio_btn.setMinimumHeight(scale(28))
         download_audio_btn.setMinimumWidth(scale(60))
         download_audio_btn.clicked.connect(lambda: self.on_download_clicked(1))
 
         download_full_btn = QPushButton("下载完整视频")
-        download_full_btn.setStyleSheet(f"background-color: #28a745; color: white; padding: {scale(6)}px {scale(8)}px; border-radius: {scale(4)}px; font-size: {scale(10)}px; font-weight: 500;")
+        download_full_btn.setStyleSheet(f"background-color: #28a745; color: white; padding: {scale(6)}px {scale(8)}px; border-radius: 0; font-size: {scale(10)}px; font-weight: 500;")
         download_full_btn.setMinimumHeight(scale(28))
         download_full_btn.setMinimumWidth(scale(80))
         download_full_btn.clicked.connect(lambda: self.on_download_clicked(0))
@@ -1590,7 +1590,7 @@ class ExpandedCard(QDialog):
         
         self.download_scroll = QScrollArea()
         self.download_scroll.setWidgetResizable(True)
-        self.download_scroll.setStyleSheet(f"border: {scale(1)}px solid #dde3ed; border-radius: {scale(8)}px;")
+        self.download_scroll.setStyleSheet(f"border: {scale(1)}px solid #dde3ed; border-radius: 0;")
         
         self.download_container = QWidget()
         self.download_container_layout = QVBoxLayout(self.download_container)
@@ -1605,7 +1605,7 @@ class ExpandedCard(QDialog):
         download_action_layout.setSpacing(scale(15))
         
         download_back_btn = QPushButton("返回")
-        download_back_btn.setStyleSheet(f"background-color: #6c757d; color: white; padding: {scale(10)}px {scale(20)}px; border-radius: {scale(6)}px; font-size: {scale(14)}px; font-weight: 500;")
+        download_back_btn.setStyleSheet(f"background-color: #6c757d; color: white; padding: {scale(10)}px {scale(20)}px; border-radius: 0; font-size: {scale(14)}px; font-weight: 500;")
         download_back_btn.setMinimumHeight(scale(36))
         download_back_btn.clicked.connect(self.on_download_back_clicked)
         
@@ -2608,7 +2608,7 @@ class FloatingBall(QWidget):
         if task_key not in self.parent.download_tasks:
             
             task_widget = QWidget()
-            task_widget.setStyleSheet(scale_style("background-color: #f0fdf4; border-radius: 8px; padding: 12px; margin-bottom: 8px;"))
+            task_widget.setStyleSheet(scale_style("background-color: #f0fdf4; border-radius: 0; padding: 12px; margin-bottom: 8px;"))
             task_layout = QVBoxLayout(task_widget)
             task_layout.setContentsMargins(scale(8), scale(8), scale(8), scale(8))
             task_layout.setSpacing(scale(8))
@@ -2626,7 +2626,7 @@ class FloatingBall(QWidget):
             progress_bar = QProgressBar()
             progress_bar.setRange(0, 100)
             progress_bar.setMinimumHeight(scale(14))
-            progress_bar.setStyleSheet(scale_style("QProgressBar { border-radius: 6px; background-color: #dcfce7; } QProgressBar::chunk { border-radius: 6px; background-color: #22c55e; }"))
+            progress_bar.setStyleSheet(scale_style("QProgressBar { border-radius: 0; background-color: #dcfce7; } QProgressBar::chunk { border-radius: 0; background-color: #22c55e; }"))
             
             
             progress_text = QLabel(f"{int(progress)}%")
@@ -2970,14 +2970,14 @@ class ParseProgressWindow(QDialog):
         custom_style = get_base_style() + scale_style("""
             QDialog {
                 border: 2px solid #409eff;
-                border-radius: 12px;
+                border-radius: 0;
                 background-color: white;
             }
             QTextEdit {
                 background-color: #1e1e1e;
                 color: #4ec9b0;
                 border: 1px solid #dde3ed;
-                border-radius: 8px;
+                border-radius: 0;
                 padding: 12px;
                 font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
                 font-size: 15px;
@@ -2989,11 +2989,11 @@ class ParseProgressWindow(QDialog):
             QScrollBar:vertical {
                 min-width: 10px;
                 background: #1e1e1e;
-                border-radius: 5px;
+                border-radius: 0;
             }
             QScrollBar::handle:vertical {
                 background: #4ec9b0;
-                border-radius: 5px;
+                border-radius: 0;
                 min-height: 20px;
             }
             QScrollBar::handle:vertical:hover {
@@ -3008,11 +3008,11 @@ class ParseProgressWindow(QDialog):
             QScrollBar:horizontal {
                 min-height: 10px;
                 background: #1e1e1e;
-                border-radius: 5px;
+                border-radius: 0;
             }
             QScrollBar::handle:horizontal {
                 background: #4ec9b0;
-                border-radius: 5px;
+                border-radius: 0;
                 min-width: 20px;
             }
             QScrollBar::handle:horizontal:hover {
@@ -3026,11 +3026,11 @@ class ParseProgressWindow(QDialog):
             }
             QProgressBar {
                 min-height: 12px;
-                border-radius: 6px;
+                border-radius: 0;
                 background-color: #e6eaf2;
             }
             QProgressBar::chunk {
-                border-radius: 6px;
+                border-radius: 0;
                 background-color: #409eff;
             }
             QLabel {
@@ -3045,7 +3045,7 @@ class ParseProgressWindow(QDialog):
         main_layout.setSpacing(scale(0))
         
         title_bar = QWidget()
-        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 40px; border-top-left-radius: 10px; border-top-right-radius: 10px;"))
+        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 40px; border-radius: 0; border-radius: 0;"))
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(scale(16), scale(0), scale(12), scale(0))
         title_layout.setSpacing(scale(10))
@@ -3058,7 +3058,7 @@ class ParseProgressWindow(QDialog):
         close_btn = QPushButton("×")
         close_btn.setMinimumSize(scale(28), scale(28))
         close_btn.setMaximumSize(scale(28), scale(28))
-        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 0;"))
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.clicked.connect(self.close)
         title_layout.addWidget(close_btn)
@@ -3109,7 +3109,7 @@ class ParseProgressWindow(QDialog):
         self.stop_btn.setMinimumHeight(scale(32))
         self.stop_btn.setMinimumWidth(scale(80))
         self.stop_btn.setStyleSheet(scale_style("""
-            QPushButton { background-color: #e6a23c; color: white; border: none; border-radius: 6px; padding: 6px 20px; font-weight: 500; }
+            QPushButton { background-color: #e6a23c; color: white; border: none; border-radius: 0; padding: 6px 20px; font-weight: 500; }
             QPushButton:hover { background-color: #ebb563; }
             QPushButton:pressed { background-color: #cf9236; }
             QPushButton:disabled { background-color: #c0c4cc; color: #909399; }
@@ -3121,7 +3121,7 @@ class ParseProgressWindow(QDialog):
         self.cancel_btn.setMinimumHeight(scale(32))
         self.cancel_btn.setMinimumWidth(scale(80))
         self.cancel_btn.setStyleSheet(scale_style("""
-            QPushButton { background-color: #f56c6c; color: white; border: none; border-radius: 6px; padding: 6px 20px; font-weight: 500; }
+            QPushButton { background-color: #f56c6c; color: white; border: none; border-radius: 0; padding: 6px 20px; font-weight: 500; }
             QPushButton:hover { background-color: #f78989; }
             QPushButton:pressed { background-color: #c45656; }
         """))
@@ -3321,7 +3321,7 @@ class DataLoadingDialog(QDialog):
             QDialog {
                 background-color: white;
                 border: 2px solid #409eff;
-                border-radius: 12px;
+                border-radius: 0;
             }
             QLabel {
                 color: #333;
@@ -3329,18 +3329,18 @@ class DataLoadingDialog(QDialog):
             }
             QProgressBar {
                 min-height: 14px;
-                border-radius: 7px;
+                border-radius: 0;
                 background-color: #e6eaf2;
                 border: none;
             }
             QProgressBar::chunk {
-                border-radius: 7px;
+                border-radius: 0;
                 background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #409eff, stop:1 #68d3b8);
             }
             QPushButton {
                 background-color: #f5f5f5;
                 border: 1px solid #d9d9d9;
-                border-radius: 6px;
+                border-radius: 0;
                 padding: 6px 20px;
                 font-size: 15px;
                 color: #666;
@@ -3988,7 +3988,7 @@ class VideoToolWindow(BaseWindow):
                 background-color: #409eff;
                 color: white;
                 border: none;
-                border-radius: 4px;
+                border-radius: 0;
                 padding: 6px 12px;
                 font-size: 15px;
             }
@@ -4003,7 +4003,7 @@ class VideoToolWindow(BaseWindow):
                 background-color: #67c23a;
                 color: white;
                 border: none;
-                border-radius: 4px;
+                border-radius: 0;
                 padding: 6px 10px;
                 font-size: 15px;
             }
@@ -4018,7 +4018,7 @@ class VideoToolWindow(BaseWindow):
                 background-color: #f56c6c;
                 color: white;
                 border: none;
-                border-radius: 4px;
+                border-radius: 0;
                 padding: 6px 12px;
                 font-size: 15px;
             }
@@ -4035,7 +4035,7 @@ class VideoToolWindow(BaseWindow):
         self.file_list_widget.setStyleSheet(scale_style("""
             QListWidget {
                 border: 1px solid #dde3ed;
-                border-radius: 4px;
+                border-radius: 0;
                 background-color: white;
                 padding: 5px;
                 font-size: 15px;
@@ -4043,7 +4043,7 @@ class VideoToolWindow(BaseWindow):
             QListWidget::item {
                 padding: 6px 8px;
                 border-bottom: 1px solid #f0f0f0;
-                border-radius: 2px;
+                border-radius: 0;
             }
             QListWidget::item:selected {
                 background-color: #ecf5ff;
@@ -4237,7 +4237,7 @@ class VideoToolWindow(BaseWindow):
         time_crop_group.setStyleSheet(scale_style("""
             QGroupBox {
                 border: 1px solid #e4e7ed;
-                border-radius: 4px;
+                border-radius: 0;
                 margin-top: 10px;
                 padding-top: 8px;
                 background-color: #fafafa;
@@ -4278,7 +4278,7 @@ class VideoToolWindow(BaseWindow):
         frame_crop_group.setStyleSheet(scale_style("""
             QGroupBox {
                 border: 1px solid #e4e7ed;
-                border-radius: 4px;
+                border-radius: 0;
                 margin-top: 10px;
                 padding-top: 8px;
                 background-color: #fafafa;
@@ -4332,7 +4332,7 @@ class VideoToolWindow(BaseWindow):
         subtitle_group.setStyleSheet(scale_style("""
             QGroupBox {
                 border: 1px solid #e4e7ed;
-                border-radius: 4px;
+                border-radius: 0;
                 margin-top: 10px;
                 padding-top: 8px;
                 background-color: #fafafa;
@@ -4372,7 +4372,7 @@ class VideoToolWindow(BaseWindow):
         meta_group.setStyleSheet(scale_style("""
             QGroupBox {
                 border: 1px solid #e4e7ed;
-                border-radius: 4px;
+                border-radius: 0;
                 margin-top: 10px;
                 padding-top: 8px;
                 background-color: #fafafa;
@@ -4405,7 +4405,7 @@ class VideoToolWindow(BaseWindow):
         preset_group.setStyleSheet(scale_style("""
             QGroupBox {
                 border: 1px solid #e4e7ed;
-                border-radius: 4px;
+                border-radius: 0;
                 margin-top: 10px;
                 padding-top: 8px;
                 background-color: #fafafa;
@@ -4454,7 +4454,7 @@ class VideoToolWindow(BaseWindow):
             QGroupBox {
                 font-weight: bold;
                 border: 1px solid #dde3ed;
-                border-radius: 6px;
+                border-radius: 0;
                 margin-top: 12px;
                 padding-top: 10px;
                 background-color: white;
@@ -4475,7 +4475,7 @@ class VideoToolWindow(BaseWindow):
         self.info_table.setStyleSheet(scale_style("""
             QTextEdit {
                 border: 1px solid #e4e7ed;
-                border-radius: 4px;
+                border-radius: 0;
                 background-color: #fafafa;
                 font-size: 15px;
                 font-family: Consolas, Monaco, monospace;
@@ -4497,7 +4497,7 @@ class VideoToolWindow(BaseWindow):
         self.progress_bar.setStyleSheet(scale_style("""
             QProgressBar {
                 border: 1px solid #dde3ed;
-                border-radius: 4px;
+                border-radius: 0;
                 text-align: center;
                 height: 22px;
                 background-color: #f5f7fa;
@@ -4505,7 +4505,7 @@ class VideoToolWindow(BaseWindow):
             }
             QProgressBar::chunk {
                 background-color: #409eff;
-                border-radius: 3px;
+                border-radius: 0;
             }
         """))
         layout.addWidget(self.progress_bar)
@@ -4521,7 +4521,7 @@ class VideoToolWindow(BaseWindow):
         self.log_text.setStyleSheet(scale_style("""
             QPlainTextEdit {
                 border: 1px solid #e4e7ed;
-                border-radius: 4px;
+                border-radius: 0;
                 background-color: #2d2d2d;
                 color: #67c23a;
                 font-size: 15px;
@@ -4545,7 +4545,7 @@ class VideoToolWindow(BaseWindow):
                 background-color: #409eff;
                 color: white;
                 border: none;
-                border-radius: 4px;
+                border-radius: 0;
                 padding: 10px 24px;
                 font-size: 15px;
                 font-weight: bold;
@@ -4563,7 +4563,7 @@ class VideoToolWindow(BaseWindow):
                 background-color: #f56c6c;
                 color: white;
                 border: none;
-                border-radius: 4px;
+                border-radius: 0;
                 padding: 10px 20px;
                 font-size: 15px;
             }
@@ -4579,7 +4579,7 @@ class VideoToolWindow(BaseWindow):
                 background-color: #e6a23c;
                 color: white;
                 border: none;
-                border-radius: 4px;
+                border-radius: 0;
                 padding: 10px 16px;
                 font-size: 15px;
             }
@@ -4594,7 +4594,7 @@ class VideoToolWindow(BaseWindow):
                 background-color: #909399;
                 color: white;
                 border: none;
-                border-radius: 4px;
+                border-radius: 0;
                 padding: 10px 20px;
                 font-size: 15px;
             }
@@ -4644,7 +4644,7 @@ class VideoToolWindow(BaseWindow):
         list_widget.setStyleSheet("""
             QListWidget {
                 border: 1px solid #dde3ed;
-                border-radius: 4px;
+                border-radius: 0;
                 background-color: white;
             }
             QListWidget::item { padding: 8px; }
@@ -5746,7 +5746,7 @@ class NotificationWidget(QWidget):
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         
         self.container = QWidget(self)
-        self.container.setStyleSheet(scale_style("background-color: white; border-radius: 8px; border: 1px solid #e8e8e8;"))
+        self.container.setStyleSheet(scale_style("background-color: white; border-radius: 0; border: 1px solid #e8e8e8;"))
         
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -5789,19 +5789,19 @@ class NotificationWidget(QWidget):
             self.message_label.setText(message)
 
             if notification_type == "success":
-                self.container.setStyleSheet(scale_style("background-color: #f0f9ff; border-left: 4px solid #409eff; border-radius: 8px; border: 1px solid #e6f7ff;"))
+                self.container.setStyleSheet(scale_style("background-color: #f0f9ff; border-left: 4px solid #409eff; border-radius: 0; border: 1px solid #e6f7ff;"))
                 self.icon_label.setText("✓")
                 self.icon_label.setStyleSheet(scale_style("font-size: 15px; color: #409eff; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif;"))
             elif notification_type == "error":
-                self.container.setStyleSheet(scale_style("background-color: #fff2f0; border-left: 4px solid #ff4d4f; border-radius: 8px; border: 1px solid #fff1f0;"))
+                self.container.setStyleSheet(scale_style("background-color: #fff2f0; border-left: 4px solid #ff4d4f; border-radius: 0; border: 1px solid #fff1f0;"))
                 self.icon_label.setText("×")
                 self.icon_label.setStyleSheet(scale_style("font-size: 15px; color: #ff4d4f; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif;"))
             elif notification_type == "warning":
-                self.container.setStyleSheet(scale_style("background-color: #fff7e6; border-left: 4px solid #faad14; border-radius: 8px; border: 1px solid #fffbe6;"))
+                self.container.setStyleSheet(scale_style("background-color: #fff7e6; border-left: 4px solid #faad14; border-radius: 0; border: 1px solid #fffbe6;"))
                 self.icon_label.setText("!")
                 self.icon_label.setStyleSheet(scale_style("font-size: 15px; color: #faad14; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif;"))
             else:
-                self.container.setStyleSheet(scale_style("background-color: #f6ffed; border-left: 4px solid #52c41a; border-radius: 8px; border: 1px solid #f6ffed;"))
+                self.container.setStyleSheet(scale_style("background-color: #f6ffed; border-left: 4px solid #52c41a; border-radius: 0; border: 1px solid #f6ffed;"))
                 self.icon_label.setText("i")
                 self.icon_label.setStyleSheet(scale_style("font-size: 15px; color: #52c41a; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif;"))
 
@@ -5932,7 +5932,7 @@ class AnnouncementDialog(QDialog):
             QLabel {{
                 background-color: {accent};
                 color: white;
-                border-radius: 6px;
+                border-radius: 0;
                 font-size: 15px;
                 font-weight: bold;
             }}
@@ -5956,7 +5956,7 @@ class AnnouncementDialog(QDialog):
                 color: #595959;
                 background-color: {bg_color};
                 padding: 12px;
-                border-radius: 6px;
+                border-radius: 0;
             }}
         """)
         body_lbl.setMinimumHeight(60)
@@ -5978,7 +5978,7 @@ class AnnouncementDialog(QDialog):
                     background-color: {accent};
                     color: white;
                     border: none;
-                    border-radius: 5px;
+                    border-radius: 0;
                     font-size: 15px;
                     font-weight: 500;
                     padding: 0 16px;
@@ -5997,7 +5997,7 @@ class AnnouncementDialog(QDialog):
                     background-color: white;
                     color: #595959;
                     border: 1px solid #d9d9d9;
-                    border-radius: 5px;
+                    border-radius: 0;
                     font-size: 15px;
                     padding: 0 14px;
                 }
@@ -6016,7 +6016,7 @@ class AnnouncementDialog(QDialog):
                     background-color: {accent};
                     color: white;
                     border: none;
-                    border-radius: 5px;
+                    border-radius: 0;
                     font-size: 15px;
                     font-weight: 500;
                     padding: 0 16px;
@@ -6064,7 +6064,7 @@ def _markdown_to_html(text):
                 result.append('</code></pre>')
                 in_code = False
             else:
-                result.append('<pre style="background:#f5f5f5;border-radius:4px;padding:10px;margin:6px 0;overflow-x:auto;font-family:Consolas,monospace;font-size: 15px;line-height:1.5"><code>')
+                result.append('<pre style="background:#f5f5f5;border-radius: 0;padding:10px;margin:6px 0;overflow-x:auto;font-family:Consolas,monospace;font-size: 15px;line-height:1.5"><code>')
                 in_code = True
             continue
 
@@ -6184,7 +6184,7 @@ def _md_inline(text):
     # 5. 行内代码 `code`
     def _code_repl(m):
         inner = m.group(1)  # 已被转义
-        return (f'<code style="background:#f0f0f0;border-radius:3px;'
+        return (f'<code style="background:#f0f0f0;border-radius: 0;'
                 f'padding:1px 5px;font-size: 15px;'
                 f'font-family:Consolas,monospace;color:#d63384">{inner}</code>')
     text = re.sub(r'`([^`]+)`', _code_repl, text)
@@ -6220,14 +6220,14 @@ class BetaAuthDialog(QDialog):
             QLabel#title { font-size: 17px; font-weight: bold; color: #00a1d6; }
             QLabel#desc { font-size: 15px; color: #555; line-height: 1.6; }
             QLabel#deviceIdLabel { font-size: 15px; color: #909399; }
-            QLineEdit { padding: 10px 14px; border: 2px solid #dde3ed; border-radius: 8px; font-size: 15px; }
+            QLineEdit { padding: 10px 14px; border: 2px solid #dde3ed; border-radius: 0; font-size: 15px; }
             QLineEdit:focus { border-color: #00a1d6; }
-            QPushButton#verifyBtn { background: #00a1d6; color: white; border: none; border-radius: 8px; font-size: 15px; font-weight: bold; padding: 12px; }
+            QPushButton#verifyBtn { background: #00a1d6; color: white; border: none; border-radius: 0; font-size: 15px; font-weight: bold; padding: 12px; }
             QPushButton#verifyBtn:hover { background: #0088b4; }
             QPushButton#verifyBtn:disabled { background: #a0aec0; }
-            QPushButton#joinGroupBtn { background: transparent; color: #00a1d6; border: 1px solid #00a1d6; border-radius: 6px; padding: 4px 12px; font-size: 15px; }
+            QPushButton#joinGroupBtn { background: transparent; color: #00a1d6; border: 1px solid #00a1d6; border-radius: 0; padding: 4px 12px; font-size: 15px; }
             QPushButton#joinGroupBtn:hover { background: #00a1d6; color: white; }
-            QPushButton#downloadStableBtn { background: #48bb78; color: white; border: none; border-radius: 6px; padding: 6px 14px; font-size: 15px; font-weight: bold; }
+            QPushButton#downloadStableBtn { background: #48bb78; color: white; border: none; border-radius: 0; padding: 6px 14px; font-size: 15px; font-weight: bold; }
             QPushButton#downloadStableBtn:hover { background: #38a169; }
             QLabel#groupLabel { font-size: 15px; color: #909399; }
             QPushButton#exitBtn { background: transparent; color: #909399; border: none; font-size: 15px; text-decoration: underline; }
@@ -6565,7 +6565,7 @@ class UpdateDialog(QDialog):
                         }}
                         QCheckBox::indicator {{
                             width: 15px; height: 15px; border: 1px solid #d9d9d9;
-                            border-radius: 3px; background: #ffffff;
+                            border-radius: 0; background: #ffffff;
                         }}
                         QCheckBox::indicator:checked {{
                             background-color: {accent}; border-color: {accent};
@@ -6599,7 +6599,7 @@ class UpdateDialog(QDialog):
                 skip.setStyleSheet(f"""
                     QPushButton {{
                         background-color: #ffffff; color: #555555;
-                        border: 1px solid #d9d9d9; border-radius: 2px;
+                        border: 1px solid #d9d9d9; border-radius: 0;
                         font-size: {scale(13)}px; padding: 0 {scale(18)}px;
                     }}
                     QPushButton:hover {{ border-color: {accent}; color: {accent}; }}
@@ -6613,7 +6613,7 @@ class UpdateDialog(QDialog):
             self.download_btn.setStyleSheet(f"""
                 QPushButton {{
                     background-color: {accent}; color: #ffffff; border: none;
-                    border-radius: 2px; font-size: {scale(13)}px; font-weight: 500;
+                    border-radius: 0; font-size: {scale(13)}px; font-weight: 500;
                     padding: 0 {scale(20)}px;
                 }}
                 QPushButton:hover {{ background-color: {"#a61d24" if is_force else "#0958d8"}; }}
@@ -6944,7 +6944,7 @@ class AnnouncementBar(QWidget):
             icon_container.setFixedSize(scale(20), scale(20))
             icon_container.setStyleSheet(f"""
                 background-color: {c['accent']};
-                border-radius: {scale(10)}px;
+                border-radius: 0;
                 color: white;
                 font-size: {scale(12)}px;
                 font-weight: bold;
@@ -6973,7 +6973,7 @@ class AnnouncementBar(QWidget):
             action_btn.setStyleSheet(f"""
                 QPushButton {{
                     background-color: {c['accent']}; color: white; border: none;
-                    border-radius: {scale(13)}px; padding: 0 {scale(14)}px; font-size: {scale(12)}px;
+                    border-radius: 0; padding: 0 {scale(14)}px; font-size: {scale(12)}px;
                     font-family: 'Microsoft YaHei', sans-serif; font-weight: bold;
                 }}
                 QPushButton:hover {{ background-color: {c['text']}; }}
@@ -6988,7 +6988,7 @@ class AnnouncementBar(QWidget):
             close_btn.setStyleSheet(f"""
                 QPushButton {{
                     background-color: transparent; border: none;
-                    border-radius: {scale(14)}px;
+                    border-radius: 0;
                     font-size: {scale(16)}px; color: {c['text']}; font-weight: bold;
                 }}
                 QPushButton:hover {{
@@ -7034,7 +7034,7 @@ class DebugWindow(QWidget):
             QGroupBox {
                 background-color: white;
                 border: 1px solid #ffccc7;
-                border-radius: 8px;
+                border-radius: 0;
                 margin: 10px;
             }
             QGroupBox::title {
@@ -7046,14 +7046,14 @@ class DebugWindow(QWidget):
                 font-family: Consolas, monospace;
                 font-size: 15px;
                 border: 1px solid #ffccc7;
-                border-radius: 4px;
+                border-radius: 0;
                 background-color: white;
             }
             QPushButton {
                 background-color: #ff4d4f;
                 color: white;
                 border: none;
-                border-radius: 4px;
+                border-radius: 0;
                 padding: 8px 16px;
                 font-size: 15px;
                 margin: 5px;
@@ -7154,7 +7154,7 @@ class MergeProgressWindow(QDialog):
         
         self.setStyleSheet(get_base_style() + scale_style("""QDialog {
             border: 2px solid #409eff;
-            border-radius: 12px;
+            border-radius: 0;
             background-color: white;
         }
         """))
@@ -7164,7 +7164,7 @@ class MergeProgressWindow(QDialog):
         main_layout.setSpacing(scale(0))
         
         title_bar = QWidget()
-        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 40px; border-top-left-radius: 10px; border-top-right-radius: 10px;"))
+        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 40px; border-radius: 0; border-radius: 0;"))
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(scale(16), scale(0), scale(12), scale(0))
         title_layout.setSpacing(scale(10))
@@ -7177,7 +7177,7 @@ class MergeProgressWindow(QDialog):
         close_btn = QPushButton("×")
         close_btn.setMinimumSize(scale(28), scale(28))
         close_btn.setMaximumSize(scale(28), scale(28))
-        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 0;"))
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.clicked.connect(self.close)
         title_layout.addWidget(close_btn)
@@ -7197,7 +7197,7 @@ class MergeProgressWindow(QDialog):
                 background-color: #1e1e1e;
                 color: #4ec9b0;
                 border: 1px solid #dde3ed;
-                border-radius: 8px;
+                border-radius: 0;
                 padding: 12px;
                 font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
                 font-size: 15px;
@@ -7209,11 +7209,11 @@ class MergeProgressWindow(QDialog):
             QScrollBar:vertical {
                 min-width: 10px;
                 background: #1e1e1e;
-                border-radius: 5px;
+                border-radius: 0;
             }
             QScrollBar::handle:vertical {
                 background: #4ec9b0;
-                border-radius: 5px;
+                border-radius: 0;
                 min-height: 20px;
             }
             QScrollBar::handle:vertical:hover {
@@ -7228,11 +7228,11 @@ class MergeProgressWindow(QDialog):
             QScrollBar:horizontal {
                 min-height: 10px;
                 background: #1e1e1e;
-                border-radius: 5px;
+                border-radius: 0;
             }
             QScrollBar::handle:horizontal {
                 background: #4ec9b0;
-                border-radius: 5px;
+                border-radius: 0;
                 min-width: 20px;
             }
             QScrollBar::handle:horizontal:hover {
@@ -7258,11 +7258,11 @@ class MergeProgressWindow(QDialog):
         self.progress_bar.setStyleSheet(scale_style("""
             QProgressBar {
                 min-height: 12px;
-                border-radius: 6px;
+                border-radius: 0;
                 background-color: #e6eaf2;
             }
             QProgressBar::chunk {
-                border-radius: 6px;
+                border-radius: 0;
                 background-color: #409eff;
             }
         """))
@@ -7369,7 +7369,7 @@ class DanmakuSelectionDialog(QDialog):
         custom_style = get_base_style() + scale_style("""
             QDialog {
                 border: 2px solid #409eff;
-                border-radius: 12px;
+                border-radius: 0;
                 background-color: white;
                 border: 1px solid #e6eaf2;
             }
@@ -7396,7 +7396,7 @@ class DanmakuSelectionDialog(QDialog):
         main_layout.setSpacing(scale(0))
         
         title_bar = QWidget()
-        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 40px; border-top-left-radius: 10px; border-top-right-radius: 10px;"))
+        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 40px; border-radius: 0; border-radius: 0;"))
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(scale(16), scale(0), scale(12), scale(0))
         title_layout.setSpacing(scale(10))
@@ -7406,7 +7406,7 @@ class DanmakuSelectionDialog(QDialog):
         title_layout.addWidget(title_label, stretch=1)
 
         close_btn = QPushButton("×")
-        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 0;"))
         close_btn.setToolTip("关闭")
         close_btn.clicked.connect(lambda: (self.reject(), self.close()))
         title_layout.addWidget(close_btn)
@@ -7422,18 +7422,18 @@ class DanmakuSelectionDialog(QDialog):
 
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("搜索弹幕内容...")
-        self.search_edit.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px;"))
+        self.search_edit.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 0;"))
         self.search_edit.textChanged.connect(self.on_search_changed)
         filter_layout.addWidget(self.search_edit, stretch=1)
 
         self.filter_combo = QComboBox()
-        self.filter_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px;"))
+        self.filter_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 0;"))
         self.filter_combo.addItems(["全部弹幕", "滚动弹幕", "顶部弹幕", "底部弹幕", "逆向弹幕", "高级弹幕"])
         self.filter_combo.currentIndexChanged.connect(self.on_filter_changed)
         filter_layout.addWidget(self.filter_combo)
 
         self.sort_combo = QComboBox()
-        self.sort_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px;"))
+        self.sort_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 0;"))
         self.sort_combo.addItems(["按时间排序", "按颜色排序", "按字体大小排序"])
         self.sort_combo.currentIndexChanged.connect(self.on_sort_changed)
         filter_layout.addWidget(self.sort_combo)
@@ -7662,7 +7662,7 @@ class DanmakuSelectionDialog(QDialog):
 
         color_widget = QWidget()
         color_widget.setFixedSize(scale(20), scale(20))
-        color_widget.setStyleSheet(f"background-color: {color_hex}; border: {scale(1)}px solid black; border-radius: {scale(2)}px;")
+        color_widget.setStyleSheet(f"background-color: {color_hex}; border: {scale(1)}px solid black; border-radius: 0;")
 
         info_layout.addWidget(checkbox)
         info_layout.addWidget(info_label, stretch=1)
@@ -8074,7 +8074,7 @@ class EpisodeSelectionDialog(ResizableDialog):
         custom_style = get_base_style() + scale_style("""
             QDialog {
                 border: 2px solid #409eff;
-                border-radius: 12px;
+                border-radius: 0;
                 background-color: white;
             }
             QListWidget {
@@ -8097,7 +8097,7 @@ class EpisodeSelectionDialog(ResizableDialog):
                 min-height: 170px;
                 margin: 10px;
                 border: 1px solid #e6eaf2;
-                border-radius: 8px;
+                border-radius: 0;
                 background-color: white;
             }
             .card-view QListWidget::item:hover {
@@ -8115,7 +8115,7 @@ class EpisodeSelectionDialog(ResizableDialog):
         main_layout.setSpacing(scale(0))
         
         title_bar = QWidget()
-        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 40px; border-top-left-radius: 10px; border-top-right-radius: 10px;"))
+        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 40px; border-radius: 0; border-radius: 0;"))
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(scale(16), scale(0), scale(12), scale(0))
         title_layout.setSpacing(scale(10))
@@ -8129,7 +8129,7 @@ class EpisodeSelectionDialog(ResizableDialog):
         title_layout.addWidget(self.count_label)
         
         close_btn = QPushButton("×")
-        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 0;"))
         close_btn.setToolTip("关闭")
         close_btn.clicked.connect(lambda: (self.reject(), self.close()))
         title_layout.addWidget(close_btn)
@@ -8144,12 +8144,12 @@ class EpisodeSelectionDialog(ResizableDialog):
         search_layout = QHBoxLayout()
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("搜索集数标题...")
-        self.search_edit.setStyleSheet(scale_style("padding: 10px 12px; border: 1px solid #dde3ed; border-radius: 8px;"))
+        self.search_edit.setStyleSheet(scale_style("padding: 10px 12px; border: 1px solid #dde3ed; border-radius: 0;"))
         self.search_edit.textChanged.connect(self.filter_episodes)
         search_layout.addWidget(self.search_edit, stretch=1)
         
         self.sort_combo = QComboBox()
-        self.sort_combo.setStyleSheet(scale_style("padding: 10px 12px; border: 1px solid #dde3ed; border-radius: 8px;"))
+        self.sort_combo.setStyleSheet(scale_style("padding: 10px 12px; border: 1px solid #dde3ed; border-radius: 0;"))
         self.sort_combo.addItems(["按集数排序", "按标题排序"])
         self.sort_combo.currentIndexChanged.connect(self.on_sort_changed)
         search_layout.addWidget(self.sort_combo)
@@ -8168,10 +8168,10 @@ class EpisodeSelectionDialog(ResizableDialog):
         view_layout.addWidget(self.list_radio)
         view_layout.addWidget(self.card_radio)
         self.expand_all_btn = QPushButton("展开全部")
-        self.expand_all_btn.setStyleSheet(scale_style("padding: 4px 12px; border: 1px solid #dde3ed; border-radius: 6px; background-color: white; color: #475569; font-size: 15px;"))
+        self.expand_all_btn.setStyleSheet(scale_style("padding: 4px 12px; border: 1px solid #dde3ed; border-radius: 0; background-color: white; color: #475569; font-size: 15px;"))
         self.expand_all_btn.clicked.connect(lambda: self.list_view.expandAll())
         self.collapse_all_btn = QPushButton("折叠全部")
-        self.collapse_all_btn.setStyleSheet(scale_style("padding: 4px 12px; border: 1px solid #dde3ed; border-radius: 6px; background-color: white; color: #475569; font-size: 15px;"))
+        self.collapse_all_btn.setStyleSheet(scale_style("padding: 4px 12px; border: 1px solid #dde3ed; border-radius: 0; background-color: white; color: #475569; font-size: 15px;"))
         self.collapse_all_btn.clicked.connect(lambda: self.list_view.collapseAll())
         view_layout.addWidget(self.expand_all_btn)
         view_layout.addWidget(self.collapse_all_btn)
@@ -8216,19 +8216,19 @@ class EpisodeSelectionDialog(ResizableDialog):
 
         btn_layout = QHBoxLayout()
         self.select_all_btn = QPushButton("全选")
-        self.select_all_btn.setStyleSheet(scale_style("background-color: #52c41a; color: white; padding: 10px 20px; border-radius: 8px;"))
+        self.select_all_btn.setStyleSheet(scale_style("background-color: #52c41a; color: white; padding: 10px 20px; border-radius: 0;"))
         self.select_all_btn.clicked.connect(self.select_all)
         self.deselect_all_btn = QPushButton("取消全选")
-        self.deselect_all_btn.setStyleSheet(scale_style("background-color: #919191; color: white; padding: 10px 20px; border-radius: 8px;"))
+        self.deselect_all_btn.setStyleSheet(scale_style("background-color: #919191; color: white; padding: 10px 20px; border-radius: 0;"))
         self.deselect_all_btn.clicked.connect(self.deselect_all)
         self.invert_btn = QPushButton("反选")
-        self.invert_btn.setStyleSheet(scale_style("background-color: #fa8c16; color: white; padding: 10px 20px; border-radius: 8px;"))
+        self.invert_btn.setStyleSheet(scale_style("background-color: #fa8c16; color: white; padding: 10px 20px; border-radius: 0;"))
         self.invert_btn.clicked.connect(self.invert_selection)
         self.range_btn = QPushButton("选范围")
-        self.range_btn.setStyleSheet(scale_style("background-color: #9f7aea; color: white; padding: 10px 20px; border-radius: 8px;"))
+        self.range_btn.setStyleSheet(scale_style("background-color: #9f7aea; color: white; padding: 10px 20px; border-radius: 0;"))
         self.range_btn.clicked.connect(self.select_range)
         self.confirm_btn = QPushButton("确认选择")
-        self.confirm_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; padding: 10px 24px; border-radius: 8px; font-weight: 500;"))
+        self.confirm_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; padding: 10px 24px; border-radius: 0; font-weight: 500;"))
         self.confirm_btn.clicked.connect(self.accept)
         btn_layout.addWidget(self.select_all_btn)
         btn_layout.addWidget(self.deselect_all_btn)
@@ -8265,7 +8265,7 @@ class EpisodeSelectionDialog(ResizableDialog):
         cover_label = QLabel()
         cover_label.setMinimumSize(scale(96), scale(64))
         cover_label.setMaximumSize(scale(120), scale(80))
-        cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 6px; background-color: #f1f5f9;"))
+        cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 0; background-color: #f1f5f9;"))
         cover_label.setAlignment(Qt.AlignCenter)
         cover_label.setText("无封面")
         layout.addWidget(cover_label)
@@ -8309,7 +8309,7 @@ class EpisodeSelectionDialog(ResizableDialog):
                             if not pixmap.isNull():
                                 scaled_pixmap = pixmap.scaled(scale(120), scale(80), Qt.KeepAspectRatio, Qt.SmoothTransformation)
                                 cover_label.setPixmap(scaled_pixmap)
-                                cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 6px;"))
+                                cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 0;"))
                             else:
                                 cover_label.setText("加载失败")
                         else:
@@ -8392,10 +8392,10 @@ class EpisodeSelectionDialog(ResizableDialog):
         if permission_denied:
             if ep.get('has_free_part', False):
                 perm_label = QLabel("试看")
-                perm_label.setStyleSheet(scale_style("font-size: 15px; color: #10b981; font-weight: 500; border: 1px solid #10b981; border-radius: 3px; padding: 0 4px;"))
+                perm_label.setStyleSheet(scale_style("font-size: 15px; color: #10b981; font-weight: 500; border: 1px solid #10b981; border-radius: 0; padding: 0 4px;"))
             else:
                 perm_label = QLabel("付费")
-                perm_label.setStyleSheet(scale_style("font-size: 15px; color: #f56c6c; font-weight: 500; border: 1px solid #f56c6c; border-radius: 3px; padding: 0 4px;"))
+                perm_label.setStyleSheet(scale_style("font-size: 15px; color: #f56c6c; font-weight: 500; border: 1px solid #f56c6c; border-radius: 0; padding: 0 4px;"))
             meta_layout.addWidget(perm_label)
         
         meta_layout.addStretch(1)
@@ -8416,7 +8416,7 @@ class EpisodeSelectionDialog(ResizableDialog):
         widget.setStyleSheet(scale_style("""
             QWidget {
                 background-color: white;
-                border-radius: 8px;
+                border-radius: 0;
             }
         """))
 
@@ -8429,7 +8429,7 @@ class EpisodeSelectionDialog(ResizableDialog):
         cover_container.setFixedSize(cw, cover_h)
         cover_container.setStyleSheet(scale_style("""
             QWidget {
-                border-radius: 8px 8px 0 0;
+border-radius: 0;
                 background-color: #f1f5f9;
             }
         """))
@@ -8487,7 +8487,7 @@ class EpisodeSelectionDialog(ResizableDialog):
                     background-color: rgba(0, 0, 0, 0.7);
                     color: #f56c6c;
                     padding: 2px 6px;
-                    border-radius: 4px;
+                    border-radius: 0;
                     font-size: 15px;
                     font-weight: 500;
                 }
@@ -9161,7 +9161,7 @@ class EpisodeSelectionDialog(ResizableDialog):
                             else:
                                 scaled_pixmap = pixmap.scaled(target_w, target_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                                 cover_label.setPixmap(scaled_pixmap)
-                                cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 6px;"))
+                                cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 0;"))
                         else:
                             cover_label.setText("加载失败")
                     else:
@@ -9487,15 +9487,15 @@ class TaskManagerWindow(BaseWindow):
         custom_style = get_base_style() + scale_style("""
             QMainWindow {
                 border: 2px solid #409eff;
-                border-radius: 8px;
+                border-radius: 0;
                 background-color: white;
             }
             #titleBar {
                 background-color: #409eff;
                 color: white;
                 min-height: 32px;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
+                border-radius: 0;
+                border-radius: 0;
             }
             #titleLabel {
                 font-weight: bold;
@@ -9589,12 +9589,12 @@ class TaskManagerWindow(BaseWindow):
                 border: none;
                 background: #f1f5f9;
                 width: 8px;
-                border-radius: 4px;
+                border-radius: 0;
             }
             QScrollBar::handle:vertical {
                 background: #cbd5e1;
                 min-height: 30px;
-                border-radius: 4px;
+                border-radius: 0;
             }
             QScrollBar::handle:vertical:hover {
                 background: #94a3b8;
@@ -9610,10 +9610,10 @@ class TaskManagerWindow(BaseWindow):
 
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(scale(12))
-        btn_style_primary = scale_style("QPushButton { background-color: #3b82f6; color: white; padding: 6px 16px; border-radius: 6px; font-size: 15px; font-weight: 500; min-height: 32px; border: none; } QPushButton:hover { background-color: #2563eb; } QPushButton:pressed { background-color: #1d4ed8; }")
-        btn_style_danger = scale_style("QPushButton { background-color: #ef4444; color: white; padding: 6px 16px; border-radius: 6px; font-size: 15px; font-weight: 500; min-height: 32px; border: none; } QPushButton:hover { background-color: #dc2626; } QPushButton:pressed { background-color: #b91c1c; }")
-        btn_style_secondary = scale_style("QPushButton { background-color: #f1f5f9; color: #475569; padding: 6px 16px; border-radius: 6px; font-size: 15px; font-weight: 500; min-height: 32px; border: 1px solid #e6eaf2; } QPushButton:hover { background-color: #e6eaf2; } QPushButton:pressed { background-color: #cbd5e1; }")
-        btn_style_warning = scale_style("QPushButton { background-color: #f59e0b; color: white; padding: 6px 16px; border-radius: 6px; font-size: 15px; font-weight: 500; min-height: 32px; border: none; } QPushButton:hover { background-color: #d97706; } QPushButton:pressed { background-color: #b45309; }")
+        btn_style_primary = scale_style("QPushButton { background-color: #3b82f6; color: white; padding: 6px 16px; border-radius: 0; font-size: 15px; font-weight: 500; min-height: 32px; border: none; } QPushButton:hover { background-color: #2563eb; } QPushButton:pressed { background-color: #1d4ed8; }")
+        btn_style_danger = scale_style("QPushButton { background-color: #ef4444; color: white; padding: 6px 16px; border-radius: 0; font-size: 15px; font-weight: 500; min-height: 32px; border: none; } QPushButton:hover { background-color: #dc2626; } QPushButton:pressed { background-color: #b91c1c; }")
+        btn_style_secondary = scale_style("QPushButton { background-color: #f1f5f9; color: #475569; padding: 6px 16px; border-radius: 0; font-size: 15px; font-weight: 500; min-height: 32px; border: 1px solid #e6eaf2; } QPushButton:hover { background-color: #e6eaf2; } QPushButton:pressed { background-color: #cbd5e1; }")
+        btn_style_warning = scale_style("QPushButton { background-color: #f59e0b; color: white; padding: 6px 16px; border-radius: 0; font-size: 15px; font-weight: 500; min-height: 32px; border: none; } QPushButton:hover { background-color: #d97706; } QPushButton:pressed { background-color: #b45309; }")
         self.refresh_btn = QPushButton("刷新列表")
         self.refresh_btn.setIcon(_task_icon("refresh", scale(16), "#ffffff"))
         self.refresh_btn.setIconSize(QSize(scale(15), scale(15)))
@@ -9741,7 +9741,7 @@ class TaskManagerWindow(BaseWindow):
             QWidget#taskCard {
                 background-color: white;
                 border: 1px solid #e6eaf2;
-                border-radius: 10px;
+                border-radius: 0;
             }
             QWidget#taskCard:hover {
                 border: 1px solid #cbd5e1;
@@ -9800,7 +9800,7 @@ class TaskManagerWindow(BaseWindow):
             dot_size = scale(8)
             dot_label = QLabel()
             dot_label.setFixedSize(dot_size, dot_size)
-            dot_label.setStyleSheet(scale_style(f"background-color: {status_color}; border-radius: 4px; min-width: 8px; max-width: 8px; min-height: 8px; max-height: 8px;"))
+            dot_label.setStyleSheet(scale_style(f"background-color: {status_color}; border-radius: 0; min-width: 8px; max-width: 8px; min-height: 8px; max-height: 8px;"))
             header_layout.addWidget(dot_label)
             
             title_label = QLabel(title)
@@ -9812,12 +9812,12 @@ class TaskManagerWindow(BaseWindow):
                 type_tag = QLabel(task_type)
                 type_color = type_color_map.get(task_type, "#64748b")
                 type_bg = type_bg_map.get(task_type, "#f1f5f9")
-                type_tag.setStyleSheet(scale_style(f"background-color: {type_bg}; color: {type_color}; padding: 2px 8px; border-radius: 4px; font-size: 15px; font-weight: 500;"))
+                type_tag.setStyleSheet(scale_style(f"background-color: {type_bg}; color: {type_color}; padding: 2px 8px; border-radius: 0; font-size: 15px; font-weight: 500;"))
                 type_tag.setAlignment(Qt.AlignCenter)
                 header_layout.addWidget(type_tag)
             
             status_badge = QLabel(status_text)
-            status_badge.setStyleSheet(scale_style(f"background-color: {status_color}18; color: {status_color}; padding: 2px 10px; border-radius: 10px; font-size: 15px; font-weight: 600;"))
+            status_badge.setStyleSheet(scale_style(f"background-color: {status_color}18; color: {status_color}; padding: 2px 10px; border-radius: 0; font-size: 15px; font-weight: 600;"))
             status_badge.setAlignment(Qt.AlignCenter)
             header_layout.addWidget(status_badge)
             
@@ -9841,12 +9841,12 @@ class TaskManagerWindow(BaseWindow):
             progress_bar.setTextVisible(False)
             progress_bar.setStyleSheet(scale_style(f"""
                 QProgressBar {{
-                    border-radius: 3px;
+                    border-radius: 0;
                     background-color: #f1f5f9;
                     border: none;
                 }}
                 QProgressBar::chunk {{
-                    border-radius: 3px;
+                    border-radius: 0;
                     background: {progress_gradient};
                 }}
             """))
@@ -9871,7 +9871,7 @@ class TaskManagerWindow(BaseWindow):
             
             if save_path:
                 open_dir_btn = QPushButton("打开目录")
-                open_dir_btn.setStyleSheet(scale_style("QPushButton { background-color: transparent; color: #3b82f6; padding: 2px 8px; border-radius: 4px; font-size: 15px; border: 1px solid #3b82f6; } QPushButton:hover { background-color: #eff6ff; }"))
+                open_dir_btn.setStyleSheet(scale_style("QPushButton { background-color: transparent; color: #3b82f6; padding: 2px 8px; border-radius: 0; font-size: 15px; border: 1px solid #3b82f6; } QPushButton:hover { background-color: #eff6ff; }"))
                 open_dir_btn.clicked.connect(lambda checked, p=save_path: self.open_directory(p))
                 info_layout.addWidget(open_dir_btn)
             
@@ -9964,7 +9964,7 @@ class TaskManagerWindow(BaseWindow):
             url_layout.addWidget(url_link, stretch=1)
             
             copy_btn = QPushButton("复制")
-            copy_btn.setStyleSheet(scale_style("QPushButton { background-color: transparent; color: #64748b; padding: 2px 8px; border-radius: 4px; font-size: 15px; border: 1px solid #e6eaf2; } QPushButton:hover { background-color: #f8fafc; color: #475569; border: 1px solid #cbd5e1; }"))
+            copy_btn.setStyleSheet(scale_style("QPushButton { background-color: transparent; color: #64748b; padding: 2px 8px; border-radius: 0; font-size: 15px; border: 1px solid #e6eaf2; } QPushButton:hover { background-color: #f8fafc; color: #475569; border: 1px solid #cbd5e1; }"))
             copy_btn.clicked.connect(lambda checked, u=url: self.copy_to_clipboard(u))
             url_layout.addWidget(copy_btn)
             
@@ -9978,14 +9978,14 @@ class TaskManagerWindow(BaseWindow):
                 err_icon.setFixedSize(scale(14), scale(14))
                 err_row.addWidget(err_icon, 0, Qt.AlignTop)
                 error_label = QLabel(f"{error_message[:80]}{'...' if len(error_message) > 80 else ''}")
-                error_label.setStyleSheet(scale_style("color: #ef4444; font-size: 15px; background-color: #fef2f2; padding: 4px 8px; border-radius: 4px;"))
+                error_label.setStyleSheet(scale_style("color: #ef4444; font-size: 15px; background-color: #fef2f2; padding: 4px 8px; border-radius: 0;"))
                 error_label.setToolTip(error_message)
                 error_label.setWordWrap(True)
                 err_row.addWidget(error_label, stretch=1)
                 support_btn = QPushButton("获取支持")
                 support_btn.setIcon(_task_icon("link", scale(13), "#ef4444"))
                 support_btn.setIconSize(QSize(scale(12), scale(12)))
-                support_btn.setStyleSheet(scale_style("QPushButton { background-color: #fef2f2; color: #ef4444; border: 1px solid #fecaca; padding: 2px 8px; border-radius: 4px; font-size: 15px; } QPushButton:hover { background-color: #fee2e2; } QPushButton:pressed { background-color: #fecaca; }"))
+                support_btn.setStyleSheet(scale_style("QPushButton { background-color: #fef2f2; color: #ef4444; border: 1px solid #fecaca; padding: 2px 8px; border-radius: 0; font-size: 15px; } QPushButton:hover { background-color: #fee2e2; } QPushButton:pressed { background-color: #fecaca; }"))
                 support_btn.clicked.connect(lambda checked, t=task: self._show_error_support_dialog(t))
                 err_row.addWidget(support_btn, 0, Qt.AlignTop)
                 card_layout.addLayout(err_row)
@@ -9993,7 +9993,7 @@ class TaskManagerWindow(BaseWindow):
             btn_layout = QHBoxLayout()
             btn_layout.setSpacing(scale(8))
             
-            card_btn_style = scale_style("QPushButton { padding: 4px 12px; border-radius: 5px; font-size: 15px; font-weight: 500; min-height: 26px; border: none; }")
+            card_btn_style = scale_style("QPushButton { padding: 4px 12px; border-radius: 0; font-size: 15px; font-weight: 500; min-height: 26px; border: none; }")
             
             download_btn = QPushButton("查看下载")
             download_btn.setIcon(_task_icon("eye", scale(16), "#ffffff"))
@@ -10185,8 +10185,8 @@ class TaskManagerWindow(BaseWindow):
         status = task.get("status", "unknown")
         menu = QMenu(self)
         menu.setStyleSheet(scale_style("""
-            QMenu { background-color: white; border: 1px solid #e6eaf2; border-radius: 8px; padding: 6px; }
-            QMenu::item { padding: 7px 22px; border-radius: 6px; font-size: 15px; }
+            QMenu { background-color: white; border: 1px solid #e6eaf2; border-radius: 0; padding: 6px; }
+            QMenu::item { padding: 7px 22px; border-radius: 0; font-size: 15px; }
             QMenu::item:selected { background-color: #eff6ff; color: #2563eb; }
         """))
         menu.addAction(_task_icon("eye", scale(16), "#3b82f6"), "查看详情", lambda t=task: self._open_task_detail(t))
@@ -10224,8 +10224,8 @@ class TaskManagerWindow(BaseWindow):
                 return
         menu = QMenu(self)
         menu.setStyleSheet(scale_style("""
-            QMenu { background-color: white; border: 1px solid #e6eaf2; border-radius: 8px; padding: 6px; }
-            QMenu::item { padding: 7px 22px; border-radius: 6px; font-size: 15px; }
+            QMenu { background-color: white; border: 1px solid #e6eaf2; border-radius: 0; padding: 6px; }
+            QMenu::item { padding: 7px 22px; border-radius: 0; font-size: 15px; }
             QMenu::item:selected { background-color: #eff6ff; color: #2563eb; }
         """))
         show_checkboxes = getattr(self, "show_checkboxes", False)
@@ -10252,7 +10252,7 @@ class TaskManagerWindow(BaseWindow):
         dialog.setMinimumSize(dw, scale(320))
 
         title_bar = QWidget()
-        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 32px; border-top-left-radius: 6px; border-top-right-radius: 6px;"))
+        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 32px; border-radius: 0; border-radius: 0;"))
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(scale(15), scale(0), scale(10), scale(0))
         t_label = QLabel("获取技术支持")
@@ -10283,7 +10283,7 @@ class TaskManagerWindow(BaseWindow):
         body_layout.addWidget(qq_info)
 
         err_box = QGroupBox("错误信息")
-        err_box.setStyleSheet(scale_style("QGroupBox { border: 1px solid #fecaca; border-radius: 6px; margin-top: 10px; padding: 8px; } QGroupBox::title { color: #dc2626; padding: 0 4px; }"))
+        err_box.setStyleSheet(scale_style("QGroupBox { border: 1px solid #fecaca; border-radius: 0; margin-top: 10px; padding: 8px; } QGroupBox::title { color: #dc2626; padding: 0 4px; }"))
         err_box_layout = QVBoxLayout(err_box)
         err_label = QLabel(error_msg[:400] + ("..." if len(error_msg) > 400 else ""))
         err_label.setWordWrap(True)
@@ -10296,11 +10296,11 @@ class TaskManagerWindow(BaseWindow):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(scale(10))
         copy_log_btn = QPushButton("一键复制日志")
-        copy_log_btn.setStyleSheet(scale_style("QPushButton { background-color: #fafafa; color: #374151; border: 1px solid #e8e8e8; border-radius: 6px; padding: 8px; } QPushButton:hover { background-color: #f0f0f0; }"))
+        copy_log_btn.setStyleSheet(scale_style("QPushButton { background-color: #fafafa; color: #374151; border: 1px solid #e8e8e8; border-radius: 0; padding: 8px; } QPushButton:hover { background-color: #f0f0f0; }"))
         copy_log_btn.clicked.connect(lambda: self._notify_support_result(copy_logs_for_support()))
         btn_row.addWidget(copy_log_btn, 1)
         join_btn = QPushButton("加入交流群获取支持")
-        join_btn.setStyleSheet(scale_style("QPushButton { background-color: #00a1d6; color: white; border: none; border-radius: 6px; padding: 8px; font-weight: 600; } QPushButton:hover { background-color: #0091c2; }"))
+        join_btn.setStyleSheet(scale_style("QPushButton { background-color: #00a1d6; color: white; border: none; border-radius: 0; padding: 8px; font-weight: 600; } QPushButton:hover { background-color: #0091c2; }"))
         join_btn.clicked.connect(lambda: self._notify_join_result(join_support_group()))
         btn_row.addWidget(join_btn, 1)
         body_layout.addLayout(btn_row)
@@ -10344,7 +10344,7 @@ class TaskManagerWindow(BaseWindow):
             dialog.setMaximumHeight(scale(900))
         
         title_bar = QWidget()
-        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 32px; border-top-left-radius: 6px; border-top-right-radius: 6px;"))
+        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 32px; border-radius: 0; border-radius: 0;"))
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(scale(15), scale(0), scale(10), scale(0))
         title_layout.setSpacing(scale(8))
@@ -10393,12 +10393,12 @@ class TaskManagerWindow(BaseWindow):
         custom_style = get_base_style() + scale_style("""
             QDialog {
                 border: 2px solid #409eff;
-                border-radius: 8px;
+                border-radius: 0;
                 background-color: white;
             }
             QGroupBox {
                 border: 1px solid #e6eaf2;
-                border-radius: 10px;
+                border-radius: 0;
                 padding: 20px;
                 margin-top: 16px;
                 background-color: white;
@@ -10413,7 +10413,7 @@ class TaskManagerWindow(BaseWindow):
             QPushButton {
                 padding: 8px 16px;
                 border: none;
-                border-radius: 6px;
+                border-radius: 0;
                 color: white;
                 background-color: #409eff;
                 font-weight: 500;
@@ -10427,7 +10427,7 @@ class TaskManagerWindow(BaseWindow):
             }
             QListWidget {
                 border: 1px solid #dde3ed;
-                border-radius: 8px;
+                border-radius: 0;
                 background-color: white;
             }
             QListWidget::item {
@@ -11288,7 +11288,7 @@ class TaskManagerWindow(BaseWindow):
                 dialog.setMinimumSize(scale(500), scale(400))
             
             title_bar = QWidget()
-            title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 40px; border-top-left-radius: 10px; border-top-right-radius: 10px;"))
+            title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 40px; border-radius: 0; border-radius: 0;"))
             title_layout = QHBoxLayout(title_bar)
             title_layout.setContentsMargins(scale(16), scale(0), scale(12), scale(0))
             title_layout.setSpacing(scale(10))
@@ -11298,7 +11298,7 @@ class TaskManagerWindow(BaseWindow):
             title_layout.addWidget(title_label, stretch=1)
             
             close_btn = QPushButton("×")
-            close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+            close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 0;"))
             close_btn.setToolTip("关闭")
             close_btn.clicked.connect(dialog.reject)
             title_layout.addWidget(close_btn)
@@ -11337,12 +11337,12 @@ class TaskManagerWindow(BaseWindow):
             custom_style = get_base_style() + scale_style("""
                 QDialog {
                     border: 2px solid #409eff;
-                    border-radius: 12px;
+                    border-radius: 0;
                     background-color: white;
                 }
                 QListWidget {
                     border: 1px solid #dde3ed;
-                    border-radius: 8px;
+                    border-radius: 0;
                     font-family: Consolas, Monaco, 'Courier New', monospace;
                     font-size: 15px;
                     background-color: #f8fafc;
@@ -11362,7 +11362,7 @@ class TaskManagerWindow(BaseWindow):
                 QPushButton {
                     padding: 8px 16px;
                     border: none;
-                    border-radius: 6px;
+                    border-radius: 0;
                     color: white;
                     background-color: #409eff;
                     font-weight: 500;
@@ -11760,15 +11760,15 @@ class BatchDownloadWindow(BaseWindow):
         custom_style = get_base_style() + scale_style("""
             QMainWindow {
                 border: 2px solid #409eff;
-                border-radius: 8px;
+                border-radius: 0;
                 background-color: white;
             }
             #titleBar {
                 background-color: #409eff;
                 color: white;
                 min-height: 32px;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
+                border-radius: 0;
+                border-radius: 0;
             }
             #titleLabel {
                 font-weight: bold;
@@ -11798,7 +11798,7 @@ class BatchDownloadWindow(BaseWindow):
                 background-color: #faad14;
                 color: white;
                 padding: 4px 8px;
-                border-radius: 3px;
+                border-radius: 0;
                 font-size: 15px;
                 min-height: 24px;
                 min-width: 50px;
@@ -11807,7 +11807,7 @@ class BatchDownloadWindow(BaseWindow):
                 background-color: #f56c6c;
                 color: white;
                 padding: 4px 8px;
-                border-radius: 3px;
+                border-radius: 0;
                 font-size: 15px;
                 min-height: 24px;
                 min-width: 50px;
@@ -11816,7 +11816,7 @@ class BatchDownloadWindow(BaseWindow):
                 background-color: #409eff;
                 color: white;
                 padding: 4px 8px;
-                border-radius: 3px;
+                border-radius: 0;
                 font-size: 15px;
                 min-height: 24px;
                 min-width: 60px;
@@ -12072,7 +12072,7 @@ class BatchDownloadWindow(BaseWindow):
             btn = self.pause_buttons[key]
             if btn.text() == "暂停":
                 btn.setText("继续")
-                btn.setStyleSheet(scale_style("background-color: #52c41a; color: white; padding: 4px 8px; border-radius: 3px; font-size: 15px; min-height: 24px; min-width: 50px;"))
+                btn.setStyleSheet(scale_style("background-color: #52c41a; color: white; padding: 4px 8px; border-radius: 0; font-size: 15px; min-height: 24px; min-width: 50px;"))
                 try:
                     if self.download_manager:
                         self.download_manager.pause_task(task_id)
@@ -12080,7 +12080,7 @@ class BatchDownloadWindow(BaseWindow):
                     logger.error(f"暂停任务失败：{str(e)}")
             else:
                 btn.setText("暂停")
-                btn.setStyleSheet(scale_style("background-color: #faad14; color: white; padding: 4px 8px; border-radius: 3px; font-size: 15px; min-height: 24px; min-width: 50px;"))
+                btn.setStyleSheet(scale_style("background-color: #faad14; color: white; padding: 4px 8px; border-radius: 0; font-size: 15px; min-height: 24px; min-width: 50px;"))
                 try:
                     if self.download_manager:
                         self.download_manager.resume_task(task_id)
@@ -12337,7 +12337,7 @@ class BatchDownloadWindow(BaseWindow):
         
         
         title_bar = QWidget(dialog)
-        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 36px; border-top-left-radius: 10px; border-top-right-radius: 10px;"))
+        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 36px; border-radius: 0; border-radius: 0;"))
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(scale(16), scale(0), scale(12), scale(0))
         title_layout.setSpacing(scale(10))
@@ -12347,7 +12347,7 @@ class BatchDownloadWindow(BaseWindow):
         title_layout.addWidget(title_label, stretch=1)
         
         close_btn = QPushButton("×")
-        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 15px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 15px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 0;"))
         close_btn.setToolTip("关闭")
         close_btn.clicked.connect(dialog.close)
         title_layout.addWidget(close_btn)
@@ -12983,14 +12983,14 @@ class BilibiliDownloader(BaseWindow):
 
             container = QWidget()
             container.setObjectName("dlgContainer")
-            container.setStyleSheet("#dlgContainer { background-color: white; border: 2px solid #409eff; border-radius: 10px; }")
+            container.setStyleSheet("#dlgContainer { background-color: white; border: 2px solid #409eff; border-radius: 0; }")
             container_layout = QVBoxLayout(container)
             container_layout.setContentsMargins(0, 0, 0, 0)
             container_layout.setSpacing(0)
             main_layout.addWidget(container)
 
             title_bar = QWidget()
-            title_bar.setStyleSheet("background-color: #409eff; color: white; min-height: 40px; border-top-left-radius: 10px; border-top-right-radius: 10px;")
+            title_bar.setStyleSheet("background-color: #409eff; color: white; min-height: 40px; border-radius: 0; border-radius: 0;")
             title_layout = QHBoxLayout(title_bar)
             title_layout.setContentsMargins(16, 0, 12, 0)
             title_layout.setSpacing(10)
@@ -12998,7 +12998,7 @@ class BilibiliDownloader(BaseWindow):
             title_label.setStyleSheet("font-size: 15px; font-weight: 600; color: white; letter-spacing: 0.5px;")
             title_layout.addWidget(title_label, stretch=1)
             close_btn = QPushButton("×")
-            close_btn.setStyleSheet("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;")
+            close_btn.setStyleSheet("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 0;")
             close_btn.setToolTip("关闭")
             close_btn.clicked.connect(dlg.reject)
             title_layout.addWidget(close_btn)
@@ -13033,7 +13033,7 @@ class BilibiliDownloader(BaseWindow):
 
             from PyQt5.QtWidgets import QGroupBox, QCheckBox, QVBoxLayout, QHBoxLayout
 
-            group_style = "QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e6eaf2; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }"
+            group_style = "QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e6eaf2; border-radius: 0; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }"
             cb_style = "QCheckBox { color: #606266; font-size: 15px; spacing: 6px; } QCheckBox::indicator { width: 16px; height: 16px; } QCheckBox:disabled { color: #909399; }"
 
             def make_checkbox(text, checked, tip):
@@ -13118,11 +13118,11 @@ class BilibiliDownloader(BaseWindow):
             btn_settings = QPushButton("去设置")
             btn_settings.setFixedHeight(36)
             btn_settings.setMinimumWidth(96)
-            btn_settings.setStyleSheet("QPushButton{background:#409eff;color:white;border:none;border-radius:6px;font-size: 15px;font-weight:600;padding:0 20px;}QPushButton:hover{background:#66b1ff;}QPushButton:pressed{background:#3a8ee6;}")
+            btn_settings.setStyleSheet("QPushButton{background:#409eff;color:white;border:none;border-radius: 0;font-size: 15px;font-weight:600;padding:0 20px;}QPushButton:hover{background:#66b1ff;}QPushButton:pressed{background:#3a8ee6;}")
             btn_ok = QPushButton("保存")
             btn_ok.setFixedHeight(36)
             btn_ok.setMinimumWidth(96)
-            btn_ok.setStyleSheet("QPushButton{background:#ffffff;color:#606266;border:1px solid #dde3ed;border-radius:6px;font-size: 15px;font-weight:500;padding:0 20px;}QPushButton:hover{color:#409eff;border-color:#c6e2ff;background:#ecf5ff;}QPushButton:pressed{color:#3a8ee6;border-color:#3a8ee6;}")
+            btn_ok.setStyleSheet("QPushButton{background:#ffffff;color:#606266;border:1px solid #dde3ed;border-radius: 0;font-size: 15px;font-weight:500;padding:0 20px;}QPushButton:hover{color:#409eff;border-color:#c6e2ff;background:#ecf5ff;}QPushButton:pressed{color:#3a8ee6;border-color:#3a8ee6;}")
             btn_layout.addWidget(btn_ok)
             btn_layout.addWidget(btn_settings)
             body_layout.addLayout(btn_layout)
@@ -13891,7 +13891,7 @@ exit /b 0
         later_btn.setMinimumSize(scale(90), scale(36))
         later_btn.setCursor(Qt.PointingHandCursor)
         later_btn.setStyleSheet(f"""
-            QPushButton {{ background-color: #ffffff; color: #555555; border: 1px solid #d9d9d9; border-radius: 4px; font-size: {scale(13)}px; padding: 0 {scale(18)}px; }}
+            QPushButton {{ background-color: #ffffff; color: #555555; border: 1px solid #d9d9d9; border-radius: 0; font-size: {scale(13)}px; padding: 0 {scale(18)}px; }}
             QPushButton:hover {{ border-color: {accent}; color: {accent}; }}
         """)
         later_btn.clicked.connect(dlg.reject)
@@ -13900,7 +13900,7 @@ exit /b 0
         install_btn.setMinimumSize(scale(104), scale(36))
         install_btn.setCursor(Qt.PointingHandCursor)
         install_btn.setStyleSheet(f"""
-            QPushButton {{ background-color: {accent}; color: #ffffff; border: none; border-radius: 4px; font-size: {scale(13)}px; font-weight: 500; padding: 0 {scale(20)}px; }}
+            QPushButton {{ background-color: {accent}; color: #ffffff; border: none; border-radius: 0; font-size: {scale(13)}px; font-weight: 500; padding: 0 {scale(20)}px; }}
             QPushButton:hover {{ background-color: #0958d8; }}
         """)
         def _do_install():
@@ -14051,7 +14051,7 @@ exit /b 0
                 cancel_btn.setMinimumHeight(scale(36))
                 cancel_btn.setMinimumWidth(scale(90))
                 cancel_btn.setStyleSheet(scale_style("""
-                    QPushButton { background-color: #f0f0f0; color: #333; border: none; border-radius: 6px; font-size: 15px; }
+                    QPushButton { background-color: #f0f0f0; color: #333; border: none; border-radius: 0; font-size: 15px; }
                     QPushButton:hover { background-color: #e0e0e0; }
                 """))
                 cancel_btn.clicked.connect(dialog.reject)
@@ -14060,7 +14060,7 @@ exit /b 0
                 change_btn.setMinimumHeight(scale(36))
                 change_btn.setMinimumWidth(scale(100))
                 change_btn.setStyleSheet(scale_style("""
-                    QPushButton { background-color: #409eff; color: white; border: none; border-radius: 6px; font-size: 15px; font-weight: 500; }
+                    QPushButton { background-color: #409eff; color: white; border: none; border-radius: 0; font-size: 15px; font-weight: 500; }
                     QPushButton:hover { background-color: #66b1ff; }
                 """))
                 def do_change():
@@ -14123,7 +14123,7 @@ exit /b 0
                 QLabel {
                     background-color: #409eff;
                     color: white;
-                    border-radius: 6px;
+                    border-radius: 0;
                     font-size: 15px;
                     font-weight: bold;
                 }
@@ -14154,7 +14154,7 @@ exit /b 0
                     background-color: #12b7f5;
                     color: white;
                     border: none;
-                    border-radius: 6px;
+                    border-radius: 0;
                     padding: 9px;
                     font-size: 15px;
                     font-weight: bold;
@@ -14191,7 +14191,7 @@ exit /b 0
                     background-color: #00a1d6;
                     color: white;
                     border: none;
-                    border-radius: 6px;
+                    border-radius: 0;
                     padding: 9px;
                     font-size: 15px;
                     font-weight: bold;
@@ -14222,7 +14222,7 @@ exit /b 0
                     background-color: #fafafa;
                     color: #374151;
                     border: 1px solid #e8e8e8;
-                    border-radius: 6px;
+                    border-radius: 0;
                     padding: 9px;
                     font-size: 15px;
                 }
@@ -14341,11 +14341,11 @@ exit /b 0
         # 自定义样式
         dialog.setStyleSheet(scale_style(""".QDialog {
             background-color: #f8f9fa;
-            border-radius: 10px;
+            border-radius: 0;
         }
         .QPushButton {
             padding: 10px 20px;
-            border-radius: 6px;
+            border-radius: 0;
             font-size: 15px;
             font-weight: 500;
             min-width: 100px;
@@ -14572,7 +14572,7 @@ exit /b 0
             QScrollArea > QWidget > QWidget {{ background: transparent; }}
             QPushButton {{
                 background-color: #ffffff; color: #333333;
-                border: 1px solid #e0e2e6; border-radius: 4px;
+                border: 1px solid #e0e2e6; border-radius: 0;
                 padding: {scale(9)}px {scale(14)}px;
                 min-height: {scale(20)}px;
                 font-size: {scale(13)}px;
@@ -14611,7 +14611,7 @@ exit /b 0
         close_btn.setFixedSize(scale(30), scale(30))
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.setStyleSheet(
-            f"font-size:{scale(20)}px; color:rgba(255,255,255,0.9); border-radius:4px;")
+            f"font-size:{scale(20)}px; color:rgba(255,255,255,0.9); border-radius: 0;")
         close_btn.mousePressEvent = lambda e: dialog.reject()
         title_lyt.addWidget(close_btn)
 
@@ -15108,14 +15108,14 @@ exit /b 0
                 progress_bar.setStyleSheet(scale_style("""
                     QProgressBar {
                         border: 2px solid #e0e0e0;
-                        border-radius: 5px;
+                        border-radius: 0;
                         text-align: center;
                         min-height: 25px;
                     }
                     QProgressBar::chunk {
                         background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                             stop:0 #409eff, stop:1 #36cfc9);
-                        border-radius: 3px;
+                        border-radius: 0;
                     }
                 """))
                 progress_layout.addWidget(progress_bar)
@@ -15769,7 +15769,7 @@ exit /b 0
             # 同理给最小宽度一个上限：内容最小宽度可能到 1400+（部分标签页较宽），
             # 直接作为窗口最小值会让窗口在 1080P/小屏上无法缩小。
             # 内容超宽时由标签页内部的横向滚动兜底。
-            width_base = max(scale(900), int((clamp_w or target_w) * 0.62))
+            width_base = max(scale(680), int((clamp_w or target_w) * 0.62))
             target_w = min(target_w, width_base)
 
             new_min_w = max(min(self.minimumSize().width(), width_base), target_w)
@@ -15929,15 +15929,15 @@ exit /b 0
         custom_style = get_base_style() + scale_style("""
             QMainWindow {
                 border: 2px solid #409eff;
-                border-radius: 8px;
+                border-radius: 0;
                 background-color: white;
             }
             #titleBar {
                 background-color: #409eff;
                 color: white;
                 min-height: 32px;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
+                border-radius: 0;
+                border-radius: 0;
             }
             #titleLabel {
                 font-weight: bold;
@@ -15991,16 +15991,25 @@ exit /b 0
         title_label.setObjectName("titleLabel")
         # 标题栏文字加大一档（原来与正文同号，显得小气）
         title_label.setStyleSheet(scale_style("font-size: 18px; font-weight: 600; letter-spacing: 0.3px;"))
+        # 允许压缩并省略：标题栏的最小宽度会直接决定"窗口最小宽度"，
+        # 若不让它收缩，窗口窄到一定程度就会被迫出现横向滚动条。
+        title_label.setMinimumWidth(scale(120))
+        title_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         title_layout.addWidget(title_label)
         
-        author_label = QLabel("作者：寒烟似雪(逸雨)")
-        author_label.setStyleSheet(scale_style("color: rgba(255,255,255,0.8); font-size: 15px;"))
-        author_label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
-        title_layout.addWidget(author_label)
+        self.author_label = QLabel("作者：寒烟似雪(逸雨)")
+        self.author_label.setStyleSheet(scale_style("color: rgba(255,255,255,0.8); font-size: 15px;"))
+        self.author_label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        self.author_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.author_label.setMinimumWidth(0)
+        title_layout.addWidget(self.author_label)
         
-        help_btn = QPushButton("遇到错误？下载不了？有问题？点我")
+        # 帮助入口：原标题过长（占 314px），直接把标题栏最小宽度顶高
+        help_btn = QPushButton("遇到问题点我")
         help_btn.setObjectName("helpBtn")
+        help_btn.setToolTip("遇到错误？下载不了？点这里看解决办法")
         help_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        help_btn.setMinimumWidth(0)
         help_btn.setStyleSheet(scale_style("""
             QPushButton#helpBtn {
                 color: rgba(255,255,255,0.8);
@@ -16026,10 +16035,16 @@ exit /b 0
         def _mk_stat_label(text="—"):
             lb = QLabel(text)
             lb.setStyleSheet(scale_style("color: #ffffff; font-size: 15px; background: transparent;"))
+            # 允许压缩：状态文字（如 "18.5 KB/s"）会随时间变长，
+            # 若按自然宽度参与最小宽度计算，会把标题栏最小宽度顶高 → 出现横向滚动条。
+            lb.setMinimumWidth(0)
+            lb.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
             return lb
 
         self.stats_row = QWidget()
         self.stats_row.setStyleSheet("background: transparent;")
+        self.stats_row.setMinimumWidth(0)
+        self.stats_row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         _sr = QHBoxLayout(self.stats_row)
         _sr.setContentsMargins(scale(8), 0, scale(8), 0)
         _sr.setSpacing(scale(5))
@@ -16318,7 +16333,7 @@ exit /b 0
             QPushButton {
                 background-color: #f1f5f9;
                 border: 1px solid #e6eaf2;
-                border-radius: 0px;
+                border-radius: 0;
                 color: #2563eb;
                 font-size: 15px;
                 text-align: left;
@@ -16379,7 +16394,7 @@ exit /b 0
         self.parse_mode_combo.addItem("仅当前视频分P", "video_only")
         self.parse_mode_combo.addItem("仅指定单集", "page_only")
         self.parse_mode_combo.addItem("完整合集", "collection")
-        self.parse_mode_combo.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dde3ed; border-radius: {scale(6)}px; font-size: {scale(11)}px; background-color: #f8fafc;")
+        self.parse_mode_combo.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dde3ed; border-radius: 0; font-size: {scale(11)}px; background-color: #f8fafc;")
         self.parse_mode_combo.setToolTip("自动:按视频类型自动决定 | 仅当前视频分P:跳过合集 | 仅指定单集:只解析指定集 | 完整合集:加载全部不限制")
         parse_ctrl_layout.addWidget(self.parse_mode_combo)
         parse_ctrl_layout.addSpacing(scale(4))
@@ -16391,7 +16406,7 @@ exit /b 0
         self.episode_page_spin.setValue(0)
         self.episode_page_spin.setSpecialValueText("全部")
         self.episode_page_spin.setToolTip("0=全部；输入数字仅解析对应分P")
-        self.episode_page_spin.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dde3ed; border-radius: {scale(6)}px; font-size: {scale(11)}px; background-color: #f8fafc; min-width: {scale(45)}px;")
+        self.episode_page_spin.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dde3ed; border-radius: 0; font-size: {scale(11)}px; background-color: #f8fafc; min-width: {scale(45)}px;")
         parse_ctrl_layout.addWidget(self.episode_page_spin)
         parse_ctrl_layout.addSpacing(scale(4))
         ep_range_label = QLabel("集数范围:")
@@ -16404,7 +16419,7 @@ exit /b 0
             "范围外的集不会请求播放地址，大合集/长课程明显更快。\n"
             "适用于番剧、课程等按集编号的内容。"
         )
-        self.episode_range_edit.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dde3ed; border-radius: {scale(6)}px; font-size: {scale(11)}px; background-color: #f8fafc;")
+        self.episode_range_edit.setStyleSheet(f"padding: {scale(4)}px; border: {scale(1)}px solid #dde3ed; border-radius: 0; font-size: {scale(11)}px; background-color: #f8fafc;")
         self.episode_range_edit.setMinimumWidth(scale(110))
         self.episode_range_edit.setMaximumWidth(scale(150))
         parse_ctrl_layout.addWidget(self.episode_range_edit)
@@ -16447,7 +16462,7 @@ exit /b 0
         self.cover_label = QLabel()
         self.cover_label.setMinimumSize(scale(100), scale(70))
         self.cover_label.setMaximumSize(scale(200), scale(130))
-        self.cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 8px; background-color: #f8fafc;"))
+        self.cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 0; background-color: #f8fafc;"))
         self.cover_label.setAlignment(Qt.AlignCenter)
         self.cover_label.setText("无封面")
         
@@ -16459,7 +16474,7 @@ exit /b 0
                 background-color: #4f6ef7;
                 color: white;
                 border: none;
-                border-radius: 4px;
+                border-radius: 0;
                 font-size: 15px;
                 font-weight: 500;
                 padding: 2px 6px;
@@ -16551,7 +16566,7 @@ exit /b 0
             QComboBox {
                 padding: 4px 10px;
                 border: 1px solid #dde3ed;
-                border-radius: 6px;
+                border-radius: 0;
                 font-size: 15px;
                 min-height: 24px;
                 background-color: white;
@@ -16569,14 +16584,14 @@ exit /b 0
             }
             QComboBox QAbstractItemView {
                 border: 1px solid #dde3ed;
-                border-radius: 6px;
+                border-radius: 0;
                 padding: 5px;
                 background-color: white;
             }
             QComboBox QAbstractItemView::item {
                 padding: 10px 12px;
                 min-height: 36px;
-                border-radius: 4px;
+                border-radius: 0;
             }
             QComboBox QAbstractItemView::item:hover {
                 background-color: #f8fafc;
@@ -16603,7 +16618,7 @@ exit /b 0
             QComboBox {
                 padding: 4px 10px;
                 border: 1px solid #dde3ed;
-                border-radius: 6px;
+                border-radius: 0;
                 font-size: 15px;
                 min-height: 24px;
                 background-color: white;
@@ -16621,14 +16636,14 @@ exit /b 0
             }
             QComboBox QAbstractItemView {
                 border: 1px solid #dde3ed;
-                border-radius: 6px;
+                border-radius: 0;
                 padding: 5px;
                 background-color: white;
             }
             QComboBox QAbstractItemView::item {
                 padding: 10px 12px;
                 min-height: 36px;
-                border-radius: 4px;
+                border-radius: 0;
             }
             QComboBox QAbstractItemView::item:hover {
                 background-color: #f8fafc;
@@ -16755,7 +16770,7 @@ exit /b 0
         
         folder_section = QWidget()
         folder_section.setAutoFillBackground(True)
-        folder_section.setStyleSheet(scale_style("background-color: white; border-radius: 12px;"))
+        folder_section.setStyleSheet(scale_style("background-color: white; border-radius: 0;"))
         folder_section.setMinimumWidth(scale(200))
         folder_section.setMaximumWidth(scale(280))
         folder_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
@@ -16783,7 +16798,7 @@ exit /b 0
                 font-size: 15px;
                 color: #8b95a5;
                 background-color: #f0f2f5;
-                border-radius: 10px;
+                border-radius: 0;
                 padding: 2px 8px;
             }
         """))
@@ -16797,7 +16812,7 @@ exit /b 0
                 background-color: #4f6ef7;
                 color: white;
                 border: none;
-                border-radius: 6px;
+                border-radius: 0;
                 font-size: 15px;
                 font-weight: 600;
                 padding: 4px 12px;
@@ -16823,7 +16838,7 @@ exit /b 0
         self.folder_search_edit.setStyleSheet(scale_style("""
             QLineEdit {
                 border: 1px solid #e0e4ea;
-                border-radius: 8px;
+                border-radius: 0;
                 padding: 6px 12px;
                 font-size: 15px;
                 color: #1a1a2e;
@@ -16853,7 +16868,7 @@ exit /b 0
             }
             QListWidget::item {
                 padding: 10px 12px;
-                border-radius: 8px;
+                border-radius: 0;
                 margin-bottom: 2px;
                 font-size: 15px;
                 color: #3a3f4b;
@@ -16877,7 +16892,7 @@ exit /b 0
         # 右侧：收藏内容区域
         content_section = QWidget()
         content_section.setAutoFillBackground(True)
-        content_section.setStyleSheet(scale_style("background-color: white; border-radius: 12px;"))
+        content_section.setStyleSheet(scale_style("background-color: white; border-radius: 0;"))
         content_section.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         content_section_layout = QVBoxLayout(content_section)
         content_section_layout.setSpacing(scale(12))
@@ -16907,7 +16922,7 @@ exit /b 0
                 background-color: #f0f2f5;
                 color: #3a3f4b;
                 border: 1px solid #e0e4ea;
-                border-radius: 6px;
+                border-radius: 0;
                 font-size: 15px;
                 font-weight: 500;
                 padding: 4px 12px;
@@ -16929,7 +16944,7 @@ exit /b 0
                 background-color: #f0f2f5;
                 color: #3a3f4b;
                 border: 1px solid #e0e4ea;
-                border-radius: 6px;
+                border-radius: 0;
                 font-size: 15px;
                 font-weight: 500;
                 padding: 4px 12px;
@@ -16952,7 +16967,7 @@ exit /b 0
                 background-color: #f59e0b;
                 color: white;
                 border: none;
-                border-radius: 6px;
+                border-radius: 0;
                 font-size: 15px;
                 font-weight: 600;
                 padding: 4px 12px;
@@ -16979,7 +16994,7 @@ exit /b 0
                 background-color: #10b981;
                 color: white;
                 border: none;
-                border-radius: 6px;
+                border-radius: 0;
                 font-size: 15px;
                 font-weight: 600;
                 padding: 4px 12px;
@@ -17035,7 +17050,7 @@ exit /b 0
             QListWidget::item {
                 border: none;
                 background: transparent;
-                border-radius: 10px;
+                border-radius: 0;
             }
             QListWidget::item:hover {
                 background: transparent;
@@ -17046,12 +17061,12 @@ exit /b 0
             QScrollBar:vertical {
                 min-width: 6px;
                 background: transparent;
-                border-radius: 3px;
+                border-radius: 0;
                 margin: 4px 0;
             }
             QScrollBar::handle:vertical {
                 background: #d0d5dd;
-                border-radius: 3px;
+                border-radius: 0;
                 min-height: 30px;
             }
             QScrollBar::handle:vertical:hover {
@@ -17107,7 +17122,7 @@ exit /b 0
         
         preview_section = QWidget()
         preview_section.setAutoFillBackground(True)
-        preview_section.setStyleSheet(scale_style("background-color: white; border-radius: 6px;"))
+        preview_section.setStyleSheet(scale_style("background-color: white; border-radius: 0;"))
         preview_section_layout = QVBoxLayout(preview_section)
         preview_section_layout.setSpacing(scale(4))
         preview_section_layout.setContentsMargins(scale(6), scale(6), scale(6), scale(6))
@@ -17134,7 +17149,7 @@ exit /b 0
                 background-color: #4f6ef7;
                 color: white;
                 border: none;
-                border-radius: 4px;
+                border-radius: 0;
                 font-size: 15px;
                 font-weight: 500;
                 padding: 3px 8px;
@@ -17160,7 +17175,7 @@ exit /b 0
                 background-color: #10b981;
                 color: white;
                 border: none;
-                border-radius: 4px;
+                border-radius: 0;
                 font-size: 15px;
                 font-weight: 500;
                 padding: 3px 8px;
@@ -17191,7 +17206,7 @@ exit /b 0
             QLabel {
                 background-color: #f7f8fa;
                 border: 1px dashed #d0d5dd;
-                border-radius: 6px;
+                border-radius: 0;
                 color: #8b95a5;
                 font-size: 15px;
             }
@@ -17204,7 +17219,7 @@ exit /b 0
         
         cover_list_section = QWidget()
         cover_list_section.setAutoFillBackground(True)
-        cover_list_section.setStyleSheet(scale_style("background-color: white; border-radius: 6px;"))
+        cover_list_section.setStyleSheet(scale_style("background-color: white; border-radius: 0;"))
         cover_list_section_layout = QVBoxLayout(cover_list_section)
         cover_list_section_layout.setSpacing(scale(4))
         cover_list_section_layout.setContentsMargins(scale(6), scale(6), scale(6), scale(6))
@@ -17234,7 +17249,7 @@ exit /b 0
         self.cover_list_widget.setStyleSheet(scale_style("""
             QListWidget {
                 border: none;
-                border-radius: 6px;
+                border-radius: 0;
                 background-color: #f7f8fa;
                 padding: 4px;
                 outline: none;
@@ -17242,7 +17257,7 @@ exit /b 0
             QListWidget::item {
                 background: white;
                 border: 1px solid #e0e4ea;
-                border-radius: 6px;
+                border-radius: 0;
                 padding: 2px;
             }
             QListWidget::item:hover {
@@ -17251,17 +17266,17 @@ exit /b 0
             QListWidget::item:selected {
                 background: white;
                 border: 2px solid #4f6ef7;
-                border-radius: 6px;
+                border-radius: 0;
             }
             QScrollBar:vertical {
                 min-width: 5px;
                 background: transparent;
-                border-radius: 2px;
+                border-radius: 0;
                 margin: 2px 0;
             }
             QScrollBar::handle:vertical {
                 background: #d0d5dd;
-                border-radius: 2px;
+                border-radius: 0;
                 min-height: 16px;
             }
             QScrollBar::handle:vertical:hover {
@@ -17294,7 +17309,7 @@ exit /b 0
                 font-weight: 600;
                 color: #333;
                 border: 1px solid #e0e4ea;
-                border-radius: 8px;
+                border-radius: 0;
                 margin-top: 12px;
                 padding-top: 8px;
             }
@@ -17319,7 +17334,7 @@ exit /b 0
         qn_label = QLabel("清晰度：")
         qn_label.setStyleSheet(scale_style("font-size: 15px; color: #555;"))
         self.all_qn_combo = QComboBox()
-        self.all_qn_combo.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 15px;"))
+        self.all_qn_combo.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dde3ed; border-radius: 0; font-size: 15px;"))
         self.all_qn_combo.setMinimumHeight(scale(28))
         self.all_qn_combo.addItems(["480P", "360P"])
         self.all_qn_combo.setCurrentIndex(0)
@@ -17328,11 +17343,11 @@ exit /b 0
         video_top_layout.addStretch()
         
         select_all_episodes_btn = QPushButton("全选")
-        select_all_episodes_btn.setStyleSheet(scale_style("background-color: #52c41a; color: white; padding: 4px 14px; border-radius: 4px; font-size: 15px;"))
+        select_all_episodes_btn.setStyleSheet(scale_style("background-color: #52c41a; color: white; padding: 4px 14px; border-radius: 0; font-size: 15px;"))
         select_all_episodes_btn.setMinimumHeight(scale(26))
         select_all_episodes_btn.clicked.connect(self._on_all_select_all_episodes)
         deselect_all_episodes_btn = QPushButton("取消全选")
-        deselect_all_episodes_btn.setStyleSheet(scale_style("background-color: #919191; color: white; padding: 4px 14px; border-radius: 4px; font-size: 15px;"))
+        deselect_all_episodes_btn.setStyleSheet(scale_style("background-color: #919191; color: white; padding: 4px 14px; border-radius: 0; font-size: 15px;"))
         deselect_all_episodes_btn.setMinimumHeight(scale(26))
         deselect_all_episodes_btn.clicked.connect(self._on_all_deselect_all_episodes)
         video_top_layout.addWidget(select_all_episodes_btn)
@@ -17342,7 +17357,7 @@ exit /b 0
         sort_label = QLabel("排序:")
         sort_label.setStyleSheet(scale_style("font-size: 15px; color: #555;"))
         self.all_episode_sort_combo = QComboBox()
-        self.all_episode_sort_combo.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 15px;"))
+        self.all_episode_sort_combo.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dde3ed; border-radius: 0; font-size: 15px;"))
         self.all_episode_sort_combo.setMinimumHeight(scale(26))
         self.all_episode_sort_combo.addItems(["默认顺序", "按时长升序", "按时长降序", "按标题排序"])
         self.all_episode_sort_combo.currentIndexChanged.connect(self._on_all_episode_sort_changed)
@@ -17354,7 +17369,7 @@ exit /b 0
         self.all_episode_list.setStyleSheet(scale_style("""
             QListWidget {
                 border: 1px solid #dde3ed;
-                border-radius: 6px;
+                border-radius: 0;
                 background-color: #fafbfc;
                 font-size: 15px;
             }
@@ -17383,7 +17398,7 @@ exit /b 0
                 font-weight: 600;
                 color: #333;
                 border: 1px solid #e0e4ea;
-                border-radius: 8px;
+                border-radius: 0;
                 margin-top: 12px;
                 padding-top: 8px;
             }
@@ -17406,7 +17421,7 @@ exit /b 0
         danmaku_format_label.setStyleSheet(scale_style("font-size: 15px; color: #888;"))
         self.all_danmaku_format_combo = QComboBox()
         self.all_danmaku_format_combo.addItems(["XML", "ASS"])
-        self.all_danmaku_format_combo.setStyleSheet(scale_style("padding: 2px 6px; border: 1px solid #dde3ed; border-radius: 3px; font-size: 15px;"))
+        self.all_danmaku_format_combo.setStyleSheet(scale_style("padding: 2px 6px; border: 1px solid #dde3ed; border-radius: 0; font-size: 15px;"))
         self.all_danmaku_format_combo.setMaximumWidth(scale(70))
         extra_group_layout.addWidget(danmaku_format_label)
         extra_group_layout.addWidget(self.all_danmaku_format_combo)
@@ -17438,10 +17453,10 @@ exit /b 0
         last_path_all = self.config.get_app_setting("last_save_path")
         default_path_all = last_path_all if last_path_all else os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载")
         self.all_path_edit.setText(default_path_all)
-        self.all_path_edit.setStyleSheet(scale_style("padding: 6px 10px; border: 1px solid #dde3ed; border-radius: 6px; font-size: 15px;"))
+        self.all_path_edit.setStyleSheet(scale_style("padding: 6px 10px; border: 1px solid #dde3ed; border-radius: 0; font-size: 15px;"))
         self.all_path_edit.setMinimumHeight(scale(34))
         path_select_btn = QPushButton("选择")
-        path_select_btn.setStyleSheet(scale_style("background-color: #6c757d; color: white; padding: 6px 16px; border-radius: 6px; font-size: 15px;"))
+        path_select_btn.setStyleSheet(scale_style("background-color: #6c757d; color: white; padding: 6px 16px; border-radius: 0; font-size: 15px;"))
         path_select_btn.setMinimumHeight(scale(34))
         path_select_btn.clicked.connect(self._on_all_select_path)
         path_layout.addWidget(path_label)
@@ -17466,11 +17481,11 @@ exit /b 0
         self.history_search_edit = QLineEdit()
         self.history_search_edit.setPlaceholderText("搜索历史记录...")
         self.history_search_edit.setMinimumHeight(scale(32))
-        self.history_search_edit.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 15px;"))
+        self.history_search_edit.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dde3ed; border-radius: 0; font-size: 15px;"))
         history_search_btn = QPushButton("搜索")
         history_search_btn.setMinimumHeight(scale(32))
         history_search_btn.setMinimumWidth(scale(50))
-        history_search_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; border-radius: 4px; padding: 4px 12px; font-size: 15px;"))
+        history_search_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; border-radius: 0; padding: 4px 12px; font-size: 15px;"))
         history_search_btn.clicked.connect(self._search_history)
         self.history_search_edit.returnPressed.connect(self._search_history)
         
@@ -17480,15 +17495,15 @@ exit /b 0
         history_filter_all.setCheckable(True)
         history_filter_all.setChecked(True)
         history_filter_all.setMinimumHeight(scale(28))
-        history_filter_all.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 15px; } QPushButton:checked { background-color: #409eff; color: white; border-color: #409eff; }"))
+        history_filter_all.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dde3ed; border-radius: 0; font-size: 15px; } QPushButton:checked { background-color: #409eff; color: white; border-color: #409eff; }"))
         history_filter_success = QPushButton("成功")
         history_filter_success.setCheckable(True)
         history_filter_success.setMinimumHeight(scale(28))
-        history_filter_success.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 15px; } QPushButton:checked { background-color: #52c41a; color: white; border-color: #52c41a; }"))
+        history_filter_success.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dde3ed; border-radius: 0; font-size: 15px; } QPushButton:checked { background-color: #52c41a; color: white; border-color: #52c41a; }"))
         history_filter_failed = QPushButton("失败")
         history_filter_failed.setCheckable(True)
         history_filter_failed.setMinimumHeight(scale(28))
-        history_filter_failed.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 15px; } QPushButton:checked { background-color: #f56c6c; color: white; border-color: #f56c6c; }"))
+        history_filter_failed.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dde3ed; border-radius: 0; font-size: 15px; } QPushButton:checked { background-color: #f56c6c; color: white; border-color: #f56c6c; }"))
         
         self._history_filter_group = QButtonGroup(self)
         self._history_filter_group.setExclusive(True)
@@ -17507,7 +17522,7 @@ exit /b 0
         
         clear_history_btn = QPushButton("清空历史")
         clear_history_btn.setMinimumHeight(scale(28))
-        clear_history_btn.setStyleSheet(scale_style("QPushButton { background-color: #f56c6c; color: white; border-radius: 4px; padding: 2px 10px; font-size: 15px; } QPushButton:hover { background-color: #e04040; }"))
+        clear_history_btn.setStyleSheet(scale_style("QPushButton { background-color: #f56c6c; color: white; border-radius: 0; padding: 2px 10px; font-size: 15px; } QPushButton:hover { background-color: #e04040; }"))
         clear_history_btn.clicked.connect(self._clear_history)
         history_filter_layout.addWidget(clear_history_btn)
         
@@ -17520,7 +17535,7 @@ exit /b 0
         self.history_list.setStyleSheet(scale_style("""
             QListWidget {
                 border: 1px solid #dde3ed;
-                border-radius: 6px;
+                border-radius: 0;
                 font-size: 15px;
                 background-color: #fafafa;
             }
@@ -17615,7 +17630,7 @@ exit /b 0
         self.fold_btn.setFixedSize(scale(28), scale(28))
         self.fold_btn.setCursor(Qt.PointingHandCursor)
         self.fold_btn.setStyleSheet(scale_style("""
-            QPushButton { background-color: #f8f9fa; border: 1px solid #dde3ed; color: #6c757d; font-size: 15px; border-radius: 4px; }
+            QPushButton { background-color: #f8f9fa; border: 1px solid #dde3ed; color: #6c757d; font-size: 15px; border-radius: 0; }
             QPushButton:hover { background-color: #e6eaf2; color: #2563eb; border-color: #409eff; }
         """))
         self.fold_btn.clicked.connect(self._show_fold_menu)
@@ -17824,7 +17839,7 @@ exit /b 0
                     skeleton_style = """
                         QWidget {
                             background-color: #f3f4f6;
-                            border-radius: 8px;
+                            border-radius: 0;
                         }
                     """
                     
@@ -17932,7 +17947,7 @@ exit /b 0
                     QWidget#folder_item_{i} {{
                         background-color: white;
                         border: 1px solid #e8ecf1;
-                        border-radius: 8px;
+                        border-radius: 0;
                     }}
                     QWidget#folder_item_{i}:hover {{
                         background-color: #f8f9fc;
@@ -17963,7 +17978,7 @@ exit /b 0
                         font-size: 15px;
                         color: #8b95a5;
                         background-color: #f0f2f5;
-                        border-radius: 10px;
+                        border-radius: 0;
                         padding: 2px 8px;
                     }
                 """))
@@ -18033,7 +18048,7 @@ exit /b 0
                     skeleton_style = """
                         QWidget {
                             background-color: #f3f4f6;
-                            border-radius: 8px;
+                            border-radius: 0;
                         }
                     """
                     
@@ -18174,7 +18189,7 @@ exit /b 0
         widget.setStyleSheet(scale_style("""
             QWidget#favorite_card_%d {
                 background-color: white;
-                border-radius: 10px;
+                border-radius: 0;
                 border: 2px solid transparent;
             }
             QWidget#favorite_card_%d[selected="true"] {
@@ -18192,7 +18207,7 @@ exit /b 0
         cover_container.setStyleSheet(scale_style("""
             QWidget {
                 background-color: #e8ecf1;
-                border-radius: 6px;
+                border-radius: 0;
             }
         """))
         cover_layout = QVBoxLayout(cover_container)
@@ -18221,7 +18236,7 @@ exit /b 0
                 background-color: rgba(0, 0, 0, 0.7);
                 color: white;
                 font-size: 15px;
-                border-radius: 3px;
+                border-radius: 0;
                 padding: 1px 3px;
             }
         """))
@@ -18373,7 +18388,7 @@ exit /b 0
                 background-color: #10b981;
                 color: white;
                 border: none;
-                border-radius: 3px;
+                border-radius: 0;
                 font-size: 15px;
                 font-weight: 500;
                 padding: 2px 6px;
@@ -18394,7 +18409,7 @@ exit /b 0
                 background-color: #4f6ef7;
                 color: white;
                 border: none;
-                border-radius: 3px;
+                border-radius: 0;
                 font-size: 15px;
                 font-weight: 500;
                 padding: 2px 6px;
@@ -18510,7 +18525,7 @@ exit /b 0
                 skeleton_style = """
                     QWidget {
                         background-color: #f3f4f6;
-                        border-radius: 8px;
+                        border-radius: 0;
                     }
                 """
                 
@@ -19505,7 +19520,7 @@ exit /b 0
         dialog.mouseReleaseEvent = lambda event: setattr(dialog, '_mouse_pos', None)
         
         title_bar = QWidget()
-        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 40px; border-top-left-radius: 10px; border-top-right-radius: 10px;"))
+        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 40px; border-radius: 0; border-radius: 0;"))
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(scale(16), scale(0), scale(12), scale(0))
         title_layout.setSpacing(scale(10))
@@ -19515,7 +19530,7 @@ exit /b 0
         title_layout.addWidget(title_label, stretch=1)
         
         close_btn = QPushButton("×")
-        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 0;"))
         close_btn.setToolTip("关闭")
         close_btn.clicked.connect(dialog.reject)
         title_layout.addWidget(close_btn)
@@ -19912,7 +19927,7 @@ exit /b 0
         self.type_label.setText("未解析")
         self.type_label.setStyleSheet("")
         self.cover_label.setText("无封面")
-        self.cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 8px; background-color: #f8fafc;"))
+        self.cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 0; background-color: #f8fafc;"))
         
         video_info_group = self.findChild(QGroupBox, "video_info_group")
         if not video_info_group:
@@ -20265,7 +20280,7 @@ exit /b 0
                 content_layout.addLayout(self._create_bottom_area())
 
                 outer_widget = QWidget()
-                outer_widget.setStyleSheet(scale_style("border-left: 2px solid #409eff; border-right: 2px solid #409eff; border-bottom: 2px solid #409eff; border-bottom-left-radius: 10px; border-bottom-right-radius: 10px;"))
+                outer_widget.setStyleSheet(scale_style("border-left: 2px solid #409eff; border-right: 2px solid #409eff; border-bottom: 2px solid #409eff; border-radius: 0; border-radius: 0;"))
                 outer_layout = QVBoxLayout(outer_widget)
                 outer_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
                 outer_layout.setSpacing(scale(0))
@@ -20275,7 +20290,7 @@ exit /b 0
 
             def _create_title_bar(self):
                 title_bar = QWidget()
-                title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 40px; border-top-left-radius: 10px; border-top-right-radius: 10px;"))
+                title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 40px; border-radius: 0; border-radius: 0;"))
                 title_layout = QHBoxLayout(title_bar)
                 title_layout.setContentsMargins(scale(16), scale(0), scale(12), scale(0))
                 title_layout.setSpacing(scale(10))
@@ -20286,7 +20301,7 @@ exit /b 0
                 title_layout.addWidget(title_label, stretch=1)
 
                 close_btn = QPushButton("×")
-                close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+                close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 0;"))
                 close_btn.setToolTip("关闭")
                 close_btn.clicked.connect(self.reject)
                 title_layout.addWidget(close_btn)
@@ -20340,7 +20355,7 @@ exit /b 0
                 self.quality_combo.setStyleSheet(scale_style("""
                     QComboBox {
                         border: 1px solid #d1d5db;
-                        border-radius: 4px;
+                        border-radius: 0;
                         padding: 2px 6px;
                         font-size: 15px;
                         min-width: 100px;
@@ -20354,7 +20369,7 @@ exit /b 0
                 self.audio_combo.setStyleSheet(scale_style("""
                     QComboBox {
                         border: 1px solid #d1d5db;
-                        border-radius: 4px;
+                        border-radius: 0;
                         padding: 2px 6px;
                         font-size: 15px;
                         min-width: 110px;
@@ -20365,18 +20380,18 @@ exit /b 0
 
                 self.apply_btn = QPushButton("应用到选中")
                 self.apply_btn.setMinimumHeight(scale(28))
-                self.apply_btn.setStyleSheet(scale_style("padding: 0 12px; border: 1px solid #409eff; border-radius: 4px; font-size: 15px; background-color: white; color: #409eff;"))
+                self.apply_btn.setStyleSheet(scale_style("padding: 0 12px; border: 1px solid #409eff; border-radius: 0; font-size: 15px; background-color: white; color: #409eff;"))
                 self.apply_btn.clicked.connect(self._apply_to_selected)
 
                 self.load_more_btn = QPushButton("加载更多")
                 self.load_more_btn.setMinimumHeight(scale(28))
-                self.load_more_btn.setStyleSheet(scale_style("padding: 0 12px; border: 1px solid #409eff; border-radius: 4px; font-size: 15px; background-color: white; color: #409eff;"))
+                self.load_more_btn.setStyleSheet(scale_style("padding: 0 12px; border: 1px solid #409eff; border-radius: 0; font-size: 15px; background-color: white; color: #409eff;"))
                 self.load_more_btn.clicked.connect(lambda: self._start_load(False))
                 self.load_more_btn.setVisible(len(self.videos) < self.total)
 
                 self.load_all_btn = QPushButton("加载全部")
                 self.load_all_btn.setMinimumHeight(scale(28))
-                self.load_all_btn.setStyleSheet(scale_style("padding: 0 12px; border: 1px solid #409eff; border-radius: 4px; font-size: 15px; background-color: white; color: #409eff;"))
+                self.load_all_btn.setStyleSheet(scale_style("padding: 0 12px; border: 1px solid #409eff; border-radius: 0; font-size: 15px; background-color: white; color: #409eff;"))
                 self.load_all_btn.clicked.connect(lambda: self._start_load(True))
 
                 self.loaded_label = QLabel(f"已加载 {len(self.videos)} / 共 {self.total} 个")
@@ -20408,7 +20423,7 @@ exit /b 0
                 d.setStyleSheet(scale_style("""
                     QComboBox {
                         border: 1px solid #d1d5db;
-                        border-radius: 4px;
+                        border-radius: 0;
                         padding: 2px 6px;
                         font-size: 15px;
                     }
@@ -20432,7 +20447,7 @@ exit /b 0
                 self.sort_primary_combo.setStyleSheet(scale_style("""
                     QComboBox {
                         border: 1px solid #d1d5db;
-                        border-radius: 4px;
+                        border-radius: 0;
                         padding: 2px 6px;
                         font-size: 15px;
                         min-width: 100px;
@@ -20446,19 +20461,19 @@ exit /b 0
 
                 self.add_sub_sort_btn = QPushButton("+ 添加子排序")
                 self.add_sub_sort_btn.setMinimumHeight(scale(28))
-                self.add_sub_sort_btn.setStyleSheet(scale_style("padding: 0 10px; border: 1px solid #409eff; border-radius: 4px; font-size: 15px; background-color: white; color: #409eff;"))
+                self.add_sub_sort_btn.setStyleSheet(scale_style("padding: 0 10px; border: 1px solid #409eff; border-radius: 0; font-size: 15px; background-color: white; color: #409eff;"))
                 self.add_sub_sort_btn.clicked.connect(self._add_sub_sort_row)
                 main_row.addWidget(self.add_sub_sort_btn)
 
                 self.sort_btn = QPushButton("排序")
                 self.sort_btn.setMinimumHeight(scale(28))
-                self.sort_btn.setStyleSheet(scale_style("padding: 0 14px; border: none; border-radius: 4px; font-size: 15px; background-color: #409eff; color: white;"))
+                self.sort_btn.setStyleSheet(scale_style("padding: 0 14px; border: none; border-radius: 0; font-size: 15px; background-color: #409eff; color: white;"))
                 self.sort_btn.clicked.connect(self._apply_sort)
                 main_row.addWidget(self.sort_btn)
 
                 self.sort_reset_btn = QPushButton("重置")
                 self.sort_reset_btn.setMinimumHeight(scale(28))
-                self.sort_reset_btn.setStyleSheet(scale_style("padding: 0 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 15px; background-color: white; color: #374151;"))
+                self.sort_reset_btn.setStyleSheet(scale_style("padding: 0 10px; border: 1px solid #d1d5db; border-radius: 0; font-size: 15px; background-color: white; color: #374151;"))
                 self.sort_reset_btn.clicked.connect(self._reset_sort)
                 main_row.addWidget(self.sort_reset_btn)
 
@@ -20486,7 +20501,7 @@ exit /b 0
                 combo.setStyleSheet(scale_style("""
                     QComboBox {
                         border: 1px solid #d1d5db;
-                        border-radius: 4px;
+                        border-radius: 0;
                         padding: 2px 6px;
                         font-size: 15px;
                         min-width: 100px;
@@ -20500,7 +20515,7 @@ exit /b 0
 
                 del_btn = QPushButton("删除")
                 del_btn.setMinimumHeight(scale(26))
-                del_btn.setStyleSheet(scale_style("padding: 0 8px; border: 1px solid #ef4444; border-radius: 4px; font-size: 15px; background-color: white; color: #ef4444;"))
+                del_btn.setStyleSheet(scale_style("padding: 0 8px; border: 1px solid #ef4444; border-radius: 0; font-size: 15px; background-color: white; color: #ef4444;"))
                 row.addWidget(del_btn)
 
                 row.addStretch(1)
@@ -20643,7 +20658,7 @@ exit /b 0
                         border: 1px solid #e6eaf2;
                         background-color: #ffffff;
                         alternate-background-color: #f8fafc;
-                        border-radius: 6px;
+                        border-radius: 0;
                     }
                     QHeaderView::section {
                         background-color: #f1f5f9;
@@ -20717,27 +20732,27 @@ exit /b 0
 
                 self.download_video_btn = QPushButton("下载画面")
                 self.download_video_btn.setMinimumHeight(scale(34))
-                self.download_video_btn.setStyleSheet(scale_style("padding: 0 14px; border: none; border-radius: 6px; font-size: 15px; background-color: #17a2b8; color: white;"))
+                self.download_video_btn.setStyleSheet(scale_style("padding: 0 14px; border: none; border-radius: 0; font-size: 15px; background-color: #17a2b8; color: white;"))
                 self.download_video_btn.clicked.connect(lambda: self._download_selected(2))
 
                 self.download_audio_btn = QPushButton("下载音频")
                 self.download_audio_btn.setMinimumHeight(scale(34))
-                self.download_audio_btn.setStyleSheet(scale_style("padding: 0 14px; border: none; border-radius: 6px; font-size: 15px; background-color: #fd7e14; color: white;"))
+                self.download_audio_btn.setStyleSheet(scale_style("padding: 0 14px; border: none; border-radius: 0; font-size: 15px; background-color: #fd7e14; color: white;"))
                 self.download_audio_btn.clicked.connect(lambda: self._download_selected(1))
 
                 self.download_btn = QPushButton("下载完整视频")
                 self.download_btn.setMinimumHeight(scale(34))
-                self.download_btn.setStyleSheet(scale_style("padding: 0 14px; border: none; border-radius: 6px; font-size: 15px; background-color: #28a745; color: white;"))
+                self.download_btn.setStyleSheet(scale_style("padding: 0 14px; border: none; border-radius: 0; font-size: 15px; background-color: #28a745; color: white;"))
                 self.download_btn.clicked.connect(lambda: self._download_selected(0))
 
                 self.parse_btn = QPushButton("解析选中")
                 self.parse_btn.setMinimumHeight(scale(34))
-                self.parse_btn.setStyleSheet(scale_style("padding: 0 20px; border: 1px solid #409eff; border-radius: 6px; font-size: 15px; background-color: white; color: #409eff;"))
+                self.parse_btn.setStyleSheet(scale_style("padding: 0 20px; border: 1px solid #409eff; border-radius: 0; font-size: 15px; background-color: white; color: #409eff;"))
                 self.parse_btn.clicked.connect(self._parse_selected)
 
                 cancel_btn = QPushButton("取消")
                 cancel_btn.setMinimumHeight(scale(34))
-                cancel_btn.setStyleSheet(scale_style("padding: 0 20px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 15px; background-color: white; color: #374151;"))
+                cancel_btn.setStyleSheet(scale_style("padding: 0 20px; border: 1px solid #d1d5db; border-radius: 0; font-size: 15px; background-color: white; color: #374151;"))
                 cancel_btn.clicked.connect(self.reject)
 
                 layout.addWidget(self.download_danmaku_cb)
@@ -20814,7 +20829,7 @@ exit /b 0
                 q_combo.setStyleSheet(scale_style("""
                     QComboBox {
                         border: 1px solid #d1d5db;
-                        border-radius: 4px;
+                        border-radius: 0;
                         padding: 1px 4px;
                         font-size: 15px;
                     }
@@ -20831,7 +20846,7 @@ exit /b 0
                 a_combo.setStyleSheet(scale_style("""
                     QComboBox {
                         border: 1px solid #d1d5db;
-                        border-radius: 4px;
+                        border-radius: 0;
                         padding: 1px 4px;
                         font-size: 15px;
                     }
@@ -20860,7 +20875,7 @@ exit /b 0
 
                 cover_label = QLabel()
                 cover_label.setFixedSize(scale(60), scale(34))
-                cover_label.setStyleSheet(scale_style("background-color: #e6eaf2; border-radius: 2px;"))
+                cover_label.setStyleSheet(scale_style("background-color: #e6eaf2; border-radius: 0;"))
                 cover_label.setScaledContents(True)
 
                 cover_url = video.get('pic', '')
@@ -20886,14 +20901,14 @@ exit /b 0
                 parse_btn.setFixedHeight(scale(24))
                 parse_btn.setMinimumWidth(scale(52))
                 parse_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-                parse_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; border: none; border-radius: 4px; font-size: 15px; padding: 0 8px;"))
+                parse_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; border: none; border-radius: 0; font-size: 15px; padding: 0 8px;"))
                 parse_btn.clicked.connect(lambda: self._parse_single(video))
 
                 cover_btn = QPushButton("下封面")
                 cover_btn.setFixedHeight(scale(24))
                 cover_btn.setMinimumWidth(scale(72))
                 cover_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-                cover_btn.setStyleSheet(scale_style("background-color: #4f6ef7; color: white; border: none; border-radius: 4px; font-size: 15px; padding: 0 8px;"))
+                cover_btn.setStyleSheet(scale_style("background-color: #4f6ef7; color: white; border: none; border-radius: 0; font-size: 15px; padding: 0 8px;"))
                 cover_btn.clicked.connect(lambda: self._download_cover(video))
 
                 layout.addWidget(parse_btn)
@@ -21207,7 +21222,7 @@ exit /b 0
                     main_layout.setSpacing(scale(0))
 
                     title_bar = QWidget()
-                    title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 40px; border-top-left-radius: 10px; border-top-right-radius: 10px;"))
+                    title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 40px; border-radius: 0; border-radius: 0;"))
                     title_layout = QHBoxLayout(title_bar)
                     title_layout.setContentsMargins(scale(16), scale(0), scale(12), scale(0))
                     title_layout.setSpacing(scale(10))
@@ -21217,7 +21232,7 @@ exit /b 0
                     title_layout.addWidget(title_label, stretch=1)
 
                     close_btn = QPushButton("×")
-                    close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+                    close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 0;"))
                     close_btn.setToolTip("关闭")
                     close_btn.clicked.connect(self.reject)
                     title_layout.addWidget(close_btn)
@@ -21225,7 +21240,7 @@ exit /b 0
                     main_layout.addWidget(title_bar)
 
                     content_widget = QWidget()
-                    content_widget.setStyleSheet(scale_style("border-left: 2px solid #409eff; border-right: 2px solid #409eff; border-bottom: 2px solid #409eff; border-bottom-left-radius: 10px; border-bottom-right-radius: 10px;"))
+                    content_widget.setStyleSheet(scale_style("border-left: 2px solid #409eff; border-right: 2px solid #409eff; border-bottom: 2px solid #409eff; border-radius: 0; border-radius: 0;"))
                     content_layout = QVBoxLayout(content_widget)
                     content_layout.setContentsMargins(scale(20), scale(20), scale(20), scale(20))
                     content_layout.setSpacing(scale(16))
@@ -21236,7 +21251,7 @@ exit /b 0
 
                     self.cover_label = QLabel("加载中...")
                     self.cover_label.setFixedSize(scale(320), scale(180))
-                    self.cover_label.setStyleSheet(scale_style("background-color: #e6eaf2; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 15px; color: #64748b;"))
+                    self.cover_label.setStyleSheet(scale_style("background-color: #e6eaf2; border-radius: 0; display: flex; align-items: center; justify-content: center; font-size: 15px; color: #64748b;"))
                     self.cover_label.setScaledContents(True)
                     self.cover_label.setAlignment(Qt.AlignCenter)
                     top_layout.addWidget(self.cover_label)
@@ -21289,7 +21304,7 @@ exit /b 0
                     parse_btn.setFixedHeight(scale(36))
                     parse_btn.setMinimumWidth(scale(110))
                     parse_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-                    parse_btn.setStyleSheet(scale_style("padding: 0 20px; border: none; border-radius: 6px; font-size: 15px; background-color: #409eff; color: white;"))
+                    parse_btn.setStyleSheet(scale_style("padding: 0 20px; border: none; border-radius: 0; font-size: 15px; background-color: #409eff; color: white;"))
                     parse_btn.clicked.connect(self._parse_this_video)
                     btn_layout.addWidget(parse_btn)
 
@@ -21297,7 +21312,7 @@ exit /b 0
                     cover_btn.setFixedHeight(scale(36))
                     cover_btn.setMinimumWidth(scale(100))
                     cover_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-                    cover_btn.setStyleSheet(scale_style("padding: 0 20px; border: 1px solid #4f6ef7; border-radius: 6px; font-size: 15px; background-color: white; color: #4f6ef7;"))
+                    cover_btn.setStyleSheet(scale_style("padding: 0 20px; border: 1px solid #4f6ef7; border-radius: 0; font-size: 15px; background-color: white; color: #4f6ef7;"))
                     cover_btn.clicked.connect(self._download_cover)
                     btn_layout.addWidget(cover_btn)
 
@@ -21305,7 +21320,7 @@ exit /b 0
                     close_btn2.setFixedHeight(scale(36))
                     close_btn2.setMinimumWidth(scale(80))
                     close_btn2.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-                    close_btn2.setStyleSheet(scale_style("padding: 0 20px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 15px; background-color: white; color: #374151;"))
+                    close_btn2.setStyleSheet(scale_style("padding: 0 20px; border: 1px solid #d1d5db; border-radius: 0; font-size: 15px; background-color: white; color: #374151;"))
                     close_btn2.clicked.connect(self.reject)
                     btn_layout.addWidget(close_btn2)
 
@@ -21484,7 +21499,7 @@ exit /b 0
             
             if hasattr(self, 'cover_label'):
                 self.cover_label.setText("无封面")
-                self.cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 8px; background-color: #f8fafc;"))
+                self.cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 0; background-color: #f8fafc;"))
             else:
                 print("错误：cover_label控件不存在")
             
@@ -21981,19 +21996,19 @@ exit /b 0
             if is_bangumi:
                 video_type = "番剧"
                 type_style = "color: #ff6b6b; font-weight: 500;"
-                group_style = "QGroupBox { border: 2px solid #ff6b6b; border-radius: 10px; } QGroupBox::title { color: #ff6b6b; }"
+                group_style = "QGroupBox { border: 2px solid #ff6b6b; border-radius: 0; } QGroupBox::title { color: #ff6b6b; }"
             elif is_cheese:
                 video_type = "课程"
                 type_style = "color: #4ecdc4; font-weight: 500;"
-                group_style = "QGroupBox { border: 2px solid #4ecdc4; border-radius: 10px; } QGroupBox::title { color: #4ecdc4; }"
+                group_style = "QGroupBox { border: 2px solid #4ecdc4; border-radius: 0; } QGroupBox::title { color: #4ecdc4; }"
             elif is_interact:
                 video_type = "互动视频"
                 type_style = "color: #45b7d1; font-weight: 500;"
-                group_style = "QGroupBox { border: 2px solid #45b7d1; border-radius: 10px; } QGroupBox::title { color: #45b7d1; }"
+                group_style = "QGroupBox { border: 2px solid #45b7d1; border-radius: 0; } QGroupBox::title { color: #45b7d1; }"
             else:
                 video_type = "普通视频"
                 type_style = "color: #409eff; font-weight: 500;"
-                group_style = "QGroupBox { border: 2px solid #409eff; border-radius: 10px; } QGroupBox::title { color: #409eff; }"
+                group_style = "QGroupBox { border: 2px solid #409eff; border-radius: 0; } QGroupBox::title { color: #409eff; }"
             
             print(f"设置视频类型：{video_type}")
             type_label.setText(video_type)
@@ -22070,10 +22085,10 @@ exit /b 0
                         if not pixmap.isNull():
                             scaled_pixmap = pixmap.scaled(scale(180), scale(120), Qt.KeepAspectRatio, Qt.SmoothTransformation)
                             cover_label.setPixmap(scaled_pixmap)
-                            cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 8px;"))
+                            cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 0;"))
                         else:
                             cover_label.setText("加载失败")
-                            cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 8px; background-color: #f8fafc;"))
+                            cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 0; background-color: #f8fafc;"))
                     except Exception:
                         pass
 
@@ -22085,7 +22100,7 @@ exit /b 0
             else:
                 print("无封面")
                 cover_label.setText("无封面")
-                cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 8px; background-color: #f8fafc;"))
+                cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 0; background-color: #f8fafc;"))
             
             # 启用相关控件
             print("启用控件")
@@ -22355,7 +22370,7 @@ exit /b 0
                     thumb_label.setStyleSheet(scale_style("""
                         QLabel {
                             background-color: #f0f2f5;
-                            border-radius: 3px;
+                            border-radius: 0;
                             color: #8b95a5;
                             font-size: 15px;
                         }
@@ -22511,7 +22526,7 @@ exit /b 0
                         QLabel {
                             background-color: #f7f8fa;
                             border: 1px solid #e0e4ea;
-                            border-radius: 6px;
+                            border-radius: 0;
                         }
                     """))
                 else:
@@ -22521,7 +22536,7 @@ exit /b 0
                         QLabel {
                             background-color: #f7f8fa;
                             border: 1px dashed #d0d5dd;
-                            border-radius: 6px;
+                            border-radius: 0;
                             color: #8b95a5;
                             font-size: 15px;
                         }
@@ -24098,7 +24113,7 @@ exit /b 0
                 # 创建新的任务进度 widget
                 if task_key not in self.download_tasks:
                     task_widget = QWidget()
-                    task_widget.setStyleSheet(scale_style("background-color: #f0fdf4; border-radius: 8px; padding: 12px; margin-bottom: 8px;"))
+                    task_widget.setStyleSheet(scale_style("background-color: #f0fdf4; border-radius: 0; padding: 12px; margin-bottom: 8px;"))
                     task_layout = QVBoxLayout(task_widget)
                     task_layout.setContentsMargins(scale(8), scale(8), scale(8), scale(8))
                     task_layout.setSpacing(scale(8))
@@ -24114,7 +24129,7 @@ exit /b 0
                     progress_bar = QProgressBar()
                     progress_bar.setRange(0, 100)
                     progress_bar.setMinimumHeight(scale(14))
-                    progress_bar.setStyleSheet(scale_style("QProgressBar { border-radius: 6px; background-color: #dcfce7; } QProgressBar::chunk { border-radius: 6px; background-color: #22c55e; }"))
+                    progress_bar.setStyleSheet(scale_style("QProgressBar { border-radius: 0; background-color: #dcfce7; } QProgressBar::chunk { border-radius: 0; background-color: #22c55e; }"))
                     
                     progress_text = QLabel(f"{int(progress)}%")
                     progress_text.setStyleSheet(scale_style("font-size: 15px; color: #64748b; font-weight: 500;"))
@@ -24338,9 +24353,9 @@ exit /b 0
 
             btn_layout = QHBoxLayout()
             install_btn = QPushButton("安装解码器")
-            install_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; padding: 8px 16px; border-radius: 4px;"))
+            install_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; padding: 8px 16px; border-radius: 0;"))
             skip_btn = QPushButton("跳过（下载后手动转换）")
-            skip_btn.setStyleSheet(scale_style("padding: 8px 16px; border-radius: 4px;"))
+            skip_btn.setStyleSheet(scale_style("padding: 8px 16px; border-radius: 0;"))
 
             btn_layout.addWidget(install_btn)
             btn_layout.addWidget(skip_btn)
@@ -24910,7 +24925,7 @@ exit /b 0
         custom_style = get_base_style() + scale_style("""
             QDialog {
                 border: 2px solid #409eff;
-                border-radius: 12px;
+                border-radius: 0;
                 background-color: white;
             }
             # 标题栏样式
@@ -24927,7 +24942,7 @@ exit /b 0
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(scale(15), scale(2), scale(10), scale(2))
         title_layout.setSpacing(scale(8))
-        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 28px; border-top-left-radius: 6px; border-top-right-radius: 6px;"))
+        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 28px; border-radius: 0; border-radius: 0;"))
         
         title_label = QLabel("批量解析")
         title_label.setObjectName("titleLabel")
@@ -25068,15 +25083,15 @@ exit /b 0
         custom_style = get_base_style() + scale_style("""
             QMainWindow {
                 border: 2px solid #409eff;
-                border-radius: 8px;
+                border-radius: 0;
                 background-color: white;
             }
             #titleBar {
                 background-color: #409eff;
                 color: white;
                 min-height: 32px;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
+                border-radius: 0;
+                border-radius: 0;
             }
             #titleLabel {
                 font-weight: bold;
@@ -25163,12 +25178,12 @@ exit /b 0
         self.batch_progress_bar.setStyleSheet(scale_style("""
             QProgressBar {
                 min-height: 8px;
-                border-radius: 4px;
+                border-radius: 0;
                 background-color: #e6eaf2;
                 border: none;
             }
             QProgressBar::chunk {
-                border-radius: 4px;
+                border-radius: 0;
                 background-color: #409eff;
             }
         """))
@@ -25218,15 +25233,15 @@ exit /b 0
             download_video_btn = QPushButton("下载画面")
             download_video_btn.setEnabled(False)
             download_video_btn.setStyleSheet(scale_style(
-                "padding: 4px 10px; background-color: #17a2b8; color: white; border: none; border-radius: 4px; font-size: 15px; font-weight: 500;"))
+                "padding: 4px 10px; background-color: #17a2b8; color: white; border: none; border-radius: 0; font-size: 15px; font-weight: 500;"))
             download_audio_btn = QPushButton("下载音频")
             download_audio_btn.setEnabled(False)
             download_audio_btn.setStyleSheet(scale_style(
-                "padding: 4px 10px; background-color: #fd7e14; color: white; border: none; border-radius: 4px; font-size: 15px; font-weight: 500;"))
+                "padding: 4px 10px; background-color: #fd7e14; color: white; border: none; border-radius: 0; font-size: 15px; font-weight: 500;"))
             download_btn = QPushButton("下载完整视频")
             download_btn.setEnabled(False)
             download_btn.setStyleSheet(scale_style(
-                "padding: 4px 10px; background-color: #28a745; color: white; border: none; border-radius: 4px; font-size: 15px; font-weight: 500;"))
+                "padding: 4px 10px; background-color: #28a745; color: white; border: none; border-radius: 0; font-size: 15px; font-weight: 500;"))
 
             cover_btn = QPushButton("下载封面")
             cover_btn.setEnabled(False)
@@ -25235,7 +25250,7 @@ exit /b 0
                     background-color: #4f6ef7;
                     color: white;
                     border: none;
-                    border-radius: 4px;
+                    border-radius: 0;
                     font-size: 15px;
                     font-weight: 500;
                     padding: 4px 8px;
@@ -25528,7 +25543,7 @@ exit /b 0
         btn_layout.setSpacing(scale(10))
 
         select_all_btn = QPushButton("全选")
-        select_all_btn.setStyleSheet(scale_style("padding: 0 16px; border: 1px solid #409eff; border-radius: 6px; font-size: 15px; background-color: white; color: #409eff; min-height: 32px;"))
+        select_all_btn.setStyleSheet(scale_style("padding: 0 16px; border: 1px solid #409eff; border-radius: 0; font-size: 15px; background-color: white; color: #409eff; min-height: 32px;"))
         def on_select_all():
             for ld in all_link_data:
                 try:
@@ -25538,7 +25553,7 @@ exit /b 0
         select_all_btn.clicked.connect(on_select_all)
 
         deselect_all_btn = QPushButton("取消全选")
-        deselect_all_btn.setStyleSheet(scale_style("padding: 0 16px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 15px; background-color: white; color: #374151; min-height: 32px;"))
+        deselect_all_btn.setStyleSheet(scale_style("padding: 0 16px; border: 1px solid #d1d5db; border-radius: 0; font-size: 15px; background-color: white; color: #374151; min-height: 32px;"))
         def on_deselect_all():
             for ld in all_link_data:
                 try:
@@ -25548,11 +25563,11 @@ exit /b 0
         deselect_all_btn.clicked.connect(on_deselect_all)
 
         batch_download_video_btn = QPushButton("批量下载画面")
-        batch_download_video_btn.setStyleSheet(scale_style("padding: 0 16px; border: none; border-radius: 6px; font-size: 15px; background-color: #17a2b8; color: white; min-height: 32px;"))
+        batch_download_video_btn.setStyleSheet(scale_style("padding: 0 16px; border: none; border-radius: 0; font-size: 15px; background-color: #17a2b8; color: white; min-height: 32px;"))
         batch_download_audio_btn = QPushButton("批量下载音频")
-        batch_download_audio_btn.setStyleSheet(scale_style("padding: 0 16px; border: none; border-radius: 6px; font-size: 15px; background-color: #fd7e14; color: white; min-height: 32px;"))
+        batch_download_audio_btn.setStyleSheet(scale_style("padding: 0 16px; border: none; border-radius: 0; font-size: 15px; background-color: #fd7e14; color: white; min-height: 32px;"))
         batch_download_btn = QPushButton("批量下载完整视频")
-        batch_download_btn.setStyleSheet(scale_style("padding: 0 16px; border: none; border-radius: 6px; font-size: 15px; background-color: #28a745; color: white; min-height: 32px;"))
+        batch_download_btn.setStyleSheet(scale_style("padding: 0 16px; border: none; border-radius: 0; font-size: 15px; background-color: #28a745; color: white; min-height: 32px;"))
         def on_batch_download(content_type=0):
             selected_items = [ld for ld in all_link_data if ld['checkbox'].isChecked() and ld['video_info']]
             if not selected_items:
@@ -25687,7 +25702,7 @@ exit /b 0
         batch_download_btn.clicked.connect(lambda: on_batch_download(0))
 
         stop_parse_btn = QPushButton("停止解析")
-        stop_parse_btn.setStyleSheet(scale_style("padding: 0 16px; border: 1px solid #f56c6c; border-radius: 6px; font-size: 15px; background-color: white; color: #f56c6c; min-height: 32px;"))
+        stop_parse_btn.setStyleSheet(scale_style("padding: 0 16px; border: 1px solid #f56c6c; border-radius: 0; font-size: 15px; background-color: white; color: #f56c6c; min-height: 32px;"))
         def on_stop_parse():
             self.parse_stopped = True
             stop_parse_btn.setEnabled(False)
@@ -25704,7 +25719,7 @@ exit /b 0
         btn_layout.addWidget(batch_download_btn)
 
         close_btn = QPushButton("关闭")
-        close_btn.setStyleSheet(scale_style("padding: 0 16px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 15px; background-color: white; color: #374151; min-height: 32px;"))
+        close_btn.setStyleSheet(scale_style("padding: 0 16px; border: 1px solid #d1d5db; border-radius: 0; font-size: 15px; background-color: white; color: #374151; min-height: 32px;"))
         close_btn.clicked.connect(batch_parse_window.close)
         btn_layout.addWidget(close_btn)
         content_layout.addLayout(btn_layout)
@@ -25843,7 +25858,7 @@ exit /b 0
         dialog.setStyleSheet(get_base_style() + scale_style("""
             QDialog {
                 border: 2px solid #409eff;
-                border-radius: 12px;
+                border-radius: 0;
                 background-color: #fafafa;
             }
             QWidget#titleBar {
@@ -25852,8 +25867,8 @@ exit /b 0
                 color: white;
                 min-height: 36px;
                 max-height: 42px;
-                border-top-left-radius: 10px;
-                border-top-right-radius: 10px;
+                border-radius: 0;
+                border-radius: 0;
             }
             QLabel#titleLabel {
                 font-size: 15px;
@@ -25867,7 +25882,7 @@ exit /b 0
                 max-width: 30px;
                 max-height: 30px;
                 border: none;
-                border-radius: 15px;
+                border-radius: 0;
                 background-color: transparent;
                 color: white;
                 font-size: 15px;
@@ -25882,7 +25897,7 @@ exit /b 0
                 max-width: 30px;
                 max-height: 30px;
                 border: none;
-                border-radius: 15px;
+                border-radius: 0;
                 background-color: transparent;
                 color: white;
                 font-size: 15px;
@@ -25900,7 +25915,7 @@ exit /b 0
             }
             QToolBar#navBar QToolButton {
                 border: 1px solid transparent;
-                border-radius: 6px;
+                border-radius: 0;
                 padding: 6px 12px;
                 background-color: transparent;
                 color: #555;
@@ -25917,7 +25932,7 @@ exit /b 0
             QWidget#pathBox {
                 background-color: white;
                 border: 1px solid #d9d9d9;
-                border-radius: 8px;
+                border-radius: 0;
                 padding: 8px 12px;
             }
             QLineEdit#pathEdit {
@@ -25943,7 +25958,7 @@ exit /b 0
             }
             QTreeView#dirTree {
                 border: 1px solid #e8e8e8;
-                border-radius: 8px;
+                border-radius: 0;
                 background-color: white;
                 alternate-background-color: #fafafa;
                 show-decoration-selected: 1;
@@ -25954,23 +25969,23 @@ exit /b 0
             }
             QTreeView#dirTree::item:hover {
                 background-color: #e6f7ff;
-                border-radius: 4px;
+                border-radius: 0;
             }
             QTreeView#dirTree::item:selected {
                 background-color: #409eff;
                 color: white;
-                border-radius: 4px;
+                border-radius: 0;
             }
             QListWidget#fileList {
                 border: 1px solid #e8e8e8;
-                border-radius: 8px;
+                border-radius: 0;
                 background-color: white;
                 outline: none;
             }
             QListWidget#fileList::item {
                 padding: 10px 14px;
                 margin: 3px;
-                border-radius: 6px;
+                border-radius: 0;
                 font-size: 15px;
             }
             QListWidget#fileList::item:hover {
@@ -25985,11 +26000,11 @@ exit /b 0
                 width: 10px;
                 background-color: #f5f5f5;
                 border: none;
-                border-radius: 5px;
+                border-radius: 0;
             }
             QTreeView#dirTree QScrollBar::handle, QListWidget#fileList QScrollBar::handle {
                 background-color: #c0c4cc;
-                border-radius: 5px;
+                border-radius: 0;
                 min-height: 30px;
                 min-width: 30px;
             }
@@ -26009,7 +26024,7 @@ exit /b 0
                     stop:0 #409eff, stop:1 #3a8ee6);
                 color: white;
                 border: none;
-                border-radius: 8px;
+                border-radius: 0;
                 padding: 10px 32px;
                 font-size: 15px;
                 font-weight: bold;
@@ -26026,7 +26041,7 @@ exit /b 0
                 background-color: white;
                 color: #666;
                 border: 1px solid #dde3ed;
-                border-radius: 8px;
+                border-radius: 0;
                 padding: 10px 28px;
                 font-size: 15px;
                 min-width: 90px;
@@ -26277,7 +26292,7 @@ exit /b 0
         mode_combo.setStyleSheet("""
             QComboBox {
                 border: 1px solid #d9d9d9;
-                border-radius: 6px;
+                border-radius: 0;
                 padding: 5px 10px;
                 background-color: white;
                 font-size: 15px;
@@ -26314,7 +26329,7 @@ exit /b 0
         search_edit.setStyleSheet("""
             QLineEdit {
                 border: 1px solid #d9d9d9;
-                border-radius: 6px;
+                border-radius: 0;
                 padding: 5px 10px;
                 background-color: white;
                 font-size: 15px;
@@ -26622,14 +26637,14 @@ exit /b 0
         continue_btn.setStyleSheet(scale_style(
             f"padding: {scale(6)}px {scale(22)}px; "
             f"background-color: #919191; color: white; "
-            f"border-radius: {scale(4)}px; font-size: {scale(13)}px;"))
+            f"border-radius: 0; font-size: {scale(13)}px;"))
 
         login_btn = QPushButton("登录")
         login_btn.setCursor(Qt.PointingHandCursor)
         login_btn.setStyleSheet(scale_style(
             f"padding: {scale(6)}px {scale(22)}px; "
             f"background-color: #409eff; color: white; "
-            f"border-radius: {scale(4)}px; font-size: {scale(13)}px;"))
+            f"border-radius: 0; font-size: {scale(13)}px;"))
 
         btn_layout.addWidget(continue_btn)
         btn_layout.addWidget(login_btn)
@@ -26719,11 +26734,11 @@ exit /b 0
         custom_style = get_base_style() + scale_style("""
             QDialog {
                 border: 2px solid #409eff;
-                border-radius: 12px;
+                border-radius: 0;
                 background-color: white;
             }
             QPushButton {
-                border-radius: 8px;
+                border-radius: 0;
             }
             QPushButton:hover {
                 background-color: #66b1ff;
@@ -26732,14 +26747,14 @@ exit /b 0
                 background-color: #3a8ee6;
             }
             QLineEdit, QComboBox, QTextEdit {
-                border-radius: 8px;
+                border-radius: 0;
             }
             QLineEdit:focus, QComboBox:focus, QTextEdit:focus {
                 border-color: #409eff;
             }
             QGroupBox {
                 border: 1px solid #e6eaf2;
-                border-radius: 10px;
+                border-radius: 0;
                 padding: 20px;
                 margin-top: 16px;
                 background-color: white;
@@ -26765,7 +26780,7 @@ exit /b 0
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(scale(15), scale(2), scale(10), scale(2))
         title_layout.setSpacing(scale(8))
-        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 28px; border-top-left-radius: 6px; border-top-right-radius: 6px;"))
+        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 28px; border-radius: 0; border-radius: 0;"))
         
         title_label = QLabel("登录B站")
         title_label.setObjectName("titleLabel")
@@ -26936,10 +26951,10 @@ exit /b 0
                         rl_cid.setFixedWidth(scale(80))
                         rl_tel = QLineEdit()
                         rl_tel.setPlaceholderText("请输入手机号")
-                        rl_tel.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;")
+                        rl_tel.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 0;")
                         rl_send = QPushButton("发送验证码")
                         rl_send.setFixedWidth(scale(100))
-                        rl_send.setStyleSheet("background-color: #409eff; color: white; border-radius: 4px; padding: 8px;")
+                        rl_send.setStyleSheet("background-color: #409eff; color: white; border-radius: 0; padding: 8px;")
                         rl_phone_layout.addWidget(rl_cid)
                         rl_phone_layout.addWidget(rl_tel)
                         rl_phone_layout.addWidget(rl_send)
@@ -26947,12 +26962,12 @@ exit /b 0
                         
                         rl_code = QLineEdit()
                         rl_code.setPlaceholderText("请输入短信验证码")
-                        rl_code.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;")
+                        rl_code.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 0;")
                         rl.addWidget(rl_code)
                         
                         rl_login = QPushButton("验证并登录")
                         rl_login.setMinimumHeight(scale(40))
-                        rl_login.setStyleSheet("background-color: #409eff; color: white; font-weight: bold; border-radius: 4px; font-size: 15px;")
+                        rl_login.setStyleSheet("background-color: #409eff; color: white; font-weight: bold; border-radius: 0; font-size: 15px;")
                         rl_login.setEnabled(False)
                         rl.addWidget(rl_login)
                         
@@ -27204,7 +27219,7 @@ exit /b 0
         refresh_status_btn = QPushButton("刷新状态")
         refresh_status_btn.setMinimumHeight(scale(36))
         refresh_status_btn.setMinimumWidth(scale(100))
-        refresh_status_btn.setStyleSheet(scale_style("background-color: #60a5fa; color: white; font-weight: 500; font-size: 15px; border-radius: 8px; padding: 0 12px;"))
+        refresh_status_btn.setStyleSheet(scale_style("background-color: #60a5fa; color: white; font-weight: 500; font-size: 15px; border-radius: 0; padding: 0 12px;"))
         
         def on_refresh_status():
             nonlocal login_poll_thread, qrcode_key
@@ -27226,7 +27241,7 @@ exit /b 0
         refresh_btn = QPushButton("刷新二维码")
         refresh_btn.setMinimumHeight(scale(36))
         refresh_btn.setMinimumWidth(scale(100))
-        refresh_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; font-weight: 500; font-size: 15px; border-radius: 8px; padding: 0 12px;"))
+        refresh_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; font-weight: 500; font-size: 15px; border-radius: 0; padding: 0 12px;"))
         refresh_btn.clicked.connect(get_qrcode)
         buttons_layout.addWidget(refresh_btn)
         
@@ -27271,11 +27286,11 @@ exit /b 0
         tab_layout.setSpacing(scale(0))
         
         password_tab = QPushButton("账号密码")
-        password_tab.setStyleSheet(scale_style("background-color: #409eff; color: white; border-top-left-radius: 8px; border-top-right-radius: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
+        password_tab.setStyleSheet(scale_style("background-color: #409eff; color: white; border-radius: 0; border-top-right-radius: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
         sms_tab = QPushButton("验证码")
         sms_tab.setStyleSheet(scale_style("background-color: #f8f9fa; color: #6b7280; border-top-left-radius: 0; border-top-right-radius: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
         cookie_tab = QPushButton("Cookie")
-        cookie_tab.setStyleSheet(scale_style("background-color: #f8f9fa; color: #6b7280; border-top-left-radius: 0; border-top-right-radius: 8px; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
+        cookie_tab.setStyleSheet(scale_style("background-color: #f8f9fa; color: #6b7280; border-top-left-radius: 0; border-radius: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
         
         tab_layout.addWidget(password_tab)
         tab_layout.addWidget(sms_tab)
@@ -27297,7 +27312,7 @@ exit /b 0
         risk_banner.setStyleSheet(scale_style("""
             background-color: #fff7e6;
             border: 1px solid #ffd591;
-            border-radius: 8px;
+            border-radius: 0;
             padding: 12px;
         """))
         risk_layout = QHBoxLayout(risk_banner)
@@ -27320,7 +27335,7 @@ exit /b 0
             font-size: 15px;
             font-weight: 500;
             padding: 8px 16px;
-            border-radius: 8px;
+            border-radius: 0;
         """))
         verify_btn.setMinimumHeight(scale(32))
         risk_layout.addWidget(verify_btn)
@@ -27627,17 +27642,17 @@ exit /b 0
         def switch_tab(tab_index):
             form_stack.setCurrentIndex(tab_index)
             if tab_index == 0:
-                password_tab.setStyleSheet(scale_style("background-color: #409eff; color: white; border-top-left-radius: 8px; border-top-right-radius: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
+                password_tab.setStyleSheet(scale_style("background-color: #409eff; color: white; border-radius: 0; border-top-right-radius: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
                 sms_tab.setStyleSheet(scale_style("background-color: #f8f9fa; color: #6b7280; border-top-left-radius: 0; border-top-right-radius: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
-                cookie_tab.setStyleSheet(scale_style("background-color: #f8f9fa; color: #6b7280; border-top-left-radius: 0; border-top-right-radius: 8px; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
+                cookie_tab.setStyleSheet(scale_style("background-color: #f8f9fa; color: #6b7280; border-top-left-radius: 0; border-radius: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
             elif tab_index == 1:
-                password_tab.setStyleSheet(scale_style("background-color: #f8f9fa; color: #6b7280; border-top-left-radius: 8px; border-top-right-radius: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
+                password_tab.setStyleSheet(scale_style("background-color: #f8f9fa; color: #6b7280; border-radius: 0; border-top-right-radius: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
                 sms_tab.setStyleSheet(scale_style("background-color: #409eff; color: white; border-top-left-radius: 0; border-top-right-radius: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
-                cookie_tab.setStyleSheet(scale_style("background-color: #f8f9fa; color: #6b7280; border-top-left-radius: 0; border-top-right-radius: 8px; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
+                cookie_tab.setStyleSheet(scale_style("background-color: #f8f9fa; color: #6b7280; border-top-left-radius: 0; border-radius: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
             else:
-                password_tab.setStyleSheet(scale_style("background-color: #f8f9fa; color: #6b7280; border-top-left-radius: 8px; border-top-right-radius: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
+                password_tab.setStyleSheet(scale_style("background-color: #f8f9fa; color: #6b7280; border-radius: 0; border-top-right-radius: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
                 sms_tab.setStyleSheet(scale_style("background-color: #f8f9fa; color: #6b7280; border-top-left-radius: 0; border-top-right-radius: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
-                cookie_tab.setStyleSheet(scale_style("background-color: #409eff; color: white; border-top-left-radius: 0; border-top-right-radius: 8px; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
+                cookie_tab.setStyleSheet(scale_style("background-color: #409eff; color: white; border-top-left-radius: 0; border-radius: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 12px 24px; font-weight: 500;"))
         
         password_tab.clicked.connect(lambda: switch_tab(0))
         sms_tab.clicked.connect(lambda: switch_tab(1))
@@ -27813,10 +27828,10 @@ exit /b 0
                                             r_cid_combo.setFixedWidth(scale(80))
                                             r_phone_edit = QLineEdit()
                                             r_phone_edit.setPlaceholderText("请输入手机号")
-                                            r_phone_edit.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;")
+                                            r_phone_edit.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 0;")
                                             r_send_btn = QPushButton("发送验证码")
                                             r_send_btn.setFixedWidth(scale(100))
-                                            r_send_btn.setStyleSheet("background-color: #409eff; color: white; border-radius: 4px; padding: 8px;")
+                                            r_send_btn.setStyleSheet("background-color: #409eff; color: white; border-radius: 0; padding: 8px;")
                                             r_phone_layout.addWidget(r_cid_combo)
                                             r_phone_layout.addWidget(r_phone_edit)
                                             r_phone_layout.addWidget(r_send_btn)
@@ -27824,12 +27839,12 @@ exit /b 0
 
                                             r_code_edit = QLineEdit()
                                             r_code_edit.setPlaceholderText("请输入短信验证码")
-                                            r_code_edit.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;")
+                                            r_code_edit.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 0;")
                                             r_layout.addWidget(r_code_edit)
 
                                             r_login_btn = QPushButton("验证并登录")
                                             r_login_btn.setMinimumHeight(scale(40))
-                                            r_login_btn.setStyleSheet("background-color: #409eff; color: white; font-weight: bold; border-radius: 4px; font-size: 15px;")
+                                            r_login_btn.setStyleSheet("background-color: #409eff; color: white; font-weight: bold; border-radius: 0; font-size: 15px;")
                                             r_login_btn.setEnabled(False)
                                             r_layout.addWidget(r_login_btn)
 
@@ -28211,10 +28226,10 @@ exit /b 0
                         rl2_cid.setFixedWidth(scale(80))
                         rl2_tel = QLineEdit()
                         rl2_tel.setPlaceholderText("请输入手机号")
-                        rl2_tel.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;")
+                        rl2_tel.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 0;")
                         rl2_send = QPushButton("发送验证码")
                         rl2_send.setFixedWidth(scale(100))
-                        rl2_send.setStyleSheet("background-color: #409eff; color: white; border-radius: 4px; padding: 8px;")
+                        rl2_send.setStyleSheet("background-color: #409eff; color: white; border-radius: 0; padding: 8px;")
                         rl2_phone_layout.addWidget(rl2_cid)
                         rl2_phone_layout.addWidget(rl2_tel)
                         rl2_phone_layout.addWidget(rl2_send)
@@ -28222,12 +28237,12 @@ exit /b 0
 
                         rl2_code = QLineEdit()
                         rl2_code.setPlaceholderText("请输入短信验证码")
-                        rl2_code.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;")
+                        rl2_code.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 0;")
                         rl2.addWidget(rl2_code)
 
                         rl2_login = QPushButton("验证并登录")
                         rl2_login.setMinimumHeight(scale(40))
-                        rl2_login.setStyleSheet("background-color: #409eff; color: white; font-weight: bold; border-radius: 4px; font-size: 15px;")
+                        rl2_login.setStyleSheet("background-color: #409eff; color: white; font-weight: bold; border-radius: 0; font-size: 15px;")
                         rl2_login.setEnabled(False)
                         rl2.addWidget(rl2_login)
 
@@ -28444,7 +28459,7 @@ exit /b 0
         QGroupBox {
             background-color: #fbfcfe;
             border: 1px solid #e8ecf3;
-            border-radius: 10px;
+            border-radius: 0;
             margin-top: 14px;
             padding: 16px 14px 14px 14px;
             font-size: 15px;
@@ -28469,7 +28484,7 @@ exit /b 0
         QCheckBox[settingsCheck="true"] {
             padding: 8px 10px 8px 4px;
             spacing: 10px;
-            border-radius: 7px;
+            border-radius: 0;
             font-size: 15px;
             color: #374151;
         }
@@ -28477,7 +28492,7 @@ exit /b 0
         QCheckBox[settingsCheck="true"]::indicator {
             width: 17px; height: 17px;
             border: 1.5px solid #b9c2d0;
-            border-radius: 5px;
+            border-radius: 0;
             background: #ffffff;
         }
         QCheckBox[settingsCheck="true"]::indicator:hover { border-color: #409eff; }
@@ -28490,7 +28505,7 @@ exit /b 0
         QGroupBox QLineEdit, QGroupBox QComboBox, QGroupBox QSpinBox,
         QGroupBox QDoubleSpinBox, QGroupBox QTextEdit, QGroupBox QTextBrowser {
             border: 1px solid #dde3ed;
-            border-radius: 7px;
+            border-radius: 0;
             padding: 6px 9px;
             background: #ffffff;
             font-size: 15px;
@@ -28513,7 +28528,7 @@ exit /b 0
         QListWidget#settingsSidebar::item {
             padding: 11px 12px;
             margin: 3px 0;
-            border-radius: 8px;
+            border-radius: 0;
             color: #4b5563;
             font-size: 15px;
             font-weight: 500;
@@ -28613,7 +28628,7 @@ exit /b 0
         main_layout.setSpacing(scale(0))
 
         title_bar = QWidget()
-        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 40px; border-top-left-radius: 10px; border-top-right-radius: 10px;"))
+        title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 40px; border-radius: 0; border-radius: 0;"))
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(scale(16), scale(0), scale(12), scale(0))
         title_layout.setSpacing(scale(10))
@@ -28623,7 +28638,7 @@ exit /b 0
         title_layout.addWidget(title_label, stretch=1)
         
         close_btn = QPushButton("×")
-        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 19px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 19px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 0;"))
         close_btn.setToolTip("关闭")
         close_btn.clicked.connect(dialog.hide)
         title_layout.addWidget(close_btn)
@@ -28684,14 +28699,14 @@ exit /b 0
         
         path_edit = QLineEdit(current_default)
         path_edit.setMinimumHeight(scale(32))
-        path_edit.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px;"))
+        path_edit.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 0;"))
         # 限制最小宽度，避免超长路径把整页挤成单列
         path_edit.setMinimumWidth(scale(240))
         path_layout.addWidget(path_edit)
         
         browse_btn = QPushButton("浏览")
         browse_btn.setMinimumHeight(scale(32))
-        browse_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; border-radius: 6px; padding: 8px 16px;"))
+        browse_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; border-radius: 0; padding: 8px 16px;"))
         
         def browse_path():
             path = self.show_custom_file_dialog("选择默认保存路径")
@@ -28712,7 +28727,7 @@ exit /b 0
         thread_spin = QComboBox()
         thread_spin.setMinimumHeight(scale(32))
         thread_spin.setMinimumWidth(scale(180))
-        thread_spin.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px;"))
+        thread_spin.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 0;"))
         for i in range(1, 11):
             thread_spin.addItem(str(i), i)
         current_threads = self.config.get_app_setting("max_threads", 2)
@@ -28797,7 +28812,7 @@ exit /b 0
         scale_btn_row.addStretch(1)
         apply_scale_btn = QPushButton("立即应用")
         apply_scale_btn.setStyleSheet(scale_style("""
-            QPushButton { background-color: #67c23a; color: white; border: none; border-radius: 6px; padding: 6px 16px; font-weight: 500; }
+            QPushButton { background-color: #67c23a; color: white; border: none; border-radius: 0; padding: 6px 16px; font-weight: 500; }
             QPushButton:hover { background-color: #85ce61; }
             QPushButton:pressed { background-color: #529b2e; }
         """))
@@ -28814,15 +28829,15 @@ exit /b 0
                 self.setStyleSheet(get_base_style() + scale_style("""
                     QMainWindow {
                         border: 2px solid #409eff;
-                        border-radius: 8px;
+                        border-radius: 0;
                         background-color: white;
                     }
                     #titleBar {
                         background-color: #409eff;
                         color: white;
                         min-height: 32px;
-                        border-top-left-radius: 6px;
-                        border-top-right-radius: 6px;
+                        border-radius: 0;
+                        border-radius: 0;
                     }
                     #titleLabel {
                         font-weight: bold;
@@ -28850,7 +28865,7 @@ exit /b 0
         apply_scale_btn.clicked.connect(on_apply_scale)
         reset_scale_btn = QPushButton("重置自动检测")
         reset_scale_btn.setStyleSheet(scale_style("""
-            QPushButton { background-color: #909399; color: white; border: none; border-radius: 6px; padding: 6px 16px; font-weight: 500; }
+            QPushButton { background-color: #909399; color: white; border: none; border-radius: 0; padding: 6px 16px; font-weight: 500; }
             QPushButton:hover { background-color: #a6a9ad; }
             QPushButton:pressed { background-color: #7b7e83; }
         """))
@@ -28924,7 +28939,7 @@ exit /b 0
             btn.setStyleSheet(scale_style("""
                 QToolButton {
                     border: 2px solid #dde3ed;
-                    border-radius: 12px;
+                    border-radius: 0;
                     background-color: #ffffff;
                     padding: 10px 8px;
                     color: #303133;
@@ -29008,16 +29023,16 @@ exit /b 0
         custom_icon_path_edit = QLineEdit(current_custom_icon_path)
         custom_icon_path_edit.setPlaceholderText("请选择自定义图标文件")
         custom_icon_path_edit.setMinimumHeight(scale(32))
-        custom_icon_path_edit.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px;"))
+        custom_icon_path_edit.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 0;"))
         icon_layout.addWidget(custom_icon_path_edit)
 
         custom_icon_btn_row = QHBoxLayout()
         browse_custom_icon_btn = QPushButton("上传图标")
         browse_custom_icon_btn.setMinimumHeight(scale(32))
-        browse_custom_icon_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; border-radius: 6px; padding: 8px 16px;"))
+        browse_custom_icon_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; border-radius: 0; padding: 8px 16px;"))
         clear_custom_icon_btn = QPushButton("清空自定义")
         clear_custom_icon_btn.setMinimumHeight(scale(32))
-        clear_custom_icon_btn.setStyleSheet(scale_style("background-color: #909399; color: white; border-radius: 6px; padding: 8px 16px;"))
+        clear_custom_icon_btn.setStyleSheet(scale_style("background-color: #909399; color: white; border-radius: 0; padding: 8px 16px;"))
         custom_icon_btn_row.addWidget(browse_custom_icon_btn)
         custom_icon_btn_row.addWidget(clear_custom_icon_btn)
         custom_icon_btn_row.addStretch(1)
@@ -29073,7 +29088,7 @@ exit /b 0
         quality_label.setMinimumHeight(scale(22))
         quality_combo = QComboBox()
         quality_combo.setMinimumHeight(scale(26))
-        quality_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px; max-width: 200px;"))
+        quality_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 0; max-width: 200px;"))
         
         # 获取用户登录状态
         is_vip = False
@@ -29238,7 +29253,7 @@ exit /b 0
         video_format_label.setMinimumHeight(scale(22))
         video_format_combo = QComboBox()
         video_format_combo.setMinimumHeight(scale(26))
-        video_format_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px; max-width: 200px;"))
+        video_format_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 0; max-width: 200px;"))
         video_format_options = [
             ("MP4", "mp4"),
             ("MKV", "mkv"),
@@ -29320,7 +29335,7 @@ exit /b 0
         video_codec_label.setMinimumHeight(scale(22))
         video_codec_combo = QComboBox()
         video_codec_combo.setMinimumHeight(scale(26))
-        video_codec_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px; max-width: 200px;"))
+        video_codec_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 0; max-width: 200px;"))
         video_codec_options = [
             ("H.264", "h264"),
             ("H.265/HEVC", "hevc"),
@@ -29346,7 +29361,7 @@ exit /b 0
         video_process_mode_label.setMinimumHeight(scale(22))
         video_process_mode_combo = QComboBox()
         video_process_mode_combo.setMinimumHeight(scale(26))
-        video_process_mode_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px; max-width: 200px;"))
+        video_process_mode_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 0; max-width: 200px;"))
         video_process_mode_options = [
             ("复制数据流", "copy"),
             ("重新编码", "re-encode")
@@ -29369,7 +29384,7 @@ exit /b 0
         audio_quality_label.setMinimumHeight(scale(22))
         audio_quality_combo = QComboBox()
         audio_quality_combo.setMinimumHeight(scale(26))
-        audio_quality_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px; max-width: 200px;"))
+        audio_quality_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 0; max-width: 200px;"))
         # 音质选项（动态支持B站API返回的所有音质ID）
         # 官方文档：30251=Hi-Res无损, 30250=杜比全景声, 30280=192K, 30232=132K, 30216=64K
         # API额外返回：100010=320K, 100009=192K, 100008=128K
@@ -29402,7 +29417,7 @@ exit /b 0
         danmaku_format_label.setMinimumHeight(scale(22))
         danmaku_format_combo = QComboBox()
         danmaku_format_combo.setMinimumHeight(scale(26))
-        danmaku_format_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px; max-width: 200px;"))
+        danmaku_format_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 0; max-width: 200px;"))
         danmaku_format_options = [
             ("XML", "xml"),
             ("ASS", "ass"),
@@ -29436,7 +29451,7 @@ exit /b 0
         timeout_label = QLabel("网络超时时间（秒）：")
         timeout_spin = QComboBox()
         timeout_spin.setMinimumHeight(scale(28))
-        timeout_spin.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px; max-width: 150px;"))
+        timeout_spin.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 0; max-width: 150px;"))
         for i in [5, 10, 15, 20, 30, 60]:
             timeout_spin.addItem(str(i), i)
         current_timeout = self.config.get_app_setting("network_timeout", 15)
@@ -29452,7 +29467,7 @@ exit /b 0
         retry_label = QLabel("下载失败重试次数：")
         retry_spin = QComboBox()
         retry_spin.setMinimumHeight(scale(28))
-        retry_spin.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px; max-width: 150px;"))
+        retry_spin.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 0; max-width: 150px;"))
         for i in [1, 2, 3, 5, 10]:
             retry_spin.addItem(str(i), i)
         current_retry = self.config.get_app_setting("max_retry", 3)
@@ -29469,7 +29484,7 @@ exit /b 0
         perm_retry_label = QLabel("权限不足重试次数：")
         perm_retry_spin = QComboBox()
         perm_retry_spin.setMinimumHeight(scale(28))
-        perm_retry_spin.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 6px; max-width: 150px;"))
+        perm_retry_spin.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 0; max-width: 150px;"))
         for i in [0, 1, 2, 3, 5]:
             text = "不重试(仅标记)" if i == 0 else str(i)
             perm_retry_spin.addItem(text, i)
@@ -29552,7 +29567,7 @@ exit /b 0
             QComboBox {
                 padding: 6px 12px;
                 border: 1px solid #dde3ed;
-                border-radius: 6px;
+                border-radius: 0;
                 background-color: white;
                 font-size: 15px;
                 min-width: 180px;
@@ -29585,7 +29600,7 @@ exit /b 0
             QComboBox {
                 padding: 6px 12px;
                 border: 1px solid #dde3ed;
-                border-radius: 6px;
+                border-radius: 0;
                 background-color: white;
                 font-size: 15px;
                 min-width: 140px;
@@ -29612,7 +29627,7 @@ exit /b 0
                 font-weight: 600;
                 color: #2563eb;
                 border: 1px solid #e6eaf2;
-                border-radius: 8px;
+                border-radius: 0;
                 margin-top: 10px;
                 padding-top: 10px;
             }
@@ -29620,7 +29635,7 @@ exit /b 0
             QLabel { font-size: 15px; color: #6b7280; }
             QPushButton {
                 padding: 8px 16px;
-                border-radius: 6px;
+                border-radius: 0;
                 font-size: 15px;
                 font-weight: 500;
             }
@@ -29826,7 +29841,7 @@ exit /b 0
                 font-weight: 600;
                 color: #2563eb;
                 border: 1px solid #e6eaf2;
-                border-radius: 8px;
+                border-radius: 0;
                 margin-top: 10px;
                 padding-top: 10px;
             }
@@ -29940,20 +29955,20 @@ exit /b 0
         cache_path_row.setSpacing(scale(8))
         cache_path_edit = QLineEdit()
         cache_path_edit.setReadOnly(True)
-        cache_path_edit.setStyleSheet(scale_style("padding: 6px 8px; border: 1px solid #dde3ed; border-radius: 6px; font-size: 15px; background: #f8fafc;"))
+        cache_path_edit.setStyleSheet(scale_style("padding: 6px 8px; border: 1px solid #dde3ed; border-radius: 0; font-size: 15px; background: #f8fafc;"))
         cache_path_edit.setMinimumWidth(scale(150))
         cache_path_row.addWidget(cache_path_edit, stretch=1)
 
         browse_cache_btn = QPushButton("修改…")
         browse_cache_btn.setStyleSheet(scale_style("""
-            QPushButton { background-color: #409eff; color: white; border: none; padding: 7px 14px; border-radius: 6px; font-size: 15px; }
+            QPushButton { background-color: #409eff; color: white; border: none; padding: 7px 14px; border-radius: 0; font-size: 15px; }
             QPushButton:hover { background-color: #66b1ff; }
         """))
         cache_path_row.addWidget(browse_cache_btn)
 
         reset_cache_btn = QPushButton("恢复自动")
         reset_cache_btn.setStyleSheet(scale_style("""
-            QPushButton { background-color: #909399; color: white; border: none; padding: 7px 14px; border-radius: 6px; font-size: 15px; }
+            QPushButton { background-color: #909399; color: white; border: none; padding: 7px 14px; border-radius: 0; font-size: 15px; }
             QPushButton:hover { background-color: #a6a9ad; }
         """))
         cache_path_row.addWidget(reset_cache_btn)
@@ -30008,7 +30023,7 @@ exit /b 0
 
         refresh_storage_btn = QPushButton("刷新")
         refresh_storage_btn.setStyleSheet(scale_style("""
-            QPushButton { background-color: #909399; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 15px; font-weight: 500; }
+            QPushButton { background-color: #909399; color: white; border: none; padding: 8px 16px; border-radius: 0; font-size: 15px; font-weight: 500; }
             QPushButton:hover { background-color: #a6a9ad; }
             QPushButton:pressed { background-color: #7b7e83; }
         """))
@@ -30017,7 +30032,7 @@ exit /b 0
 
         clear_cache_btn = QPushButton("清理缓存")
         clear_cache_btn.setStyleSheet(scale_style("""
-            QPushButton { background-color: #e6a23c; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 15px; font-weight: 500; }
+            QPushButton { background-color: #e6a23c; color: white; border: none; padding: 8px 16px; border-radius: 0; font-size: 15px; font-weight: 500; }
             QPushButton:hover { background-color: #ebb563; }
             QPushButton:pressed { background-color: #cf9236; }
         """))
@@ -30568,11 +30583,11 @@ exit /b 0
         save_btn = QPushButton("保存")
         save_btn.setMinimumHeight(scale(32))
         save_btn.setMinimumWidth(scale(80))
-        save_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; font-weight: 500; border-radius: 6px; padding: 6px 16px;"))
+        save_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; font-weight: 500; border-radius: 0; padding: 6px 16px;"))
         cancel_btn = QPushButton("取消")
         cancel_btn.setMinimumHeight(scale(32))
         cancel_btn.setMinimumWidth(scale(80))
-        cancel_btn.setStyleSheet(scale_style("background-color: #f56c6c; color: white; font-weight: 500; border-radius: 6px; padding: 6px 16px;"))
+        cancel_btn.setStyleSheet(scale_style("background-color: #f56c6c; color: white; font-weight: 500; border-radius: 0; padding: 6px 16px;"))
         
         def on_save():
             new_path = path_edit.text().strip()
@@ -30815,7 +30830,7 @@ exit /b 0
                 QDialog {
                     background-color: white;
                     border: 2px solid #409eff;
-                    border-radius: 10px;
+                    border-radius: 0;
                 }
                 QLabel#windowTitle {
                     font-size: 15px;
@@ -30827,7 +30842,7 @@ exit /b 0
                     color: white;
                     font-size: 15px;
                     padding: 4px 8px;
-                    border-radius: 4px;
+                    border-radius: 0;
                 }
                 QPushButton#minimizeBtn:hover {
                     background-color: rgba(255, 255, 255, 0.2);
@@ -30837,7 +30852,7 @@ exit /b 0
                     color: white;
                     font-size: 15px;
                     padding: 4px 8px;
-                    border-radius: 4px;
+                    border-radius: 0;
                 }
                 QPushButton#closeBtn:hover {
                     background-color: rgba(255, 0, 0, 0.3);
@@ -30854,7 +30869,7 @@ exit /b 0
             dialog.mouseMoveEvent = lambda event: dialog.move(event.globalPos() - getattr(dialog, 'mouse_pos', QPoint(0, 0)))
             
             title_bar = QWidget()
-            title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 36px; border-top-left-radius: 10px; border-top-right-radius: 10px;"))
+            title_bar.setStyleSheet(scale_style("background-color: #409eff; color: white; min-height: 36px; border-radius: 0; border-radius: 0;"))
             title_layout = QHBoxLayout(title_bar)
             title_layout.setContentsMargins(scale(12), scale(0), scale(8), scale(0))
             title_layout.setSpacing(scale(6))
@@ -30951,7 +30966,7 @@ exit /b 0
                     }}
                     .profile-header {{ 
                         background-color: #00a1d6;
-                        border-radius: 8px;
+                        border-radius: 0;
                         padding: 20px;
                         margin-bottom: 16px;
                         color: white;
@@ -30987,7 +31002,7 @@ exit /b 0
                     }}
                     .info-section {{ 
                         background-color: white;
-                        border-radius: 8px;
+                        border-radius: 0;
                         padding: 20px;
                         border: 1px solid #e0e0e0;
                     }}
@@ -30995,7 +31010,7 @@ exit /b 0
                         background-color: #f5f5f5;
                         border-left: 3px solid #00a1d6;
                         padding: 12px;
-                        border-radius: 4px;
+                        border-radius: 0;
                         margin-bottom: 16px;
                         font-size: 15px;
                         color: #555;
