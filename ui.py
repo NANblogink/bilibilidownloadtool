@@ -30944,21 +30944,17 @@ exit /b 0
         page6_layout.addWidget(ad_banner)
 
         # ---- 底部操作 ----
-        about_actions = QHBoxLayout()
-        about_actions.setSpacing(scale(10))
-        join_qun_btn = QPushButton("加入交流群")
-        join_qun_btn.setCursor(Qt.PointingHandCursor)
-        join_qun_btn.setStyleSheet(scale_style("""
+        # 说明：这里不再单独放一个"加入交流群"操作区。
+        # 交流群二维码已在上面「联系与合作」卡片里，底部再放一次属于重复，
+        # 且会和紧随其后的「软件著作权」卡片叠成两块割裂的横条，观感很乱。
+        # 改为并入软著卡片底部，形成一行统一的操作区。
+        _join_qun_btn = QPushButton("加入交流群")
+        _join_qun_btn.setCursor(Qt.PointingHandCursor)
+        _join_qun_btn.setStyleSheet(scale_style("""
             QPushButton { background-color: #409eff; color: #ffffff; border: none; padding: 7px 16px; font-size: 15px; }
             QPushButton:hover { background-color: #0958d8; }
         """))
-        join_qun_btn.clicked.connect(lambda: join_support_group())
-        about_actions.addWidget(join_qun_btn)
-        about_actions.addStretch(1)
-        about_hint = QLabel("遇到问题？可加入交流群获取帮助")
-        about_hint.setStyleSheet(scale_style("font-size: 15px; color: #909399;"))
-        about_actions.addWidget(about_hint)
-        page6_layout.addLayout(about_actions)
+        _join_qun_btn.clicked.connect(lambda: join_support_group())
 
         # ---- 软件著作权 ----
         cert_card = QWidget()
@@ -31004,6 +31000,8 @@ exit /b 0
         """))
         view_cert_btn.clicked.connect(lambda: show_copyright_certificate(_dlg_ref))
         cert_btn_row.addWidget(view_cert_btn)
+        # 交流群入口并入同一行，替代原先独立的"底部操作"横条
+        cert_btn_row.addWidget(_join_qun_btn)
         cert_btn_row.addStretch(1)
         cert_note = QLabel("证书原件同时收录于仓库 copyright/ 目录")
         cert_note.setStyleSheet(scale_style("font-size: 15px; color: #909399;"))
