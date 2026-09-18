@@ -8140,8 +8140,9 @@ class EpisodeSelectionDialog(ResizableDialog):
             self._card_spacing = scale(26)
             self._card_margin = scale(12)
             self._min_card_w = scale(140)
-            # 固定最大窗口宽度，不要用屏幕百分比
-            init_w = min(scale(780), int(sg.width() * 0.7))
+            # 初始窗口宽度：提高上限让卡片模式一开始就有足够空间，
+            # 否则首次打开时列数偏少、需要手动拖窗口才正常。
+            init_w = min(scale(1040), int(sg.width() * 0.82))
             self._recalc_grid(init_w)
             min_h = max(scale(480), int(sg.height() * 0.4))
             self.setMinimumSize(max(self._opt_w, scale(560)), min_h)
@@ -8362,7 +8363,10 @@ class EpisodeSelectionDialog(ResizableDialog):
         cover_label.setMaximumSize(scale(120), scale(80))
         cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 0; background-color: #f1f5f9;"))
         cover_label.setAlignment(Qt.AlignCenter)
-        cover_label.setText("无封面")
+        # 有封面地址时先显示"加载中…"而不是"无封面"：
+        # 封面是异步下载的，若一上来就写"无封面"，会在下载完成前
+        # 让人以为封面丢失（实测下载期间确实一直显示"无封面"）。
+        cover_label.setText("加载中…" if ep.get('cover', '') else "无封面")
         layout.addWidget(cover_label)
         
         cover_url = ep.get('cover', '')
@@ -8410,7 +8414,7 @@ class EpisodeSelectionDialog(ResizableDialog):
                     except Exception:
                         _ok = False
                     finally:
-                        self.active_loaders -= 1
+                        self.active_loaders = max(self.active_loaders - 1, 0)
                         self.process_pending_cover_loading()
 
                     if _ok:
@@ -8429,7 +8433,7 @@ class EpisodeSelectionDialog(ResizableDialog):
                                           self.process_pending_cover_loading)
                     else:
                         try:
-                            cover_label.setText("加载失败")
+                            cover_label.setText("无封面")
                         except Exception:
                             pass
                 
@@ -8668,7 +8672,7 @@ border-radius: 0;
                     except Exception:
                         _ok = False
                     finally:
-                        self.active_loaders -= 1
+                        self.active_loaders = max(self.active_loaders - 1, 0)
                         self.process_pending_cover_loading()
 
                     if _ok:
@@ -8773,6 +8777,7 @@ border-radius: 0;
         self.list_view.clear()
         self.pending_cover_loading.clear()
         self.active_loaders = 0
+        self._cover_epoch = getattr(self, '_cover_epoch', 0) + 1
         self.loaded_episodes = 0
 
         ep_id_to_index = {id(ep): i for i, ep in enumerate(self.episodes)}
@@ -9066,6 +9071,7 @@ border-radius: 0;
 
         self.pending_cover_loading.clear()
         self.active_loaders = 0
+        self._cover_epoch = getattr(self, '_cover_epoch', 0) + 1
 
 
         self.loaded_episodes = 0
@@ -9216,7 +9222,14 @@ border-radius: 0;
             self.filtered_episodes.sort(key=lambda x: x.get('title', '') or x.get('ep_title', ''))
 
     def switch_view(self, view_type):
-        
+        """切换列表/卡片视图。
+
+        切到卡片时必须"先让 card_view 成为当前页 → 重算网格 → 再填充"。
+        此前只 setCurrentWidget + populate_card_view，
+        而 populate_card_view 是按当前 gridSize 创建卡片的——
+        首次切到卡片时 card_view 还从未显示过（几何是 640x480 的陈旧值），
+        于是卡片按错误宽度创建，必须手动拖一下窗口才恢复正常。
+        """
         selected_indices = list(self.selected_indices)
 
         if view_type == "list":
@@ -9224,7 +9237,15 @@ border-radius: 0;
             self.populate_list_view()
         else:
             self.stacked_view.setCurrentWidget(self.card_view)
+            # 强制布局 + 按真实可用宽度重算网格，再创建卡片
+            try:
+                self.stacked_view.layout().activate()
+            except Exception:
+                pass
+            QApplication.processEvents()
+            self._apply_card_grid()
             self.populate_card_view()
+            self._schedule_card_grid_settle()
     
     def on_checkbox_changed(self, state, index):
         ep = self.episodes[index]
@@ -9307,7 +9328,7 @@ border-radius: 0;
                 except Exception:
                     _ok = False
                 finally:
-                    self.active_loaders -= 1
+                    self.active_loaders = max(self.active_loaders - 1, 0)
                     self.process_pending_cover_loading()
 
                 if _ok:
@@ -9604,13 +9625,46 @@ border-radius: 0;
         self._apply_card_grid()
 
     def _apply_card_grid(self):
-        """按卡片视图"当前真实可用宽度"重算并应用网格尺寸。"""
+        """按卡片视图"当前真实可用宽度"重算并应用网格尺寸。
+
+        注意：card_view 位于 QStackedWidget 中，若从未显示过，
+        它的 viewport 宽度会停留在默认值（远小于对话框），
+        据此算出的网格会溢出，表现为"首次打开时卡片只排出很少几列、
+        必须手动拖一下窗口才正常"。所以这里先强制一次布局再取宽度。
+        """
         try:
             if not hasattr(self, 'card_view') or self.card_view is None:
                 return
+            sv = getattr(self, 'stacked_view', None)
+            if sv is not None:
+                # 关键：card_view 在 QStackedWidget 中，从未显示过的页面几何是陈旧值
+                # （viewport 只有几百像素），必须先把卡片页设为当前页再取宽度。
+                try:
+                    if sv.currentWidget() is not self.card_view:
+                        sv.setCurrentWidget(self.card_view)
+                except Exception:
+                    pass
+                try:
+                    sv.layout().activate()
+                except Exception:
+                    pass
+                try:
+                    self.card_view.setGeometry(sv.contentsRect())
+                except Exception:
+                    pass
+            self.card_view.updateGeometry()
+            try:
+                cv_layout = self.card_view.layout()
+                if cv_layout is not None:
+                    cv_layout.activate()
+            except Exception:
+                pass
+            QApplication.processEvents()
+
             avail_w = self.card_view.viewport().width()
-            if avail_w < scale(200):
-                avail_w = self.width()
+            # 视口明显小于对话框内部区域时，说明布局还没生效，退回窗口宽度估算
+            if avail_w < scale(200) or avail_w < self.width() - scale(200):
+                avail_w = max(self.width() - self._card_margin * 2 - scale(24), scale(200))
             self._recalc_grid(avail_w)
             self.card_view.setGridSize(QSize(self._grid_w, self._grid_h))
         except Exception:
@@ -9618,9 +9672,34 @@ border-radius: 0;
 
     def showEvent(self, event):
         super().showEvent(event)
-        # 首次显示后布局才稳定，此时再校准一次网格
-        if hasattr(self, 'card_radio') and self.card_radio.isChecked():
-            QTimer.singleShot(0, self._apply_card_grid)
+        # 首次显示后布局才稳定（viewport 宽度此时才是最终值）。
+        # init_ui 阶段算出的网格是基于"还没布局"的宽度，所以这里必须重算，
+        # 否则卡片模式要手动拖一下窗口才正常。
+        self._schedule_card_grid_settle()
+
+    def _schedule_card_grid_settle(self):
+        """显示后连续几次校准网格，直到 viewport 宽度稳定。
+
+        某些情况下窗口管理器会在显示后再次调整尺寸，单次 singleShot 仍可能算偏，
+        因此做几次短间隔校准；宽度连续两次一致即停止。
+        """
+        state = {"last": -1, "tries": 0}
+
+        def _tick():
+            if not hasattr(self, 'card_radio') or not self.card_radio.isChecked():
+                return
+            self._apply_card_grid()
+            try:
+                cur = self.card_view.viewport().width()
+            except Exception:
+                return
+            state["tries"] += 1
+            if cur == state["last"] or state["tries"] >= 6:
+                return
+            state["last"] = cur
+            QTimer.singleShot(60, _tick)
+
+        QTimer.singleShot(0, _tick)
 
 
 class TaskManagerWindow(BaseWindow):
