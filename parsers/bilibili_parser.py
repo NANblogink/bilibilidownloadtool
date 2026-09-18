@@ -3654,7 +3654,8 @@ class BilibiliParser:
         logger.info(f"开始解析媒体信息: 类型={media_type}, ID={media_id}{pp}")
         try:
             if cancel_check and cancel_check():
-                return {"success": False, "error": "解析已取消"}
+                # 尚未取到任何信息就被停止：与"出错"区分开，便于界面提示为已停止
+                return {"success": False, "error": "解析已取消", "cancelled": True}
 
             bvid = None
             title = ""
@@ -3662,6 +3663,10 @@ class BilibiliParser:
             collection = []
             bangumi_info = None
             cheese_info = None
+            # 供"用户中途停止"时回传已获得的基本信息（避免引用未定义变量）
+            season_title = ""
+            cover = ""
+            desc = ""
             # 标记充电视频（sponsor类型）：未登录时需要提示用户登录
             is_charging_content = False
 
@@ -4098,7 +4103,26 @@ class BilibiliParser:
             if progress_callback:
                 progress_callback(40, "正在获取播放信息...")
             if cancel_check and cancel_check():
-                return {"success": False, "error": "解析已取消"}
+                # 已拿到合集/番剧标题等基本信息，但还没取播放地址：
+                # 返回已获得的部分信息，让界面保留标题/封面等。
+                logger.info("用户停止解析（尚未获取播放地址），返回已获得的基本信息")
+                return {
+                    "success": True,
+                    "cancelled": True,
+                    "partial": True,
+                    "is_bangumi": media_type == "bangumi",
+                    "is_cheese": media_type == "cheese",
+                    "season_title": season_title,
+                    "title": season_title or title,
+                    "media_type": media_type,
+                    "total_episodes": len(collection),
+                    "episodes": collection,
+                    "collection": collection,
+                    "cover": cover,
+                    "desc": desc,
+                    "bangumi_info": bangumi_info,
+                    "cheese_info": cheese_info,
+                }
             if media_type == "cheese":
                 play_info = self._get_play_info(media_type, bvid, cid, is_tv_mode, season_id=season_id, ep_id=ep_id)
             elif media_type == "bangumi":
@@ -4129,7 +4153,26 @@ class BilibiliParser:
                         episodes[i]['out_of_range'] = False
                     try:
                         if cancel_check and cancel_check():
-                            return {"success": False, "error": "解析已取消"}
+                            # 用户停止：返回"已经解析到的部分"而不是丢弃全部结果。
+                            # 之前这里直接 return success=False，导致停止后界面被清空。
+                            logger.info(f"用户停止解析，返回已完成的 {i}/{total_episodes} 集（课程）")
+                            return {
+                                "success": True,
+                                "cancelled": True,
+                                "partial": True,
+                                "is_cheese": True,
+                                "is_bangumi": False,
+                                "season_title": season_title,
+                                "title": season_title,
+                                "media_type": "cheese",
+                                "total_episodes": len(collection),
+                                "episodes": collection,
+                                "collection": collection,
+                                "cover": (cheese_info or {}).get('cover', '') if cheese_info else '',
+                                "desc": (cheese_info or {}).get('desc', '') if cheese_info else '',
+                                "cheese_info": cheese_info,
+                                "cancelled_at": i,
+                            }
                         if progress_callback:
                             progress = 40 + (i * 60) // total_episodes
                             progress_callback(progress, f"正在处理第{i+1}/{total_episodes}集...")
@@ -4182,7 +4225,25 @@ class BilibiliParser:
                         episodes[i]['out_of_range'] = False
                     try:
                         if cancel_check and cancel_check():
-                            return {"success": False, "error": "解析已取消"}
+                            # 用户停止：返回已解析到的番剧分集，而不是丢弃全部结果
+                            logger.info(f"用户停止解析，返回已完成的 {i}/{total_episodes} 集（番剧）")
+                            return {
+                                "success": True,
+                                "cancelled": True,
+                                "partial": True,
+                                "is_bangumi": True,
+                                "is_cheese": False,
+                                "season_title": season_title,
+                                "title": season_title,
+                                "media_type": "bangumi",
+                                "total_episodes": len(collection),
+                                "episodes": collection,
+                                "collection": collection,
+                                "cover": (bangumi_info or {}).get('cover', '') if bangumi_info else '',
+                                "desc": (bangumi_info or {}).get('desc', '') if bangumi_info else '',
+                                "bangumi_info": bangumi_info,
+                                "cancelled_at": i,
+                            }
                         if progress_callback:
                             progress = 40 + (i * 60) // total_episodes
                             progress_callback(progress, f"正在检查第{i+1}/{total_episodes}集权限...")

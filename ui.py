@@ -20316,6 +20316,17 @@ exit /b 0
                 print("错误：main_progress控件不存在")
             
             if not video_info.get("success"):
+                # 用户在拿到任何信息之前就停止：提示为"已停止"而不是"解析失败"，
+                # 并且不清空界面上已有的内容。
+                if video_info.get("cancelled"):
+                    logger.info("解析已被用户停止（未获得有效结果）")
+                    if hasattr(self, 'status_label'):
+                        self.status_label.setText("解析已停止")
+                    if hasattr(self, 'parse_progress_window') and self.parse_progress_window:
+                        self.parse_progress_window.close()
+                    QTimer.singleShot(0, lambda: self.show_notification(
+                        "解析已停止（尚未获取到内容）", "info"))
+                    return
                 error_msg = video_info.get("error", "未知错误")
                 logger.warning(f"视频解析错误: {error_msg}")
                 
@@ -20335,17 +20346,21 @@ exit /b 0
 
             self.current_video_info = video_info
             
-            # 判断是否为部分结果（用户停止）
-            is_partial = video_info.get("_partial", False)
-            episodes_count = len(video_info.get('episodes', [1]))
+            # 判断是否为部分结果（用户中途停止）。
+            # 解析器现在会在停止时返回 cancelled=True 并带上已解析到的集数，
+            # 因此这里同时识别 cancelled / partial，保证"停止后保留当前结果"。
+            is_partial = bool(video_info.get("_partial")
+                              or video_info.get("partial")
+                              or video_info.get("cancelled"))
+            episodes_count = len(video_info.get('episodes') or video_info.get('collection') or [1])
             
             if is_partial:
                 print(f"解析（部分结果），标题：{video_info.get('title', '未知标题')}")
                 stop_reason = video_info.get("_stop_reason", "用户停止")
                 QTimer.singleShot(0, lambda: self.show_notification(
-                    f"解析已停止，已获取 {episodes_count} 个视频结果（{stop_reason}）", "info"))
+                    f"解析已停止，已保留 {episodes_count} 个已解析结果（{stop_reason}）", "info"))
                 if hasattr(self, 'status_label'):
-                    self.status_label.setText(f"解析已停止 ({episodes_count} 个结果)")
+                    self.status_label.setText(f"解析已停止（已保留 {episodes_count} 个结果）")
             else:
                 print(f"解析成功，标题：{video_info.get('title', '未知标题')}")
                 QTimer.singleShot(0, lambda: self.show_notification(f"解析成功，共找到 {episodes_count} 个视频", "success"))
