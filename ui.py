@@ -532,7 +532,7 @@ _BASE_STYLE = """
         border: none;
         border-radius: 6px;
         padding: 6px 9px;
-        font-size: 13px;
+        font-size: 15px;
     }
 
     /* ==================== 卡片 / 分组 ==================== */
@@ -542,7 +542,7 @@ _BASE_STYLE = """
         border-radius: 12px;
         margin-top: 20px;
         padding: 18px 16px 16px 16px;
-        font-size: 13px;
+        font-size: 15px;
         font-weight: 600;
     }
     QGroupBox::title {
@@ -660,10 +660,10 @@ _BASE_STYLE = """
         background: transparent;
         color: #64748b;
         border: none;
-        padding: 9px 16px;
-        margin: 4px 3px;
-        border-radius: 8px;
-        font-size: 13px;
+        padding: 11px 22px;
+        margin: 2px 3px;
+        border-radius: 9px;
+        font-size: 15px;
     }
     QTabBar::tab:hover:!selected {
         background-color: #eef5ff;
@@ -1031,7 +1031,7 @@ def show_captcha_dialog(gt, challenge, callback, parent=None):
                     text-align: center;
                     margin-top: 20px;
                     color: #666666;
-                    font-size: 14px;
+                    font-size: 15px;
                 }
                 #wait {
                     text-align: center;
@@ -1072,7 +1072,7 @@ def show_captcha_dialog(gt, challenge, callback, parent=None):
                     color: #f56c6c;
                     text-align: center;
                     margin-top: 10px;
-                    font-size: 14px;
+                    font-size: 15px;
                 }
             </style>
             <script>
@@ -2616,7 +2616,7 @@ class FloatingBall(QWidget):
             
             video_name = status.split(' - ')[0] if ' - ' in status else status
             video_name_label = QLabel(video_name)
-            video_name_label.setStyleSheet(scale_style("font-size: 14px; font-weight: 500; color: #166534;"))
+            video_name_label.setStyleSheet(scale_style("font-size: 15px; font-weight: 500; color: #166534;"))
             video_name_label.setMinimumHeight(scale(24))
             video_name_label.setMaximumWidth(scale(380))
             video_name_label.setToolTip(status)
@@ -2630,7 +2630,7 @@ class FloatingBall(QWidget):
             
             
             progress_text = QLabel(f"{int(progress)}%")
-            progress_text.setStyleSheet(scale_style("font-size: 12px; color: #64748b; font-weight: 500;"))
+            progress_text.setStyleSheet(scale_style("font-size: 15px; color: #64748b; font-weight: 500;"))
             progress_text.setAlignment(Qt.AlignRight)
             
             
@@ -2980,7 +2980,7 @@ class ParseProgressWindow(QDialog):
                 border-radius: 8px;
                 padding: 12px;
                 font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-                font-size: 14px;
+                font-size: 15px;
                 selection-background-color: #264f78;
                 selection-color: #ffffff;
                 show-decoration-selected: 1;
@@ -3034,7 +3034,7 @@ class ParseProgressWindow(QDialog):
                 background-color: #409eff;
             }
             QLabel {
-                font-size: 14px;
+                font-size: 15px;
                 color: #333;
             }
         """)
@@ -3058,7 +3058,7 @@ class ParseProgressWindow(QDialog):
         close_btn = QPushButton("×")
         close_btn.setMinimumSize(scale(28), scale(28))
         close_btn.setMaximumSize(scale(28), scale(28))
-        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 18px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.clicked.connect(self.close)
         title_layout.addWidget(close_btn)
@@ -3072,7 +3072,7 @@ class ParseProgressWindow(QDialog):
         
         # 解析状态标题
         status_label = QLabel("正在解析视频信息...")
-        status_label.setStyleSheet(scale_style("font-size: 16px; font-weight: 600;"))
+        status_label.setStyleSheet(scale_style("font-size: 15px; font-weight: 600;"))
         content_layout.addWidget(status_label)
         
         self.log_text = QTextEdit()
@@ -3096,7 +3096,7 @@ class ParseProgressWindow(QDialog):
         
         self.elapsed_label = QLabel("")
         self.elapsed_label.setAlignment(Qt.AlignCenter)
-        self.elapsed_label.setStyleSheet(scale_style("color: #909399; font-size: 12px;"))
+        self.elapsed_label.setStyleSheet(scale_style("color: #909399; font-size: 15px;"))
         progress_layout.addWidget(self.elapsed_label)
         
         content_layout.addLayout(progress_layout)
@@ -3325,7 +3325,7 @@ class DataLoadingDialog(QDialog):
             }
             QLabel {
                 color: #333;
-                font-size: 14px;
+                font-size: 15px;
             }
             QProgressBar {
                 min-height: 14px;
@@ -3342,7 +3342,7 @@ class DataLoadingDialog(QDialog):
                 border: 1px solid #d9d9d9;
                 border-radius: 6px;
                 padding: 6px 20px;
-                font-size: 13px;
+                font-size: 15px;
                 color: #666;
                 min-height: 30px;
             }
@@ -3360,14 +3360,14 @@ class DataLoadingDialog(QDialog):
         
         title_bar = QHBoxLayout()
         title_label = QLabel(title)
-        title_label.setStyleSheet(scale_style("font-size: 16px; font-weight: 600; color: #409eff;"))
+        title_label.setStyleSheet(scale_style("font-size: 15px; font-weight: 600; color: #409eff;"))
         title_bar.addWidget(title_label)
         title_bar.addStretch()
         main_layout.addLayout(title_bar)
         
         self.message_label = QLabel(message)
         self.message_label.setWordWrap(True)
-        self.message_label.setStyleSheet(scale_style("font-size: 14px; color: #555;"))
+        self.message_label.setStyleSheet(scale_style("font-size: 15px; color: #555;"))
         main_layout.addWidget(self.message_label)
         
         self.progress_bar = QProgressBar()
@@ -3924,7 +3924,7 @@ class VideoToolWindow(BaseWindow):
         title_bar_layout.setSpacing(0)
 
         title_label = QLabel("视频工具")
-        title_label.setStyleSheet(scale_style("font-size: 14px; font-weight: bold; color: white;"))
+        title_label.setStyleSheet(scale_style("font-size: 15px; font-weight: bold; color: white;"))
         title_bar_layout.addWidget(title_label)
 
         title_bar_layout.addStretch()
@@ -3936,7 +3936,7 @@ class VideoToolWindow(BaseWindow):
                 background-color: transparent;
                 border: none;
                 color: white;
-                font-size: 16px;
+                font-size: 15px;
                 padding: 0;
             }
             QPushButton:hover {
@@ -3953,7 +3953,7 @@ class VideoToolWindow(BaseWindow):
                 background-color: transparent;
                 border: none;
                 color: white;
-                font-size: 18px;
+                font-size: 17px;
                 font-weight: bold;
                 padding: 0;
             }
@@ -3975,7 +3975,7 @@ class VideoToolWindow(BaseWindow):
         layout.setSpacing(scale(8))
 
         title_label = QLabel("文件列表")
-        title_label.setStyleSheet(scale_style("font-size: 16px; font-weight: bold; color: #333; padding: 5px;"))
+        title_label.setStyleSheet(scale_style("font-size: 15px; font-weight: bold; color: #333; padding: 5px;"))
         layout.addWidget(title_label)
 
         toolbar = QHBoxLayout()
@@ -3990,7 +3990,7 @@ class VideoToolWindow(BaseWindow):
                 border: none;
                 border-radius: 4px;
                 padding: 6px 12px;
-                font-size: 13px;
+                font-size: 15px;
             }
             QPushButton:hover { background-color: #66b1ff; }
         """))
@@ -4005,7 +4005,7 @@ class VideoToolWindow(BaseWindow):
                 border: none;
                 border-radius: 4px;
                 padding: 6px 10px;
-                font-size: 13px;
+                font-size: 15px;
             }
             QPushButton:hover { background-color: #85ce61; }
         """))
@@ -4020,7 +4020,7 @@ class VideoToolWindow(BaseWindow):
                 border: none;
                 border-radius: 4px;
                 padding: 6px 12px;
-                font-size: 13px;
+                font-size: 15px;
             }
             QPushButton:hover { background-color: #f78989; }
         """))
@@ -4038,7 +4038,7 @@ class VideoToolWindow(BaseWindow):
                 border-radius: 4px;
                 background-color: white;
                 padding: 5px;
-                font-size: 13px;
+                font-size: 15px;
             }
             QListWidget::item {
                 padding: 6px 8px;
@@ -4060,7 +4060,7 @@ class VideoToolWindow(BaseWindow):
 
         hint_label = QLabel("拖拽视频文件到此处")
         hint_label.setAlignment(Qt.AlignCenter)
-        hint_label.setStyleSheet(scale_style("color: #909399; font-size: 12px; padding: 8px;"))
+        hint_label.setStyleSheet(scale_style("color: #909399; font-size: 15px; padding: 8px;"))
         layout.addWidget(hint_label)
 
         return panel
@@ -4246,7 +4246,7 @@ class VideoToolWindow(BaseWindow):
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 3px;
-                font-size: 12px;
+                font-size: 15px;
                 color: #606266;
             }
         """))
@@ -4287,7 +4287,7 @@ class VideoToolWindow(BaseWindow):
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 3px;
-                font-size: 12px;
+                font-size: 15px;
                 color: #606266;
             }
         """))
@@ -4341,7 +4341,7 @@ class VideoToolWindow(BaseWindow):
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 3px;
-                font-size: 12px;
+                font-size: 15px;
                 color: #606266;
             }
         """))
@@ -4381,7 +4381,7 @@ class VideoToolWindow(BaseWindow):
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 3px;
-                font-size: 12px;
+                font-size: 15px;
                 color: #606266;
             }
         """))
@@ -4414,7 +4414,7 @@ class VideoToolWindow(BaseWindow):
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 3px;
-                font-size: 12px;
+                font-size: 15px;
                 color: #606266;
             }
         """))
@@ -4477,7 +4477,7 @@ class VideoToolWindow(BaseWindow):
                 border: 1px solid #e4e7ed;
                 border-radius: 4px;
                 background-color: #fafafa;
-                font-size: 12px;
+                font-size: 15px;
                 font-family: Consolas, Monaco, monospace;
                 padding: 8px;
             }
@@ -4501,7 +4501,7 @@ class VideoToolWindow(BaseWindow):
                 text-align: center;
                 height: 22px;
                 background-color: #f5f7fa;
-                font-size: 12px;
+                font-size: 15px;
             }
             QProgressBar::chunk {
                 background-color: #409eff;
@@ -4511,7 +4511,7 @@ class VideoToolWindow(BaseWindow):
         layout.addWidget(self.progress_bar)
 
         self.status_label = QLabel("就绪")
-        self.status_label.setStyleSheet(scale_style("color: #606266; font-size: 12px; padding: 3px;"))
+        self.status_label.setStyleSheet(scale_style("color: #606266; font-size: 15px; padding: 3px;"))
         layout.addWidget(self.status_label)
 
         # 日志输出框
@@ -4524,7 +4524,7 @@ class VideoToolWindow(BaseWindow):
                 border-radius: 4px;
                 background-color: #2d2d2d;
                 color: #67c23a;
-                font-size: 11px;
+                font-size: 15px;
                 font-family: Consolas, Monaco, monospace;
                 padding: 5px;
             }
@@ -4547,7 +4547,7 @@ class VideoToolWindow(BaseWindow):
                 border: none;
                 border-radius: 4px;
                 padding: 10px 24px;
-                font-size: 14px;
+                font-size: 15px;
                 font-weight: bold;
             }
             QPushButton:hover { background-color: #66b1ff; }
@@ -4565,7 +4565,7 @@ class VideoToolWindow(BaseWindow):
                 border: none;
                 border-radius: 4px;
                 padding: 10px 20px;
-                font-size: 14px;
+                font-size: 15px;
             }
             QPushButton:hover { background-color: #f78989; }
             QPushButton:disabled { background-color: #fab6b6; }
@@ -4581,7 +4581,7 @@ class VideoToolWindow(BaseWindow):
                 border: none;
                 border-radius: 4px;
                 padding: 10px 16px;
-                font-size: 14px;
+                font-size: 15px;
             }
             QPushButton:hover { background-color: #ebb563; }
         """))
@@ -4596,7 +4596,7 @@ class VideoToolWindow(BaseWindow):
                 border: none;
                 border-radius: 4px;
                 padding: 10px 20px;
-                font-size: 14px;
+                font-size: 15px;
             }
             QPushButton:hover { background-color: #a6a9ad; }
         """))
@@ -5761,14 +5761,14 @@ class NotificationWidget(QWidget):
         self.content_layout.addWidget(self.icon_label)
         
         self.message_label = QLabel()
-        self.message_label.setStyleSheet(scale_style("font-size: 14px; color: #333333; font-family: 'Microsoft YaHei', sans-serif;"))
+        self.message_label.setStyleSheet(scale_style("font-size: 15px; color: #333333; font-family: 'Microsoft YaHei', sans-serif;"))
         self.message_label.setWordWrap(True)
         self.message_label.setMinimumHeight(scale(24))
         self.message_label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
         self.content_layout.addWidget(self.message_label, stretch=1)
         
         self.close_btn = QPushButton("×")
-        self.close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; font-size: 16px; color: #999999; padding: 0; font-family: 'Microsoft YaHei', sans-serif;"))
+        self.close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; font-size: 15px; color: #999999; padding: 0; font-family: 'Microsoft YaHei', sans-serif;"))
         self.close_btn.setFixedSize(scale(24), scale(24))
         self.close_btn.clicked.connect(self._safe_hide)
         self.content_layout.addWidget(self.close_btn)
@@ -5791,19 +5791,19 @@ class NotificationWidget(QWidget):
             if notification_type == "success":
                 self.container.setStyleSheet(scale_style("background-color: #f0f9ff; border-left: 4px solid #409eff; border-radius: 8px; border: 1px solid #e6f7ff;"))
                 self.icon_label.setText("✓")
-                self.icon_label.setStyleSheet(scale_style("font-size: 16px; color: #409eff; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif;"))
+                self.icon_label.setStyleSheet(scale_style("font-size: 15px; color: #409eff; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif;"))
             elif notification_type == "error":
                 self.container.setStyleSheet(scale_style("background-color: #fff2f0; border-left: 4px solid #ff4d4f; border-radius: 8px; border: 1px solid #fff1f0;"))
                 self.icon_label.setText("×")
-                self.icon_label.setStyleSheet(scale_style("font-size: 16px; color: #ff4d4f; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif;"))
+                self.icon_label.setStyleSheet(scale_style("font-size: 15px; color: #ff4d4f; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif;"))
             elif notification_type == "warning":
                 self.container.setStyleSheet(scale_style("background-color: #fff7e6; border-left: 4px solid #faad14; border-radius: 8px; border: 1px solid #fffbe6;"))
                 self.icon_label.setText("!")
-                self.icon_label.setStyleSheet(scale_style("font-size: 16px; color: #faad14; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif;"))
+                self.icon_label.setStyleSheet(scale_style("font-size: 15px; color: #faad14; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif;"))
             else:
                 self.container.setStyleSheet(scale_style("background-color: #f6ffed; border-left: 4px solid #52c41a; border-radius: 8px; border: 1px solid #f6ffed;"))
                 self.icon_label.setText("i")
-                self.icon_label.setStyleSheet(scale_style("font-size: 16px; color: #52c41a; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif;"))
+                self.icon_label.setStyleSheet(scale_style("font-size: 15px; color: #52c41a; font-weight: bold; font-family: 'Microsoft YaHei', sans-serif;"))
 
             font_metrics = self.message_label.fontMetrics()
             text_width = font_metrics.width(message)
@@ -5933,7 +5933,7 @@ class AnnouncementDialog(QDialog):
                 background-color: {accent};
                 color: white;
                 border-radius: 6px;
-                font-size: 14px;
+                font-size: 15px;
                 font-weight: bold;
             }}
         """)
@@ -5952,7 +5952,7 @@ class AnnouncementDialog(QDialog):
         body_lbl.setWordWrap(True)
         body_lbl.setStyleSheet(f"""
             QLabel {{
-                font-size: 13px;
+                font-size: 15px;
                 color: #595959;
                 background-color: {bg_color};
                 padding: 12px;
@@ -5979,7 +5979,7 @@ class AnnouncementDialog(QDialog):
                     color: white;
                     border: none;
                     border-radius: 5px;
-                    font-size: 13px;
+                    font-size: 15px;
                     font-weight: 500;
                     padding: 0 16px;
                 }}
@@ -5998,7 +5998,7 @@ class AnnouncementDialog(QDialog):
                     color: #595959;
                     border: 1px solid #d9d9d9;
                     border-radius: 5px;
-                    font-size: 13px;
+                    font-size: 15px;
                     padding: 0 14px;
                 }
                 QPushButton:hover { border-color: #bbb; color: #333; }
@@ -6017,7 +6017,7 @@ class AnnouncementDialog(QDialog):
                     color: white;
                     border: none;
                     border-radius: 5px;
-                    font-size: 13px;
+                    font-size: 15px;
                     font-weight: 500;
                     padding: 0 16px;
                 }}
@@ -6064,7 +6064,7 @@ def _markdown_to_html(text):
                 result.append('</code></pre>')
                 in_code = False
             else:
-                result.append('<pre style="background:#f5f5f5;border-radius:4px;padding:10px;margin:6px 0;overflow-x:auto;font-family:Consolas,monospace;font-size:12px;line-height:1.5"><code>')
+                result.append('<pre style="background:#f5f5f5;border-radius:4px;padding:10px;margin:6px 0;overflow-x:auto;font-family:Consolas,monospace;font-size: 15px;line-height:1.5"><code>')
                 in_code = True
             continue
 
@@ -6149,7 +6149,7 @@ def _markdown_to_html(text):
     _close_lists(result, in_ul, in_ol)
 
     body = '\n'.join(result)
-    return f'<html><body style="font-family:\'Microsoft YaHei\',\'Segoe UI\',sans-serif;font-size:13px;color:#434343;line-height:1.7;padding:4px 0">{body}</body></html>'
+    return f'<html><body style="font-family:\'Microsoft YaHei\',\'Segoe UI\',sans-serif;font-size: 15px;color:#434343;line-height:1.7;padding:4px 0">{body}</body></html>'
 
 
 def _md_inline(text):
@@ -6185,7 +6185,7 @@ def _md_inline(text):
     def _code_repl(m):
         inner = m.group(1)  # 已被转义
         return (f'<code style="background:#f0f0f0;border-radius:3px;'
-                f'padding:1px 5px;font-size:12px;'
+                f'padding:1px 5px;font-size: 15px;'
                 f'font-family:Consolas,monospace;color:#d63384">{inner}</code>')
     text = re.sub(r'`([^`]+)`', _code_repl, text)
 
@@ -6217,20 +6217,20 @@ class BetaAuthDialog(QDialog):
         self.setWindowFlags(Qt.Dialog | Qt.WindowTitleHint)
         self.setStyleSheet("""
             QDialog { background: #f5f7fa; }
-            QLabel#title { font-size: 18px; font-weight: bold; color: #00a1d6; }
-            QLabel#desc { font-size: 13px; color: #555; line-height: 1.6; }
-            QLabel#deviceIdLabel { font-size: 12px; color: #909399; }
+            QLabel#title { font-size: 17px; font-weight: bold; color: #00a1d6; }
+            QLabel#desc { font-size: 15px; color: #555; line-height: 1.6; }
+            QLabel#deviceIdLabel { font-size: 15px; color: #909399; }
             QLineEdit { padding: 10px 14px; border: 2px solid #dde3ed; border-radius: 8px; font-size: 15px; }
             QLineEdit:focus { border-color: #00a1d6; }
             QPushButton#verifyBtn { background: #00a1d6; color: white; border: none; border-radius: 8px; font-size: 15px; font-weight: bold; padding: 12px; }
             QPushButton#verifyBtn:hover { background: #0088b4; }
             QPushButton#verifyBtn:disabled { background: #a0aec0; }
-            QPushButton#joinGroupBtn { background: transparent; color: #00a1d6; border: 1px solid #00a1d6; border-radius: 6px; padding: 4px 12px; font-size: 12px; }
+            QPushButton#joinGroupBtn { background: transparent; color: #00a1d6; border: 1px solid #00a1d6; border-radius: 6px; padding: 4px 12px; font-size: 15px; }
             QPushButton#joinGroupBtn:hover { background: #00a1d6; color: white; }
-            QPushButton#downloadStableBtn { background: #48bb78; color: white; border: none; border-radius: 6px; padding: 6px 14px; font-size: 12px; font-weight: bold; }
+            QPushButton#downloadStableBtn { background: #48bb78; color: white; border: none; border-radius: 6px; padding: 6px 14px; font-size: 15px; font-weight: bold; }
             QPushButton#downloadStableBtn:hover { background: #38a169; }
-            QLabel#groupLabel { font-size: 12px; color: #909399; }
-            QPushButton#exitBtn { background: transparent; color: #909399; border: none; font-size: 12px; text-decoration: underline; }
+            QLabel#groupLabel { font-size: 15px; color: #909399; }
+            QPushButton#exitBtn { background: transparent; color: #909399; border: none; font-size: 15px; text-decoration: underline; }
             QPushButton#exitBtn:hover { color: #666; }
         """)
         layout = QVBoxLayout(self)
@@ -6250,7 +6250,7 @@ class BetaAuthDialog(QDialog):
 
         self.qq_input = QLineEdit()
         self.qq_input.setPlaceholderText("请输入授权QQ号")
-        self.qq_input.setStyleSheet("font-size: 16px;")
+        self.qq_input.setStyleSheet("font-size: 15px;")
         layout.addWidget(self.qq_input)
 
         device_id_short = client_id[:16] + "..." if len(client_id) > 16 else client_id
@@ -6260,7 +6260,7 @@ class BetaAuthDialog(QDialog):
         layout.addWidget(device_label)
 
         self.hint_label = QLabel("")
-        self.hint_label.setStyleSheet("color: #e53e3e; font-size: 13px;")
+        self.hint_label.setStyleSheet("color: #e53e3e; font-size: 15px;")
         self.hint_label.setAlignment(Qt.AlignCenter)
         self.hint_label.setWordWrap(True)
         layout.addWidget(self.hint_label)
@@ -6535,7 +6535,7 @@ class UpdateDialog(QDialog):
                 browser.setHtml(html)
             else:
                 browser.setHtml(
-                    '<div style="font-family:Microsoft YaHei,sans-serif;font-size:13px;'
+                    '<div style="font-family:Microsoft YaHei,sans-serif;font-size: 15px;'
                     'color:#999;text-align:center;padding:24px 0">暂无更新详情</div>'
                 )
 
@@ -6549,7 +6549,7 @@ class UpdateDialog(QDialog):
 
             self.status_label = QLabel("")
             self.status_label.setAlignment(Qt.AlignCenter)
-            self.status_label.setStyleSheet("font-size: 12px; color: #8a8f98; background: transparent;")
+            self.status_label.setStyleSheet("font-size: 15px; color: #8a8f98; background: transparent;")
             self.status_label.hide()
             content_layout.addWidget(self.status_label)
 
@@ -6802,7 +6802,7 @@ class UpdateDialog(QDialog):
         except Exception:
             pass
         try:
-            self.status_label.setStyleSheet(scale_style("font-size: 12px; color: #25b561;"))
+            self.status_label.setStyleSheet(scale_style("font-size: 15px; color: #25b561;"))
             self.status_label.setText("下载完成")
             self.download_btn.setEnabled(True)
             self.download_btn.setText("立即安装")
@@ -6880,7 +6880,7 @@ class UpdateDialog(QDialog):
         try:
             self.status_label.setText(text)
             if is_error:
-                self.status_label.setStyleSheet(scale_style("font-size: 12px; color: #f5222d;"))
+                self.status_label.setStyleSheet(scale_style("font-size: 15px; color: #f5222d;"))
                 self.download_btn.setEnabled(True)
                 self.download_btn.setText("重试")
                 self._is_downloading = False
@@ -7044,7 +7044,7 @@ class DebugWindow(QWidget):
             }
             QTextEdit {
                 font-family: Consolas, monospace;
-                font-size: 12px;
+                font-size: 15px;
                 border: 1px solid #ffccc7;
                 border-radius: 4px;
                 background-color: white;
@@ -7055,7 +7055,7 @@ class DebugWindow(QWidget):
                 border: none;
                 border-radius: 4px;
                 padding: 8px 16px;
-                font-size: 14px;
+                font-size: 15px;
                 margin: 5px;
             }
             QPushButton:hover {
@@ -7177,7 +7177,7 @@ class MergeProgressWindow(QDialog):
         close_btn = QPushButton("×")
         close_btn.setMinimumSize(scale(28), scale(28))
         close_btn.setMaximumSize(scale(28), scale(28))
-        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 18px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.clicked.connect(self.close)
         title_layout.addWidget(close_btn)
@@ -7200,7 +7200,7 @@ class MergeProgressWindow(QDialog):
                 border-radius: 8px;
                 padding: 12px;
                 font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-                font-size: 14px;
+                font-size: 15px;
                 selection-background-color: #264f78;
                 selection-color: #ffffff;
                 show-decoration-selected: 1;
@@ -7406,7 +7406,7 @@ class DanmakuSelectionDialog(QDialog):
         title_layout.addWidget(title_label, stretch=1)
 
         close_btn = QPushButton("×")
-        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 18px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
         close_btn.setToolTip("关闭")
         close_btn.clicked.connect(lambda: (self.reject(), self.close()))
         title_layout.addWidget(close_btn)
@@ -7441,7 +7441,7 @@ class DanmakuSelectionDialog(QDialog):
         content_layout.addLayout(filter_layout)
 
         self.stats_label = QLabel(f"共 {len(self.danmakus)} 条弹幕")
-        self.stats_label.setStyleSheet(scale_style("font-size: 14px; color: #64748b;"))
+        self.stats_label.setStyleSheet(scale_style("font-size: 15px; color: #64748b;"))
         content_layout.addWidget(self.stats_label)
 
         self.danmaku_list = QListWidget()
@@ -7490,7 +7490,7 @@ class DanmakuSelectionDialog(QDialog):
         self.prev_page_btn.clicked.connect(self.prev_page)
         
         self.page_info_label = QLabel("第 1 页，共 1 页")
-        self.page_info_label.setStyleSheet(scale_style("font-size: 14px; color: #64748b;"))
+        self.page_info_label.setStyleSheet(scale_style("font-size: 15px; color: #64748b;"))
         self.page_info_label.setAlignment(Qt.AlignCenter)
         
         self.next_page_btn = QPushButton("下一页")
@@ -7638,7 +7638,7 @@ class DanmakuSelectionDialog(QDialog):
         time_str = self._format_time(danmaku.get('progress', 0) / 1000)
         
         content_label = QLabel(f"{time_str} - {content}")
-        content_label.setStyleSheet(scale_style("font-size: 14px; color: #333333;"))
+        content_label.setStyleSheet(scale_style("font-size: 15px; color: #333333;"))
         content_label.setWordWrap(True)
         
         color = danmaku.get('color', 16777215)
@@ -7658,7 +7658,7 @@ class DanmakuSelectionDialog(QDialog):
 
         info_layout = QHBoxLayout()
         info_label = QLabel(f"模式: {mode_text} | 字体大小: {danmaku.get('fontsize', 25)} | 颜色: {color_hex}")
-        info_label.setStyleSheet(scale_style("font-size: 12px; color: #64748b;"))
+        info_label.setStyleSheet(scale_style("font-size: 15px; color: #64748b;"))
 
         color_widget = QWidget()
         color_widget.setFixedSize(scale(20), scale(20))
@@ -8125,11 +8125,11 @@ class EpisodeSelectionDialog(ResizableDialog):
         title_layout.addWidget(title_label, stretch=1)
         
         self.count_label = QLabel(f"已选 0/{len(self.episodes)} 集")
-        self.count_label.setStyleSheet(scale_style("font-size: 12px; color: rgba(255,255,255,0.85); padding-right: 8px;"))
+        self.count_label.setStyleSheet(scale_style("font-size: 15px; color: rgba(255,255,255,0.85); padding-right: 8px;"))
         title_layout.addWidget(self.count_label)
         
         close_btn = QPushButton("×")
-        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 18px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
         close_btn.setToolTip("关闭")
         close_btn.clicked.connect(lambda: (self.reject(), self.close()))
         title_layout.addWidget(close_btn)
@@ -8168,10 +8168,10 @@ class EpisodeSelectionDialog(ResizableDialog):
         view_layout.addWidget(self.list_radio)
         view_layout.addWidget(self.card_radio)
         self.expand_all_btn = QPushButton("展开全部")
-        self.expand_all_btn.setStyleSheet(scale_style("padding: 4px 12px; border: 1px solid #dde3ed; border-radius: 6px; background-color: white; color: #475569; font-size: 12px;"))
+        self.expand_all_btn.setStyleSheet(scale_style("padding: 4px 12px; border: 1px solid #dde3ed; border-radius: 6px; background-color: white; color: #475569; font-size: 15px;"))
         self.expand_all_btn.clicked.connect(lambda: self.list_view.expandAll())
         self.collapse_all_btn = QPushButton("折叠全部")
-        self.collapse_all_btn.setStyleSheet(scale_style("padding: 4px 12px; border: 1px solid #dde3ed; border-radius: 6px; background-color: white; color: #475569; font-size: 12px;"))
+        self.collapse_all_btn.setStyleSheet(scale_style("padding: 4px 12px; border: 1px solid #dde3ed; border-radius: 6px; background-color: white; color: #475569; font-size: 15px;"))
         self.collapse_all_btn.clicked.connect(lambda: self.list_view.collapseAll())
         view_layout.addWidget(self.expand_all_btn)
         view_layout.addWidget(self.collapse_all_btn)
@@ -8353,9 +8353,9 @@ class EpisodeSelectionDialog(ResizableDialog):
         
         title_label = QLabel(title)
         if permission_denied and not ep.get('has_free_part', False):
-            title_label.setStyleSheet(scale_style("font-weight: 500; font-size: 14px; color: #94a3b8;"))
+            title_label.setStyleSheet(scale_style("font-weight: 500; font-size: 15px; color: #94a3b8;"))
         else:
-            title_label.setStyleSheet(scale_style("font-weight: 500; font-size: 14px;"))
+            title_label.setStyleSheet(scale_style("font-weight: 500; font-size: 15px;"))
         title_label.setWordWrap(True)
         info_layout.addWidget(title_label)
         
@@ -8383,19 +8383,19 @@ class EpisodeSelectionDialog(ResizableDialog):
                 _avail_str = f"{_a_h:02d}:{_a_m:02d}:{_a_s:02d}" if _a_h > 0 else f"{_a_m:02d}:{_a_s:02d}"
                 dur_label = QLabel(f'时长 <s>{duration_str}</s>（可获取 {_avail_str}）')
                 dur_label.setTextFormat(Qt.RichText)
-                dur_label.setStyleSheet(scale_style("font-size: 11px; color: #f56c6c;"))
+                dur_label.setStyleSheet(scale_style("font-size: 15px; color: #f56c6c;"))
             else:
                 dur_label = QLabel(f"时长 {duration_str}")
-                dur_label.setStyleSheet(scale_style("font-size: 11px; color: #64748b;"))
+                dur_label.setStyleSheet(scale_style("font-size: 15px; color: #64748b;"))
             meta_layout.addWidget(dur_label)
         
         if permission_denied:
             if ep.get('has_free_part', False):
                 perm_label = QLabel("试看")
-                perm_label.setStyleSheet(scale_style("font-size: 11px; color: #10b981; font-weight: 500; border: 1px solid #10b981; border-radius: 3px; padding: 0 4px;"))
+                perm_label.setStyleSheet(scale_style("font-size: 15px; color: #10b981; font-weight: 500; border: 1px solid #10b981; border-radius: 3px; padding: 0 4px;"))
             else:
                 perm_label = QLabel("付费")
-                perm_label.setStyleSheet(scale_style("font-size: 11px; color: #f56c6c; font-weight: 500; border: 1px solid #f56c6c; border-radius: 3px; padding: 0 4px;"))
+                perm_label.setStyleSheet(scale_style("font-size: 15px; color: #f56c6c; font-weight: 500; border: 1px solid #f56c6c; border-radius: 3px; padding: 0 4px;"))
             meta_layout.addWidget(perm_label)
         
         meta_layout.addStretch(1)
@@ -8488,7 +8488,7 @@ class EpisodeSelectionDialog(ResizableDialog):
                     color: #f56c6c;
                     padding: 2px 6px;
                     border-radius: 4px;
-                    font-size: 11px;
+                    font-size: 15px;
                     font-weight: 500;
                 }
             """))
@@ -8600,7 +8600,7 @@ class EpisodeSelectionDialog(ResizableDialog):
         episode_label.setStyleSheet(scale_style("""
             QLabel {
                 color: #737373;
-                font-size: 11px;
+                font-size: 15px;
                 font-weight: 500;
             }
         """))
@@ -8621,7 +8621,7 @@ class EpisodeSelectionDialog(ResizableDialog):
         title_label.setFixedSize(cw - scale(12), scale(20))
         title_label.setStyleSheet(scale_style("""
             QLabel {
-                font-size: 12px;
+                font-size: 15px;
                 font-weight: 500;
                 color: #1f2937;
                 background: transparent;
@@ -8685,7 +8685,7 @@ class EpisodeSelectionDialog(ResizableDialog):
                                     else:
                                         duration_str = f"{minutes:02d}:{seconds:02d}"
                                     label.setText(f"试看 {duration_str}")
-                                    label.setStyleSheet(scale_style("font-size: 11px; color: #10b981;"))
+                                    label.setStyleSheet(scale_style("font-size: 15px; color: #10b981;"))
             else:
                 item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
                 item_widget.setStyleSheet("QWidget { opacity: 0.5; }")
@@ -8852,11 +8852,11 @@ class EpisodeSelectionDialog(ResizableDialog):
         layout.addWidget(checkbox, alignment=Qt.AlignCenter)
 
         title_label = QLabel(title)
-        title_label.setStyleSheet(scale_style("font-size: 14px; font-weight: 600; color: #1e293b;"))
+        title_label.setStyleSheet(scale_style("font-size: 15px; font-weight: 600; color: #1e293b;"))
         layout.addWidget(title_label)
 
         count_label = QLabel(f"({part_count}P)")
-        count_label.setStyleSheet(scale_style("font-size: 12px; color: #64748b;"))
+        count_label.setStyleSheet(scale_style("font-size: 15px; color: #64748b;"))
         layout.addWidget(count_label)
 
         layout.addStretch(1)
@@ -8877,7 +8877,7 @@ class EpisodeSelectionDialog(ResizableDialog):
             else:
                 duration_str = f"{minutes:02d}:{seconds:02d}"
             dur_label = QLabel(duration_str)
-            dur_label.setStyleSheet(scale_style("font-size: 11px; color: #94a3b8;"))
+            dur_label.setStyleSheet(scale_style("font-size: 15px; color: #94a3b8;"))
             layout.addWidget(dur_label)
 
         return widget
@@ -8975,7 +8975,7 @@ class EpisodeSelectionDialog(ResizableDialog):
                                         else:
                                             duration_str = f"{minutes:02d}:{seconds:02d}"
                                         label.setText(f"免费时长: {duration_str}")
-                                        label.setStyleSheet(scale_style("font-size: 11px; color: #10b981;"))
+                                        label.setStyleSheet(scale_style("font-size: 15px; color: #10b981;"))
                 else:
                     # 完全权限不足，变灰
                     item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
@@ -9499,7 +9499,7 @@ class TaskManagerWindow(BaseWindow):
             }
             #titleLabel {
                 font-weight: bold;
-                font-size: 13px;
+                font-size: 15px;
             }
             #minimizeBtn, #maximizeBtn, #closeBtn {
                 min-width: 32px;
@@ -9507,7 +9507,7 @@ class TaskManagerWindow(BaseWindow):
                 border: none;
                 background-color: transparent;
                 color: white;
-                font-size: 14px;
+                font-size: 15px;
                 padding: 0px;
             }
             #minimizeBtn:hover, #maximizeBtn:hover {
@@ -9559,7 +9559,7 @@ class TaskManagerWindow(BaseWindow):
         content_layout.setSpacing(scale(15))
         
         title_label = QLabel("下载任务管理")
-        title_label.setStyleSheet(scale_style("font-size: 16px; font-weight: bold; color: #2563eb;"))
+        title_label.setStyleSheet(scale_style("font-size: 15px; font-weight: bold; color: #2563eb;"))
         title_label.setMinimumHeight(scale(36))
         content_layout.addWidget(title_label)
 
@@ -9610,10 +9610,10 @@ class TaskManagerWindow(BaseWindow):
 
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(scale(12))
-        btn_style_primary = scale_style("QPushButton { background-color: #3b82f6; color: white; padding: 6px 16px; border-radius: 6px; font-size: 12px; font-weight: 500; min-height: 32px; border: none; } QPushButton:hover { background-color: #2563eb; } QPushButton:pressed { background-color: #1d4ed8; }")
-        btn_style_danger = scale_style("QPushButton { background-color: #ef4444; color: white; padding: 6px 16px; border-radius: 6px; font-size: 12px; font-weight: 500; min-height: 32px; border: none; } QPushButton:hover { background-color: #dc2626; } QPushButton:pressed { background-color: #b91c1c; }")
-        btn_style_secondary = scale_style("QPushButton { background-color: #f1f5f9; color: #475569; padding: 6px 16px; border-radius: 6px; font-size: 12px; font-weight: 500; min-height: 32px; border: 1px solid #e6eaf2; } QPushButton:hover { background-color: #e6eaf2; } QPushButton:pressed { background-color: #cbd5e1; }")
-        btn_style_warning = scale_style("QPushButton { background-color: #f59e0b; color: white; padding: 6px 16px; border-radius: 6px; font-size: 12px; font-weight: 500; min-height: 32px; border: none; } QPushButton:hover { background-color: #d97706; } QPushButton:pressed { background-color: #b45309; }")
+        btn_style_primary = scale_style("QPushButton { background-color: #3b82f6; color: white; padding: 6px 16px; border-radius: 6px; font-size: 15px; font-weight: 500; min-height: 32px; border: none; } QPushButton:hover { background-color: #2563eb; } QPushButton:pressed { background-color: #1d4ed8; }")
+        btn_style_danger = scale_style("QPushButton { background-color: #ef4444; color: white; padding: 6px 16px; border-radius: 6px; font-size: 15px; font-weight: 500; min-height: 32px; border: none; } QPushButton:hover { background-color: #dc2626; } QPushButton:pressed { background-color: #b91c1c; }")
+        btn_style_secondary = scale_style("QPushButton { background-color: #f1f5f9; color: #475569; padding: 6px 16px; border-radius: 6px; font-size: 15px; font-weight: 500; min-height: 32px; border: 1px solid #e6eaf2; } QPushButton:hover { background-color: #e6eaf2; } QPushButton:pressed { background-color: #cbd5e1; }")
+        btn_style_warning = scale_style("QPushButton { background-color: #f59e0b; color: white; padding: 6px 16px; border-radius: 6px; font-size: 15px; font-weight: 500; min-height: 32px; border: none; } QPushButton:hover { background-color: #d97706; } QPushButton:pressed { background-color: #b45309; }")
         self.refresh_btn = QPushButton("刷新列表")
         self.refresh_btn.setIcon(_task_icon("refresh", scale(16), "#ffffff"))
         self.refresh_btn.setIconSize(QSize(scale(15), scale(15)))
@@ -9804,7 +9804,7 @@ class TaskManagerWindow(BaseWindow):
             header_layout.addWidget(dot_label)
             
             title_label = QLabel(title)
-            title_label.setStyleSheet(scale_style("font-weight: 600; font-size: 13px; color: #1e293b;"))
+            title_label.setStyleSheet(scale_style("font-weight: 600; font-size: 15px; color: #1e293b;"))
             title_label.setWordWrap(True)
             header_layout.addWidget(title_label, stretch=1)
             
@@ -9812,19 +9812,19 @@ class TaskManagerWindow(BaseWindow):
                 type_tag = QLabel(task_type)
                 type_color = type_color_map.get(task_type, "#64748b")
                 type_bg = type_bg_map.get(task_type, "#f1f5f9")
-                type_tag.setStyleSheet(scale_style(f"background-color: {type_bg}; color: {type_color}; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;"))
+                type_tag.setStyleSheet(scale_style(f"background-color: {type_bg}; color: {type_color}; padding: 2px 8px; border-radius: 4px; font-size: 15px; font-weight: 500;"))
                 type_tag.setAlignment(Qt.AlignCenter)
                 header_layout.addWidget(type_tag)
             
             status_badge = QLabel(status_text)
-            status_badge.setStyleSheet(scale_style(f"background-color: {status_color}18; color: {status_color}; padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 600;"))
+            status_badge.setStyleSheet(scale_style(f"background-color: {status_color}18; color: {status_color}; padding: 2px 10px; border-radius: 10px; font-size: 15px; font-weight: 600;"))
             status_badge.setAlignment(Qt.AlignCenter)
             header_layout.addWidget(status_badge)
             
             duration = task.get("duration", "")
             if duration:
                 duration_label = QLabel(duration)
-                duration_label.setStyleSheet(scale_style("font-size: 11px; color: #94a3b8;"))
+                duration_label.setStyleSheet(scale_style("font-size: 15px; color: #94a3b8;"))
                 header_layout.addWidget(duration_label)
             
             card_layout.addLayout(header_layout)
@@ -9832,7 +9832,7 @@ class TaskManagerWindow(BaseWindow):
             progress_layout = QHBoxLayout()
             progress_layout.setSpacing(scale(10))
             progress_pct = QLabel(f"{progress}%")
-            progress_pct.setStyleSheet(scale_style("font-size: 12px; font-weight: 600; color: #475569; min-width: 40px;"))
+            progress_pct.setStyleSheet(scale_style("font-size: 15px; font-weight: 600; color: #475569; min-width: 40px;"))
             progress_pct.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             progress_bar = QProgressBar()
             progress_bar.setRange(0, 100)
@@ -9866,12 +9866,12 @@ class TaskManagerWindow(BaseWindow):
             path_label = QLabel(path_text if save_path else "未设置保存路径")
             path_label.setToolTip(save_path)
             path_label.setWordWrap(False)
-            path_label.setStyleSheet(scale_style("font-size: 11px; color: #94a3b8;"))
+            path_label.setStyleSheet(scale_style("font-size: 15px; color: #94a3b8;"))
             info_layout.addWidget(path_label, stretch=1)
             
             if save_path:
                 open_dir_btn = QPushButton("打开目录")
-                open_dir_btn.setStyleSheet(scale_style("QPushButton { background-color: transparent; color: #3b82f6; padding: 2px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #3b82f6; } QPushButton:hover { background-color: #eff6ff; }"))
+                open_dir_btn.setStyleSheet(scale_style("QPushButton { background-color: transparent; color: #3b82f6; padding: 2px 8px; border-radius: 4px; font-size: 15px; border: 1px solid #3b82f6; } QPushButton:hover { background-color: #eff6ff; }"))
                 open_dir_btn.clicked.connect(lambda checked, p=save_path: self.open_directory(p))
                 info_layout.addWidget(open_dir_btn)
             
@@ -9931,7 +9931,7 @@ class TaskManagerWindow(BaseWindow):
                 detail_layout.addWidget(detail_icon)
                 detail_text = " | ".join(detail_parts)
                 detail_label = QLabel(detail_text)
-                detail_label.setStyleSheet(scale_style("font-size: 11px; color: #64748b;"))
+                detail_label.setStyleSheet(scale_style("font-size: 15px; color: #64748b;"))
                 detail_label.setWordWrap(True)
                 detail_layout.addWidget(detail_label, stretch=1)
                 card_layout.addLayout(detail_layout)
@@ -9946,7 +9946,7 @@ class TaskManagerWindow(BaseWindow):
                 fp_text = file_path[:60] + "..." if len(file_path) > 60 else file_path
                 fp_label = QLabel(fp_text)
                 fp_label.setToolTip(file_path)
-                fp_label.setStyleSheet(scale_style("font-size: 11px; color: #94a3b8;"))
+                fp_label.setStyleSheet(scale_style("font-size: 15px; color: #94a3b8;"))
                 fp_layout.addWidget(fp_label, stretch=1)
                 card_layout.addLayout(fp_layout)
             
@@ -9960,11 +9960,11 @@ class TaskManagerWindow(BaseWindow):
             url_link = QLabel(f"<a href='{url}' style='color: #3b82f6; text-decoration: none;'>{url_text}</a>")
             url_link.setOpenExternalLinks(True)
             url_link.setToolTip(f"点击打开链接\n右键复制链接")
-            url_link.setStyleSheet(scale_style("font-size: 11px;"))
+            url_link.setStyleSheet(scale_style("font-size: 15px;"))
             url_layout.addWidget(url_link, stretch=1)
             
             copy_btn = QPushButton("复制")
-            copy_btn.setStyleSheet(scale_style("QPushButton { background-color: transparent; color: #64748b; padding: 2px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #e6eaf2; } QPushButton:hover { background-color: #f8fafc; color: #475569; border: 1px solid #cbd5e1; }"))
+            copy_btn.setStyleSheet(scale_style("QPushButton { background-color: transparent; color: #64748b; padding: 2px 8px; border-radius: 4px; font-size: 15px; border: 1px solid #e6eaf2; } QPushButton:hover { background-color: #f8fafc; color: #475569; border: 1px solid #cbd5e1; }"))
             copy_btn.clicked.connect(lambda checked, u=url: self.copy_to_clipboard(u))
             url_layout.addWidget(copy_btn)
             
@@ -9978,14 +9978,14 @@ class TaskManagerWindow(BaseWindow):
                 err_icon.setFixedSize(scale(14), scale(14))
                 err_row.addWidget(err_icon, 0, Qt.AlignTop)
                 error_label = QLabel(f"{error_message[:80]}{'...' if len(error_message) > 80 else ''}")
-                error_label.setStyleSheet(scale_style("color: #ef4444; font-size: 11px; background-color: #fef2f2; padding: 4px 8px; border-radius: 4px;"))
+                error_label.setStyleSheet(scale_style("color: #ef4444; font-size: 15px; background-color: #fef2f2; padding: 4px 8px; border-radius: 4px;"))
                 error_label.setToolTip(error_message)
                 error_label.setWordWrap(True)
                 err_row.addWidget(error_label, stretch=1)
                 support_btn = QPushButton("获取支持")
                 support_btn.setIcon(_task_icon("link", scale(13), "#ef4444"))
                 support_btn.setIconSize(QSize(scale(12), scale(12)))
-                support_btn.setStyleSheet(scale_style("QPushButton { background-color: #fef2f2; color: #ef4444; border: 1px solid #fecaca; padding: 2px 8px; border-radius: 4px; font-size: 11px; } QPushButton:hover { background-color: #fee2e2; } QPushButton:pressed { background-color: #fecaca; }"))
+                support_btn.setStyleSheet(scale_style("QPushButton { background-color: #fef2f2; color: #ef4444; border: 1px solid #fecaca; padding: 2px 8px; border-radius: 4px; font-size: 15px; } QPushButton:hover { background-color: #fee2e2; } QPushButton:pressed { background-color: #fecaca; }"))
                 support_btn.clicked.connect(lambda checked, t=task: self._show_error_support_dialog(t))
                 err_row.addWidget(support_btn, 0, Qt.AlignTop)
                 card_layout.addLayout(err_row)
@@ -9993,7 +9993,7 @@ class TaskManagerWindow(BaseWindow):
             btn_layout = QHBoxLayout()
             btn_layout.setSpacing(scale(8))
             
-            card_btn_style = scale_style("QPushButton { padding: 4px 12px; border-radius: 5px; font-size: 11px; font-weight: 500; min-height: 26px; border: none; }")
+            card_btn_style = scale_style("QPushButton { padding: 4px 12px; border-radius: 5px; font-size: 15px; font-weight: 500; min-height: 26px; border: none; }")
             
             download_btn = QPushButton("查看下载")
             download_btn.setIcon(_task_icon("eye", scale(16), "#ffffff"))
@@ -10186,7 +10186,7 @@ class TaskManagerWindow(BaseWindow):
         menu = QMenu(self)
         menu.setStyleSheet(scale_style("""
             QMenu { background-color: white; border: 1px solid #e6eaf2; border-radius: 8px; padding: 6px; }
-            QMenu::item { padding: 7px 22px; border-radius: 6px; font-size: 12px; }
+            QMenu::item { padding: 7px 22px; border-radius: 6px; font-size: 15px; }
             QMenu::item:selected { background-color: #eff6ff; color: #2563eb; }
         """))
         menu.addAction(_task_icon("eye", scale(16), "#3b82f6"), "查看详情", lambda t=task: self._open_task_detail(t))
@@ -10225,7 +10225,7 @@ class TaskManagerWindow(BaseWindow):
         menu = QMenu(self)
         menu.setStyleSheet(scale_style("""
             QMenu { background-color: white; border: 1px solid #e6eaf2; border-radius: 8px; padding: 6px; }
-            QMenu::item { padding: 7px 22px; border-radius: 6px; font-size: 12px; }
+            QMenu::item { padding: 7px 22px; border-radius: 6px; font-size: 15px; }
             QMenu::item:selected { background-color: #eff6ff; color: #2563eb; }
         """))
         show_checkboxes = getattr(self, "show_checkboxes", False)
@@ -10256,10 +10256,10 @@ class TaskManagerWindow(BaseWindow):
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(scale(15), scale(0), scale(10), scale(0))
         t_label = QLabel("获取技术支持")
-        t_label.setStyleSheet(scale_style("font-weight: bold; font-size: 13px; color: white;"))
+        t_label.setStyleSheet(scale_style("font-weight: bold; font-size: 15px; color: white;"))
         title_layout.addWidget(t_label, stretch=1)
         c_btn = QPushButton("×")
-        c_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 14px; min-width: 28px; min-height: 28px;"))
+        c_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 15px; min-width: 28px; min-height: 28px;"))
         c_btn.clicked.connect(dialog.reject)
         title_layout.addWidget(c_btn)
 
@@ -10278,7 +10278,7 @@ class TaskManagerWindow(BaseWindow):
         body_layout.addWidget(err_heading)
 
         qq_info = QLabel("QQ：2273962061 / 3241417097\n作者：寒烟似雪（逸雨）\n用户交流QQ群：714822491")
-        qq_info.setStyleSheet(scale_style("font-size: 12px; color: #595959;"))
+        qq_info.setStyleSheet(scale_style("font-size: 15px; color: #595959;"))
         qq_info.setWordWrap(True)
         body_layout.addWidget(qq_info)
 
@@ -10287,7 +10287,7 @@ class TaskManagerWindow(BaseWindow):
         err_box_layout = QVBoxLayout(err_box)
         err_label = QLabel(error_msg[:400] + ("..." if len(error_msg) > 400 else ""))
         err_label.setWordWrap(True)
-        err_label.setStyleSheet(scale_style("color: #dc2626; font-size: 12px;"))
+        err_label.setStyleSheet(scale_style("color: #dc2626; font-size: 15px;"))
         err_label.setToolTip(error_msg)
         err_box_layout.addWidget(err_label)
         body_layout.addWidget(err_box)
@@ -10350,10 +10350,10 @@ class TaskManagerWindow(BaseWindow):
         title_layout.setSpacing(scale(8))
         
         title_label = QLabel(f"任务详情 - {task.get('title', '未知任务')}")
-        title_label.setStyleSheet(scale_style("font-weight: bold; font-size: 13px; color: white;"))
+        title_label.setStyleSheet(scale_style("font-weight: bold; font-size: 15px; color: white;"))
         
         close_btn = QPushButton("×")
-        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 14px; min-width: 28px; min-height: 28px;"))
+        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 15px; min-width: 28px; min-height: 28px;"))
         close_btn.clicked.connect(dialog.reject)
         
         title_layout.addWidget(title_label, stretch=1)
@@ -10404,7 +10404,7 @@ class TaskManagerWindow(BaseWindow):
                 background-color: white;
             }
             QGroupBox::title {
-                font-size: 14px;
+                font-size: 15px;
                 font-weight: 600;
                 color: #2563eb;
                 margin-left: 12px;
@@ -10417,7 +10417,7 @@ class TaskManagerWindow(BaseWindow):
                 color: white;
                 background-color: #409eff;
                 font-weight: 500;
-                font-size: 12px;
+                font-size: 15px;
             }
             QPushButton:hover {
                 background-color: #66b1ff;
@@ -10544,7 +10544,7 @@ class TaskManagerWindow(BaseWindow):
         copy_url_btn = QPushButton("复制")
         copy_url_btn.setMinimumHeight(scale(32))
         copy_url_btn.setMinimumWidth(scale(80))
-        copy_url_btn.setStyleSheet(scale_style("padding: 6px 12px; font-size: 12px;"))
+        copy_url_btn.setStyleSheet(scale_style("padding: 6px 12px; font-size: 15px;"))
         copy_url_btn.clicked.connect(lambda: self.copy_to_clipboard(url_text))
         url_layout.addWidget(url_label)
         url_layout.addWidget(url_link, stretch=1)
@@ -10566,7 +10566,7 @@ class TaskManagerWindow(BaseWindow):
         open_path_btn = QPushButton("打开")
         open_path_btn.setMinimumHeight(scale(32))
         open_path_btn.setMinimumWidth(scale(80))
-        open_path_btn.setStyleSheet(scale_style("padding: 6px 12px; font-size: 12px;"))
+        open_path_btn.setStyleSheet(scale_style("padding: 6px 12px; font-size: 15px;"))
         open_path_btn.clicked.connect(lambda: self.open_directory(path_text))
         path_layout.addWidget(path_label)
         path_layout.addWidget(path_content, stretch=1)
@@ -10589,7 +10589,7 @@ class TaskManagerWindow(BaseWindow):
             fp_open_btn = QPushButton("打开")
             fp_open_btn.setMinimumHeight(scale(32))
             fp_open_btn.setMinimumWidth(scale(80))
-            fp_open_btn.setStyleSheet(scale_style("padding: 6px 12px; font-size: 12px;"))
+            fp_open_btn.setStyleSheet(scale_style("padding: 6px 12px; font-size: 15px;"))
             fp_open_btn.clicked.connect(lambda: self.open_directory(os.path.dirname(file_path_val)))
             fp_layout.addWidget(fp_label)
             fp_layout.addWidget(fp_content, stretch=1)
@@ -11298,7 +11298,7 @@ class TaskManagerWindow(BaseWindow):
             title_layout.addWidget(title_label, stretch=1)
             
             close_btn = QPushButton("×")
-            close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 18px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+            close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
             close_btn.setToolTip("关闭")
             close_btn.clicked.connect(dialog.reject)
             title_layout.addWidget(close_btn)
@@ -11344,7 +11344,7 @@ class TaskManagerWindow(BaseWindow):
                     border: 1px solid #dde3ed;
                     border-radius: 8px;
                     font-family: Consolas, Monaco, 'Courier New', monospace;
-                    font-size: 12px;
+                    font-size: 15px;
                     background-color: #f8fafc;
                 }
                 QListWidget::item {
@@ -11366,7 +11366,7 @@ class TaskManagerWindow(BaseWindow):
                     color: white;
                     background-color: #409eff;
                     font-weight: 500;
-                    font-size: 12px;
+                    font-size: 15px;
                 }
                 QPushButton:hover {
                     background-color: #66b1ff;
@@ -11403,12 +11403,12 @@ class TaskManagerWindow(BaseWindow):
             # 添加文件路径信息
             path_label = QLabel(f"文件路径：{file_path}")
             path_label.setWordWrap(True)
-            path_label.setStyleSheet(scale_style("font-size: 12px; color: #64748b;"))
+            path_label.setStyleSheet(scale_style("font-size: 15px; color: #64748b;"))
             content_layout.addWidget(path_label)
             
             # 添加弹幕数量信息
             count_label = QLabel(f"共 {len(danmaku_items)} 条弹幕")
-            count_label.setStyleSheet(scale_style("font-size: 12px; color: #64748b;"))
+            count_label.setStyleSheet(scale_style("font-size: 15px; color: #64748b;"))
             content_layout.addWidget(count_label)
             
             danmaku_list = QListWidget()
@@ -11772,7 +11772,7 @@ class BatchDownloadWindow(BaseWindow):
             }
             #titleLabel {
                 font-weight: bold;
-                font-size: 13px;
+                font-size: 15px;
             }
             #minimizeBtn, #maximizeBtn, #closeBtn {
                 min-width: 32px;
@@ -11780,7 +11780,7 @@ class BatchDownloadWindow(BaseWindow):
                 border: none;
                 background-color: transparent;
                 color: white;
-                font-size: 14px;
+                font-size: 15px;
                 padding: 0px;
             }
             #minimizeBtn:hover, #maximizeBtn:hover {
@@ -11792,14 +11792,14 @@ class BatchDownloadWindow(BaseWindow):
             /* episode widget 统一样式（避免每个 widget 调用 setStyleSheet，大幅提升创建速度） */
             #epStatus {
                 color: #6b7280;
-                font-size: 11px;
+                font-size: 15px;
             }
             #epPauseBtn {
                 background-color: #faad14;
                 color: white;
                 padding: 4px 8px;
                 border-radius: 3px;
-                font-size: 11px;
+                font-size: 15px;
                 min-height: 24px;
                 min-width: 50px;
             }
@@ -11808,7 +11808,7 @@ class BatchDownloadWindow(BaseWindow):
                 color: white;
                 padding: 4px 8px;
                 border-radius: 3px;
-                font-size: 11px;
+                font-size: 15px;
                 min-height: 24px;
                 min-width: 50px;
             }
@@ -11817,7 +11817,7 @@ class BatchDownloadWindow(BaseWindow):
                 color: white;
                 padding: 4px 8px;
                 border-radius: 3px;
-                font-size: 11px;
+                font-size: 15px;
                 min-height: 24px;
                 min-width: 60px;
             }
@@ -12072,7 +12072,7 @@ class BatchDownloadWindow(BaseWindow):
             btn = self.pause_buttons[key]
             if btn.text() == "暂停":
                 btn.setText("继续")
-                btn.setStyleSheet(scale_style("background-color: #52c41a; color: white; padding: 4px 8px; border-radius: 3px; font-size: 11px; min-height: 24px; min-width: 50px;"))
+                btn.setStyleSheet(scale_style("background-color: #52c41a; color: white; padding: 4px 8px; border-radius: 3px; font-size: 15px; min-height: 24px; min-width: 50px;"))
                 try:
                     if self.download_manager:
                         self.download_manager.pause_task(task_id)
@@ -12080,7 +12080,7 @@ class BatchDownloadWindow(BaseWindow):
                     logger.error(f"暂停任务失败：{str(e)}")
             else:
                 btn.setText("暂停")
-                btn.setStyleSheet(scale_style("background-color: #faad14; color: white; padding: 4px 8px; border-radius: 3px; font-size: 11px; min-height: 24px; min-width: 50px;"))
+                btn.setStyleSheet(scale_style("background-color: #faad14; color: white; padding: 4px 8px; border-radius: 3px; font-size: 15px; min-height: 24px; min-width: 50px;"))
                 try:
                     if self.download_manager:
                         self.download_manager.resume_task(task_id)
@@ -12343,11 +12343,11 @@ class BatchDownloadWindow(BaseWindow):
         title_layout.setSpacing(scale(10))
         
         title_label = QLabel("下载链接")
-        title_label.setStyleSheet(scale_style("font-weight: bold; font-size: 14px; color: white;"))
+        title_label.setStyleSheet(scale_style("font-weight: bold; font-size: 15px; color: white;"))
         title_layout.addWidget(title_label, stretch=1)
         
         close_btn = QPushButton("×")
-        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 16px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 15px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
         close_btn.setToolTip("关闭")
         close_btn.clicked.connect(dialog.close)
         title_layout.addWidget(close_btn)
@@ -12398,7 +12398,7 @@ class BatchDownloadWindow(BaseWindow):
         content_layout.setSpacing(scale(15))
         
         title_label = QLabel(f"任务 {task_id} - 第{ep_index+1}集 下载链接")
-        title_label.setStyleSheet(scale_style("font-size: 14px; font-weight: bold; color: #2563eb;"))
+        title_label.setStyleSheet(scale_style("font-size: 15px; font-weight: bold; color: #2563eb;"))
         content_layout.addWidget(title_label)
         
         
@@ -12414,7 +12414,7 @@ class BatchDownloadWindow(BaseWindow):
         link_list.addItem(audio_item)
         
         hint_label = QLabel("提示：链接可能会在一段时间后失效，建议及时使用。")
-        hint_label.setStyleSheet(scale_style("font-size: 12px; color: #6b7280;"))
+        hint_label.setStyleSheet(scale_style("font-size: 15px; color: #6b7280;"))
         content_layout.addWidget(hint_label)
         
         btn_layout = QHBoxLayout()
@@ -12557,10 +12557,10 @@ class BatchDownloadWindow(BaseWindow):
 
                     if success:
                         self.status_labels[bar_index].setText(f"√ 下载完成 - {message}")
-                        self.status_labels[bar_index].setStyleSheet(scale_style("color: #52c41a; font-size: 12px;"))
+                        self.status_labels[bar_index].setStyleSheet(scale_style("color: #52c41a; font-size: 15px;"))
                     else:
                         self.status_labels[bar_index].setText(f"× 失败：{message[:20]}...")
-                        self.status_labels[bar_index].setStyleSheet(scale_style("color: #f56c6c; font-size: 12px;"))
+                        self.status_labels[bar_index].setStyleSheet(scale_style("color: #f56c6c; font-size: 15px;"))
                         self.failed.append(message)
 
                     parent = self.parent()
@@ -12613,10 +12613,10 @@ class BatchDownloadWindow(BaseWindow):
 
                 if success:
                     self.status_labels[index].setText(f"√ 下载完成 - {message}")
-                    self.status_labels[index].setStyleSheet(scale_style("color: #52c41a; font-size: 12px;"))
+                    self.status_labels[index].setStyleSheet(scale_style("color: #52c41a; font-size: 15px;"))
                 else:
                     self.status_labels[index].setText(f"× 失败：{message[:20]}...")
-                    self.status_labels[index].setStyleSheet(scale_style("color: #f56c6c; font-size: 12px;"))
+                    self.status_labels[index].setStyleSheet(scale_style("color: #f56c6c; font-size: 15px;"))
                     self.failed.append(message)
 
                 parent = self.parent()
@@ -12998,7 +12998,7 @@ class BilibiliDownloader(BaseWindow):
             title_label.setStyleSheet("font-size: 15px; font-weight: 600; color: white; letter-spacing: 0.5px;")
             title_layout.addWidget(title_label, stretch=1)
             close_btn = QPushButton("×")
-            close_btn.setStyleSheet("background-color: transparent; border: none; color: white; font-size: 18px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;")
+            close_btn.setStyleSheet("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;")
             close_btn.setToolTip("关闭")
             close_btn.clicked.connect(dlg.reject)
             title_layout.addWidget(close_btn)
@@ -13027,14 +13027,14 @@ class BilibiliDownloader(BaseWindow):
             body_layout.setContentsMargins(20, 16, 20, 16)
             body_layout.setSpacing(12)
 
-            intro = QLabel('<span style="font-size:14px;font-weight:600;color:#303133;">为了持续改进软件体验，我们可能会向云端上报以下数据</span>')
+            intro = QLabel('<span style="font-size: 15px;font-weight:600;color:#303133;">为了持续改进软件体验，我们可能会向云端上报以下数据</span>')
             intro.setWordWrap(True)
             body_layout.addWidget(intro)
 
             from PyQt5.QtWidgets import QGroupBox, QCheckBox, QVBoxLayout, QHBoxLayout
 
             group_style = "QGroupBox { font-weight: 600; color: #2563eb; border: 1px solid #e6eaf2; border-radius: 8px; margin-top: 10px; padding-top: 10px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }"
-            cb_style = "QCheckBox { color: #606266; font-size: 13px; spacing: 6px; } QCheckBox::indicator { width: 16px; height: 16px; } QCheckBox:disabled { color: #909399; }"
+            cb_style = "QCheckBox { color: #606266; font-size: 15px; spacing: 6px; } QCheckBox::indicator { width: 16px; height: 16px; } QCheckBox:disabled { color: #909399; }"
 
             def make_checkbox(text, checked, tip):
                 c = QCheckBox(text)
@@ -13106,7 +13106,7 @@ class BilibiliDownloader(BaseWindow):
 
             body_layout.addWidget(remote_group)
 
-            note = QLabel('<span style="color:#909399;font-size:11px;line-height:1.6;">• 所有上报数据仅用于改进软件体验，不会出售或与第三方共享<br>• 上报数据不含个人身份信息、视频内容、Cookie等敏感信息<br>• 您可随时在 <b style="color:#409eff">设置 → 数据与隐私</b> 中逐项修改</span>')
+            note = QLabel('<span style="color:#909399;font-size: 15px;line-height:1.6;">• 所有上报数据仅用于改进软件体验，不会出售或与第三方共享<br>• 上报数据不含个人身份信息、视频内容、Cookie等敏感信息<br>• 您可随时在 <b style="color:#409eff">设置 → 数据与隐私</b> 中逐项修改</span>')
             note.setTextFormat(Qt.RichText)
             note.setWordWrap(True)
             body_layout.addWidget(note)
@@ -13118,11 +13118,11 @@ class BilibiliDownloader(BaseWindow):
             btn_settings = QPushButton("去设置")
             btn_settings.setFixedHeight(36)
             btn_settings.setMinimumWidth(96)
-            btn_settings.setStyleSheet("QPushButton{background:#409eff;color:white;border:none;border-radius:6px;font-size:13px;font-weight:600;padding:0 20px;}QPushButton:hover{background:#66b1ff;}QPushButton:pressed{background:#3a8ee6;}")
+            btn_settings.setStyleSheet("QPushButton{background:#409eff;color:white;border:none;border-radius:6px;font-size: 15px;font-weight:600;padding:0 20px;}QPushButton:hover{background:#66b1ff;}QPushButton:pressed{background:#3a8ee6;}")
             btn_ok = QPushButton("保存")
             btn_ok.setFixedHeight(36)
             btn_ok.setMinimumWidth(96)
-            btn_ok.setStyleSheet("QPushButton{background:#ffffff;color:#606266;border:1px solid #dde3ed;border-radius:6px;font-size:13px;font-weight:500;padding:0 20px;}QPushButton:hover{color:#409eff;border-color:#c6e2ff;background:#ecf5ff;}QPushButton:pressed{color:#3a8ee6;border-color:#3a8ee6;}")
+            btn_ok.setStyleSheet("QPushButton{background:#ffffff;color:#606266;border:1px solid #dde3ed;border-radius:6px;font-size: 15px;font-weight:500;padding:0 20px;}QPushButton:hover{color:#409eff;border-color:#c6e2ff;background:#ecf5ff;}QPushButton:pressed{color:#3a8ee6;border-color:#3a8ee6;}")
             btn_layout.addWidget(btn_ok)
             btn_layout.addWidget(btn_settings)
             body_layout.addLayout(btn_layout)
@@ -14039,11 +14039,11 @@ exit /b 0
                 layout.setContentsMargins(scale(24), scale(20), scale(24), scale(20))
                 layout.setSpacing(scale(14))
                 title = QLabel("保存路径无写入/删除权限")
-                title.setStyleSheet(scale_style("font-size: 16px; font-weight: 600; color: #d4380d;"))
+                title.setStyleSheet(scale_style("font-size: 15px; font-weight: 600; color: #d4380d;"))
                 layout.addWidget(title)
                 info = QLabel(f"当前路径：{save_path}\n\n原因：{error_detail}\n\n请更换一个有写入权限的目录后再下载。")
                 info.setWordWrap(True)
-                info.setStyleSheet(scale_style("font-size: 13px; color: #333;"))
+                info.setStyleSheet(scale_style("font-size: 15px; color: #333;"))
                 layout.addWidget(info)
                 btn_layout = QHBoxLayout()
                 btn_layout.addStretch(1)
@@ -14051,7 +14051,7 @@ exit /b 0
                 cancel_btn.setMinimumHeight(scale(36))
                 cancel_btn.setMinimumWidth(scale(90))
                 cancel_btn.setStyleSheet(scale_style("""
-                    QPushButton { background-color: #f0f0f0; color: #333; border: none; border-radius: 6px; font-size: 13px; }
+                    QPushButton { background-color: #f0f0f0; color: #333; border: none; border-radius: 6px; font-size: 15px; }
                     QPushButton:hover { background-color: #e0e0e0; }
                 """))
                 cancel_btn.clicked.connect(dialog.reject)
@@ -14060,7 +14060,7 @@ exit /b 0
                 change_btn.setMinimumHeight(scale(36))
                 change_btn.setMinimumWidth(scale(100))
                 change_btn.setStyleSheet(scale_style("""
-                    QPushButton { background-color: #409eff; color: white; border: none; border-radius: 6px; font-size: 13px; font-weight: 500; }
+                    QPushButton { background-color: #409eff; color: white; border: none; border-radius: 6px; font-size: 15px; font-weight: 500; }
                     QPushButton:hover { background-color: #66b1ff; }
                 """))
                 def do_change():
@@ -14124,7 +14124,7 @@ exit /b 0
                     background-color: #409eff;
                     color: white;
                     border-radius: 6px;
-                    font-size: 14px;
+                    font-size: 15px;
                     font-weight: bold;
                 }
             """)
@@ -14138,7 +14138,7 @@ exit /b 0
 
             qq_label = QLabel("QQ：2273962061 / 3241417097\n作者：寒烟似雪（逸雨）\n用户交流QQ群：714822491")
             qq_label.setAlignment(Qt.AlignCenter)
-            qq_label.setStyleSheet(scale_style("font-size: 13px; color: #595959; line-height: 1.8;"))
+            qq_label.setStyleSheet(scale_style("font-size: 15px; color: #595959; line-height: 1.8;"))
             qq_label.setWordWrap(True)
             layout.addWidget(qq_label)
 
@@ -14156,7 +14156,7 @@ exit /b 0
                     border: none;
                     border-radius: 6px;
                     padding: 9px;
-                    font-size: 13px;
+                    font-size: 15px;
                     font-weight: bold;
                 }
                 QPushButton:hover {
@@ -14193,7 +14193,7 @@ exit /b 0
                     border: none;
                     border-radius: 6px;
                     padding: 9px;
-                    font-size: 13px;
+                    font-size: 15px;
                     font-weight: bold;
                 }
                 QPushButton:hover {
@@ -14224,7 +14224,7 @@ exit /b 0
                     border: 1px solid #e8e8e8;
                     border-radius: 6px;
                     padding: 9px;
-                    font-size: 13px;
+                    font-size: 15px;
                 }
                 QPushButton:hover {
                     background-color: #f0f0f0;
@@ -14346,7 +14346,7 @@ exit /b 0
         .QPushButton {
             padding: 10px 20px;
             border-radius: 6px;
-            font-size: 14px;
+            font-size: 15px;
             font-weight: 500;
             min-width: 100px;
         }
@@ -14367,13 +14367,13 @@ exit /b 0
         layout.setSpacing(scale(20))
         
         title_label = QLabel("网络连接错误")
-        title_label.setStyleSheet(scale_style("font-size: 18px; font-weight: bold; color: #333;"))
+        title_label.setStyleSheet(scale_style("font-size: 17px; font-weight: bold; color: #333;"))
         title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(title_label)
         
         error_label = QLabel()
         error_label.setWordWrap(True)
-        error_label.setStyleSheet(scale_style("font-size: 14px; color: #666;"))
+        error_label.setStyleSheet(scale_style("font-size: 15px; color: #666;"))
         error_label.setAlignment(Qt.AlignCenter)
         error_label.setMinimumWidth(scale(420))
         from PyQt5.QtWidgets import QSizePolicy
@@ -14529,7 +14529,7 @@ exit /b 0
             if hasattr(self, 'batch_progress_label') and self.batch_progress_label:
                 if finished >= total:
                     self.batch_progress_label.setText(f"解析完成 {total}/{total}")
-                    self.batch_progress_label.setStyleSheet(scale_style("font-size: 13px; color: #52c41a;"))
+                    self.batch_progress_label.setStyleSheet(scale_style("font-size: 15px; color: #52c41a;"))
                 else:
                     self.batch_progress_label.setText(message)
         except Exception:
@@ -15055,7 +15055,7 @@ exit /b 0
         text_edit = QTextEdit()
         text_edit.setReadOnly(True)
         text_edit.setText("\n".join(results))
-        text_edit.setStyleSheet(scale_style("font-family: 'Consolas', 'Monaco', monospace; font-size: 12px;"))
+        text_edit.setStyleSheet(scale_style("font-family: 'Consolas', 'Monaco', monospace; font-size: 15px;"))
         layout.addWidget(text_edit)
         
         close_btn = QPushButton("关闭")
@@ -15127,7 +15127,7 @@ exit /b 0
                 log_text = QTextEdit()
                 log_text.setReadOnly(True)
                 log_text.setMaximumHeight(scale(120))
-                log_text.setStyleSheet(scale_style("font-family: 'Consolas', 'Monaco', monospace; font-size: 11px; background-color: #f5f5f5;"))
+                log_text.setStyleSheet(scale_style("font-family: 'Consolas', 'Monaco', monospace; font-size: 15px; background-color: #f5f5f5;"))
                 progress_layout.addWidget(log_text)
                 
                 progress_dialog.show()
@@ -15766,8 +15766,20 @@ exit /b 0
             compact_base = max(scale(480), int((clamp_h or target_h) * 0.55))
             target_h = min(target_h, compact_base)
 
-            new_min_w = max(self.minimumSize().width(), target_w)
+            # 同理给最小宽度一个上限：内容最小宽度可能到 1400+（部分标签页较宽），
+            # 直接作为窗口最小值会让窗口在 1080P/小屏上无法缩小。
+            # 内容超宽时由标签页内部的横向滚动兜底。
+            width_base = max(scale(900), int((clamp_w or target_w) * 0.62))
+            target_w = min(target_w, width_base)
+
+            new_min_w = max(min(self.minimumSize().width(), width_base), target_w)
             new_min_h = max(min(self.minimumSize().height(), compact_base), target_h)
+            # centralWidget 的布局隐含最小宽度可能到 1400+，会顶住窗口不让缩小；
+            # 显式给出上限，超宽内容由各标签页的滚动区兜底。
+            try:
+                central.setMinimumWidth(min(central.minimumSizeHint().width(), width_base))
+            except Exception:
+                pass
             # 最大化状态下收紧最小值会把无边框窗口顶出最大化导致"启动后瞬间变小"，
             # 因此最大化时只做测量、不改窗口最小值，等还原后再套用。
             if not self.isMaximized():
@@ -15929,7 +15941,7 @@ exit /b 0
             }
             #titleLabel {
                 font-weight: bold;
-                font-size: 13px;
+                font-size: 15px;
             }
             #minimizeBtn, #maximizeBtn, #closeBtn {
                 min-width: 32px;
@@ -15937,7 +15949,7 @@ exit /b 0
                 border: none;
                 background-color: transparent;
                 color: white;
-                font-size: 14px;
+                font-size: 15px;
                 padding: 0px;
             }
             #minimizeBtn:hover, #maximizeBtn:hover {
@@ -15977,11 +15989,12 @@ exit /b 0
         
         title_label = QLabel(f"{version_info['description']} {version_info['version']}")
         title_label.setObjectName("titleLabel")
-        title_label.setStyleSheet(scale_style("font-size: 14px;"))
+        # 标题栏文字加大一档（原来与正文同号，显得小气）
+        title_label.setStyleSheet(scale_style("font-size: 18px; font-weight: 600; letter-spacing: 0.3px;"))
         title_layout.addWidget(title_label)
         
         author_label = QLabel("作者：寒烟似雪(逸雨)")
-        author_label.setStyleSheet(scale_style("color: rgba(255,255,255,0.75); font-size: 11px;"))
+        author_label.setStyleSheet(scale_style("color: rgba(255,255,255,0.8); font-size: 15px;"))
         author_label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
         title_layout.addWidget(author_label)
         
@@ -15991,7 +16004,7 @@ exit /b 0
         help_btn.setStyleSheet(scale_style("""
             QPushButton#helpBtn {
                 color: rgba(255,255,255,0.8);
-                font-size: 11px;
+                font-size: 15px;
                 background-color: transparent;
                 border: none;
                 padding: 2px 4px;
@@ -16012,7 +16025,7 @@ exit /b 0
 
         def _mk_stat_label(text="—"):
             lb = QLabel(text)
-            lb.setStyleSheet(scale_style("color: #ffffff; font-size: 13px; background: transparent;"))
+            lb.setStyleSheet(scale_style("color: #ffffff; font-size: 15px; background: transparent;"))
             return lb
 
         self.stats_row = QWidget()
@@ -16060,7 +16073,7 @@ exit /b 0
         self.login_info_layout.addWidget(self.avatar_label)
         
         self.login_info_label = QLabel("")
-        self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 12px; padding: 0px; font-weight: bold;"))
+        self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 15px; padding: 0px; font-weight: bold;"))
         self.login_info_label.setAlignment(Qt.AlignCenter)
         self.login_info_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         # 设置用户名标签的边距，确保与头像紧贴
@@ -16071,7 +16084,7 @@ exit /b 0
         self.login_btn.setObjectName("loginBtn")
         self.login_btn.setStyleSheet(scale_style(
             "background-color: transparent; color: #ffffff; border: none; "
-            "font-size: 12px; padding: 2px 4px;"
+            "font-size: 15px; padding: 2px 4px;"
             "min-width: 40px; max-width: 40px; min-height: 22px; max-height: 22px;"))
         self.login_btn.setCursor(QCursor(Qt.PointingHandCursor))
         self.login_btn.clicked.connect(self.on_login_click)
@@ -16118,7 +16131,7 @@ exit /b 0
         header_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
         
         title_label = QLabel(version_info['description'])
-        title_label.setStyleSheet(scale_style("font-size: 14px; font-weight: bold; color: #2563eb;"))
+        title_label.setStyleSheet(scale_style("font-size: 15px; font-weight: bold; color: #2563eb;"))
         title_label.setWordWrap(True)
         title_label.setMinimumHeight(scale(32))
         title_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -16307,7 +16320,7 @@ exit /b 0
                 border: 1px solid #e6eaf2;
                 border-radius: 0px;
                 color: #2563eb;
-                font-size: 12px;
+                font-size: 15px;
                 text-align: left;
                 padding: 4px 10px;
             }
@@ -16447,7 +16460,7 @@ exit /b 0
                 color: white;
                 border: none;
                 border-radius: 4px;
-                font-size: 10px;
+                font-size: 15px;
                 font-weight: 500;
                 padding: 2px 6px;
             }
@@ -16482,7 +16495,7 @@ exit /b 0
         self.video_title.setWordWrap(True)
         self.video_title.setMinimumHeight(scale(44))
         self.video_title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.video_title.setStyleSheet(scale_style("font-size: 14px; font-weight: 500;"))
+        self.video_title.setStyleSheet(scale_style("font-size: 15px; font-weight: 500;"))
         title_layout.addWidget(title_label, alignment=Qt.AlignTop)
         title_layout.addWidget(self.video_title, stretch=1)
         info_right_layout.addLayout(title_layout)
@@ -16539,7 +16552,7 @@ exit /b 0
                 padding: 4px 10px;
                 border: 1px solid #dde3ed;
                 border-radius: 6px;
-                font-size: 14px;
+                font-size: 15px;
                 min-height: 24px;
                 background-color: white;
                 color: #333333;
@@ -16591,7 +16604,7 @@ exit /b 0
                 padding: 4px 10px;
                 border: 1px solid #dde3ed;
                 border-radius: 6px;
-                font-size: 14px;
+                font-size: 15px;
                 min-height: 24px;
                 background-color: white;
                 color: #333333;
@@ -16646,7 +16659,7 @@ exit /b 0
         full_mode_layout.setSpacing(scale(12))
         self.full_mode_checkbox = QCheckBox("完全模式（自动全选集数并下载）")
         self.full_mode_checkbox.setMinimumHeight(scale(36))
-        self.full_mode_checkbox.setStyleSheet(scale_style("font-size: 13px;"))
+        self.full_mode_checkbox.setStyleSheet(scale_style("font-size: 15px;"))
         self.full_mode_checkbox.setEnabled(True)
         full_mode_layout.addWidget(self.full_mode_checkbox)
         full_mode_layout.addStretch(1)
@@ -16712,7 +16725,7 @@ exit /b 0
         danmaku_options_layout = QVBoxLayout()
         self.danmaku_checkbox = QCheckBox("下载弹幕")
         self.danmaku_checkbox.setMinimumHeight(scale(24))
-        self.danmaku_checkbox.setStyleSheet(scale_style("font-size: 13px;"))
+        self.danmaku_checkbox.setStyleSheet(scale_style("font-size: 15px;"))
         self.danmaku_checkbox.setEnabled(False)  # 初始禁用
         danmaku_options_layout.addWidget(self.danmaku_checkbox)
         
@@ -16758,7 +16771,7 @@ exit /b 0
         folder_title = QLabel("收藏夹列表")
         folder_title.setStyleSheet(scale_style("""
             QLabel {
-                font-size: 16px;
+                font-size: 15px;
                 font-weight: 700;
                 color: #1a1a2e;
             }
@@ -16767,7 +16780,7 @@ exit /b 0
         self.folder_count_label = QLabel("")
         self.folder_count_label.setStyleSheet(scale_style("""
             QLabel {
-                font-size: 11px;
+                font-size: 15px;
                 color: #8b95a5;
                 background-color: #f0f2f5;
                 border-radius: 10px;
@@ -16785,7 +16798,7 @@ exit /b 0
                 color: white;
                 border: none;
                 border-radius: 6px;
-                font-size: 12px;
+                font-size: 15px;
                 font-weight: 600;
                 padding: 4px 12px;
             }
@@ -16812,7 +16825,7 @@ exit /b 0
                 border: 1px solid #e0e4ea;
                 border-radius: 8px;
                 padding: 6px 12px;
-                font-size: 13px;
+                font-size: 15px;
                 color: #1a1a2e;
                 background-color: #f7f8fa;
             }
@@ -16842,7 +16855,7 @@ exit /b 0
                 padding: 10px 12px;
                 border-radius: 8px;
                 margin-bottom: 2px;
-                font-size: 13px;
+                font-size: 15px;
                 color: #3a3f4b;
                 background-color: transparent;
                 border: none;
@@ -16874,7 +16887,7 @@ exit /b 0
         content_title = QLabel("收藏内容")
         content_title.setStyleSheet(scale_style("""
             QLabel {
-                font-size: 16px;
+                font-size: 15px;
                 font-weight: 700;
                 color: #1a1a2e;
             }
@@ -16895,7 +16908,7 @@ exit /b 0
                 color: #3a3f4b;
                 border: 1px solid #e0e4ea;
                 border-radius: 6px;
-                font-size: 12px;
+                font-size: 15px;
                 font-weight: 500;
                 padding: 4px 12px;
             }
@@ -16917,7 +16930,7 @@ exit /b 0
                 color: #3a3f4b;
                 border: 1px solid #e0e4ea;
                 border-radius: 6px;
-                font-size: 12px;
+                font-size: 15px;
                 font-weight: 500;
                 padding: 4px 12px;
             }
@@ -16940,7 +16953,7 @@ exit /b 0
                 color: white;
                 border: none;
                 border-radius: 6px;
-                font-size: 12px;
+                font-size: 15px;
                 font-weight: 600;
                 padding: 4px 12px;
             }
@@ -16967,7 +16980,7 @@ exit /b 0
                 color: white;
                 border: none;
                 border-radius: 6px;
-                font-size: 12px;
+                font-size: 15px;
                 font-weight: 600;
                 padding: 4px 12px;
             }
@@ -17107,7 +17120,7 @@ exit /b 0
         preview_title = QLabel("封面预览")
         preview_title.setStyleSheet(scale_style("""
             QLabel {
-                font-size: 11px;
+                font-size: 15px;
                 font-weight: 600;
                 color: #1a1a2e;
             }
@@ -17122,7 +17135,7 @@ exit /b 0
                 color: white;
                 border: none;
                 border-radius: 4px;
-                font-size: 10px;
+                font-size: 15px;
                 font-weight: 500;
                 padding: 3px 8px;
             }
@@ -17148,7 +17161,7 @@ exit /b 0
                 color: white;
                 border: none;
                 border-radius: 4px;
-                font-size: 10px;
+                font-size: 15px;
                 font-weight: 500;
                 padding: 3px 8px;
             }
@@ -17180,7 +17193,7 @@ exit /b 0
                 border: 1px dashed #d0d5dd;
                 border-radius: 6px;
                 color: #8b95a5;
-                font-size: 10px;
+                font-size: 15px;
             }
         """))
         self.cover_preview_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -17199,7 +17212,7 @@ exit /b 0
         cover_list_header = QLabel("封面列表")
         cover_list_header.setStyleSheet(scale_style("""
             QLabel {
-                font-size: 11px;
+                font-size: 15px;
                 font-weight: 600;
                 color: #1a1a2e;
             }
@@ -17277,7 +17290,7 @@ exit /b 0
         video_group = QGroupBox("视频")
         video_group.setStyleSheet(scale_style("""
             QGroupBox {
-                font-size: 13px;
+                font-size: 15px;
                 font-weight: 600;
                 color: #333;
                 border: 1px solid #e0e4ea;
@@ -17299,14 +17312,14 @@ exit /b 0
         video_top_layout.setSpacing(scale(8))
         self.all_video_checkbox = QCheckBox("下载视频")
         self.all_video_checkbox.setChecked(True)
-        self.all_video_checkbox.setStyleSheet(scale_style("font-size: 12px; font-weight: 500;"))
+        self.all_video_checkbox.setStyleSheet(scale_style("font-size: 15px; font-weight: 500;"))
         self.all_video_checkbox.stateChanged.connect(self._on_all_video_checkbox_changed)
         video_top_layout.addWidget(self.all_video_checkbox)
         
         qn_label = QLabel("清晰度：")
-        qn_label.setStyleSheet(scale_style("font-size: 12px; color: #555;"))
+        qn_label.setStyleSheet(scale_style("font-size: 15px; color: #555;"))
         self.all_qn_combo = QComboBox()
-        self.all_qn_combo.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 12px;"))
+        self.all_qn_combo.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 15px;"))
         self.all_qn_combo.setMinimumHeight(scale(28))
         self.all_qn_combo.addItems(["480P", "360P"])
         self.all_qn_combo.setCurrentIndex(0)
@@ -17315,11 +17328,11 @@ exit /b 0
         video_top_layout.addStretch()
         
         select_all_episodes_btn = QPushButton("全选")
-        select_all_episodes_btn.setStyleSheet(scale_style("background-color: #52c41a; color: white; padding: 4px 14px; border-radius: 4px; font-size: 11px;"))
+        select_all_episodes_btn.setStyleSheet(scale_style("background-color: #52c41a; color: white; padding: 4px 14px; border-radius: 4px; font-size: 15px;"))
         select_all_episodes_btn.setMinimumHeight(scale(26))
         select_all_episodes_btn.clicked.connect(self._on_all_select_all_episodes)
         deselect_all_episodes_btn = QPushButton("取消全选")
-        deselect_all_episodes_btn.setStyleSheet(scale_style("background-color: #919191; color: white; padding: 4px 14px; border-radius: 4px; font-size: 11px;"))
+        deselect_all_episodes_btn.setStyleSheet(scale_style("background-color: #919191; color: white; padding: 4px 14px; border-radius: 4px; font-size: 15px;"))
         deselect_all_episodes_btn.setMinimumHeight(scale(26))
         deselect_all_episodes_btn.clicked.connect(self._on_all_deselect_all_episodes)
         video_top_layout.addWidget(select_all_episodes_btn)
@@ -17327,9 +17340,9 @@ exit /b 0
 
         # 排序下拉框
         sort_label = QLabel("排序:")
-        sort_label.setStyleSheet(scale_style("font-size: 12px; color: #555;"))
+        sort_label.setStyleSheet(scale_style("font-size: 15px; color: #555;"))
         self.all_episode_sort_combo = QComboBox()
-        self.all_episode_sort_combo.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 12px;"))
+        self.all_episode_sort_combo.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 15px;"))
         self.all_episode_sort_combo.setMinimumHeight(scale(26))
         self.all_episode_sort_combo.addItems(["默认顺序", "按时长升序", "按时长降序", "按标题排序"])
         self.all_episode_sort_combo.currentIndexChanged.connect(self._on_all_episode_sort_changed)
@@ -17343,7 +17356,7 @@ exit /b 0
                 border: 1px solid #dde3ed;
                 border-radius: 6px;
                 background-color: #fafbfc;
-                font-size: 12px;
+                font-size: 15px;
             }
             QListWidget::item {
                 padding: 6px 8px;
@@ -17366,7 +17379,7 @@ exit /b 0
         extra_group = QGroupBox("附加内容")
         extra_group.setStyleSheet(scale_style("""
             QGroupBox {
-                font-size: 13px;
+                font-size: 15px;
                 font-weight: 600;
                 color: #333;
                 border: 1px solid #e0e4ea;
@@ -17386,14 +17399,14 @@ exit /b 0
         
         self.all_danmaku_checkbox = QCheckBox("弹幕")
         self.all_danmaku_checkbox.setChecked(True)
-        self.all_danmaku_checkbox.setStyleSheet(scale_style("font-size: 13px;"))
+        self.all_danmaku_checkbox.setStyleSheet(scale_style("font-size: 15px;"))
         extra_group_layout.addWidget(self.all_danmaku_checkbox)
         
         danmaku_format_label = QLabel("格式:")
-        danmaku_format_label.setStyleSheet(scale_style("font-size: 11px; color: #888;"))
+        danmaku_format_label.setStyleSheet(scale_style("font-size: 15px; color: #888;"))
         self.all_danmaku_format_combo = QComboBox()
         self.all_danmaku_format_combo.addItems(["XML", "ASS"])
-        self.all_danmaku_format_combo.setStyleSheet(scale_style("padding: 2px 6px; border: 1px solid #dde3ed; border-radius: 3px; font-size: 11px;"))
+        self.all_danmaku_format_combo.setStyleSheet(scale_style("padding: 2px 6px; border: 1px solid #dde3ed; border-radius: 3px; font-size: 15px;"))
         self.all_danmaku_format_combo.setMaximumWidth(scale(70))
         extra_group_layout.addWidget(danmaku_format_label)
         extra_group_layout.addWidget(self.all_danmaku_format_combo)
@@ -17403,14 +17416,14 @@ exit /b 0
         self.all_cover_checkbox = QCheckBox("封面")
         auto_cover_val = self.config.get_app_setting("auto_download_cover", True)
         self.all_cover_checkbox.setChecked(auto_cover_val)
-        self.all_cover_checkbox.setStyleSheet(scale_style("font-size: 13px;"))
+        self.all_cover_checkbox.setStyleSheet(scale_style("font-size: 15px;"))
         extra_group_layout.addWidget(self.all_cover_checkbox)
         
         extra_group_layout.addSpacing(scale(30))
         
         self.all_subtitle_checkbox = QCheckBox("字幕")
         self.all_subtitle_checkbox.setChecked(False)
-        self.all_subtitle_checkbox.setStyleSheet(scale_style("font-size: 13px;"))
+        self.all_subtitle_checkbox.setStyleSheet(scale_style("font-size: 15px;"))
         extra_group_layout.addWidget(self.all_subtitle_checkbox)
         
         extra_group_layout.addStretch()
@@ -17419,16 +17432,16 @@ exit /b 0
         path_layout = QHBoxLayout()
         path_layout.setSpacing(scale(8))
         path_label = QLabel("保存路径：")
-        path_label.setStyleSheet(scale_style("font-size: 12px; font-weight: 500; color: #333;"))
+        path_label.setStyleSheet(scale_style("font-size: 15px; font-weight: 500; color: #333;"))
         self.all_path_edit = QLineEdit()
         # 与path_edit保持一致，优先读取用户上次选择的路径
         last_path_all = self.config.get_app_setting("last_save_path")
         default_path_all = last_path_all if last_path_all else os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载")
         self.all_path_edit.setText(default_path_all)
-        self.all_path_edit.setStyleSheet(scale_style("padding: 6px 10px; border: 1px solid #dde3ed; border-radius: 6px; font-size: 12px;"))
+        self.all_path_edit.setStyleSheet(scale_style("padding: 6px 10px; border: 1px solid #dde3ed; border-radius: 6px; font-size: 15px;"))
         self.all_path_edit.setMinimumHeight(scale(34))
         path_select_btn = QPushButton("选择")
-        path_select_btn.setStyleSheet(scale_style("background-color: #6c757d; color: white; padding: 6px 16px; border-radius: 6px; font-size: 12px;"))
+        path_select_btn.setStyleSheet(scale_style("background-color: #6c757d; color: white; padding: 6px 16px; border-radius: 6px; font-size: 15px;"))
         path_select_btn.setMinimumHeight(scale(34))
         path_select_btn.clicked.connect(self._on_all_select_path)
         path_layout.addWidget(path_label)
@@ -17453,11 +17466,11 @@ exit /b 0
         self.history_search_edit = QLineEdit()
         self.history_search_edit.setPlaceholderText("搜索历史记录...")
         self.history_search_edit.setMinimumHeight(scale(32))
-        self.history_search_edit.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 12px;"))
+        self.history_search_edit.setStyleSheet(scale_style("padding: 4px 8px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 15px;"))
         history_search_btn = QPushButton("搜索")
         history_search_btn.setMinimumHeight(scale(32))
         history_search_btn.setMinimumWidth(scale(50))
-        history_search_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; border-radius: 4px; padding: 4px 12px; font-size: 12px;"))
+        history_search_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; border-radius: 4px; padding: 4px 12px; font-size: 15px;"))
         history_search_btn.clicked.connect(self._search_history)
         self.history_search_edit.returnPressed.connect(self._search_history)
         
@@ -17467,15 +17480,15 @@ exit /b 0
         history_filter_all.setCheckable(True)
         history_filter_all.setChecked(True)
         history_filter_all.setMinimumHeight(scale(28))
-        history_filter_all.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 11px; } QPushButton:checked { background-color: #409eff; color: white; border-color: #409eff; }"))
+        history_filter_all.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 15px; } QPushButton:checked { background-color: #409eff; color: white; border-color: #409eff; }"))
         history_filter_success = QPushButton("成功")
         history_filter_success.setCheckable(True)
         history_filter_success.setMinimumHeight(scale(28))
-        history_filter_success.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 11px; } QPushButton:checked { background-color: #52c41a; color: white; border-color: #52c41a; }"))
+        history_filter_success.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 15px; } QPushButton:checked { background-color: #52c41a; color: white; border-color: #52c41a; }"))
         history_filter_failed = QPushButton("失败")
         history_filter_failed.setCheckable(True)
         history_filter_failed.setMinimumHeight(scale(28))
-        history_filter_failed.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 11px; } QPushButton:checked { background-color: #f56c6c; color: white; border-color: #f56c6c; }"))
+        history_filter_failed.setStyleSheet(scale_style("QPushButton { padding: 2px 10px; border: 1px solid #dde3ed; border-radius: 4px; font-size: 15px; } QPushButton:checked { background-color: #f56c6c; color: white; border-color: #f56c6c; }"))
         
         self._history_filter_group = QButtonGroup(self)
         self._history_filter_group.setExclusive(True)
@@ -17494,7 +17507,7 @@ exit /b 0
         
         clear_history_btn = QPushButton("清空历史")
         clear_history_btn.setMinimumHeight(scale(28))
-        clear_history_btn.setStyleSheet(scale_style("QPushButton { background-color: #f56c6c; color: white; border-radius: 4px; padding: 2px 10px; font-size: 11px; } QPushButton:hover { background-color: #e04040; }"))
+        clear_history_btn.setStyleSheet(scale_style("QPushButton { background-color: #f56c6c; color: white; border-radius: 4px; padding: 2px 10px; font-size: 15px; } QPushButton:hover { background-color: #e04040; }"))
         clear_history_btn.clicked.connect(self._clear_history)
         history_filter_layout.addWidget(clear_history_btn)
         
@@ -17508,7 +17521,7 @@ exit /b 0
             QListWidget {
                 border: 1px solid #dde3ed;
                 border-radius: 6px;
-                font-size: 12px;
+                font-size: 15px;
                 background-color: #fafafa;
             }
             QListWidget::item {
@@ -17528,7 +17541,7 @@ exit /b 0
         history_layout.addWidget(self.history_list, stretch=1)
         
         self.history_status_label = QLabel("")
-        self.history_status_label.setStyleSheet(scale_style("font-size: 11px; color: #6c757d;"))
+        self.history_status_label.setStyleSheet(scale_style("font-size: 15px; color: #6c757d;"))
         self.history_status_label.setAlignment(Qt.AlignCenter)
         history_layout.addWidget(self.history_status_label)
         
@@ -17594,7 +17607,7 @@ exit /b 0
         self.fold_menu = QMenu(self)
         self.fold_menu.setStyleSheet(scale_style("""
             QMenu { background-color: white; border: 1px solid #dde3ed; padding: 4px; }
-            QMenu::item { padding: 6px 20px 6px 12px; color: #333; font-size: 13px; }
+            QMenu::item { padding: 6px 20px 6px 12px; color: #333; font-size: 15px; }
             QMenu::item:selected { background-color: #409eff; color: white; }
         """))
         self.fold_btn = QPushButton("∨")
@@ -17602,7 +17615,7 @@ exit /b 0
         self.fold_btn.setFixedSize(scale(28), scale(28))
         self.fold_btn.setCursor(Qt.PointingHandCursor)
         self.fold_btn.setStyleSheet(scale_style("""
-            QPushButton { background-color: #f8f9fa; border: 1px solid #dde3ed; color: #6c757d; font-size: 14px; border-radius: 4px; }
+            QPushButton { background-color: #f8f9fa; border: 1px solid #dde3ed; color: #6c757d; font-size: 15px; border-radius: 4px; }
             QPushButton:hover { background-color: #e6eaf2; color: #2563eb; border-color: #409eff; }
         """))
         self.fold_btn.clicked.connect(self._show_fold_menu)
@@ -17638,7 +17651,7 @@ exit /b 0
         self.status_label.setAlignment(Qt.AlignCenter)
         self.status_label.setMinimumHeight(scale(24))
         self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet(scale_style("font-size: 11px;"))
+        self.status_label.setStyleSheet(scale_style("font-size: 15px;"))
         # 占满整行宽度（带 alignment 会让标签按 sizeHint 收窄导致单行文本被折行），
         # 垂直方向按内容自适应（长消息自动换行成两行）
         status_sp = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -17933,7 +17946,7 @@ exit /b 0
                 name_label = QLabel(title)
                 name_label.setStyleSheet(scale_style("""
                     QLabel {
-                        font-size: 14px;
+                        font-size: 15px;
                         font-weight: 600;
                         color: #1a1a2e;
                         background: transparent;
@@ -17947,7 +17960,7 @@ exit /b 0
                 count_label = QLabel(str(count) + " 个内容")
                 count_label.setStyleSheet(scale_style("""
                     QLabel {
-                        font-size: 11px;
+                        font-size: 15px;
                         color: #8b95a5;
                         background-color: #f0f2f5;
                         border-radius: 10px;
@@ -17959,7 +17972,7 @@ exit /b 0
                 id_label = QLabel("ID: " + str(folder_id))
                 id_label.setStyleSheet(scale_style("""
                     QLabel {
-                        font-size: 10px;
+                        font-size: 15px;
                         color: #b0b8c4;
                         background: transparent;
                     }
@@ -18207,7 +18220,7 @@ exit /b 0
             QLabel {
                 background-color: rgba(0, 0, 0, 0.7);
                 color: white;
-                font-size: 10px;
+                font-size: 15px;
                 border-radius: 3px;
                 padding: 1px 3px;
             }
@@ -18293,7 +18306,7 @@ exit /b 0
         title_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         title_label.setStyleSheet(scale_style("""
             QLabel {
-                font-size: 11px;
+                font-size: 15px;
                 font-weight: 500;
                 color: #1f2937;
                 background: transparent;
@@ -18339,7 +18352,7 @@ exit /b 0
         up_label.setFixedWidth(text_w)
         up_label.setStyleSheet(scale_style("""
             QLabel {
-                font-size: 10px;
+                font-size: 15px;
                 color: #6b7280;
                 background: transparent;
             }
@@ -18361,7 +18374,7 @@ exit /b 0
                 color: white;
                 border: none;
                 border-radius: 3px;
-                font-size: 12px;
+                font-size: 15px;
                 font-weight: 500;
                 padding: 2px 6px;
             }
@@ -18382,7 +18395,7 @@ exit /b 0
                 color: white;
                 border: none;
                 border-radius: 3px;
-                font-size: 12px;
+                font-size: 15px;
                 font-weight: 500;
                 padding: 2px 6px;
             }
@@ -19502,7 +19515,7 @@ exit /b 0
         title_layout.addWidget(title_label, stretch=1)
         
         close_btn = QPushButton("×")
-        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 18px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
         close_btn.setToolTip("关闭")
         close_btn.clicked.connect(dialog.reject)
         title_layout.addWidget(close_btn)
@@ -19518,7 +19531,7 @@ exit /b 0
         
         info_label = QLabel("确定要退出登录吗？")
         info_label.setAlignment(Qt.AlignCenter)
-        info_label.setStyleSheet(scale_style("font-size: 16px; color: #333;"))
+        info_label.setStyleSheet(scale_style("font-size: 15px; color: #333;"))
         content_layout.addWidget(info_label)
         
         
@@ -20273,7 +20286,7 @@ exit /b 0
                 title_layout.addWidget(title_label, stretch=1)
 
                 close_btn = QPushButton("×")
-                close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 18px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+                close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
                 close_btn.setToolTip("关闭")
                 close_btn.clicked.connect(self.reject)
                 title_layout.addWidget(close_btn)
@@ -20287,7 +20300,7 @@ exit /b 0
 
                 self.avatar_label = QLabel("加载中...")
                 self.avatar_label.setFixedSize(scale(80), scale(80))
-                self.avatar_label.setStyleSheet(scale_style("background-color: #e6eaf2; border-radius: 40px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #64748b;"))
+                self.avatar_label.setStyleSheet(scale_style("background-color: #e6eaf2; border-radius: 40px; display: flex; align-items: center; justify-content: center; font-size: 15px; color: #64748b;"))
 
                 info_detail = QWidget()
                 info_detail_layout = QVBoxLayout(info_detail)
@@ -20295,15 +20308,15 @@ exit /b 0
                 info_detail_layout.setSpacing(scale(5))
 
                 self.name_label = QLabel(self.space_info.get('name', '未知UP主'))
-                self.name_label.setStyleSheet(scale_style("font-size: 18px; font-weight: 600; color: #1e293b;"))
+                self.name_label.setStyleSheet(scale_style("font-size: 17px; font-weight: 600; color: #1e293b;"))
 
                 sign = self.space_info.get('sign', '')
                 self.sign_label = QLabel(f"签名: {sign if sign else '无'}")
-                self.sign_label.setStyleSheet(scale_style("font-size: 14px; color: #64748b;"))
+                self.sign_label.setStyleSheet(scale_style("font-size: 15px; color: #64748b;"))
                 self.sign_label.setWordWrap(True)
 
                 self.level_label = QLabel(f"等级: {self.space_info.get('level', '')}")
-                self.level_label.setStyleSheet(scale_style("font-size: 14px; color: #64748b;"))
+                self.level_label.setStyleSheet(scale_style("font-size: 15px; color: #64748b;"))
 
                 info_detail_layout.addWidget(self.name_label)
                 info_detail_layout.addWidget(self.sign_label)
@@ -20319,7 +20332,7 @@ exit /b 0
                 layout.setSpacing(scale(10))
 
                 self.select_all_cb = QCheckBox("全选")
-                self.select_all_cb.setStyleSheet(scale_style("font-size: 13px; color: #374151;"))
+                self.select_all_cb.setStyleSheet(scale_style("font-size: 15px; color: #374151;"))
                 self.select_all_cb.stateChanged.connect(self._on_select_all_changed)
 
                 self.quality_combo = QComboBox()
@@ -20329,7 +20342,7 @@ exit /b 0
                         border: 1px solid #d1d5db;
                         border-radius: 4px;
                         padding: 2px 6px;
-                        font-size: 12px;
+                        font-size: 15px;
                         min-width: 100px;
                     }
                 """))
@@ -20343,7 +20356,7 @@ exit /b 0
                         border: 1px solid #d1d5db;
                         border-radius: 4px;
                         padding: 2px 6px;
-                        font-size: 12px;
+                        font-size: 15px;
                         min-width: 110px;
                     }
                 """))
@@ -20352,22 +20365,22 @@ exit /b 0
 
                 self.apply_btn = QPushButton("应用到选中")
                 self.apply_btn.setMinimumHeight(scale(28))
-                self.apply_btn.setStyleSheet(scale_style("padding: 0 12px; border: 1px solid #409eff; border-radius: 4px; font-size: 12px; background-color: white; color: #409eff;"))
+                self.apply_btn.setStyleSheet(scale_style("padding: 0 12px; border: 1px solid #409eff; border-radius: 4px; font-size: 15px; background-color: white; color: #409eff;"))
                 self.apply_btn.clicked.connect(self._apply_to_selected)
 
                 self.load_more_btn = QPushButton("加载更多")
                 self.load_more_btn.setMinimumHeight(scale(28))
-                self.load_more_btn.setStyleSheet(scale_style("padding: 0 12px; border: 1px solid #409eff; border-radius: 4px; font-size: 12px; background-color: white; color: #409eff;"))
+                self.load_more_btn.setStyleSheet(scale_style("padding: 0 12px; border: 1px solid #409eff; border-radius: 4px; font-size: 15px; background-color: white; color: #409eff;"))
                 self.load_more_btn.clicked.connect(lambda: self._start_load(False))
                 self.load_more_btn.setVisible(len(self.videos) < self.total)
 
                 self.load_all_btn = QPushButton("加载全部")
                 self.load_all_btn.setMinimumHeight(scale(28))
-                self.load_all_btn.setStyleSheet(scale_style("padding: 0 12px; border: 1px solid #409eff; border-radius: 4px; font-size: 12px; background-color: white; color: #409eff;"))
+                self.load_all_btn.setStyleSheet(scale_style("padding: 0 12px; border: 1px solid #409eff; border-radius: 4px; font-size: 15px; background-color: white; color: #409eff;"))
                 self.load_all_btn.clicked.connect(lambda: self._start_load(True))
 
                 self.loaded_label = QLabel(f"已加载 {len(self.videos)} / 共 {self.total} 个")
-                self.loaded_label.setStyleSheet(scale_style("font-size: 13px; color: #64748b;"))
+                self.loaded_label.setStyleSheet(scale_style("font-size: 15px; color: #64748b;"))
 
                 layout.addWidget(self.select_all_cb)
                 layout.addWidget(QLabel("清晰度:"))
@@ -20397,7 +20410,7 @@ exit /b 0
                         border: 1px solid #d1d5db;
                         border-radius: 4px;
                         padding: 2px 6px;
-                        font-size: 12px;
+                        font-size: 15px;
                     }
                 """))
                 return d
@@ -20411,7 +20424,7 @@ exit /b 0
                 main_row = QHBoxLayout()
                 main_row.setSpacing(scale(8))
                 lbl = QLabel("排序:")
-                lbl.setStyleSheet(scale_style("font-size: 13px; color: #374151;"))
+                lbl.setStyleSheet(scale_style("font-size: 15px; color: #374151;"))
                 main_row.addWidget(lbl)
 
                 self.sort_primary_combo = QComboBox()
@@ -20421,7 +20434,7 @@ exit /b 0
                         border: 1px solid #d1d5db;
                         border-radius: 4px;
                         padding: 2px 6px;
-                        font-size: 12px;
+                        font-size: 15px;
                         min-width: 100px;
                     }
                 """))
@@ -20433,19 +20446,19 @@ exit /b 0
 
                 self.add_sub_sort_btn = QPushButton("+ 添加子排序")
                 self.add_sub_sort_btn.setMinimumHeight(scale(28))
-                self.add_sub_sort_btn.setStyleSheet(scale_style("padding: 0 10px; border: 1px solid #409eff; border-radius: 4px; font-size: 12px; background-color: white; color: #409eff;"))
+                self.add_sub_sort_btn.setStyleSheet(scale_style("padding: 0 10px; border: 1px solid #409eff; border-radius: 4px; font-size: 15px; background-color: white; color: #409eff;"))
                 self.add_sub_sort_btn.clicked.connect(self._add_sub_sort_row)
                 main_row.addWidget(self.add_sub_sort_btn)
 
                 self.sort_btn = QPushButton("排序")
                 self.sort_btn.setMinimumHeight(scale(28))
-                self.sort_btn.setStyleSheet(scale_style("padding: 0 14px; border: none; border-radius: 4px; font-size: 12px; background-color: #409eff; color: white;"))
+                self.sort_btn.setStyleSheet(scale_style("padding: 0 14px; border: none; border-radius: 4px; font-size: 15px; background-color: #409eff; color: white;"))
                 self.sort_btn.clicked.connect(self._apply_sort)
                 main_row.addWidget(self.sort_btn)
 
                 self.sort_reset_btn = QPushButton("重置")
                 self.sort_reset_btn.setMinimumHeight(scale(28))
-                self.sort_reset_btn.setStyleSheet(scale_style("padding: 0 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px; background-color: white; color: #374151;"))
+                self.sort_reset_btn.setStyleSheet(scale_style("padding: 0 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 15px; background-color: white; color: #374151;"))
                 self.sort_reset_btn.clicked.connect(self._reset_sort)
                 main_row.addWidget(self.sort_reset_btn)
 
@@ -20465,7 +20478,7 @@ exit /b 0
                 row = QHBoxLayout()
                 row.setSpacing(scale(8))
                 lbl = QLabel("  └ 子:")
-                lbl.setStyleSheet(scale_style("font-size: 12px; color: #94a3b8;"))
+                lbl.setStyleSheet(scale_style("font-size: 15px; color: #94a3b8;"))
                 row.addWidget(lbl)
 
                 combo = QComboBox()
@@ -20475,7 +20488,7 @@ exit /b 0
                         border: 1px solid #d1d5db;
                         border-radius: 4px;
                         padding: 2px 6px;
-                        font-size: 12px;
+                        font-size: 15px;
                         min-width: 100px;
                     }
                 """))
@@ -20487,7 +20500,7 @@ exit /b 0
 
                 del_btn = QPushButton("删除")
                 del_btn.setMinimumHeight(scale(26))
-                del_btn.setStyleSheet(scale_style("padding: 0 8px; border: 1px solid #ef4444; border-radius: 4px; font-size: 12px; background-color: white; color: #ef4444;"))
+                del_btn.setStyleSheet(scale_style("padding: 0 8px; border: 1px solid #ef4444; border-radius: 4px; font-size: 15px; background-color: white; color: #ef4444;"))
                 row.addWidget(del_btn)
 
                 row.addStretch(1)
@@ -20637,7 +20650,7 @@ exit /b 0
                         padding: 4px;
                         border: 1px solid #e6eaf2;
                         font-weight: 600;
-                        font-size: 12px;
+                        font-size: 15px;
                         color: #475569;
                     }
                     QTableWidget::item {
@@ -20691,40 +20704,40 @@ exit /b 0
 
                 self.download_danmaku_cb = QCheckBox("弹幕")
                 self.download_danmaku_cb.setChecked(True)
-                self.download_danmaku_cb.setStyleSheet(scale_style("font-size: 13px; color: #374151;"))
+                self.download_danmaku_cb.setStyleSheet(scale_style("font-size: 15px; color: #374151;"))
                 self.download_cover_cb = QCheckBox("封面")
                 self.download_cover_cb.setChecked(True)
-                self.download_cover_cb.setStyleSheet(scale_style("font-size: 13px; color: #374151;"))
+                self.download_cover_cb.setStyleSheet(scale_style("font-size: 15px; color: #374151;"))
                 self.download_subtitle_cb = QCheckBox("字幕")
                 self.download_subtitle_cb.setChecked(True)
-                self.download_subtitle_cb.setStyleSheet(scale_style("font-size: 13px; color: #374151;"))
+                self.download_subtitle_cb.setStyleSheet(scale_style("font-size: 15px; color: #374151;"))
 
                 self.selected_count_label = QLabel("已选择 0 个视频")
-                self.selected_count_label.setStyleSheet(scale_style("font-size: 13px; color: #64748b;"))
+                self.selected_count_label.setStyleSheet(scale_style("font-size: 15px; color: #64748b;"))
 
                 self.download_video_btn = QPushButton("下载画面")
                 self.download_video_btn.setMinimumHeight(scale(34))
-                self.download_video_btn.setStyleSheet(scale_style("padding: 0 14px; border: none; border-radius: 6px; font-size: 13px; background-color: #17a2b8; color: white;"))
+                self.download_video_btn.setStyleSheet(scale_style("padding: 0 14px; border: none; border-radius: 6px; font-size: 15px; background-color: #17a2b8; color: white;"))
                 self.download_video_btn.clicked.connect(lambda: self._download_selected(2))
 
                 self.download_audio_btn = QPushButton("下载音频")
                 self.download_audio_btn.setMinimumHeight(scale(34))
-                self.download_audio_btn.setStyleSheet(scale_style("padding: 0 14px; border: none; border-radius: 6px; font-size: 13px; background-color: #fd7e14; color: white;"))
+                self.download_audio_btn.setStyleSheet(scale_style("padding: 0 14px; border: none; border-radius: 6px; font-size: 15px; background-color: #fd7e14; color: white;"))
                 self.download_audio_btn.clicked.connect(lambda: self._download_selected(1))
 
                 self.download_btn = QPushButton("下载完整视频")
                 self.download_btn.setMinimumHeight(scale(34))
-                self.download_btn.setStyleSheet(scale_style("padding: 0 14px; border: none; border-radius: 6px; font-size: 13px; background-color: #28a745; color: white;"))
+                self.download_btn.setStyleSheet(scale_style("padding: 0 14px; border: none; border-radius: 6px; font-size: 15px; background-color: #28a745; color: white;"))
                 self.download_btn.clicked.connect(lambda: self._download_selected(0))
 
                 self.parse_btn = QPushButton("解析选中")
                 self.parse_btn.setMinimumHeight(scale(34))
-                self.parse_btn.setStyleSheet(scale_style("padding: 0 20px; border: 1px solid #409eff; border-radius: 6px; font-size: 14px; background-color: white; color: #409eff;"))
+                self.parse_btn.setStyleSheet(scale_style("padding: 0 20px; border: 1px solid #409eff; border-radius: 6px; font-size: 15px; background-color: white; color: #409eff;"))
                 self.parse_btn.clicked.connect(self._parse_selected)
 
                 cancel_btn = QPushButton("取消")
                 cancel_btn.setMinimumHeight(scale(34))
-                cancel_btn.setStyleSheet(scale_style("padding: 0 20px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; background-color: white; color: #374151;"))
+                cancel_btn.setStyleSheet(scale_style("padding: 0 20px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 15px; background-color: white; color: #374151;"))
                 cancel_btn.clicked.connect(self.reject)
 
                 layout.addWidget(self.download_danmaku_cb)
@@ -20803,7 +20816,7 @@ exit /b 0
                         border: 1px solid #d1d5db;
                         border-radius: 4px;
                         padding: 1px 4px;
-                        font-size: 12px;
+                        font-size: 15px;
                     }
                 """))
                 self._fill_quality_combo(q_combo)
@@ -20820,7 +20833,7 @@ exit /b 0
                         border: 1px solid #d1d5db;
                         border-radius: 4px;
                         padding: 1px 4px;
-                        font-size: 12px;
+                        font-size: 15px;
                     }
                 """))
                 self._fill_audio_combo(a_combo)
@@ -20856,7 +20869,7 @@ exit /b 0
 
                 title_label = QLabel(video.get('title', ''))
                 title_label.setWordWrap(True)
-                title_label.setStyleSheet(scale_style("font-size: 12px; color: #1e293b;"))
+                title_label.setStyleSheet(scale_style("font-size: 15px; color: #1e293b;"))
 
                 layout.addWidget(cover_label)
                 layout.addWidget(title_label, 1)
@@ -20873,14 +20886,14 @@ exit /b 0
                 parse_btn.setFixedHeight(scale(24))
                 parse_btn.setMinimumWidth(scale(52))
                 parse_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-                parse_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; border: none; border-radius: 4px; font-size: 11px; padding: 0 8px;"))
+                parse_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; border: none; border-radius: 4px; font-size: 15px; padding: 0 8px;"))
                 parse_btn.clicked.connect(lambda: self._parse_single(video))
 
                 cover_btn = QPushButton("下封面")
                 cover_btn.setFixedHeight(scale(24))
                 cover_btn.setMinimumWidth(scale(72))
                 cover_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-                cover_btn.setStyleSheet(scale_style("background-color: #4f6ef7; color: white; border: none; border-radius: 4px; font-size: 11px; padding: 0 8px;"))
+                cover_btn.setStyleSheet(scale_style("background-color: #4f6ef7; color: white; border: none; border-radius: 4px; font-size: 15px; padding: 0 8px;"))
                 cover_btn.clicked.connect(lambda: self._download_cover(video))
 
                 layout.addWidget(parse_btn)
@@ -21204,7 +21217,7 @@ exit /b 0
                     title_layout.addWidget(title_label, stretch=1)
 
                     close_btn = QPushButton("×")
-                    close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 18px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+                    close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 17px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
                     close_btn.setToolTip("关闭")
                     close_btn.clicked.connect(self.reject)
                     title_layout.addWidget(close_btn)
@@ -21223,7 +21236,7 @@ exit /b 0
 
                     self.cover_label = QLabel("加载中...")
                     self.cover_label.setFixedSize(scale(320), scale(180))
-                    self.cover_label.setStyleSheet(scale_style("background-color: #e6eaf2; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; color: #64748b;"))
+                    self.cover_label.setStyleSheet(scale_style("background-color: #e6eaf2; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 15px; color: #64748b;"))
                     self.cover_label.setScaledContents(True)
                     self.cover_label.setAlignment(Qt.AlignCenter)
                     top_layout.addWidget(self.cover_label)
@@ -21235,7 +21248,7 @@ exit /b 0
                     title = self.video.get('title', '未知标题')
                     self.title_label = QLabel(title)
                     self.title_label.setWordWrap(True)
-                    self.title_label.setStyleSheet(scale_style("font-size: 18px; font-weight: 600; color: #1e293b;"))
+                    self.title_label.setStyleSheet(scale_style("font-size: 17px; font-weight: 600; color: #1e293b;"))
                     info_layout.addWidget(self.title_label)
 
                     duration = self.video.get('duration', self.video.get('length', ''))
@@ -21243,17 +21256,17 @@ exit /b 0
                         duration = self.parent_dialog._format_duration(duration)
                     duration_text = f"时长：{duration}" if duration else "时长：未知"
                     self.duration_label = QLabel(duration_text)
-                    self.duration_label.setStyleSheet(scale_style("font-size: 14px; color: #64748b;"))
+                    self.duration_label.setStyleSheet(scale_style("font-size: 15px; color: #64748b;"))
                     info_layout.addWidget(self.duration_label)
 
                     play_count = self.video.get('play', '')
                     self.play_label = QLabel(f"播放量：{play_count}" if play_count else "播放量：未知")
-                    self.play_label.setStyleSheet(scale_style("font-size: 14px; color: #64748b;"))
+                    self.play_label.setStyleSheet(scale_style("font-size: 15px; color: #64748b;"))
                     info_layout.addWidget(self.play_label)
 
                     bvid = self.video.get('bvid', '')
                     self.bvid_label = QLabel(f"BV号：{bvid}")
-                    self.bvid_label.setStyleSheet(scale_style("font-size: 13px; color: #94a3b8;"))
+                    self.bvid_label.setStyleSheet(scale_style("font-size: 15px; color: #94a3b8;"))
                     self.bvid_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
                     info_layout.addWidget(self.bvid_label)
 
@@ -21264,7 +21277,7 @@ exit /b 0
                     desc = self.video.get('description', '')
                     self.desc_label = QLabel(f"简介：{desc if desc else '无'}")
                     self.desc_label.setWordWrap(True)
-                    self.desc_label.setStyleSheet(scale_style("font-size: 13px; color: #475569;"))
+                    self.desc_label.setStyleSheet(scale_style("font-size: 15px; color: #475569;"))
                     self.desc_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
                     content_layout.addWidget(self.desc_label, stretch=1)
 
@@ -21276,7 +21289,7 @@ exit /b 0
                     parse_btn.setFixedHeight(scale(36))
                     parse_btn.setMinimumWidth(scale(110))
                     parse_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-                    parse_btn.setStyleSheet(scale_style("padding: 0 20px; border: none; border-radius: 6px; font-size: 14px; background-color: #409eff; color: white;"))
+                    parse_btn.setStyleSheet(scale_style("padding: 0 20px; border: none; border-radius: 6px; font-size: 15px; background-color: #409eff; color: white;"))
                     parse_btn.clicked.connect(self._parse_this_video)
                     btn_layout.addWidget(parse_btn)
 
@@ -21284,7 +21297,7 @@ exit /b 0
                     cover_btn.setFixedHeight(scale(36))
                     cover_btn.setMinimumWidth(scale(100))
                     cover_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-                    cover_btn.setStyleSheet(scale_style("padding: 0 20px; border: 1px solid #4f6ef7; border-radius: 6px; font-size: 14px; background-color: white; color: #4f6ef7;"))
+                    cover_btn.setStyleSheet(scale_style("padding: 0 20px; border: 1px solid #4f6ef7; border-radius: 6px; font-size: 15px; background-color: white; color: #4f6ef7;"))
                     cover_btn.clicked.connect(self._download_cover)
                     btn_layout.addWidget(cover_btn)
 
@@ -21292,7 +21305,7 @@ exit /b 0
                     close_btn2.setFixedHeight(scale(36))
                     close_btn2.setMinimumWidth(scale(80))
                     close_btn2.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-                    close_btn2.setStyleSheet(scale_style("padding: 0 20px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; background-color: white; color: #374151;"))
+                    close_btn2.setStyleSheet(scale_style("padding: 0 20px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 15px; background-color: white; color: #374151;"))
                     close_btn2.clicked.connect(self.reject)
                     btn_layout.addWidget(close_btn2)
 
@@ -22344,7 +22357,7 @@ exit /b 0
                             background-color: #f0f2f5;
                             border-radius: 3px;
                             color: #8b95a5;
-                            font-size: 9px;
+                            font-size: 15px;
                         }
                     """))
                     thumb_label.setText("加载中...")
@@ -22354,7 +22367,7 @@ exit /b 0
                     name_label.setFixedHeight(scale(14))
                     name_label.setStyleSheet(scale_style("""
                         QLabel {
-                            font-size: 9px;
+                            font-size: 15px;
                             color: #3a3f4b;
                             background: transparent;
                         }
@@ -22510,7 +22523,7 @@ exit /b 0
                             border: 1px dashed #d0d5dd;
                             border-radius: 6px;
                             color: #8b95a5;
-                            font-size: 10px;
+                            font-size: 15px;
                         }
                     """))
             except:
@@ -23604,7 +23617,7 @@ exit /b 0
             if hasattr(self, 'login_info_label'):
                 username = user_info.get("uname", user_info.get("msg", "用户"))
                 self.login_info_label.setText(username)
-                self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 12px;"))
+                self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 15px;"))
                 if hasattr(self, 'login_btn'):
                     self.login_btn.hide()
                 
@@ -23702,7 +23715,7 @@ exit /b 0
                         run_on_main_thread(lambda: self._apply_user_info_to_ui(None))
                 threading.Thread(target=_fetch_and_refresh, daemon=True).start()
                 self.login_info_label.setText("加载中...")
-                self.login_info_label.setStyleSheet(scale_style("color: #9ca3af; font-size: 12px;"))
+                self.login_info_label.setStyleSheet(scale_style("color: #9ca3af; font-size: 15px;"))
             else:
                 self._apply_user_info_to_ui(None)
         except Exception as e:
@@ -23840,7 +23853,7 @@ exit /b 0
                                 run_on_main_thread(lambda: self._apply_user_info_to_ui(None))
                         threading.Thread(target=_fetch_user_info, daemon=True).start()
                         self.login_info_label.setText("加载中...")
-                        self.login_info_label.setStyleSheet(scale_style("color: #9ca3af; font-size: 12px;"))
+                        self.login_info_label.setStyleSheet(scale_style("color: #9ca3af; font-size: 15px;"))
                         return
                     
                     self._apply_user_info_to_ui(user_info)
@@ -23857,7 +23870,7 @@ exit /b 0
                     self.login_btn.hide()
                 username = user_info.get("uname", "用户")
                 self.login_info_label.setText(username)
-                self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 12px;"))
+                self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 15px;"))
                 
                 avatar_url = user_info.get("face", "")
                 if avatar_url:
@@ -24092,7 +24105,7 @@ exit /b 0
                     
                     video_name = status.split(' - ')[0] if ' - ' in status else status
                     video_name_label = QLabel(video_name)
-                    video_name_label.setStyleSheet(scale_style("font-size: 14px; font-weight: 500; color: #166534;"))
+                    video_name_label.setStyleSheet(scale_style("font-size: 15px; font-weight: 500; color: #166534;"))
                     video_name_label.setMinimumHeight(scale(24))
                     video_name_label.setMaximumWidth(scale(380))
                     video_name_label.setToolTip(status)
@@ -24104,7 +24117,7 @@ exit /b 0
                     progress_bar.setStyleSheet(scale_style("QProgressBar { border-radius: 6px; background-color: #dcfce7; } QProgressBar::chunk { border-radius: 6px; background-color: #22c55e; }"))
                     
                     progress_text = QLabel(f"{int(progress)}%")
-                    progress_text.setStyleSheet(scale_style("font-size: 12px; color: #64748b; font-weight: 500;"))
+                    progress_text.setStyleSheet(scale_style("font-size: 15px; color: #64748b; font-weight: 500;"))
                     progress_text.setAlignment(Qt.AlignRight)
                     
                     task_layout.addWidget(video_name_label)
@@ -24918,18 +24931,18 @@ exit /b 0
         
         title_label = QLabel("批量解析")
         title_label.setObjectName("titleLabel")
-        title_label.setStyleSheet(scale_style("font-weight: bold; font-size: 13px;"))
+        title_label.setStyleSheet(scale_style("font-weight: bold; font-size: 15px;"))
         title_layout.addWidget(title_label, stretch=1)
         
         minimize_btn = QPushButton("_")
         minimize_btn.setObjectName("minimizeBtn")
-        minimize_btn.setStyleSheet(scale_style("min-width: 28px; min-height: 28px; border: none; background-color: transparent; color: white; font-size: 14px;"))
+        minimize_btn.setStyleSheet(scale_style("min-width: 28px; min-height: 28px; border: none; background-color: transparent; color: white; font-size: 15px;"))
         minimize_btn.clicked.connect(dialog.showMinimized)
         title_layout.addWidget(minimize_btn)
         
         close_btn = QPushButton("×")
         close_btn.setObjectName("closeBtn")
-        close_btn.setStyleSheet(scale_style("min-width: 28px; min-height: 28px; border: none; background-color: transparent; color: white; font-size: 14px;"))
+        close_btn.setStyleSheet(scale_style("min-width: 28px; min-height: 28px; border: none; background-color: transparent; color: white; font-size: 15px;"))
         close_btn.clicked.connect(dialog.reject)
         title_layout.addWidget(close_btn)
         
@@ -25067,7 +25080,7 @@ exit /b 0
             }
             #titleLabel {
                 font-weight: bold;
-                font-size: 13px;
+                font-size: 15px;
             }
             #minimizeBtn, #maximizeBtn, #closeBtn {
                 min-width: 32px;
@@ -25075,7 +25088,7 @@ exit /b 0
                 border: none;
                 background-color: transparent;
                 color: white;
-                font-size: 14px;
+                font-size: 15px;
                 padding: 0px;
             }
             #minimizeBtn:hover, #maximizeBtn:hover {
@@ -25136,11 +25149,11 @@ exit /b 0
         content_layout.setSpacing(scale(15))
 
         title_label = QLabel(f"批量解析结果 - 共{len(urls)}个链接")
-        title_label.setStyleSheet(scale_style("font-size: 16px; font-weight: bold; color: #2563eb;"))
+        title_label.setStyleSheet(scale_style("font-size: 15px; font-weight: bold; color: #2563eb;"))
         content_layout.addWidget(title_label)
 
         self.batch_progress_label = QLabel(f"正在解析 0/{len(urls)}...")
-        self.batch_progress_label.setStyleSheet(scale_style("font-size: 13px; color: #6b7280;"))
+        self.batch_progress_label.setStyleSheet(scale_style("font-size: 15px; color: #6b7280;"))
         content_layout.addWidget(self.batch_progress_label)
 
         self.batch_progress_bar = QProgressBar()
@@ -25205,15 +25218,15 @@ exit /b 0
             download_video_btn = QPushButton("下载画面")
             download_video_btn.setEnabled(False)
             download_video_btn.setStyleSheet(scale_style(
-                "padding: 4px 10px; background-color: #17a2b8; color: white; border: none; border-radius: 4px; font-size: 10px; font-weight: 500;"))
+                "padding: 4px 10px; background-color: #17a2b8; color: white; border: none; border-radius: 4px; font-size: 15px; font-weight: 500;"))
             download_audio_btn = QPushButton("下载音频")
             download_audio_btn.setEnabled(False)
             download_audio_btn.setStyleSheet(scale_style(
-                "padding: 4px 10px; background-color: #fd7e14; color: white; border: none; border-radius: 4px; font-size: 10px; font-weight: 500;"))
+                "padding: 4px 10px; background-color: #fd7e14; color: white; border: none; border-radius: 4px; font-size: 15px; font-weight: 500;"))
             download_btn = QPushButton("下载完整视频")
             download_btn.setEnabled(False)
             download_btn.setStyleSheet(scale_style(
-                "padding: 4px 10px; background-color: #28a745; color: white; border: none; border-radius: 4px; font-size: 10px; font-weight: 500;"))
+                "padding: 4px 10px; background-color: #28a745; color: white; border: none; border-radius: 4px; font-size: 15px; font-weight: 500;"))
 
             cover_btn = QPushButton("下载封面")
             cover_btn.setEnabled(False)
@@ -25223,7 +25236,7 @@ exit /b 0
                     color: white;
                     border: none;
                     border-radius: 4px;
-                    font-size: 10px;
+                    font-size: 15px;
                     font-weight: 500;
                     padding: 4px 8px;
                 }
@@ -25515,7 +25528,7 @@ exit /b 0
         btn_layout.setSpacing(scale(10))
 
         select_all_btn = QPushButton("全选")
-        select_all_btn.setStyleSheet(scale_style("padding: 0 16px; border: 1px solid #409eff; border-radius: 6px; font-size: 13px; background-color: white; color: #409eff; min-height: 32px;"))
+        select_all_btn.setStyleSheet(scale_style("padding: 0 16px; border: 1px solid #409eff; border-radius: 6px; font-size: 15px; background-color: white; color: #409eff; min-height: 32px;"))
         def on_select_all():
             for ld in all_link_data:
                 try:
@@ -25525,7 +25538,7 @@ exit /b 0
         select_all_btn.clicked.connect(on_select_all)
 
         deselect_all_btn = QPushButton("取消全选")
-        deselect_all_btn.setStyleSheet(scale_style("padding: 0 16px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; background-color: white; color: #374151; min-height: 32px;"))
+        deselect_all_btn.setStyleSheet(scale_style("padding: 0 16px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 15px; background-color: white; color: #374151; min-height: 32px;"))
         def on_deselect_all():
             for ld in all_link_data:
                 try:
@@ -25535,11 +25548,11 @@ exit /b 0
         deselect_all_btn.clicked.connect(on_deselect_all)
 
         batch_download_video_btn = QPushButton("批量下载画面")
-        batch_download_video_btn.setStyleSheet(scale_style("padding: 0 16px; border: none; border-radius: 6px; font-size: 13px; background-color: #17a2b8; color: white; min-height: 32px;"))
+        batch_download_video_btn.setStyleSheet(scale_style("padding: 0 16px; border: none; border-radius: 6px; font-size: 15px; background-color: #17a2b8; color: white; min-height: 32px;"))
         batch_download_audio_btn = QPushButton("批量下载音频")
-        batch_download_audio_btn.setStyleSheet(scale_style("padding: 0 16px; border: none; border-radius: 6px; font-size: 13px; background-color: #fd7e14; color: white; min-height: 32px;"))
+        batch_download_audio_btn.setStyleSheet(scale_style("padding: 0 16px; border: none; border-radius: 6px; font-size: 15px; background-color: #fd7e14; color: white; min-height: 32px;"))
         batch_download_btn = QPushButton("批量下载完整视频")
-        batch_download_btn.setStyleSheet(scale_style("padding: 0 16px; border: none; border-radius: 6px; font-size: 13px; background-color: #28a745; color: white; min-height: 32px;"))
+        batch_download_btn.setStyleSheet(scale_style("padding: 0 16px; border: none; border-radius: 6px; font-size: 15px; background-color: #28a745; color: white; min-height: 32px;"))
         def on_batch_download(content_type=0):
             selected_items = [ld for ld in all_link_data if ld['checkbox'].isChecked() and ld['video_info']]
             if not selected_items:
@@ -25674,7 +25687,7 @@ exit /b 0
         batch_download_btn.clicked.connect(lambda: on_batch_download(0))
 
         stop_parse_btn = QPushButton("停止解析")
-        stop_parse_btn.setStyleSheet(scale_style("padding: 0 16px; border: 1px solid #f56c6c; border-radius: 6px; font-size: 13px; background-color: white; color: #f56c6c; min-height: 32px;"))
+        stop_parse_btn.setStyleSheet(scale_style("padding: 0 16px; border: 1px solid #f56c6c; border-radius: 6px; font-size: 15px; background-color: white; color: #f56c6c; min-height: 32px;"))
         def on_stop_parse():
             self.parse_stopped = True
             stop_parse_btn.setEnabled(False)
@@ -25691,7 +25704,7 @@ exit /b 0
         btn_layout.addWidget(batch_download_btn)
 
         close_btn = QPushButton("关闭")
-        close_btn.setStyleSheet(scale_style("padding: 0 16px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; background-color: white; color: #374151; min-height: 32px;"))
+        close_btn.setStyleSheet(scale_style("padding: 0 16px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 15px; background-color: white; color: #374151; min-height: 32px;"))
         close_btn.clicked.connect(batch_parse_window.close)
         btn_layout.addWidget(close_btn)
         content_layout.addLayout(btn_layout)
@@ -25843,7 +25856,7 @@ exit /b 0
                 border-top-right-radius: 10px;
             }
             QLabel#titleLabel {
-                font-size: 14px;
+                font-size: 15px;
                 font-weight: bold;
                 color: white;
                 padding-left: 4px;
@@ -25857,7 +25870,7 @@ exit /b 0
                 border-radius: 15px;
                 background-color: transparent;
                 color: white;
-                font-size: 16px;
+                font-size: 15px;
                 font-weight: bold;
             }
             QPushButton#closeBtn:hover {
@@ -25872,7 +25885,7 @@ exit /b 0
                 border-radius: 15px;
                 background-color: transparent;
                 color: white;
-                font-size: 14px;
+                font-size: 15px;
                 font-weight: bold;
             }
             QPushButton#maxBtn:hover {
@@ -25891,7 +25904,7 @@ exit /b 0
                 padding: 6px 12px;
                 background-color: transparent;
                 color: #555;
-                font-size: 13px;
+                font-size: 15px;
             }
             QToolBar#navBar QToolButton:hover {
                 background-color: #e6f7ff;
@@ -25910,7 +25923,7 @@ exit /b 0
             QLineEdit#pathEdit {
                 border: none;
                 background: transparent;
-                font-size: 13px;
+                font-size: 15px;
                 font-family: \'Consolas\', \'Microsoft YaHei\', monospace;
                 padding: 4px 0;
             }
@@ -25958,7 +25971,7 @@ exit /b 0
                 padding: 10px 14px;
                 margin: 3px;
                 border-radius: 6px;
-                font-size: 13px;
+                font-size: 15px;
             }
             QListWidget#fileList::item:hover {
                 background-color: #e6f7ff;
@@ -25998,7 +26011,7 @@ exit /b 0
                 border: none;
                 border-radius: 8px;
                 padding: 10px 32px;
-                font-size: 14px;
+                font-size: 15px;
                 font-weight: bold;
                 min-width: 90px;
             }
@@ -26015,7 +26028,7 @@ exit /b 0
                 border: 1px solid #dde3ed;
                 border-radius: 8px;
                 padding: 10px 28px;
-                font-size: 14px;
+                font-size: 15px;
                 min-width: 90px;
             }
             QPushButton#cancelBtn:hover {
@@ -26267,7 +26280,7 @@ exit /b 0
                 border-radius: 6px;
                 padding: 5px 10px;
                 background-color: white;
-                font-size: 12px;
+                font-size: 15px;
                 min-width: 110px;
             }
             QComboBox:hover { border-color: #409eff; }
@@ -26304,7 +26317,7 @@ exit /b 0
                 border-radius: 6px;
                 padding: 5px 10px;
                 background-color: white;
-                font-size: 12px;
+                font-size: 15px;
             }
             QLineEdit:hover { border-color: #409eff; }
         """)
@@ -26363,7 +26376,7 @@ exit /b 0
         content_layout.addWidget(splitter, stretch=1)
         
         status_label = QLabel("")
-        status_label.setStyleSheet("color: #888; font-size: 12px; padding: 4px 0;")
+        status_label.setStyleSheet("color: #888; font-size: 15px; padding: 4px 0;")
         content_layout.addWidget(status_label)
         
         btn_row = QHBoxLayout()
@@ -26732,7 +26745,7 @@ exit /b 0
                 background-color: white;
             }
             QGroupBox::title {
-                font-size: 14px;
+                font-size: 15px;
                 font-weight: 600;
                 color: #2563eb;
                 margin-left: 12px;
@@ -26756,20 +26769,20 @@ exit /b 0
         
         title_label = QLabel("登录B站")
         title_label.setObjectName("titleLabel")
-        title_label.setStyleSheet(scale_style("font-weight: bold; font-size: 13px;"))
+        title_label.setStyleSheet(scale_style("font-weight: bold; font-size: 15px;"))
         title_layout.addWidget(title_label, stretch=1)
         
         
         minimize_btn = QPushButton("_")
         minimize_btn.setObjectName("minimizeBtn")
-        minimize_btn.setStyleSheet(scale_style("min-width: 28px; min-height: 28px; border: none; background-color: transparent; color: white; font-size: 14px;"))
+        minimize_btn.setStyleSheet(scale_style("min-width: 28px; min-height: 28px; border: none; background-color: transparent; color: white; font-size: 15px;"))
         minimize_btn.clicked.connect(login_dialog.showMinimized)
         title_layout.addWidget(minimize_btn)
         
         
         close_btn = QPushButton("×")
         close_btn.setObjectName("closeBtn")
-        close_btn.setStyleSheet(scale_style("min-width: 28px; min-height: 28px; border: none; background-color: transparent; color: white; font-size: 14px;"))
+        close_btn.setStyleSheet(scale_style("min-width: 28px; min-height: 28px; border: none; background-color: transparent; color: white; font-size: 15px;"))
         def _close_login_dialog():
             login_dialog.accept()
             self.login_dialog = None
@@ -26793,7 +26806,7 @@ exit /b 0
         left_layout.setSpacing(scale(15))
         
         qr_title = QLabel("扫码登录")
-        qr_title.setStyleSheet(scale_style("font-size: 18px; font-weight: bold; color: #2563eb;"))
+        qr_title.setStyleSheet(scale_style("font-size: 17px; font-weight: bold; color: #2563eb;"))
         qr_title.setAlignment(Qt.AlignCenter)
         left_layout.addWidget(qr_title)
         
@@ -26807,7 +26820,7 @@ exit /b 0
         
         qr_status = QLabel("请使用哔哩哔哩App扫码登录")
         qr_status.setAlignment(Qt.AlignCenter)
-        qr_status.setStyleSheet(scale_style("font-size: 14px; color: #6b7280;"))
+        qr_status.setStyleSheet(scale_style("font-size: 15px; color: #6b7280;"))
         left_layout.addWidget(qr_status)
         
 
@@ -26859,7 +26872,7 @@ exit /b 0
             nonlocal login_poll_thread
             if video_info.get("success"):
                 qr_status.setText("登录成功！正在加载用户信息...")
-                qr_status.setStyleSheet(scale_style("font-size: 14px; color: #52c41a; text-align: center;"))
+                qr_status.setStyleSheet(scale_style("font-size: 15px; color: #52c41a; text-align: center;"))
                 
                 user_info = video_info.get("user_info", {})
                 if user_info.get("success"):
@@ -26895,7 +26908,7 @@ exit /b 0
                 
                 
                 if video_info.get("risk"):
-                    qr_status.setStyleSheet(scale_style("font-size: 14px; color: #fa8c16; text-align: center;"))
+                    qr_status.setStyleSheet(scale_style("font-size: 15px; color: #fa8c16; text-align: center;"))
                     
                     url = video_info.get("url", "")
                     def show_risk_message():
@@ -26909,7 +26922,7 @@ exit /b 0
                         rl.setContentsMargins(scale(24), scale(24), scale(24), scale(24))
                         
                         rl_title = QLabel("登录环境存在风险，请验证手机号")
-                        rl_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #1f2937;")
+                        rl_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #1f2937;")
                         rl_title.setWordWrap(True)
                         rl.addWidget(rl_title)
                         
@@ -26939,12 +26952,12 @@ exit /b 0
                         
                         rl_login = QPushButton("验证并登录")
                         rl_login.setMinimumHeight(scale(40))
-                        rl_login.setStyleSheet("background-color: #409eff; color: white; font-weight: bold; border-radius: 4px; font-size: 14px;")
+                        rl_login.setStyleSheet("background-color: #409eff; color: white; font-weight: bold; border-radius: 4px; font-size: 15px;")
                         rl_login.setEnabled(False)
                         rl.addWidget(rl_login)
                         
                         rl_status = QLabel("")
-                        rl_status.setStyleSheet("color: #6b7280; font-size: 12px;")
+                        rl_status.setStyleSheet("color: #6b7280; font-size: 15px;")
                         rl_status.setWordWrap(True)
                         rl.addWidget(rl_status)
                         rl.addStretch()
@@ -26957,11 +26970,11 @@ exit /b 0
                             tel = rl_tel.text().strip()
                             if not tel:
                                 rl_status.setText("请输入手机号")
-                                rl_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                rl_status.setStyleSheet("color: #ef4444; font-size: 15px;")
                                 return
                             rl_send.setEnabled(False)
                             rl_status.setText("正在获取人机验证...")
-                            rl_status.setStyleSheet("color: #6b7280; font-size: 12px;")
+                            rl_status.setStyleSheet("color: #6b7280; font-size: 15px;")
 
                             def _do_ci():
                                 try:
@@ -26972,14 +26985,14 @@ exit /b 0
                             def _on_ci_ready(ci):
                                 if not ci.get("success"):
                                     rl_status.setText(f"获取验证码失败：{ci.get('error')}")
-                                    rl_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                    rl_status.setStyleSheet("color: #ef4444; font-size: 15px;")
                                     rl_send.setEnabled(True)
                                     return
                                 rl_status.setText("请完成人机验证...")
                                 def rl_ccb(validate, seccode, challenge):
                                     if not validate:
                                         rl_status.setText("人机验证已取消")
-                                        rl_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                        rl_status.setStyleSheet("color: #ef4444; font-size: 15px;")
                                         rl_send.setEnabled(True)
                                         return
                                     rl_status.setText("正在发送短信验证码...")
@@ -26997,7 +27010,7 @@ exit /b 0
                                                 _rk[0] = ck
                                             rl_login.setEnabled(True)
                                             rl_status.setText("验证码已发送，请查收短信")
-                                            rl_status.setStyleSheet("color: #10b981; font-size: 12px;")
+                                            rl_status.setStyleSheet("color: #10b981; font-size: 15px;")
                                             _rcd[0] = 60
                                             rl_send.setEnabled(False)
                                             def rl_ucd():
@@ -27011,7 +27024,7 @@ exit /b 0
                                             QTimer.singleShot(0, rl_ucd)
                                         else:
                                             rl_status.setText(f"发送失败：{r.get('error', '失败')}")
-                                            rl_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                            rl_status.setStyleSheet("color: #ef4444; font-size: 15px;")
                                             rl_send.setEnabled(True)
 
                                     def _run_send():
@@ -27032,7 +27045,7 @@ exit /b 0
                             code = rl_code.text().strip()
                             if not code or not _rk[0]:
                                 rl_status.setText("请先发送验证码并输入")
-                                rl_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                rl_status.setStyleSheet("color: #ef4444; font-size: 15px;")
                                 return
                             rl_login.setEnabled(False)
                             rl_status.setText("正在验证登录...")
@@ -27059,7 +27072,7 @@ exit /b 0
                                     risk_dlg.accept()
                                 else:
                                     rl_status.setText(f"验证失败：{lr.get('error', '失败')}")
-                                    rl_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                    rl_status.setStyleSheet("color: #ef4444; font-size: 15px;")
                                     rl_login.setEnabled(True)
                                     if lr.get("risk"):
                                         new_tt = lr.get("tmp_token", "")
@@ -27083,7 +27096,7 @@ exit /b 0
                 elif (video_info.get("code") == 86038
                       or "超时" in message or "失效" in message or "过期" in message):
                     
-                    qr_status.setStyleSheet(scale_style("font-size: 14px; color: #f56c6c; text-align: center;"))
+                    qr_status.setStyleSheet(scale_style("font-size: 15px; color: #f56c6c; text-align: center;"))
                     qr_status.setText("二维码已失效，正在自动刷新...")
                     
                     if login_poll_thread and login_poll_thread.isRunning():
@@ -27100,7 +27113,7 @@ exit /b 0
                         QTimer.singleShot(600, get_qrcode)
                 else:
                     
-                    qr_status.setStyleSheet(scale_style("font-size: 14px; color: #6b7280; text-align: center;"))
+                    qr_status.setStyleSheet(scale_style("font-size: 15px; color: #6b7280; text-align: center;"))
                 
         
         def get_qrcode():
@@ -27112,7 +27125,7 @@ exit /b 0
                 last_click_time = current_time
                 
                 qr_status.setText("刷新中...")
-                qr_status.setStyleSheet(scale_style("font-size: 14px; color: #6b7280; text-align: center;"))
+                qr_status.setStyleSheet(scale_style("font-size: 15px; color: #6b7280; text-align: center;"))
                 qr_code_label.clear()  # 清除旧的二维码图片/文字
                 qr_code_label.setPixmap(QPixmap())  # 确保清空pixmap
                 
@@ -27141,7 +27154,7 @@ exit /b 0
                 logger.warning(f"二维码登录异常: {error_msg}")
                 logger.debug("traceback", exc_info=True)
                 qr_status.setText(f"错误：{error_msg}")
-                qr_status.setStyleSheet(scale_style("font-size: 14px; color: #f56c6c; text-align: center;"))
+                qr_status.setStyleSheet(scale_style("font-size: 15px; color: #f56c6c; text-align: center;"))
         
         def on_qr_generated(qrcode_video_info, qr_data):
             nonlocal qrcode_key, login_poll_thread
@@ -27155,7 +27168,7 @@ exit /b 0
                     qr_code_label.setPixmap(pixmap)
                     
                     qr_status.setText("二维码生成成功，请扫描")
-                    qr_status.setStyleSheet(scale_style("font-size: 14px; color: #6b7280; text-align: center;"))
+                    qr_status.setStyleSheet(scale_style("font-size: 15px; color: #6b7280; text-align: center;"))
                     
                     
                     qrcode_key = qrcode_video_info.get("qrcode_key")
@@ -27180,7 +27193,7 @@ exit /b 0
             qr_code_label.setText("二维码\n生成失败")
             qr_code_label.setAlignment(Qt.AlignCenter)
             qr_status.setText(f"错误：{error_msg}")
-            qr_status.setStyleSheet(scale_style("font-size: 14px; color: #f56c6c; text-align: center;"))
+            qr_status.setStyleSheet(scale_style("font-size: 15px; color: #f56c6c; text-align: center;"))
 
 
         buttons_widget = QWidget()
@@ -27191,7 +27204,7 @@ exit /b 0
         refresh_status_btn = QPushButton("刷新状态")
         refresh_status_btn.setMinimumHeight(scale(36))
         refresh_status_btn.setMinimumWidth(scale(100))
-        refresh_status_btn.setStyleSheet(scale_style("background-color: #60a5fa; color: white; font-weight: 500; font-size: 12px; border-radius: 8px; padding: 0 12px;"))
+        refresh_status_btn.setStyleSheet(scale_style("background-color: #60a5fa; color: white; font-weight: 500; font-size: 15px; border-radius: 8px; padding: 0 12px;"))
         
         def on_refresh_status():
             nonlocal login_poll_thread, qrcode_key
@@ -27213,7 +27226,7 @@ exit /b 0
         refresh_btn = QPushButton("刷新二维码")
         refresh_btn.setMinimumHeight(scale(36))
         refresh_btn.setMinimumWidth(scale(100))
-        refresh_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; font-weight: 500; font-size: 12px; border-radius: 8px; padding: 0 12px;"))
+        refresh_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; font-weight: 500; font-size: 15px; border-radius: 8px; padding: 0 12px;"))
         refresh_btn.clicked.connect(get_qrcode)
         buttons_layout.addWidget(refresh_btn)
         
@@ -27293,7 +27306,7 @@ exit /b 0
         
         risk_label = QLabel("登录环境存在风险，需要验证")
         risk_label.setStyleSheet(scale_style("""
-            font-size: 14px;
+            font-size: 15px;
             font-weight: 500;
             color: #fa8c16;
             line-height: 1.4;
@@ -27304,7 +27317,7 @@ exit /b 0
         verify_btn.setStyleSheet(scale_style("""
             background-color: #fa8c16;
             color: white;
-            font-size: 13px;
+            font-size: 15px;
             font-weight: 500;
             padding: 8px 16px;
             border-radius: 8px;
@@ -27318,14 +27331,14 @@ exit /b 0
         username_edit = QLineEdit()
         username_edit.setPlaceholderText("请输入手机号/邮箱")
         username_edit.setMinimumHeight(scale(44))
-        username_edit.setStyleSheet(scale_style("font-size: 14px;"))
+        username_edit.setStyleSheet(scale_style("font-size: 15px;"))
         password_layout.addWidget(username_edit)
         
         password_edit = QLineEdit()
         password_edit.setPlaceholderText("请输入密码")
         password_edit.setEchoMode(QLineEdit.Password)
         password_edit.setMinimumHeight(scale(44))
-        password_edit.setStyleSheet(scale_style("font-size: 14px;"))
+        password_edit.setStyleSheet(scale_style("font-size: 15px;"))
         password_layout.addWidget(password_edit)
 
         # 记忆登录表单：开启时回填上一次输入的账号/密码
@@ -27353,7 +27366,7 @@ exit /b 0
 
         login_btn = QPushButton("登录")
         login_btn.setMinimumHeight(scale(44))
-        login_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; font-weight: 500; font-size: 14px;"))
+        login_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; font-weight: 500; font-size: 15px;"))
         password_layout.addWidget(login_btn)
         
         
@@ -27370,7 +27383,7 @@ exit /b 0
         cid_combo = QComboBox()
         cid_combo.setEditable(True)  
         cid_combo.setMinimumHeight(scale(44))
-        cid_combo.setStyleSheet(scale_style("font-size: 14px;"))
+        cid_combo.setStyleSheet(scale_style("font-size: 15px;"))
         cid_combo.setMaxVisibleItems(6)  
         sms_layout.addWidget(cid_combo)
         
@@ -27532,7 +27545,7 @@ exit /b 0
         tel_edit = QLineEdit()
         tel_edit.setPlaceholderText("请输入手机号")
         tel_edit.setMinimumHeight(scale(44))
-        tel_edit.setStyleSheet(scale_style("font-size: 14px;"))
+        tel_edit.setStyleSheet(scale_style("font-size: 15px;"))
         sms_layout.addWidget(tel_edit)
         
         
@@ -27542,13 +27555,13 @@ exit /b 0
         code_edit = QLineEdit()
         code_edit.setPlaceholderText("请输入验证码")
         code_edit.setMinimumHeight(scale(44))
-        code_edit.setStyleSheet(scale_style("font-size: 14px;"))
+        code_edit.setStyleSheet(scale_style("font-size: 15px;"))
         code_layout.addWidget(code_edit, stretch=1)
         
         send_code_btn = QPushButton("发送验证码")
         send_code_btn.setMinimumHeight(scale(44))
         send_code_btn.setMinimumWidth(scale(130))
-        send_code_btn.setStyleSheet(scale_style("background-color: #10b981; color: white; font-weight: 500; font-size: 14px;"))
+        send_code_btn.setStyleSheet(scale_style("background-color: #10b981; color: white; font-weight: 500; font-size: 15px;"))
         code_layout.addWidget(send_code_btn)
         
         
@@ -27582,7 +27595,7 @@ exit /b 0
         
         sms_login_btn = QPushButton("登录")
         sms_login_btn.setMinimumHeight(scale(44))
-        sms_login_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; font-weight: 500; font-size: 14px;"))
+        sms_login_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; font-weight: 500; font-size: 15px;"))
         sms_layout.addWidget(sms_login_btn)
         
         
@@ -27593,12 +27606,12 @@ exit /b 0
         cookie_edit = QTextEdit()
         cookie_edit.setPlaceholderText("请输入Cookie（SESSDATA/bili_jct/DedeUserID）")
         cookie_edit.setMinimumHeight(scale(120))
-        cookie_edit.setStyleSheet(scale_style("font-size: 14px;"))
+        cookie_edit.setStyleSheet(scale_style("font-size: 15px;"))
         cookie_layout.addWidget(cookie_edit)
         
         cookie_login_btn = QPushButton("登录")
         cookie_login_btn.setMinimumHeight(scale(44))
-        cookie_login_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; font-weight: 500; font-size: 14px;"))
+        cookie_login_btn.setStyleSheet(scale_style("background-color: #409eff; color: white; font-weight: 500; font-size: 15px;"))
         cookie_layout.addWidget(cookie_login_btn)
         
         
@@ -27784,7 +27797,7 @@ exit /b 0
                                             r_layout.setContentsMargins(scale(24), scale(24), scale(24), scale(24))
 
                                             r_title = QLabel("登录环境存在风险，请验证手机号")
-                                            r_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #1f2937;")
+                                            r_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #1f2937;")
                                             r_title.setWordWrap(True)
                                             r_layout.addWidget(r_title)
 
@@ -27816,12 +27829,12 @@ exit /b 0
 
                                             r_login_btn = QPushButton("验证并登录")
                                             r_login_btn.setMinimumHeight(scale(40))
-                                            r_login_btn.setStyleSheet("background-color: #409eff; color: white; font-weight: bold; border-radius: 4px; font-size: 14px;")
+                                            r_login_btn.setStyleSheet("background-color: #409eff; color: white; font-weight: bold; border-radius: 4px; font-size: 15px;")
                                             r_login_btn.setEnabled(False)
                                             r_layout.addWidget(r_login_btn)
 
                                             r_status_label = QLabel("")
-                                            r_status_label.setStyleSheet("color: #6b7280; font-size: 12px;")
+                                            r_status_label.setStyleSheet("color: #6b7280; font-size: 15px;")
                                             r_status_label.setWordWrap(True)
                                             r_layout.addWidget(r_status_label)
 
@@ -27835,12 +27848,12 @@ exit /b 0
                                                 tel = r_phone_edit.text().strip()
                                                 if not tel:
                                                     r_status_label.setText("请输入手机号")
-                                                    r_status_label.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                                    r_status_label.setStyleSheet("color: #ef4444; font-size: 15px;")
                                                     return
 
                                                 r_send_btn.setEnabled(False)
                                                 r_status_label.setText("正在获取人机验证...")
-                                                r_status_label.setStyleSheet("color: #6b7280; font-size: 12px;")
+                                                r_status_label.setStyleSheet("color: #6b7280; font-size: 15px;")
 
                                                 def _do_get_captcha():
                                                     try:
@@ -27851,7 +27864,7 @@ exit /b 0
                                                 def _on_risk_captcha_ready(ci):
                                                     if not ci.get("success"):
                                                         r_status_label.setText(f"获取验证码失败：{ci.get('error')}")
-                                                        r_status_label.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                                        r_status_label.setStyleSheet("color: #ef4444; font-size: 15px;")
                                                         r_send_btn.setEnabled(True)
                                                         return
 
@@ -27866,12 +27879,12 @@ exit /b 0
                                                     def r_captcha_callback(validate, seccode, challenge):
                                                         if not validate:
                                                             r_status_label.setText("人机验证已取消")
-                                                            r_status_label.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                                            r_status_label.setStyleSheet("color: #ef4444; font-size: 15px;")
                                                             r_send_btn.setEnabled(True)
                                                             return
 
                                                         r_status_label.setText("正在发送短信验证码...")
-                                                        r_status_label.setStyleSheet("color: #6b7280; font-size: 12px;")
+                                                        r_status_label.setStyleSheet("color: #6b7280; font-size: 15px;")
 
                                                         def _do_send_sms():
                                                             try:
@@ -27887,7 +27900,7 @@ exit /b 0
 
                                                                 r_login_btn.setEnabled(True)
                                                                 r_status_label.setText("验证码已发送，请查收短信")
-                                                                r_status_label.setStyleSheet("color: #10b981; font-size: 12px;")
+                                                                r_status_label.setStyleSheet("color: #10b981; font-size: 15px;")
 
                                                                 _risk_countdown[0] = 60
                                                                 r_send_btn.setEnabled(False)
@@ -27905,7 +27918,7 @@ exit /b 0
                                                             else:
                                                                 err = result.get('error', '发送失败')
                                                                 r_status_label.setText(f"发送失败：{err}")
-                                                                r_status_label.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                                                r_status_label.setStyleSheet("color: #ef4444; font-size: 15px;")
                                                                 r_send_btn.setEnabled(True)
 
                                                         def _run_sms():
@@ -27926,16 +27939,16 @@ exit /b 0
                                                 code = r_code_edit.text().strip()
                                                 if not code:
                                                     r_status_label.setText("请输入验证码")
-                                                    r_status_label.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                                    r_status_label.setStyleSheet("color: #ef4444; font-size: 15px;")
                                                     return
                                                 if not _risk_captcha_key[0]:
                                                     r_status_label.setText("请先发送验证码")
-                                                    r_status_label.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                                    r_status_label.setStyleSheet("color: #ef4444; font-size: 15px;")
                                                     return
 
                                                 r_login_btn.setEnabled(False)
                                                 r_status_label.setText("正在验证登录...")
-                                                r_status_label.setStyleSheet("color: #6b7280; font-size: 12px;")
+                                                r_status_label.setStyleSheet("color: #6b7280; font-size: 15px;")
 
                                                 r_cid = r_cid_combo.currentData() or 86
                                                 r_tel = r_phone_edit.text().strip()
@@ -27963,7 +27976,7 @@ exit /b 0
                                                     else:
                                                         err = login_result.get("error", "验证失败")
                                                         r_status_label.setText(f"验证失败：{err}")
-                                                        r_status_label.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                                        r_status_label.setStyleSheet("color: #ef4444; font-size: 15px;")
                                                         r_login_btn.setEnabled(True)
 
                                                         if login_result.get("risk"):
@@ -27971,7 +27984,7 @@ exit /b 0
                                                             if new_tmp_token:
                                                                 _risk_tmp_token[0] = new_tmp_token
                                                             r_status_label.setText("仍存在风险，请重新发送验证码再试")
-                                                            r_status_label.setStyleSheet("color: #f59e0b; font-size: 12px;")
+                                                            r_status_label.setStyleSheet("color: #f59e0b; font-size: 15px;")
                                                             _risk_captcha_key[0] = None
                                                             r_login_btn.setEnabled(False)
 
@@ -28184,7 +28197,7 @@ exit /b 0
                         rl2.setContentsMargins(scale(24), scale(24), scale(24), scale(24))
 
                         rl2_title = QLabel("登录环境存在风险，请验证手机号")
-                        rl2_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #1f2937;")
+                        rl2_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #1f2937;")
                         rl2_title.setWordWrap(True)
                         rl2.addWidget(rl2_title)
 
@@ -28214,12 +28227,12 @@ exit /b 0
 
                         rl2_login = QPushButton("验证并登录")
                         rl2_login.setMinimumHeight(scale(40))
-                        rl2_login.setStyleSheet("background-color: #409eff; color: white; font-weight: bold; border-radius: 4px; font-size: 14px;")
+                        rl2_login.setStyleSheet("background-color: #409eff; color: white; font-weight: bold; border-radius: 4px; font-size: 15px;")
                         rl2_login.setEnabled(False)
                         rl2.addWidget(rl2_login)
 
                         rl2_status = QLabel("")
-                        rl2_status.setStyleSheet("color: #6b7280; font-size: 12px;")
+                        rl2_status.setStyleSheet("color: #6b7280; font-size: 15px;")
                         rl2_status.setWordWrap(True)
                         rl2.addWidget(rl2_status)
                         rl2.addStretch()
@@ -28232,11 +28245,11 @@ exit /b 0
                             tel2 = rl2_tel.text().strip()
                             if not tel2:
                                 rl2_status.setText("请输入手机号")
-                                rl2_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                rl2_status.setStyleSheet("color: #ef4444; font-size: 15px;")
                                 return
                             rl2_send.setEnabled(False)
                             rl2_status.setText("正在获取人机验证...")
-                            rl2_status.setStyleSheet("color: #6b7280; font-size: 12px;")
+                            rl2_status.setStyleSheet("color: #6b7280; font-size: 15px;")
 
                             def _do_ci2():
                                 try:
@@ -28247,14 +28260,14 @@ exit /b 0
                             def _on_ci2_ready(ci2):
                                 if not ci2.get("success"):
                                     rl2_status.setText(f"获取验证码失败：{ci2.get('error')}")
-                                    rl2_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                    rl2_status.setStyleSheet("color: #ef4444; font-size: 15px;")
                                     rl2_send.setEnabled(True)
                                     return
                                 rl2_status.setText("请完成人机验证...")
                                 def rl2_ccb(validate, seccode, challenge):
                                     if not validate:
                                         rl2_status.setText("人机验证已取消")
-                                        rl2_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                        rl2_status.setStyleSheet("color: #ef4444; font-size: 15px;")
                                         rl2_send.setEnabled(True)
                                         return
                                     rl2_status.setText("正在发送短信验证码...")
@@ -28272,7 +28285,7 @@ exit /b 0
                                                 _rk2[0] = ck2
                                             rl2_login.setEnabled(True)
                                             rl2_status.setText("验证码已发送，请查收短信")
-                                            rl2_status.setStyleSheet("color: #10b981; font-size: 12px;")
+                                            rl2_status.setStyleSheet("color: #10b981; font-size: 15px;")
                                             _rcd2[0] = 60
                                             rl2_send.setEnabled(False)
                                             def rl2_ucd():
@@ -28286,7 +28299,7 @@ exit /b 0
                                             QTimer.singleShot(0, rl2_ucd)
                                         else:
                                             rl2_status.setText(f"发送失败：{r2.get('error', '失败')}")
-                                            rl2_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                            rl2_status.setStyleSheet("color: #ef4444; font-size: 15px;")
                                             rl2_send.setEnabled(True)
 
                                     def _run_send2():
@@ -28307,7 +28320,7 @@ exit /b 0
                             code2 = rl2_code.text().strip()
                             if not code2 or not _rk2[0]:
                                 rl2_status.setText("请先发送验证码并输入")
-                                rl2_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                rl2_status.setStyleSheet("color: #ef4444; font-size: 15px;")
                                 return
                             rl2_login.setEnabled(False)
                             rl2_status.setText("正在验证登录...")
@@ -28333,7 +28346,7 @@ exit /b 0
                                     risk_dlg2.accept()
                                 else:
                                     rl2_status.setText(f"验证失败：{lr2.get('error', '失败')}")
-                                    rl2_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+                                    rl2_status.setStyleSheet("color: #ef4444; font-size: 15px;")
                                     rl2_login.setEnabled(True)
                                     if lr2.get("risk"):
                                         new_tt = lr2.get("tmp_token", "")
@@ -28434,7 +28447,7 @@ exit /b 0
             border-radius: 10px;
             margin-top: 14px;
             padding: 16px 14px 14px 14px;
-            font-size: 13px;
+            font-size: 15px;
             font-weight: 600;
             color: #1f2d3d;
         }
@@ -28446,16 +28459,18 @@ exit /b 0
             color: #2563eb;
             background-color: #fbfcfe;
         }
-        QGroupBox QLabel { font-size: 12px; color: #5a6577; font-weight: 400; }
-        QGroupBox QCheckBox { font-size: 12px; color: #374151; font-weight: 400; }
-        QGroupBox QRadioButton { font-size: 12px; color: #374151; font-weight: 400; }
+        /* 设置内的文字跟随全局字号（此前这里写死 12px，把设置里的
+           标签/复选框压得比其它界面明显小一圈） */
+        QGroupBox QLabel { font-size: 15px; color: #4b5563; font-weight: 400; }
+        QGroupBox QCheckBox { font-size: 15px; color: #374151; font-weight: 400; }
+        QGroupBox QRadioButton { font-size: 15px; color: #374151; font-weight: 400; }
 
         /* 设置页复选框：加大勾选框尺寸，留出充足点击区域 */
         QCheckBox[settingsCheck="true"] {
-            padding: 7px 10px 7px 4px;
+            padding: 8px 10px 8px 4px;
             spacing: 10px;
             border-radius: 7px;
-            font-size: 12px;
+            font-size: 15px;
             color: #374151;
         }
         QCheckBox[settingsCheck="true"]:hover { background-color: #eef4ff; }
@@ -28478,7 +28493,7 @@ exit /b 0
             border-radius: 7px;
             padding: 6px 9px;
             background: #ffffff;
-            font-size: 12px;
+            font-size: 15px;
             min-height: 20px;
         }
         QGroupBox QLineEdit:focus, QGroupBox QComboBox:focus,
@@ -28500,7 +28515,7 @@ exit /b 0
             margin: 3px 0;
             border-radius: 8px;
             color: #4b5563;
-            font-size: 13px;
+            font-size: 15px;
             font-weight: 500;
         }
         QListWidget#settingsSidebar::item:selected {
@@ -28608,7 +28623,7 @@ exit /b 0
         title_layout.addWidget(title_label, stretch=1)
         
         close_btn = QPushButton("×")
-        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 18px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
+        close_btn.setStyleSheet(scale_style("background-color: transparent; border: none; color: white; font-size: 19px; padding: 0; min-width: 28px; min-height: 28px; border-radius: 14px;"))
         close_btn.setToolTip("关闭")
         close_btn.clicked.connect(dialog.hide)
         title_layout.addWidget(close_btn)
@@ -28777,7 +28792,7 @@ exit /b 0
         # 缩放说明和按钮
         scale_btn_row = QHBoxLayout()
         scale_tip = QLabel("调整所有UI组件的大小，数值越大界面越大")
-        scale_tip.setStyleSheet(scale_style("color: #909399; font-size: 11px;"))
+        scale_tip.setStyleSheet(scale_style("color: #909399; font-size: 15px;"))
         scale_btn_row.addWidget(scale_tip)
         scale_btn_row.addStretch(1)
         apply_scale_btn = QPushButton("立即应用")
@@ -28811,7 +28826,7 @@ exit /b 0
                     }
                     #titleLabel {
                         font-weight: bold;
-                        font-size: 13px;
+                        font-size: 15px;
                     }
                     #minimizeBtn, #maximizeBtn, #closeBtn {
                         min-width: 32px;
@@ -28819,7 +28834,7 @@ exit /b 0
                         border: none;
                         background-color: transparent;
                         color: white;
-                        font-size: 14px;
+                        font-size: 15px;
                         padding: 0px;
                     }
                     #minimizeBtn:hover, #maximizeBtn:hover {
@@ -28857,7 +28872,7 @@ exit /b 0
         fold_layout.setHorizontalSpacing(scale(16))
         fold_layout.setVerticalSpacing(scale(8))
         fold_tip = QLabel("勾选后，对应功能从顶部Tab栏中收起，放入右侧“更多”箭头菜单")
-        fold_tip.setStyleSheet(scale_style("color: #909399; font-size: 11px;"))
+        fold_tip.setStyleSheet(scale_style("color: #909399; font-size: 15px;"))
         fold_tip.setWordWrap(True)
         fold_layout.addWidget(fold_tip, 0, 0, 1, 3)
         fold_kwargs = getattr(self, "_tab_fold_meta", None) or [(self.tab_widget.tabText(i), i) for i in range(self.tab_widget.count())]
@@ -28913,7 +28928,7 @@ exit /b 0
                     background-color: #ffffff;
                     padding: 10px 8px;
                     color: #303133;
-                    font-size: 12px;
+                    font-size: 15px;
                     font-weight: 500;
                     text-align: center;
                 }
@@ -29470,7 +29485,7 @@ exit /b 0
         perm_retry_layout.addWidget(perm_retry_label)
         perm_retry_layout.addWidget(perm_retry_spin, stretch=1)
         perm_retry_tip = QLabel("(课程/番剧每集权限检测失败时的重试次数)")
-        perm_retry_tip.setStyleSheet(scale_style("color: #909399; font-size: 11px;"))
+        perm_retry_tip.setStyleSheet(scale_style("color: #909399; font-size: 15px;"))
         perm_retry_layout.addWidget(perm_retry_tip)
         network_layout.addLayout(perm_retry_layout)
         
@@ -29528,7 +29543,7 @@ exit /b 0
         update_policy_row = QHBoxLayout()
         update_policy_row.setSpacing(scale(10))
         update_policy_label = QLabel("有更新时：")
-        update_policy_label.setStyleSheet(scale_style("font-size: 13px; color: #333;"))
+        update_policy_label.setStyleSheet(scale_style("font-size: 15px; color: #333;"))
         self.update_policy_combo = QComboBox()
         self.update_policy_combo.addItem("通知我来决定是否安装", "ask")
         self.update_policy_combo.addItem("自动下载安装", "auto")
@@ -29539,7 +29554,7 @@ exit /b 0
                 border: 1px solid #dde3ed;
                 border-radius: 6px;
                 background-color: white;
-                font-size: 13px;
+                font-size: 15px;
                 min-width: 180px;
             }
             QComboBox:hover { border-color: #409eff; }
@@ -29550,7 +29565,7 @@ exit /b 0
                 self.update_policy_combo.setCurrentIndex(i)
                 break
         update_policy_tip = QLabel("自动更新在下载完成后提示重启安装")
-        update_policy_tip.setStyleSheet(scale_style("font-size: 11px; color: #909399;"))
+        update_policy_tip.setStyleSheet(scale_style("font-size: 15px; color: #909399;"))
         update_policy_row.addWidget(update_policy_label)
         update_policy_row.addWidget(self.update_policy_combo)
         update_policy_row.addWidget(update_policy_tip)
@@ -29561,7 +29576,7 @@ exit /b 0
         file_dialog_row = QHBoxLayout()
         file_dialog_row.setSpacing(scale(10))
         file_dialog_label = QLabel("文件选择器样式：")
-        file_dialog_label.setStyleSheet(scale_style("font-size: 13px; color: #333;"))
+        file_dialog_label.setStyleSheet(scale_style("font-size: 15px; color: #333;"))
         file_dialog_combo = QComboBox()
         file_dialog_combo.addItem("软件内置（自定义）", "custom")
         file_dialog_combo.addItem("系统默认", "native")
@@ -29572,7 +29587,7 @@ exit /b 0
                 border: 1px solid #dde3ed;
                 border-radius: 6px;
                 background-color: white;
-                font-size: 13px;
+                font-size: 15px;
                 min-width: 140px;
             }
             QComboBox:hover { border-color: #409eff; }
@@ -29583,7 +29598,7 @@ exit /b 0
                 file_dialog_combo.setCurrentIndex(i)
                 break
         file_dialog_tip = QLabel("选择文件/文件夹时使用的对话框样式")
-        file_dialog_tip.setStyleSheet(scale_style("font-size: 11px; color: #909399;"))
+        file_dialog_tip.setStyleSheet(scale_style("font-size: 15px; color: #909399;"))
         file_dialog_row.addWidget(file_dialog_label)
         file_dialog_row.addWidget(file_dialog_combo)
         file_dialog_row.addWidget(file_dialog_tip)
@@ -29602,11 +29617,11 @@ exit /b 0
                 padding-top: 10px;
             }
             QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }
-            QLabel { font-size: 13px; color: #6b7280; }
+            QLabel { font-size: 15px; color: #6b7280; }
             QPushButton {
                 padding: 8px 16px;
                 border-radius: 6px;
-                font-size: 12px;
+                font-size: 15px;
                 font-weight: 500;
             }
         """))
@@ -29816,7 +29831,7 @@ exit /b 0
                 padding-top: 10px;
             }
             QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }
-            QLabel { font-size: 13px; color: #6b7280; }
+            QLabel { font-size: 15px; color: #6b7280; }
         """))
         storage_layout = QVBoxLayout(storage_group)
         storage_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
@@ -29824,7 +29839,7 @@ exit /b 0
 
         storage_info_label = QLabel()
         storage_info_label.setWordWrap(True)
-        storage_info_label.setStyleSheet(scale_style("font-size: 13px; color: #333; line-height: 1.8;"))
+        storage_info_label.setStyleSheet(scale_style("font-size: 15px; color: #333; line-height: 1.8;"))
 
         def _fmt_size(bytes_val):
             if bytes_val < 1024:
@@ -29918,27 +29933,27 @@ exit /b 0
         # 下载大文件时把 C 盘写满。这里允许指定缓存目录，默认自动选同盘。
         cache_tip = QLabel("缓存目录（下载中转/合并的临时文件存放位置）")
         cache_tip.setWordWrap(True)
-        cache_tip.setStyleSheet(scale_style("font-size: 12px; color: #6b7280; font-weight: 600;"))
+        cache_tip.setStyleSheet(scale_style("font-size: 15px; color: #6b7280; font-weight: 600;"))
         storage_layout.addWidget(cache_tip)
 
         cache_path_row = QHBoxLayout()
         cache_path_row.setSpacing(scale(8))
         cache_path_edit = QLineEdit()
         cache_path_edit.setReadOnly(True)
-        cache_path_edit.setStyleSheet(scale_style("padding: 6px 8px; border: 1px solid #dde3ed; border-radius: 6px; font-size: 12px; background: #f8fafc;"))
+        cache_path_edit.setStyleSheet(scale_style("padding: 6px 8px; border: 1px solid #dde3ed; border-radius: 6px; font-size: 15px; background: #f8fafc;"))
         cache_path_edit.setMinimumWidth(scale(150))
         cache_path_row.addWidget(cache_path_edit, stretch=1)
 
         browse_cache_btn = QPushButton("修改…")
         browse_cache_btn.setStyleSheet(scale_style("""
-            QPushButton { background-color: #409eff; color: white; border: none; padding: 7px 14px; border-radius: 6px; font-size: 12px; }
+            QPushButton { background-color: #409eff; color: white; border: none; padding: 7px 14px; border-radius: 6px; font-size: 15px; }
             QPushButton:hover { background-color: #66b1ff; }
         """))
         cache_path_row.addWidget(browse_cache_btn)
 
         reset_cache_btn = QPushButton("恢复自动")
         reset_cache_btn.setStyleSheet(scale_style("""
-            QPushButton { background-color: #909399; color: white; border: none; padding: 7px 14px; border-radius: 6px; font-size: 12px; }
+            QPushButton { background-color: #909399; color: white; border: none; padding: 7px 14px; border-radius: 6px; font-size: 15px; }
             QPushButton:hover { background-color: #a6a9ad; }
         """))
         cache_path_row.addWidget(reset_cache_btn)
@@ -29946,7 +29961,7 @@ exit /b 0
 
         cache_note = QLabel()
         cache_note.setWordWrap(True)
-        cache_note.setStyleSheet(scale_style("font-size: 11px; color: #909399;"))
+        cache_note.setStyleSheet(scale_style("font-size: 15px; color: #909399;"))
         storage_layout.addWidget(cache_note)
 
         def _refresh_cache_path_text():
@@ -29993,7 +30008,7 @@ exit /b 0
 
         refresh_storage_btn = QPushButton("刷新")
         refresh_storage_btn.setStyleSheet(scale_style("""
-            QPushButton { background-color: #909399; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 500; }
+            QPushButton { background-color: #909399; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 15px; font-weight: 500; }
             QPushButton:hover { background-color: #a6a9ad; }
             QPushButton:pressed { background-color: #7b7e83; }
         """))
@@ -30002,7 +30017,7 @@ exit /b 0
 
         clear_cache_btn = QPushButton("清理缓存")
         clear_cache_btn.setStyleSheet(scale_style("""
-            QPushButton { background-color: #e6a23c; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 500; }
+            QPushButton { background-color: #e6a23c; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 15px; font-weight: 500; }
             QPushButton:hover { background-color: #ebb563; }
             QPushButton:pressed { background-color: #cf9236; }
         """))
@@ -30229,7 +30244,7 @@ exit /b 0
         page5_layout.addWidget(remote_group)
 
         privacy_note = QLabel(
-            "<span style='color:#888; font-size:11px; line-height:1.6'>"
+            "<span style='color:#888; font-size: 15px; line-height:1.6'>"
             "• 所有上报数据仅用于改进软件体验，不会出售或与第三方共享<br>"
             "• 上报数据不含个人身份信息、视频内容、Cookie等敏感信息<br>"
             "• 关闭后不影响软件正常使用，仅云端统计和远程配置功能不可用"
@@ -30281,10 +30296,10 @@ exit /b 0
         app_name_row = QHBoxLayout()
         app_name_row.setSpacing(scale(12))
         app_name_lbl = QLabel(APP_NAME)
-        app_name_lbl.setStyleSheet(scale_style("font-size: 34px; font-weight: 800; color: #ffffff;"))
+        app_name_lbl.setStyleSheet(scale_style("font-size: 19px; font-weight: 800; color: #ffffff;"))
         app_name_row.addWidget(app_name_lbl)
         ver_badge = QLabel("V" + _about_ver)
-        ver_badge.setStyleSheet(scale_style("background-color: rgba(255,255,255,0.18); color: #ffffff; font-size: 14px; font-weight: 700; padding: 3px 14px;"))
+        ver_badge.setStyleSheet(scale_style("background-color: rgba(255,255,255,0.18); color: #ffffff; font-size: 15px; font-weight: 700; padding: 3px 14px;"))
         ver_badge.setAlignment(Qt.AlignCenter)
         app_name_row.addWidget(ver_badge, 0, Qt.AlignVCenter)
         app_name_row.addStretch(1)
@@ -30299,7 +30314,7 @@ exit /b 0
         about_check_btn.setCursor(Qt.PointingHandCursor)
         about_check_btn.setMinimumHeight(scale(40))
         about_check_btn.setStyleSheet(scale_style("""
-            QPushButton { background-color: #ffffff; color: #409eff; font-size: 14px; font-weight: 700; padding: 0 22px; border: none; }
+            QPushButton { background-color: #ffffff; color: #409eff; font-size: 15px; font-weight: 700; padding: 0 22px; border: none; }
             QPushButton:hover { background-color: #e8f1ff; }
         """))
         about_check_btn.clicked.connect(lambda: self._manual_check_update() if hasattr(self, '_manual_check_update') else None)
@@ -30320,14 +30335,14 @@ exit /b 0
 
         def _about_key(text):
             k = QLabel(text)
-            k.setStyleSheet(scale_style("font-size: 14px; font-weight: 600; color: #6b7280;"))
+            k.setStyleSheet(scale_style("font-size: 15px; font-weight: 600; color: #6b7280;"))
             return k
 
         def _about_val(text):
             v = QLabel(text)
             v.setWordWrap(True)
             v.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            v.setStyleSheet(scale_style("font-size: 14px; color: #1f2329;"))
+            v.setStyleSheet(scale_style("font-size: 15px; color: #1f2329;"))
             return v
 
         device_code = ""
@@ -30451,7 +30466,7 @@ exit /b 0
             b.addWidget(img)
             cap = QLabel(title)
             cap.setAlignment(Qt.AlignCenter)
-            cap.setStyleSheet(scale_style("font-size: 13px; color: #4b5563;"))
+            cap.setStyleSheet(scale_style("font-size: 15px; color: #4b5563;"))
             b.addWidget(cap)
             return box
 
@@ -30524,14 +30539,14 @@ exit /b 0
         join_qun_btn = QPushButton("加入交流群")
         join_qun_btn.setCursor(Qt.PointingHandCursor)
         join_qun_btn.setStyleSheet(scale_style("""
-            QPushButton { background-color: #409eff; color: #ffffff; border: none; padding: 7px 16px; font-size: 13px; }
+            QPushButton { background-color: #409eff; color: #ffffff; border: none; padding: 7px 16px; font-size: 15px; }
             QPushButton:hover { background-color: #0958d8; }
         """))
         join_qun_btn.clicked.connect(lambda: join_support_group())
         about_actions.addWidget(join_qun_btn)
         about_actions.addStretch(1)
         about_hint = QLabel("遇到问题？可加入交流群获取帮助")
-        about_hint.setStyleSheet(scale_style("font-size: 11px; color: #909399;"))
+        about_hint.setStyleSheet(scale_style("font-size: 15px; color: #909399;"))
         about_actions.addWidget(about_hint)
         page6_layout.addLayout(about_actions)
 
@@ -30803,14 +30818,14 @@ exit /b 0
                     border-radius: 10px;
                 }
                 QLabel#windowTitle {
-                    font-size: 13px;
+                    font-size: 15px;
                     font-weight: 600;
                     color: white;
                 }
                 QPushButton#minimizeBtn {
                     background-color: transparent;
                     color: white;
-                    font-size: 14px;
+                    font-size: 15px;
                     padding: 4px 8px;
                     border-radius: 4px;
                 }
@@ -30820,7 +30835,7 @@ exit /b 0
                 QPushButton#closeBtn {
                     background-color: transparent;
                     color: white;
-                    font-size: 14px;
+                    font-size: 15px;
                     padding: 4px 8px;
                     border-radius: 4px;
                 }
@@ -30963,11 +30978,11 @@ exit /b 0
                         gap: 5px;
                     }}
                     .username {{
-                        font-size: 24px;
+                        font-size: 17px;
                         font-weight: 600;
                     }}
                     .uid, .level, .vip-status {{
-                        font-size: 14px;
+                        font-size: 15px;
                         opacity: 0.9;
                     }}
                     .info-section {{ 
@@ -30982,12 +30997,12 @@ exit /b 0
                         padding: 12px;
                         border-radius: 4px;
                         margin-bottom: 16px;
-                        font-size: 13px;
+                        font-size: 15px;
                         color: #555;
                         line-height: 1.5;
                     }}
                     .section-title {{ 
-                        font-size: 16px;
+                        font-size: 15px;
                         font-weight: 600;
                         color: #333;
                         margin-bottom: 16px;
@@ -31005,12 +31020,12 @@ exit /b 0
                         gap: 3px;
                     }}
                     .info-label {{
-                        font-size: 12px;
+                        font-size: 15px;
                         color: #888;
                         font-weight: 500;
                     }}
                     .info-value {{ 
-                        font-size: 13px;
+                        font-size: 15px;
                         color: #333;
                         font-weight: 500;
                     }}
