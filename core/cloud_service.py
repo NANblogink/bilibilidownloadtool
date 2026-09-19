@@ -14,6 +14,52 @@ logger = logging.getLogger(__name__)
 API_BASE = "https://www.bilidown.cn/api/v1"
 
 
+def collect_recent_logs(max_bytes=512 * 1024, tail_only=True):
+    """收集最近的日志文本，供错误/崩溃上报附带上下文。
+
+    tail_only=True 时只取文件尾部，避免把整天的日志都传上去。
+    无可读日志时返回空字符串（不返回 None，便于直接拼接）。
+    """
+    try:
+        from logger_config import LOG_DIR
+    except Exception:
+        return ""
+    if not LOG_DIR or not os.path.isdir(LOG_DIR):
+        return ""
+    files = []
+    try:
+        for f in os.listdir(LOG_DIR):
+            p = os.path.join(LOG_DIR, f)
+            if os.path.isfile(p) and (f.endswith(".log") or ".log." in f):
+                try:
+                    files.append((os.path.getmtime(p), p))
+                except Exception:
+                    pass
+    except Exception:
+        return ""
+    if not files:
+        return ""
+    files.sort(key=lambda x: -x[0])
+    parts = []
+    total = 0
+    for _, p in files:
+        try:
+            with open(p, "r", encoding="utf-8", errors="replace") as fh:
+                data = fh.read()
+        except Exception:
+            continue
+        if tail_only and len(data) > max_bytes:
+            data = data[-max_bytes:]
+        if total + len(data) > max_bytes:
+            data = data[:max_bytes - total]
+        if data:
+            parts.append(data)
+            total += len(data)
+        if total >= max_bytes:
+            break
+    return "\n".join(parts)
+
+
 class CloudService:
     # 数据采集类别（用户可控开关，细粒度到每一项）
     CONSENT_INSTALL = "event_install"           # 安装事件上报
@@ -617,6 +663,8 @@ class CloudService:
                 except Exception:
                     pass
 
+                # 调用方未附带日志时，自动补充最近的日志尾部，便于云端定位
+                _log = log_content or collect_recent_logs()
                 payload = {
                     "action": "report_error",
                     "error_type": error_type,
@@ -629,7 +677,7 @@ class CloudService:
                     "error_line": int(error_line) if error_line else 0,
                     "error_file": str(error_file)[:500],
                     "ip_address": ip_address,
-                    "log_content": str(log_content)[:1048576],  # 1MB
+                    "log_content": str(_log)[:1048576],  # 1MB
                 }
                 resp = self.session.post(
                     f"{API_BASE}/stats/",
@@ -639,11 +687,13 @@ class CloudService:
                 if resp.status_code == 200:
                     data = resp.json()
                     if data.get("code") == 0:
-                        logger.debug(f"错误上报成功: {error_type}")
+                        logger.info(f"[错误上报] 成功: {error_type}（含日志 {len(payload['log_content'])} 字节）")
                     else:
-                        logger.debug(f"错误上报返回非0: {data}")
+                        logger.warning(f"[错误上报] 云端返回非0: {data}")
+                else:
+                    logger.warning(f"[错误上报] HTTP {resp.status_code}")
             except Exception as e:
-                logger.debug(f"错误上报失败(不影响使用): {e}")
+                logger.warning(f"[错误上报] 失败(不影响使用): {e}")
 
         threading.Thread(target=_do_report, daemon=True).start()
 
@@ -694,7 +744,8 @@ class CloudService:
     def poll_log_pull(self):
         """检查云端是否对该设备下发了"远程拉取日志"指令，若有则上传最新日志。"""
         if not self.is_consent(self.CONSENT_ERROR):
-            return
+            logger.info("[日志拉取] 已跳过：用户未开启错误日志上报")
+            return False
         try:
             resp = self.session.get(
                 f"{API_BASE}/pull/",
@@ -702,18 +753,23 @@ class CloudService:
                 timeout=10,
             )
             if resp.status_code != 200:
-                return
+                logger.warning(f"[日志拉取] 查询失败：HTTP {resp.status_code}")
+                return False
             data = resp.json()
             if data.get("code") != 0:
-                return
+                logger.warning(f"[日志拉取] 查询被拒绝：{data.get('message')}")
+                return False
             task = (data.get("data") or {}).get("task")
             if not task:
-                return
+                return False
             task_id = task.get("id")
             code = task.get("task_code") or ""
             log_text = self._find_latest_log_text()
             if log_text is None:
                 log_text = "（客户端未找到可用的日志文件）"
+            logger.info(
+                "[日志拉取] 收到任务 task=%s，日志 %d 字节，开始上传",
+                task_id, len(log_text))
             up = self.session.post(
                 f"{API_BASE}/pull/",
                 data={
@@ -725,15 +781,22 @@ class CloudService:
                 files={"file": ("log.txt", log_text.encode("utf-8"), "text/plain")},
                 timeout=30,
             )
-            if up.status_code == 200:
-                try:
-                    d = up.json()
-                    if d.get("code") == 0:
-                        logger.info(f"远程日志拉取已上传, task={task_id}")
-                except Exception:
-                    pass
+            if up.status_code != 200:
+                logger.warning(f"[日志拉取] 上传失败：HTTP {up.status_code}")
+                return False
+            try:
+                d = up.json()
+            except Exception:
+                logger.warning("[日志拉取] 上传响应无法解析为 JSON")
+                return False
+            if d.get("code") == 0:
+                logger.info(f"[日志拉取] 上传成功 task={task_id} file={d.get('data', {}).get('file_path')}")
+                return True
+            logger.warning(f"[日志拉取] 上传被拒绝：{d.get('message')}")
+            return False
         except Exception as e:
-            logger.debug(f"远程日志拉取失败: {e}")
+            logger.warning(f"[日志拉取] 请求异常：{e}")
+            return False
 
     def start_log_pull_loop(self, interval=20):
         """后台 daemon 线程周期性检查远程拉取日志指令。"""

@@ -465,9 +465,37 @@ def run_on_main_thread(callback):
 logger = logging.getLogger(__name__)
 
 
+def _collect_log_text_for_report(max_bytes=512 * 1024):
+    """读取最近日志尾部，供错误/崩溃上报附带上下文。"""
+    try:
+        from cloud_service import collect_recent_logs
+        return collect_recent_logs(max_bytes=max_bytes)
+    except Exception:
+        return ""
+
+
 def _global_excepthook(exc_type, exc_value, exc_tb):
     logger.critical("未捕获异常", exc_info=(exc_type, exc_value, exc_tb))
     sys.__excepthook__(exc_type, exc_value, exc_tb)
+    try:
+        import traceback as _tb
+        _stack = ''.join(_tb.format_exception(exc_type, exc_value, exc_tb))
+        _line, _file = 0, ""
+        if exc_tb is not None:
+            _tbk = exc_tb
+            while _tbk.tb_next:
+                _tbk = _tbk.tb_next
+            _line = _tbk.tb_lineno
+            _file = _tbk.tb_frame.f_code.co_filename
+        from cloud_service import CloudService
+        cs = CloudService()
+        cs.report_error(exc_type.__name__, str(exc_value), _stack,
+                        error_line=_line, error_file=_file,
+                        log_content=_collect_log_text_for_report())
+        cs.report_crash(exc_type.__name__, str(exc_value), _stack,
+                        error_line=_line, error_file=_file)
+    except Exception:
+        pass
 
 
 sys.excepthook = _global_excepthook
@@ -488,7 +516,8 @@ def _log_thread_exception(args):
             error_file = tb.tb_frame.f_code.co_filename
         from cloud_service import CloudService
         CloudService().report_error(args.exc_type.__name__, str(args.exc_value), _stack,
-                                    error_line=error_line, error_file=error_file)
+                                    error_line=error_line, error_file=error_file,
+                                    log_content=_collect_log_text_for_report())
     except Exception:
         pass
 
@@ -14164,6 +14193,162 @@ class BilibiliDownloader(BaseWindow):
             except Exception as e:
                 run_on_main_thread(lambda: self.show_notification(f"检查更新失败：{e}", "error"))
         _thr.Thread(target=_w, daemon=True).start()
+
+    def _show_feedback_dialog(self):
+        """问题反馈窗口：收集类型、标题、描述与联系方式，附带版本/系统/日志提交。"""
+        from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+                                     QPushButton, QLineEdit, QTextEdit, QComboBox)
+        dlg = QDialog(self)
+        dlg.setWindowTitle("问题反馈")
+        dlg.setAttribute(Qt.WA_DeleteOnClose)
+        dlg.setMinimumSize(scale(520), scale(460))
+        dlg.setStyleSheet(get_base_style() + scale_style("""
+            QDialog { background-color: #ffffff; }
+            QLabel#fbTitle { font-size: 17px; font-weight: 700; color: #1a1a1a; }
+            QLabel#fbHint { font-size: 15px; color: #6b7280; }
+            QLabel#fbField { font-size: 15px; color: #303133; }
+            QLineEdit, QTextEdit, QComboBox {
+                border: 1px solid #d9d9d9; border-radius: 0;
+                padding: 6px 8px; font-size: 15px; background-color: #ffffff;
+            }
+            QLineEdit:focus, QTextEdit:focus, QComboBox:focus { border-color: #409eff; }
+        """))
+
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(scale(20), scale(18), scale(20), scale(18))
+        lay.setSpacing(scale(12))
+
+        ttl = QLabel("问题反馈")
+        ttl.setObjectName("fbTitle")
+        lay.addWidget(ttl)
+
+        hint = QLabel(
+            "请尽量描述清楚操作步骤与现象。提交时会自动附带软件版本、系统信息与最近的运行日志。"
+        )
+        hint.setObjectName("fbHint")
+        hint.setWordWrap(True)
+        lay.addWidget(hint)
+
+        row1 = QHBoxLayout()
+        row1.setSpacing(scale(10))
+        lbl_type = QLabel("类型")
+        lbl_type.setObjectName("fbField")
+        lbl_type.setFixedWidth(scale(56))
+        row1.addWidget(lbl_type)
+        type_combo = QComboBox()
+        type_combo.addItems(["功能异常", "界面问题", "下载失败", "解析失败", "使用建议", "其他"])
+        row1.addWidget(type_combo, 1)
+        lay.addLayout(row1)
+
+        row2 = QHBoxLayout()
+        row2.setSpacing(scale(10))
+        lbl_title = QLabel("标题")
+        lbl_title.setObjectName("fbField")
+        lbl_title.setFixedWidth(scale(56))
+        row2.addWidget(lbl_title)
+        title_edit = QLineEdit()
+        title_edit.setPlaceholderText("一句话概括问题（选填）")
+        row2.addWidget(title_edit, 1)
+        lay.addLayout(row2)
+
+        lbl_detail = QLabel("详细描述")
+        lbl_detail.setObjectName("fbField")
+        lay.addWidget(lbl_detail)
+        detail_edit = QTextEdit()
+        detail_edit.setPlaceholderText("请描述：做了什么操作、期望结果、实际结果。可附上视频链接或错误提示。")
+        detail_edit.setMinimumHeight(scale(140))
+        lay.addWidget(detail_edit, 1)
+
+        row3 = QHBoxLayout()
+        row3.setSpacing(scale(10))
+        lbl_contact = QLabel("联系方式")
+        lbl_contact.setObjectName("fbField")
+        lbl_contact.setFixedWidth(scale(76))
+        row3.addWidget(lbl_contact)
+        contact_edit = QLineEdit()
+        contact_edit.setPlaceholderText("QQ / 邮箱，便于回复（选填）")
+        row3.addWidget(contact_edit, 1)
+        lay.addLayout(row3)
+
+        status = QLabel("")
+        status.setObjectName("fbHint")
+        status.setWordWrap(True)
+        lay.addWidget(status)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        cancel_btn = QPushButton("取消")
+        cancel_btn.setMinimumHeight(scale(34))
+        cancel_btn.setMinimumWidth(scale(88))
+        cancel_btn.clicked.connect(dlg.reject)
+        btn_row.addWidget(cancel_btn)
+
+        send_btn = QPushButton("提交")
+        send_btn.setMinimumHeight(scale(34))
+        send_btn.setMinimumWidth(scale(88))
+        send_btn.setStyleSheet(scale_style("""
+            QPushButton { background-color: #409eff; color: #ffffff; border: none; border-radius: 0; font-size: 15px; }
+            QPushButton:hover { background-color: #66b1ff; }
+            QPushButton:disabled { background-color: #a0cfff; }
+        """))
+        btn_row.addWidget(send_btn)
+        lay.addLayout(btn_row)
+
+        def _system_info():
+            try:
+                import platform as _pf
+                return " | ".join([
+                    "OS=%s %s" % (_pf.system(), _pf.release()),
+                    "Py=%s" % _pf.python_version(),
+                    "ver=%s" % str(version_info.get("version", "")),
+                    "client=%s" % getattr(self.cloud_service, "client_id", ""),
+                ])
+            except Exception:
+                return ""
+
+        def _do_send():
+            content = detail_edit.toPlainText().strip()
+            if not content:
+                status.setText("请填写详细描述")
+                return
+            if self.cloud_service is None:
+                status.setText("云端服务未就绪，无法提交。可先点「导出日志」手动发送。")
+                return
+            send_btn.setEnabled(False)
+            status.setText("正在提交...")
+
+            def _worker():
+                try:
+                    res = self.cloud_service.submit_feedback(
+                        feedback_type=type_combo.currentText(),
+                        title=title_edit.text().strip(),
+                        content=content,
+                        contact=contact_edit.text().strip(),
+                        system_info=_system_info(),
+                    )
+                except Exception as _e:
+                    res = None
+                    logger.error(f"提交反馈异常: {_e}")
+
+                def _done():
+                    try:
+                        if res:
+                            status.setText("已提交，感谢反馈！")
+                            self.show_notification("反馈已提交，感谢你的反馈", "success")
+                            QTimer.singleShot(900, dlg.accept)
+                        else:
+                            send_btn.setEnabled(True)
+                            status.setText("提交失败，请检查网络后重试，或点「导出日志」手动发送。")
+                    except Exception:
+                        pass
+
+                run_on_main_thread(_done)
+
+            import threading as _th
+            _th.Thread(target=_worker, daemon=True).start()
+
+        send_btn.clicked.connect(_do_send)
+        dlg.show()
 
     def _show_about_dialog(self):
         """设置中的"关于我们"：显示应用信息与联系方式。"""
@@ -31320,6 +31505,73 @@ class BilibiliDownloader(BaseWindow):
                 except Exception:
                     pass
             return QPixmap()
+
+        # ---- 问题反馈 ----
+        feedback_card = QWidget()
+        feedback_card.setStyleSheet(scale_style("background-color: #ffffff;"))
+        feedback_body = QVBoxLayout(feedback_card)
+        feedback_body.setContentsMargins(scale(22), scale(18), scale(22), scale(20))
+        feedback_body.setSpacing(scale(12))
+
+        feedback_title = QLabel("问题反馈")
+        feedback_title.setStyleSheet(scale_style("font-size: 17px; font-weight: 700; color: #1a1a1a;"))
+        feedback_body.addWidget(feedback_title)
+
+        feedback_hint = QLabel(
+            "遇到问题或有改进建议，可直接提交。提交时会附带软件版本、系统信息与最近的运行日志，便于定位问题。"
+        )
+        feedback_hint.setWordWrap(True)
+        feedback_hint.setStyleSheet(scale_style("font-size: 15px; color: #6b7280;"))
+        feedback_body.addWidget(feedback_hint)
+
+        feedback_btn_row = QHBoxLayout()
+        feedback_btn_row.setSpacing(scale(10))
+        _fb_btn = QPushButton("提交反馈")
+        _fb_btn.setMinimumHeight(scale(36))
+        _fb_btn.setMinimumWidth(scale(110))
+        _fb_btn.setCursor(Qt.PointingHandCursor)
+        _fb_btn.setStyleSheet(scale_style("""
+            QPushButton { background-color: #409eff; color: #ffffff; border: none; border-radius: 0; font-size: 15px; }
+            QPushButton:hover { background-color: #66b1ff; }
+        """))
+
+        def _open_feedback_dialog():
+            try:
+                self._show_feedback_dialog()
+            except Exception as _e:
+                logger.error(f"打开反馈窗口失败: {_e}")
+
+        _fb_btn.clicked.connect(_open_feedback_dialog)
+        feedback_btn_row.addWidget(_fb_btn)
+
+        _fb_log_btn = QPushButton("导出日志")
+        _fb_log_btn.setMinimumHeight(scale(36))
+        _fb_log_btn.setMinimumWidth(scale(110))
+        _fb_log_btn.setCursor(Qt.PointingHandCursor)
+        _fb_log_btn.setToolTip("将日志打包为 zip，便于手动发送")
+        _fb_log_btn.setStyleSheet(scale_style("""
+            QPushButton { background-color: #f0f2f5; color: #303133; border: none; border-radius: 0; font-size: 15px; }
+            QPushButton:hover { background-color: #e4e7ed; }
+        """))
+
+        def _export_logs():
+            try:
+                from logger_config import package_logs
+                path = package_logs()
+                if path:
+                    self.show_notification(f"日志已导出：{os.path.basename(path)}", "success")
+                else:
+                    self.show_notification("日志导出失败", "error")
+            except Exception as _e:
+                logger.error(f"导出日志失败: {_e}")
+                self.show_notification(f"导出日志失败：{_e}", "error")
+
+        _fb_log_btn.clicked.connect(_export_logs)
+        feedback_btn_row.addWidget(_fb_log_btn)
+        feedback_btn_row.addStretch(1)
+        feedback_body.addLayout(feedback_btn_row)
+
+        page6_layout.addWidget(feedback_card)
 
         # ---- 联系与合作 ----
         contact_card = QWidget()
