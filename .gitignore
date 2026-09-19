@@ -75,8 +75,5 @@ sign_exes.ps1
 sign_msix_test.ps1
 version_info.win
 upx_tool/
-/build/build.py
-/build/installer.py
-/build/uninstaller.py
-/build/build_msix.py
 /Resources/
+/build/
