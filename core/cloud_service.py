@@ -218,6 +218,53 @@ class CloudService:
     def is_first_launch(self):
         return self._is_new_install
 
+    @staticmethod
+    def collect_env_info():
+        """采集匿名环境信息：系统、分辨率、CPU 核数、内存、编码器可用性。
+
+        仅用于判断兼容性问题（如某类系统上某功能普遍失败），
+        不包含用户名、路径、设备序列号等可识别信息。
+        """
+        info = {}
+        try:
+            import platform as _pf
+            info["os"] = "%s %s" % (_pf.system(), _pf.release())
+            info["os_ver"] = _pf.version()[:120]
+            info["arch"] = _pf.machine()
+            info["py"] = _pf.python_version()
+        except Exception:
+            pass
+        try:
+            import psutil
+            info["cpu_count"] = psutil.cpu_count(logical=True) or 0
+            info["mem_gb"] = round(psutil.virtual_memory().total / (1024 ** 3), 1)
+        except Exception:
+            pass
+        try:
+            from PyQt5.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app is not None:
+                scr = app.primaryScreen()
+                if scr is not None:
+                    g = scr.geometry()
+                    info["screen"] = "%dx%d" % (g.width(), g.height())
+                    info["dpr"] = round(float(scr.devicePixelRatio()), 2)
+        except Exception:
+            pass
+        try:
+            import shutil
+            info["ffmpeg"] = bool(shutil.which("ffmpeg"))
+        except Exception:
+            pass
+        return info
+
+    def report_env(self):
+        """上报一次环境信息（每次启动上报，便于按环境维度下钻失败率）。"""
+        try:
+            self.report_event("env_info", extra=self.collect_env_info())
+        except Exception as e:
+            logger.debug(f"环境信息上报失败: {e}")
+
     def report_event(self, event_type, extra=""):
         # 根据事件类型映射到对应的细粒度同意开关
         consent_map = {
@@ -225,6 +272,14 @@ class CloudService:
             "launch": self.CONSENT_LAUNCH,
             "parse_video": self.CONSENT_PARSE,
             "download_video": self.CONSENT_DOWNLOAD,
+            "live_watch": self.CONSENT_PARSE,
+            "live_record": self.CONSENT_DOWNLOAD,
+            "audio_parse": self.CONSENT_PARSE,
+            "emoji_download": self.CONSENT_DOWNLOAD,
+            "parse_failed": self.CONSENT_ERROR,
+            "download_failed": self.CONSENT_ERROR,
+            "feature_use": self.CONSENT_LAUNCH,
+            "env_info": self.CONSENT_LAUNCH,
         }
         consent_key = consent_map.get(event_type)
         if consent_key is None:
@@ -234,6 +289,17 @@ class CloudService:
         if not self.is_consent(consent_key):
             logger.debug(f"统计上报已跳过（用户未同意）: {event_type}")
             return
+
+        # extra 支持字符串或字典；字典会序列化为 JSON，便于云端按字段统计。
+        # 只上报匿名技术字段，绝不包含标题、URL、Cookie 等可识别内容。
+        if isinstance(extra, dict):
+            try:
+                _extra = json.dumps(extra, ensure_ascii=False)[:2000]
+            except Exception:
+                _extra = ""
+        else:
+            _extra = str(extra)[:2000]
+
         def _do_report():
             try:
                 resp = self.session.post(
@@ -244,7 +310,7 @@ class CloudService:
                         "platform": self.platform,
                         "version": self.current_version,
                         "client_id": self._client_id,
-                        "extra": extra,
+                        "extra": _extra,
                     },
                     timeout=5,
                 )
@@ -253,11 +319,11 @@ class CloudService:
                     if data.get("code") == 0:
                         logger.debug(f"统计上报成功: {event_type}")
                     else:
-                        logger.debug(f"统计上报返回非0: {data}")
+                        logger.warning(f"统计上报返回非0: {event_type} {data.get('message')}")
                 else:
-                    logger.debug(f"统计上报HTTP错误: {resp.status_code}")
+                    logger.warning(f"统计上报HTTP错误: {event_type} {resp.status_code}")
             except Exception as e:
-                logger.debug(f"统计上报失败(不影响使用): {e}")
+                logger.warning(f"统计上报失败(不影响使用): {event_type} {e}")
 
         threading.Thread(target=_do_report, daemon=True).start()
 

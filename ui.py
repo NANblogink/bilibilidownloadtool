@@ -327,6 +327,31 @@ def _episode_output_path(task, ep_index):
         return "", ""
 
 
+def _classify_download_error(message):
+    """把下载失败信息归一化为可聚合的原因标签。
+
+    云端按标签统计即可看出"哪类失败最多"，无需解析自由文本。
+    """
+    m = str(message or "").lower()
+    rules = [
+        ("网络超时", ("timeout", "timed out", "read timed out")),
+        ("连接中断", ("remote end closed", "connection", "reset by peer", "broken pipe")),
+        ("403权限不足", ("403", "forbidden", "权限", "大会员", "会员")),
+        ("404资源不存在", ("404", "不存在", "已删除", "啥都木有")),
+        ("ffmpeg缺失", ("ffmpeg", "未找到ffmpeg", "no such file")),
+        ("磁盘空间不足", ("no space", "errno 28", "磁盘")),
+        ("解密失败", ("decrypt", "解密", "kid", "drm")),
+        ("合并失败", ("merge", "合并")),
+        ("解析地址失效", ("url", "取流", "playurl", "地址失效")),
+        ("任务已取消", ("取消", "cancel")),
+        ("未完成任何下载", ("未完成任何下载",)),
+    ]
+    for label, keys in rules:
+        if any(k in m for k in keys):
+            return label
+    return "其他"
+
+
 def _find_task(dm, task_id=None, ep_index=None):
     """在 active/paused 任务里找目标任务。
 
@@ -2451,8 +2476,13 @@ class FloatingBall(QWidget):
 
             try:
                 if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'cloud_service') and self.parent.cloud_service:
-                    bvid = video_info.get('bvid', '')
-                    self.parent.cloud_service.report_event("parse_video", extra=bvid)
+                    _eps = video_info.get('episodes') or video_info.get('collection') or []
+                    self.parent.cloud_service.report_event("parse_video", extra={
+                        "type": str(video_info.get('type', ''))[:20],
+                        "eps": len(_eps),
+                        "dur_min": int((video_info.get('duration') or 0) // 60),
+                        "multi": len(_eps) > 1,
+                    })
             except Exception:
                 pass
             
@@ -2519,6 +2549,16 @@ class FloatingBall(QWidget):
                     self.parent.show_notification(error_msg, "info")
                 else:
                     self.parent.show_notification(f"解析失败：{error_msg}", "error")
+                    # 记录失败原因（截断且剥离 URL/标题，只保留可归类的短文本）
+                    try:
+                        if hasattr(self.parent, 'cloud_service') and self.parent.cloud_service:
+                            _reason = str(error_msg)[:120]
+                            self.parent.cloud_service.report_event("parse_failed", extra={
+                                "reason": _reason,
+                                "type": str(video_info.get('type', ''))[:20],
+                            })
+                    except Exception:
+                        pass
     
     def select_all_videos(self):
         self.video_list.selectAll()
@@ -2690,8 +2730,15 @@ class FloatingBall(QWidget):
             try:
                 
                 if self.parent and hasattr(self.parent, 'cloud_service') and self.parent.cloud_service:
-                    bvid = self.current_video_info.get('bvid', '') if self.current_video_info else ''
-                    self.parent.cloud_service.report_event("download_video", extra=bvid)
+                    self.parent.cloud_service.report_event("download_video", extra={
+                        "qn": qn,
+                        "res": str(resolution)[:16],
+                        "eps": len(selected_videos),
+                        "ctype": download_content_type,
+                        "vfmt": download_params.get('video_format', ''),
+                        "afmt": download_params.get('audio_format', ''),
+                        "danmaku": bool(download_danmaku),
+                    })
 
                 if self.parent and hasattr(self.parent, 'download_manager') and self.parent.download_manager:
                     logger.info("直接调用download_manager.start_download")
@@ -2922,6 +2969,15 @@ class FloatingBall(QWidget):
                     )
                 except Exception:
                     pass
+            # 上报下载失败原因（归一化后便于按原因聚合）
+            try:
+                if self.parent and hasattr(self.parent, 'cloud_service') and self.parent.cloud_service:
+                    self.parent.cloud_service.report_event("download_failed", extra={
+                        "reason": _classify_download_error(message),
+                        "raw": str(message)[:160],
+                    })
+            except Exception:
+                pass
 
 import webbrowser as _webbrowser
 
@@ -13508,6 +13564,8 @@ class BilibiliDownloader(BaseWindow):
                 if self.cloud_service.is_first_launch:
                     self.cloud_service.report_event("install")
                 self.cloud_service.report_event("launch")
+                # 附带匿名环境信息，便于按系统/分辨率/硬件维度下钻失败率
+                self.cloud_service.report_env()
         except Exception as e:
             logger.debug(f"上报启动统计失败: {e}")
 
@@ -19978,16 +20036,30 @@ class BilibiliDownloader(BaseWindow):
         logger = logging.getLogger(__name__)
         logger.info(f"标签页切换到索引：{index}")
 
-        # Tab顺序：0=综合下载, 1=视频解析, 2=弹幕解析, 3=收藏夹, 4=封面下载, 5=下载历史
-        if index == 3:
+        # 功能使用统计：只记录标签名称，用于判断哪些功能真正被使用
+        try:
+            if hasattr(self, 'cloud_service') and self.cloud_service:
+                _names = {0: "视频解析", 1: "弹幕解析", 2: "收藏夹", 3: "封面下载",
+                          4: "下载历史", 5: "直播", 6: "表情包", 7: "音频解析",
+                          8: "字幕解析"}
+                _tab_name = _names.get(index, "tab%d" % index)
+                if _tab_name != getattr(self, "_last_reported_tab", None):
+                    self._last_reported_tab = _tab_name
+                    self.cloud_service.report_event("feature_use", extra={"tab": _tab_name})
+        except Exception:
+            pass
+
+        # Tab 顺序：0=视频解析, 1=弹幕解析, 2=收藏夹, 3=封面下载, 4=下载历史,
+        #           5=直播, 6=表情包, 7=音频解析, 8=字幕解析
+        if index == 2:
             # 收藏夹自动刷新门控：仅当设置为"自动"时切到该标签才自动拉取
             if self.config.get_app_setting("favorites_refresh_mode", "manual") == "auto":
                 logger.info("切换到收藏夹标签页，自动刷新收藏夹列表")
                 self.refresh_folders()
-        elif index == 4:
+        elif index == 3:
             logger.info("切换到封面下载标签页")
             self.update_cover_tab()
-        elif index == 5:
+        elif index == 4:
             logger.info("切换到下载历史标签页")
             self._refresh_history_list()
 
