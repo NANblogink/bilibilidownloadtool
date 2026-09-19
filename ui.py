@@ -5438,7 +5438,10 @@ class VideoToolWindow(BaseWindow):
 
     def _build_ffmpeg_cmd(self, file_info, output_path):
         cmd = []
-        ffmpeg_path = self._resolve_media_tool("ffmpeg")
+        # 必须把解析到的 ffmpeg 路径作为命令第一个参数。
+        # （此前重写本函数时漏掉了这行，导致 cmd[0] 变成 '-y'，
+        #   Popen 直接抛 FileNotFoundError → 报"未找到 ffmpeg"并中断转换。）
+        cmd.append(self._resolve_media_tool("ffmpeg"))
 
         cmd.extend(['-y'])
 
@@ -5808,8 +5811,15 @@ class VideoToolWindow(BaseWindow):
             return return_code == 0
 
         except FileNotFoundError:
-            self._log("错误: 未找到 ffmpeg，请检查 ffmpeg 路径设置")
-            QMessageBox.critical(self, "错误", "未找到 ffmpeg，请在设置中配置正确的 ffmpeg 路径")
+            # 注意：本方法运行在转换子线程中，绝不能在这里弹 QMessageBox
+            # （跨线程创建模态窗口会卡死/闪退）。
+            # 调用方 _conversion_worker 已根据返回值写日志并 emit 结果，
+            # 这里只记录明确的排查提示即可。
+            _ff = cmd[0] if cmd else "ffmpeg"
+            self._log(f"错误: 未找到 ffmpeg 可执行文件：{_ff}")
+            self._log("请在「设置 → 下载设置」中配置正确的 ffmpeg 路径，"
+                      "或确认程序目录下 ffmpeg/bin/ffmpeg.exe 存在")
+            logger.error(f"未找到 ffmpeg 可执行文件: {_ff}")
             return False
         except Exception as e:
             logger.error(f"执行 ffmpeg 失败: {e}")

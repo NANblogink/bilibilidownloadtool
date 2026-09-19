@@ -6136,6 +6136,21 @@ class BilibiliParser:
             data_source = play_data.get('data', play_data.get('result', {}))
             logger.debug(f"API返回数据结构：{list(data_source.keys())}")
 
+            # 画质诊断：直接把"API 实际给了哪些清晰度"和登录/试看状态打进日志。
+            # 用户反馈"未登录没给 1080P"时，可据此判断是接口没给流
+            # （如视频本身最高只有 720P、或需要大会员），还是本地把流过滤掉了。
+            try:
+                _dash_v = (data_source.get('dash') or {}).get('video') or []
+                _dash_qns = sorted({v.get('id') for v in _dash_v
+                                    if isinstance(v, dict)}, reverse=True)
+                logger.info(
+                    "[画质诊断] 登录=%s VIP=%s try_look=%s accept_quality=%s dash画质=%s quality=%s",
+                    is_login, is_vip, _try_look,
+                    data_source.get('accept_quality'), _dash_qns,
+                    data_source.get('quality'))
+            except Exception:
+                pass
+
             _declared_ms = 0
             _avail_ms = 0
             _is_truncated = False
@@ -6652,9 +6667,9 @@ class BilibiliParser:
                     if ep_id:
                         
                         if media_type == "cheese":
-                            play_url = f"https://api.bilibili.com/pugv/player/web/playurl?ep_id={ep_id}&qn=127&fnval=112&fourk=1&drm_tech_type=2&otype=json"
+                            play_url = f"https://api.bilibili.com/pugv/player/web/playurl?ep_id={ep_id}&qn=127&fnval=112&fourk=1&drm_tech_type=2&otype=json&try_look=1"
                         else:
-                            play_url = f"https://api.bilibili.com/pgc/player/web/playurl?ep_id={ep_id}&qn=127&fnval=112&fnver=0&fourk=1&from_client=BROWSER&drm_tech_type=2&otype=json"
+                            play_url = f"https://api.bilibili.com/pgc/player/web/playurl?ep_id={ep_id}&qn=127&fnval=112&fnver=0&fourk=1&from_client=BROWSER&drm_tech_type=2&otype=json&try_look=1"
                         logger.info(f"尝试备用链接（仅ep_id）：{play_url}")
                         
                         
@@ -6776,11 +6791,11 @@ class BilibiliParser:
                     if bvid and cid:
                         if media_type == "cheese":
                             if bvid.startswith('BV'):
-                                play_url = f"https://api.bilibili.com/pugv/player/web/playurl?cid={cid}&bvid={bvid}&qn=127&fnval=112&fourk=1&drm_tech_type=2&otype=json"
+                                play_url = f"https://api.bilibili.com/pugv/player/web/playurl?cid={cid}&bvid={bvid}&qn=127&fnval=112&fourk=1&drm_tech_type=2&otype=json&try_look=1"
                             else:
-                                play_url = f"https://api.bilibili.com/pugv/player/web/playurl?cid={cid}&avid={bvid}&qn=127&fnval=112&fourk=1&drm_tech_type=2&otype=json"
+                                play_url = f"https://api.bilibili.com/pugv/player/web/playurl?cid={cid}&avid={bvid}&qn=127&fnval=112&fourk=1&drm_tech_type=2&otype=json&try_look=1"
                         else:
-                            play_url = f"https://api.bilibili.com/pgc/player/web/playurl?cid={cid}&bvid={bvid}&qn=127&fnval=112&fnver=0&fourk=1&from_client=BROWSER&drm_tech_type=2&otype=json"
+                            play_url = f"https://api.bilibili.com/pgc/player/web/playurl?cid={cid}&bvid={bvid}&qn=127&fnval=112&fnver=0&fourk=1&from_client=BROWSER&drm_tech_type=2&otype=json&try_look=1"
                         logger.info(f"尝试备用链接（cid+bvid）：{play_url}")
                         
                         
@@ -6897,9 +6912,9 @@ class BilibiliParser:
                     
                     if ep_id and cid:
                         if media_type == "cheese":
-                            play_url = f"https://api.bilibili.com/pugv/player/web/playurl?ep_id={ep_id}&cid={cid}&qn=127&fnval=112&fourk=1&drm_tech_type=2&otype=json"
+                            play_url = f"https://api.bilibili.com/pugv/player/web/playurl?ep_id={ep_id}&cid={cid}&qn=127&fnval=112&fourk=1&drm_tech_type=2&otype=json&try_look=1"
                         else:
-                            play_url = f"https://api.bilibili.com/pgc/player/web/playurl?ep_id={ep_id}&cid={cid}&qn=127&fnval=112&fnver=0&fourk=1&from_client=BROWSER&drm_tech_type=2&otype=json"
+                            play_url = f"https://api.bilibili.com/pgc/player/web/playurl?ep_id={ep_id}&cid={cid}&qn=127&fnval=112&fnver=0&fourk=1&from_client=BROWSER&drm_tech_type=2&otype=json&try_look=1"
                         logger.info(f"尝试备用链接（ep_id+cid）：{play_url}")
                         
                         
@@ -7020,7 +7035,7 @@ class BilibiliParser:
                 try:
                     if ep_id:
                         
-                        play_url = f"https://api.bilibili.com/pugv/player/web/playurl?ep_id={ep_id}&qn=127&fnval=112&fourk=1&otype=json"
+                        play_url = f"https://api.bilibili.com/pugv/player/web/playurl?ep_id={ep_id}&qn=127&fnval=112&fourk=1&otype=json&try_look=1"
                         logger.info(f"尝试备用链接（仅ep_id）：{play_url}")
                         
                         
@@ -7141,10 +7156,10 @@ class BilibiliParser:
                     
                     if bvid and cid:
                         if not bvid.startswith('av'):
-                            play_url = f"https://api.bilibili.com/pugv/player/web/playurl?cid={cid}&bvid={bvid}&qn=127&fnval=112&fourk=1&otype=json"
+                            play_url = f"https://api.bilibili.com/pugv/player/web/playurl?cid={cid}&bvid={bvid}&qn=127&fnval=112&fourk=1&otype=json&try_look=1"
                             logger.info(f"尝试备用链接（cid+bvid）：{play_url}")
                         else:
-                            play_url = f"https://api.bilibili.com/pugv/player/web/playurl?cid={cid}&avid={bvid[2:]}&qn=127&fnval=112&fourk=1&otype=json"
+                            play_url = f"https://api.bilibili.com/pugv/player/web/playurl?cid={cid}&avid={bvid[2:]}&qn=127&fnval=112&fourk=1&otype=json&try_look=1"
                             logger.info(f"尝试备用链接（cid+avid）：{play_url}")
                         
                         
@@ -7260,7 +7275,7 @@ class BilibiliParser:
                     
                     
                     if ep_id and cid:
-                        play_url = f"https://api.bilibili.com/pugv/player/web/playurl?ep_id={ep_id}&cid={cid}&qn=127&fnval=112&fourk=1&otype=json"
+                        play_url = f"https://api.bilibili.com/pugv/player/web/playurl?ep_id={ep_id}&cid={cid}&qn=127&fnval=112&fourk=1&otype=json&try_look=1"
                         logger.info(f"尝试备用链接（ep_id+cid）：{play_url}")
                         
                         
