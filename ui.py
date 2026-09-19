@@ -8773,6 +8773,39 @@ border-radius: 0;
         
         return widget
 
+    @staticmethod
+    def _group_episodes_by_section(episodes, ep_id_to_index=None):
+        """把剧集分组为 [(合集标题, [[(原始索引, ep), ...], ...]), ...]。
+
+        - 第一层按 section_title 分组：空 = 正片；非空 = 番剧的额外合集
+          （元祖迷你动画 / 专访 / PV 等）。
+        - 第二层按 bvid 分组：多P视频的同一 bvid 聚在一起。
+        抽成静态方法便于单独测试（不依赖界面）。
+        """
+        if ep_id_to_index is None:
+            ep_id_to_index = {id(ep): i for i, ep in enumerate(episodes)}
+        sec_order = []
+        sec_to_bvids = {}
+        for i, ep in enumerate(episodes):
+            _sec = (ep.get('section_title') or '').strip()
+            bvid = ep.get('bvid', '') or ('__noid_%s__' % id(ep))
+            if _sec not in sec_to_bvids:
+                sec_to_bvids[_sec] = {}
+                sec_order.append(_sec)
+            _m = sec_to_bvids[_sec]
+            _m.setdefault(bvid, []).append(i)
+
+        sections = []
+        for _sec in sec_order:
+            bvids = []
+            for bvid, idx_list in sec_to_bvids[_sec].items():
+                bvids.append([
+                    (ep_id_to_index.get(id(episodes[fi]), fi), episodes[fi])
+                    for fi in idx_list
+                ])
+            sections.append((_sec, bvids))
+        return sections
+
     def populate_list_view(self):
         self.list_view.clear()
         self.pending_cover_loading.clear()
@@ -8782,26 +8815,7 @@ border-radius: 0;
 
         ep_id_to_index = {id(ep): i for i, ep in enumerate(self.episodes)}
 
-        bvid_to_indices = {}
-        order = []
-        for i, ep in enumerate(self.filtered_episodes):
-            bvid = ep.get('bvid', '')
-            if not bvid:
-                bvid = f'__noid_{id(ep)}__'
-            if bvid not in bvid_to_indices:
-                bvid_to_indices[bvid] = []
-                order.append(bvid)
-            bvid_to_indices[bvid].append(i)
-
-        groups = []
-        for bvid in order:
-            idx_list = bvid_to_indices[bvid]
-            group_items = []
-            for fi in idx_list:
-                ep = self.filtered_episodes[fi]
-                original_index = ep_id_to_index[id(ep)]
-                group_items.append((original_index, ep))
-            groups.append(group_items)
+        sections = self._group_episodes_by_section(self.filtered_episodes, ep_id_to_index)
 
         def apply_denied_state(item, item_widget, ep):
             if not ep.get('permission_denied', False):
@@ -8829,85 +8843,131 @@ border-radius: 0;
                 item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
                 item_widget.setStyleSheet("QWidget { opacity: 0.5; }")
 
+        def _collect_leaf(items, parent_item):
+            """把一组 (原索引, ep) 挂到 parent_item 下（列表/卡片模式统一处理）。"""
+            for original_index, ep in items:
+                child_item = QTreeWidgetItem()
+                child_widget = self.create_episode_widget(ep, original_index, ep.get('permission_denied', False))
+                child_item.setSizeHint(0, QSize(scale(0), scale(110)))
+                child_item.setData(0, Qt.UserRole, original_index)
+                child_item.setData(0, Qt.UserRole + 1, 'episode')
+                apply_denied_state(child_item, child_widget, ep)
+                parent_item.addChild(child_item)
+                self.list_view.setItemWidget(child_item, 0, child_widget)
+
+        def _make_section_header(sec_title, all_items):
+            """额外合集的父节点（可勾选整组合集）。"""
+            parent_item = QTreeWidgetItem()
+            group_indices = [oi for oi, _ in all_items]
+            parent_item.setText(0, f"{sec_title}（{len(all_items)} 集）")
+            parent_item.setData(0, Qt.UserRole + 1, 'group')
+            parent_item.setData(0, Qt.UserRole + 2, group_indices)
+            selected_count = sum(1 for oi in group_indices if oi in self.selected_indices)
+            parent_item.setCheckState(
+                0,
+                Qt.Checked if selected_count == len(group_indices)
+                else (Qt.PartiallyChecked if selected_count > 0 else Qt.Unchecked))
+            try:
+                f = parent_item.font(0)
+                f.setBold(True)
+                parent_item.setFont(0, f)
+            except Exception:
+                pass
+            return parent_item
+
         def create_batch(start):
-            if start >= len(groups):
+            if start >= len(sections):
                 return
             batch = 500 if self.large_mode else 8
-            end = min(start + batch, len(groups))
+            end = min(start + batch, len(sections))
             self.list_view.setUpdatesEnabled(False)
-            for gi in range(start, end):
-                group_items = groups[gi]
-                if self.large_mode:
-                    if len(group_items) == 1:
+            for si in range(start, end):
+                _sec_title, bvid_groups = sections[si]
+                flat_items = [it for g in bvid_groups for it in g]
+                # 额外合集：建一个父节点，内部再挂各 bvid 组/单集
+                sec_parent = None
+                if _sec_title:
+                    sec_parent = _make_section_header(_sec_title, flat_items)
+                    self.list_view.addTopLevelItem(sec_parent)
+                    sec_parent.setExpanded(True)
+                container_owner = sec_parent
+
+                for group_items in bvid_groups:
+                    if self.large_mode:
+                        if len(group_items) == 1:
+                            original_index, ep = group_items[0]
+                            item = QTreeWidgetItem()
+                            item.setText(0, self._light_episode_title(ep, original_index))
+                            item.setCheckState(0, Qt.Checked if original_index in self.selected_indices else Qt.Unchecked)
+                            item.setData(0, Qt.UserRole, original_index)
+                            item.setData(0, Qt.UserRole + 1, 'episode')
+                            if ep.get('permission_denied', False) and not ep.get('has_free_part', False):
+                                item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
+                            if container_owner is not None:
+                                container_owner.addChild(item)
+                            else:
+                                self.list_view.addTopLevelItem(item)
+                        else:
+                            parent_item = QTreeWidgetItem()
+                            group_indices = [oi for oi, _ in group_items]
+                            first_ep = group_items[0][1]
+                            title = first_ep.get('title', '') or first_ep.get('ep_title', '') or '未命名'
+                            parent_item.setText(0, f"{title} ({len(group_items)}P)")
+                            parent_item.setData(0, Qt.UserRole + 1, 'group')
+                            parent_item.setData(0, Qt.UserRole + 2, group_indices)
+                            selected_count = sum(1 for oi in group_indices if oi in self.selected_indices)
+                            parent_item.setCheckState(0, Qt.Checked if selected_count == len(group_indices) else (Qt.PartiallyChecked if selected_count > 0 else Qt.Unchecked))
+                            if container_owner is not None:
+                                container_owner.addChild(parent_item)
+                            else:
+                                self.list_view.addTopLevelItem(parent_item)
+                            for original_index, ep in group_items:
+                                child_item = QTreeWidgetItem()
+                                child_item.setText(0, self._light_episode_title(ep, original_index))
+                                child_item.setCheckState(0, Qt.Checked if original_index in self.selected_indices else Qt.Unchecked)
+                                child_item.setData(0, Qt.UserRole, original_index)
+                                child_item.setData(0, Qt.UserRole + 1, 'episode')
+                                if ep.get('permission_denied', False) and not ep.get('has_free_part', False):
+                                    child_item.setFlags(child_item.flags() & ~Qt.ItemIsEnabled)
+                                parent_item.addChild(child_item)
+                            if len(group_items) <= 5:
+                                parent_item.setExpanded(True)
+                    elif len(group_items) == 1:
                         original_index, ep = group_items[0]
                         item = QTreeWidgetItem()
-                        item.setText(0, self._light_episode_title(ep, original_index))
-                        item.setCheckState(0, Qt.Checked if original_index in self.selected_indices else Qt.Unchecked)
+                        item_widget = self.create_episode_widget(ep, original_index, ep.get('permission_denied', False))
+                        item.setSizeHint(0, QSize(scale(0), scale(110)))
                         item.setData(0, Qt.UserRole, original_index)
                         item.setData(0, Qt.UserRole + 1, 'episode')
-                        if ep.get('permission_denied', False) and not ep.get('has_free_part', False):
-                            item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
-                        self.list_view.addTopLevelItem(item)
+                        apply_denied_state(item, item_widget, ep)
+                        if container_owner is not None:
+                            container_owner.addChild(item)
+                        else:
+                            self.list_view.addTopLevelItem(item)
+                        self.list_view.setItemWidget(item, 0, item_widget)
                     else:
                         parent_item = QTreeWidgetItem()
                         group_indices = [oi for oi, _ in group_items]
                         first_ep = group_items[0][1]
                         title = first_ep.get('title', '') or first_ep.get('ep_title', '') or '未命名'
-                        parent_item.setText(0, f"{title} ({len(group_items)}P)")
+                        header_widget = self.create_group_header_widget(title, len(group_items), parent_item, group_items)
+                        parent_item.setSizeHint(0, QSize(scale(0), scale(48)))
                         parent_item.setData(0, Qt.UserRole + 1, 'group')
                         parent_item.setData(0, Qt.UserRole + 2, group_indices)
-                        selected_count = sum(1 for oi in group_indices if oi in self.selected_indices)
-                        parent_item.setCheckState(0, Qt.Checked if selected_count == len(group_indices) else (Qt.PartiallyChecked if selected_count > 0 else Qt.Unchecked))
-                        self.list_view.addTopLevelItem(parent_item)
-                        for original_index, ep in group_items:
-                            child_item = QTreeWidgetItem()
-                            child_item.setText(0, self._light_episode_title(ep, original_index))
-                            child_item.setCheckState(0, Qt.Checked if original_index in self.selected_indices else Qt.Unchecked)
-                            child_item.setData(0, Qt.UserRole, original_index)
-                            child_item.setData(0, Qt.UserRole + 1, 'episode')
-                            if ep.get('permission_denied', False) and not ep.get('has_free_part', False):
-                                child_item.setFlags(child_item.flags() & ~Qt.ItemIsEnabled)
-                            parent_item.addChild(child_item)
+                        if container_owner is not None:
+                            container_owner.addChild(parent_item)
+                        else:
+                            self.list_view.addTopLevelItem(parent_item)
+                        self.list_view.setItemWidget(parent_item, 0, header_widget)
+                        _collect_leaf(group_items, parent_item)
                         if len(group_items) <= 5:
                             parent_item.setExpanded(True)
-                elif len(group_items) == 1:
-                    original_index, ep = group_items[0]
-                    item = QTreeWidgetItem()
-                    item_widget = self.create_episode_widget(ep, original_index, ep.get('permission_denied', False))
-                    item.setSizeHint(0, QSize(scale(0), scale(110)))
-                    item.setData(0, Qt.UserRole, original_index)
-                    item.setData(0, Qt.UserRole + 1, 'episode')
-                    apply_denied_state(item, item_widget, ep)
-                    self.list_view.addTopLevelItem(item)
-                    self.list_view.setItemWidget(item, 0, item_widget)
-                else:
-                    parent_item = QTreeWidgetItem()
-                    group_indices = [oi for oi, _ in group_items]
-                    first_ep = group_items[0][1]
-                    title = first_ep.get('title', '') or first_ep.get('ep_title', '') or '未命名'
-                    header_widget = self.create_group_header_widget(title, len(group_items), parent_item, group_items)
-                    parent_item.setSizeHint(0, QSize(scale(0), scale(48)))
-                    parent_item.setData(0, Qt.UserRole + 1, 'group')
-                    parent_item.setData(0, Qt.UserRole + 2, group_indices)
-                    self.list_view.addTopLevelItem(parent_item)
-                    self.list_view.setItemWidget(parent_item, 0, header_widget)
-                    for original_index, ep in group_items:
-                        child_item = QTreeWidgetItem()
-                        child_widget = self.create_episode_widget(ep, original_index, ep.get('permission_denied', False))
-                        child_item.setSizeHint(0, QSize(scale(0), scale(110)))
-                        child_item.setData(0, Qt.UserRole, original_index)
-                        child_item.setData(0, Qt.UserRole + 1, 'episode')
-                        apply_denied_state(child_item, child_widget, ep)
-                        parent_item.addChild(child_item)
-                        self.list_view.setItemWidget(child_item, 0, child_widget)
-                    if len(group_items) <= 5:
-                        parent_item.setExpanded(True)
             self.list_view.setUpdatesEnabled(True)
-            self.loaded_episodes = min(end, len(self.filtered_episodes))
-            if end < len(groups):
+            self.loaded_episodes = min(end, len(sections))
+            if end < len(sections):
                 QTimer.singleShot(0 if self.large_mode else 10, lambda: create_batch(end))
 
-        if groups:
+        if sections:
             create_batch(0)
 
     def _light_episode_title(self, ep, index):
