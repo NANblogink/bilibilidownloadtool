@@ -116,6 +116,16 @@ _TASK_ICONS = {
     "activity": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><polyline points='22 12 18 12 15 21 9 3 6 12 2 12'/></svg>",
     "speed_up": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 19V5'/><path d='m5 12 7-7 7 7'/></svg>",
     "speed_down": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 5v14'/><path d='m19 12-7 7-7-7'/></svg>",
+    # 文件/目录选择窗口用图标（替代原先的 emoji）
+    "home": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z'/><polyline points='9 22 9 12 15 12 15 22'/></svg>",
+    "monitor": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='2' y='3' width='20' height='14' rx='2'/><line x1='8' x2='16' y1='21' y2='21'/><line x1='12' x2='12' y1='17' y2='21'/></svg>",
+    "hard_drive": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><line x1='22' x2='2' y1='12' y2='12'/><path d='M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z'/><line x1='6' x2='6.01' y1='16' y2='16'/><line x1='10' x2='10.01' y1='16' y2='16'/></svg>",
+    "grid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='7' height='7' rx='1'/><rect x='14' y='3' width='7' height='7' rx='1'/><rect x='14' y='14' width='7' height='7' rx='1'/><rect x='3' y='14' width='7' height='7' rx='1'/></svg>",
+    "search": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='8'/><path d='m21 21-4.3-4.3'/></svg>",
+    "chevron_left": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='m15 18-6-6 6-6'/></svg>",
+    "chevron_right": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='m9 18 6-6-6-6'/></svg>",
+    "route": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='6' cy='19' r='3'/><path d='M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15'/><circle cx='18' cy='5' r='3'/></svg>",
+    "folder_up": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z'/><polyline points='12 10 12 16'/><polyline points='9.5 12.5 12 10 14.5 12.5'/></svg>",
 }
 
 
@@ -26486,37 +26496,43 @@ exit /b 0
                 background-color: white;
                 border: none;
                 border-bottom: 1px solid #e8e8e8;
-                padding: 6px 10px;
-                spacing: 4px;
+                padding: 4px 10px;
+                spacing: 6px;
             }
             QToolBar#navBar QToolButton {
                 border: 1px solid transparent;
                 border-radius: 0;
-                padding: 6px 12px;
+                padding: 6px 10px;
                 background-color: transparent;
                 color: #555;
                 font-size: 15px;
             }
             QToolBar#navBar QToolButton:hover {
-                background-color: #e6f7ff;
-                border-color: #91d5ff;
+                background-color: #eef5ff;
+                border-color: #bcd9ff;
                 color: #409eff;
             }
             QToolBar#navBar QToolButton:pressed {
-                background-color: #bae7ff;
+                background-color: #dbe9ff;
+            }
+            /* 操作行：视图切换 + 搜索，与导航行分开，避免全部挤在一行 */
+            QWidget#actionBar {
+                background-color: #fbfcfe;
+                border-bottom: 1px solid #e8e8e8;
             }
             QWidget#pathBox {
                 background-color: white;
                 border: 1px solid #d9d9d9;
                 border-radius: 0;
-                padding: 8px 12px;
+                padding: 6px 12px;
             }
             QLineEdit#pathEdit {
                 border: none;
                 background: transparent;
                 font-size: 15px;
                 font-family: \'Consolas\', \'Microsoft YaHei\', monospace;
-                padding: 4px 0;
+                padding: 6px 0;
+                min-height: 22px;
             }
             QLineEdit#pathEdit:focus {
                 border: none;
@@ -26670,14 +26686,31 @@ exit /b 0
         nav_bar.setMovable(False)
         nav_bar.setFloatable(False)
         
-        def create_nav_action(text, icon_type, callback):
+        def create_nav_action(text, icon_name, callback):
+            """导航按钮：图标统一取自项目内联图标库（不再用系统图标/emoji）。"""
             action = QAction(text, dialog)
-            action.setIcon(QApplication.style().standardIcon(icon_type))
+            try:
+                _pm = _task_icon_pixmap(icon_name, scale(16), "#4b5563")
+                if not _pm.isNull():
+                    action.setIcon(QIcon(_pm))
+            except Exception:
+                pass
             action.triggered.connect(callback)
             btn = nav_bar.addAction(action)
+            try:
+                btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            except Exception:
+                pass
             return action
         
         style = QApplication.style()
+        
+        def _dlg_icon(icon_name, color="#64748b", size=None):
+            """目录/文件条目的图标：统一取自项目内联图标库，替代系统图标。"""
+            try:
+                return QIcon(_task_icon_pixmap(icon_name, scale(size or 18), color))
+            except Exception:
+                return QIcon()
         
         history_stack = []
         history_pos = -1
@@ -26699,7 +26732,7 @@ exit /b 0
             
             if not select_folder and path != "/":
                 up_item = QListWidgetItem(".. (\u4e0a\u7ea7\u76ee\u5f55)")
-                up_item.setIcon(style.standardIcon(QStyle.SP_FileDialogToParent))
+                up_item.setIcon(_dlg_icon("folder_up", "#f0b429"))
                 up_item.setData(Qt.UserRole, os.path.dirname(path))
                 up_item.setForeground(QColor("#999"))
                 list_widget.addItem(up_item)
@@ -26725,7 +26758,7 @@ exit /b 0
                 
                 for name, fpath in folders:
                     item = QListWidgetItem(name)
-                    item.setIcon(style.standardIcon(QStyle.SP_DirIcon))
+                    item.setIcon(_dlg_icon("folder", "#f0b429"))
                     item.setData(Qt.UserRole, fpath)
                     item.setToolTip(fpath)
                     list_widget.addItem(item)
@@ -26733,23 +26766,19 @@ exit /b 0
                 if not select_folder:
                     for name, fpath in files:
                         ext = os.path.splitext(name)[1].lower()
-                        icon_map = {
-                            ('.txt', '.log', '.md'): QStyle.SP_FileIcon,
-                            ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'): QStyle.SP_FileDialogContentsView,
-                            ('.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv'): QStyle.SP_MediaPlay,
-                            ('.mp3', '.wav', '.flac', '.aac', '.ogg'): QStyle.SP_MediaPlay,
-                            ('.zip', '.rar', '.7z', '.tar', '.gz'): QStyle.SP_FileDialogContentsView,
-                            ('.exe', '.msi', '.bat', '.cmd'): QStyle.SP_ComputerIcon,
-                        }
-                        
-                        icon_type = QStyle.SP_FileIcon
-                        for exts, ic in icon_map.items():
-                            if ext in exts:
-                                icon_type = ic
-                                break
-                        
+                        # 文件类型 → 图标库名称（不再使用系统图标）
+                        if ext in ('.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm'):
+                            _ic_name = "play"
+                        elif ext in ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'):
+                            _ic_name = "eye"
+                        elif ext in ('.zip', '.rar', '.7z', '.tar', '.gz'):
+                            _ic_name = "hard_drive"
+                        elif ext in ('.exe', '.msi', '.bat', '.cmd'):
+                            _ic_name = "tools"
+                        else:
+                            _ic_name = "file"
                         item = QListWidgetItem(name)
-                        item.setIcon(style.standardIcon(icon_type))
+                        item.setIcon(_dlg_icon(_ic_name, "#8b9bb4" if _ic_name == "file" else "#409eff"))
                         item.setData(Qt.UserRole, fpath)
                         item.setToolTip(fpath)
                         list_widget.addItem(item)
@@ -26794,12 +26823,16 @@ exit /b 0
             if os.path.exists(downloads):
                 navigate_to(downloads)
         
-        back_action = create_nav_action("\u25c0 \u8fd4\u56de", QStyle.SP_ArrowBack, go_back)
-        forward_action = create_nav_action("\u524d\u8fdb \u25b6", QStyle.SP_ArrowForward, go_forward)
+        back_action = create_nav_action("\u8fd4\u56de", "chevron_left", go_back)
+        forward_action = create_nav_action("\u524d\u8fdb", "chevron_right", go_forward)
         nav_bar.addSeparator()
-        create_nav_action("\U0001f3e0 \u4e3b\u9875", QStyle.SP_DirHomeIcon, go_home)
-        create_nav_action("\U0001f5a5 \u684c\u9762", QStyle.SP_DesktopIcon, go_desktop)
-        create_nav_action("\u2b07 \u4e0b\u8f7d", QStyle.SP_DriveHDIcon, go_downloads)
+        create_nav_action("\u4e3b\u9875", "home", go_home)
+        create_nav_action("\u684c\u9762", "monitor", go_desktop)
+        create_nav_action("\u4e0b\u8f7d", "download", go_downloads)
+        # 导航行右侧留白，把"视图/搜索"挪到下面的操作行
+        _nav_spacer = QWidget()
+        _nav_spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        nav_bar.addWidget(_nav_spacer)
         
         content_layout.addWidget(nav_bar)
         
@@ -26809,7 +26842,17 @@ exit /b 0
         path_box_layout.setContentsMargins(0, 0, 0, 0)
         path_box_layout.setSpacing(8)
         
-        path_box_layout.addWidget(QLabel("\U0001f4cd \u8def\u5f84:"))
+        _path_pin = QLabel()
+        try:
+            _ppm = _task_icon_pixmap("route", scale(16), "#6b7280")
+            if not _ppm.isNull():
+                _path_pin.setPixmap(_ppm)
+        except Exception:
+            pass
+        _path_pin.setFixedWidth(scale(22))
+        _path_pin.setFixedHeight(scale(24))
+        _path_pin.setToolTip("当前路径")
+        path_box_layout.addWidget(_path_pin)
         path_edit = QLineEdit(objectName="pathEdit")
         path_edit.setObjectName("pathEdit")
         path_edit.setPlaceholderText("\u8f93\u5165\u8def\u5f84\u540e\u6309\u56de\u8f66...")
@@ -26864,7 +26907,7 @@ exit /b 0
         list_widget.setTextElideMode(Qt.ElideNone)
         
         mode_combo = QComboBox()
-        mode_combo.addItems(["\U0001f4cb \u5217\u8868\u89c6\u56fe", "\U0001f532 \u56fe\u6807\u89c6\u56fe"])
+        mode_combo.addItems(["\u5217\u8868\u89c6\u56fe", "\u56fe\u6807\u89c6\u56fe"])
         mode_combo.setStyleSheet("""
             QComboBox {
                 border: 1px solid #d9d9d9;
@@ -26896,12 +26939,10 @@ exit /b 0
                 list_widget.setGridSize(QSize(90, 90))
         
         mode_combo.currentIndexChanged.connect(change_view)
-        nav_bar.addWidget(QLabel("   \u89c6\u56fe:"))
-        nav_bar.addWidget(mode_combo)
         
         search_edit = QLineEdit()
-        search_edit.setPlaceholderText("\U0001f50d \u641c\u7d22...")
-        search_edit.setMaximumWidth(180)
+        search_edit.setPlaceholderText("\u641c\u7d22\u5f53\u524d\u76ee\u5f55...")
+        search_edit.setMinimumWidth(scale(220))
         search_edit.setStyleSheet("""
             QLineEdit {
                 border: 1px solid #d9d9d9;
@@ -26943,12 +26984,9 @@ exit /b 0
             
             for name, fp in found:
                 is_dir = os.path.isdir(fp)
-                if is_dir:
-                    item = QListWidgetItem(name)
-                    item.setIcon(style.standardIcon(QStyle.SP_DirIcon))
-                else:
-                    item = QListWidgetItem(name)
-                    item.setIcon(style.standardIcon(QStyle.SP_FileIcon))
+                item = QListWidgetItem(name)
+                item.setIcon(_dlg_icon("folder", "#f0b429") if is_dir
+                             else _dlg_icon("file", "#8b9bb4"))
                 item.setData(Qt.UserRole, fp)
                 item.setToolTip(fp)
                 list_widget.addItem(item)
@@ -26956,8 +26994,38 @@ exit /b 0
             status_label.setText(f"\u641c\u7d22\u7ed3\u679c: \u627e\u5230 {len(found)} \u9879")
         
         search_edit.returnPressed.connect(do_search)
-        nav_bar.addWidget(QLabel("  "))
-        nav_bar.addWidget(search_edit)
+        
+        # 「操作行」：视图切换 + 搜索。
+        # 原先这两项与返回/前进/主页/桌面/下载一起挤在导航行，
+        # 一行塞 7 个控件既难找也难看清；拆成独立的浅色操作行后
+        # 导航（去哪）与操作（怎么看/找）分工清晰。
+        action_bar = QWidget()
+        action_bar.setObjectName("actionBar")
+        _ab = QHBoxLayout(action_bar)
+        _ab.setContentsMargins(scale(12), scale(6), scale(12), scale(6))
+        _ab.setSpacing(scale(8))
+        _view_icon = QLabel()
+        try:
+            _vpm = _task_icon_pixmap("grid", scale(16), "#6b7280")
+            if not _vpm.isNull():
+                _view_icon.setPixmap(_vpm)
+        except Exception:
+            pass
+        _view_icon.setFixedWidth(scale(20))
+        _ab.addWidget(_view_icon)
+        _ab.addWidget(mode_combo)
+        _ab.addStretch(1)
+        _search_icon = QLabel()
+        try:
+            _spm = _task_icon_pixmap("search", scale(16), "#6b7280")
+            if not _spm.isNull():
+                _search_icon.setPixmap(_spm)
+        except Exception:
+            pass
+        _search_icon.setFixedWidth(scale(20))
+        _ab.addWidget(_search_icon)
+        _ab.addWidget(search_edit)
+        content_layout.addWidget(action_bar)
         
         splitter.addWidget(list_widget)
         splitter.setStretchFactor(0, 0)
