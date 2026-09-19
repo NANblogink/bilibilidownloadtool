@@ -6040,6 +6040,35 @@ class BilibiliParser:
                             'otype': 'json'
                         }
                         success, play_data = self._api_request(play_url, timeout=15, use_wbi=False, params=html5_params)
+
+            # 试看接口兜底（番剧）：
+            # 官方文档说明 try_look=1 可让"未登录"拿到 64/80（720P/1080P）清晰度，
+            # 未登录时上面已带 try_look=1；但"**已登录的普通用户**打开大会员专享集"
+            # 此前完全不带 try_look，会直接取流失败——而这恰恰是最需要 1080P 试看的场景
+            # （网页上能给这类用户放试看片段的正是该接口）。
+            # 因此：仅在**未带 try_look 且取流失败**时回退一次；
+            # 免费集与大会员账号不受影响（它们首次请求就会成功，不会走到这里）。
+            _is_perm_err = False
+            if not success:
+                _em = str((play_data or {}).get('error', ''))
+                _is_perm_err = ("访问权限不足" in _em)
+            else:
+                _pq = str((play_data or {}).get('message', ''))
+                _is_perm_err = ("会员" in _pq or "权限" in _pq or "专享" in _pq
+                                or (play_data or {}).get('code') in (-403, 403))
+            if (media_type == "bangumi" and _try_look != 1
+                    and (not success or play_data.get('code') != 0)):
+                logger.info("已登录但番剧取流失败，回退 try_look=1 获取试看（含 1080P 试看）")
+                _tl = dict(params)
+                _tl['try_look'] = 1
+                _tl_ok, _tl_data = self._api_request(play_url, timeout=15, use_wbi=True, params=_tl)
+                if not _tl_ok or _tl_data.get('code') != 0:
+                    _tl_ok, _tl_data = self._api_request(play_url, timeout=15, use_wbi=False, params=_tl)
+                if _tl_ok and _tl_data.get('code') == 0:
+                    logger.info("试看接口获取成功，使用试看流（未开通大会员时即 1080P 试看）")
+                    success, play_data = _tl_ok, _tl_data
+                elif _is_perm_err:
+                    logger.warning("试看接口亦未返回可用流：该集可能需大会员，且当前账号无试看权益")
             if not success:
                 if "访问权限不足" in play_data['error']:
                     raise Exception("访问权限不足")
