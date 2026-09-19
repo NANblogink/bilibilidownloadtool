@@ -4434,11 +4434,16 @@ class BilibiliParser:
             logger.debug(f"result数据结构：{list(result.keys()) if result else '空'}")
             
             episodes = []
+            ep_sections = {}          # id(ep) -> 所属合集标题（用于"元祖迷你动画"这类额外合集）
 
-            # 收集剧集：必须遍历 [正片 main_section] + [其余 sections]，
+            # 收集剧集：必须遍历 [正片 main_section] + [其余 sections] + [section]，
             # 早期实现用 elif 链，只要 main_section 存在（哪怕 episodes 为空）就
             # 再也不会去看 sections，导致"分P/花絮/OVA 全丢"或整季解析为空。
-            def _collect(section):
+            #
+            # 注意 B站番剧 API 的额外合集实际放在 result["section"]（单数），
+            # 而不是 result["sections"]（复数）—— 早先只查了复数，
+            # 于是番剧页右侧的「元祖迷你动画」「PV」等小合集完全没有被解析。
+            def _collect(section, section_title=None):
                 got = []
                 if not isinstance(section, dict):
                     return got
@@ -4446,14 +4451,35 @@ class BilibiliParser:
                     val = section.get(key)
                     if isinstance(val, list) and val:
                         got.extend(val)
+                if section_title:
+                    for _e in got:
+                        if isinstance(_e, dict):
+                            ep_sections[id(_e)] = section_title
                 return got
 
-            episodes.extend(_collect(result.get('main_section')))
+            # result['episodes']：当前 API 版本的正片剧集就放在这里
+            # （此时并无 main_section 字段）。必须与额外合集一起收集，
+            # 否则会出现"只解析到额外合集、正片全丢"——而下面的兜底
+            # 只在完全没数据时才补，掩盖不了这种部分缺失。
+            top_eps = result.get('episodes')
+            if isinstance(top_eps, list) and top_eps:
+                logger.info(f"正片剧集（result.episodes）：{len(top_eps)} 集")
+                episodes.extend(_collect({'episodes': top_eps}, None))
+
+            episodes.extend(_collect(result.get('main_section'), None))
 
             sections = result.get('sections')
             if isinstance(sections, list):
                 for section in sections:
-                    episodes.extend(_collect(section))
+                    episodes.extend(_collect(section, section.get('title')))
+
+            # result['section']：番剧的额外合集（元祖迷你动画 / 专访 / PV 等）
+            extra_sections = result.get('section')
+            if isinstance(extra_sections, list):
+                for section in extra_sections:
+                    _st = section.get('title') if isinstance(section, dict) else None
+                    logger.info(f"发现额外合集：{_st}（{len(section.get('episodes') or []) if isinstance(section, dict) else 0} 集）")
+                    episodes.extend(_collect(section, _st))
 
             # 去重（按 ep 主键），保留首次出现顺序
             if episodes:
@@ -4473,6 +4499,14 @@ class BilibiliParser:
                     _deduped.append(_ep)
                 episodes = _deduped
                 logger.debug(f"番剧剧集收集完成：共 {len(episodes)} 集")
+
+            # 把"所属合集标题"落到 episode 数据上，供界面分组展示
+            # （正片无标题，额外合集如"元祖迷你动画"会有标题）
+            for _ep in episodes:
+                if isinstance(_ep, dict):
+                    _st = ep_sections.get(id(_ep))
+                    if _st:
+                        _ep['section_title'] = _st
 
             # 再兜底：result 顶层直接给 episodes / ep
             if not episodes:
@@ -4563,7 +4597,9 @@ class BilibiliParser:
                     "aid": ep.get('aid', ''),
                     "cover": ep.get('cover', season_cover),  
                     "share_url": ep.get('share_url', ''),
-                    "status": ep.get('status', 0)
+                    "status": ep.get('status', 0),
+                    # 所属合集标题：空 = 正片；非空 = 额外合集（元祖迷你动画/PV 等）
+                    "section_title": ep.get('section_title', '') or '',
                 })
 
             return {
