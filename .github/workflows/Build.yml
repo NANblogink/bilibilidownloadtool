@@ -12,6 +12,10 @@ jobs:
     name: 语法编译 / 版本一致性 / 资源 / 导入 / 工具包自检
     runs-on: windows-latest
 
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: '1'
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
