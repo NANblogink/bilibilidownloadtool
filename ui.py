@@ -296,6 +296,60 @@ def global_exception_hook(exctype, value, tb):
 sys.excepthook = global_exception_hook
 
 
+def _episode_output_path(task, ep_index):
+    """从下载任务数据里取出指定集的 (save_path, file_path)。
+
+    下载历史此前只记 bvid/title/url，save_path 与 file_path 全为空，
+    导致「下载历史 → 用视频工具处理」永远提示"文件不存在"。
+    DownloadManager 现在会把真实产物路径写进 ep['file_path']，
+    这里读取它；读不到时再按下载器的命名规则在保存目录里兜底查找一次。
+    """
+    try:
+        if not isinstance(task, dict):
+            return "", ""
+        save_path = task.get('save_path', '') or ''
+        eps = task.get('episodes') or []
+        ep = eps[ep_index] if 0 <= ep_index < len(eps) else None
+        if ep is None:
+            return save_path, ""
+        fp = ep.get('file_path', '') or ''
+        if fp and os.path.exists(fp):
+            return save_path, fp
+        title = (ep.get('title') or ep.get('ep_title') or '').replace('正片_', '').strip()
+        if save_path and title and os.path.isdir(save_path):
+            for _ext in (task.get('video_format') or 'mp4',
+                         task.get('audio_format') or 'mp3'):
+                cand = os.path.join(save_path, f"{title}.{_ext}")
+                if os.path.exists(cand):
+                    return save_path, cand
+        return save_path, ""
+    except Exception:
+        return "", ""
+
+
+def _find_task(dm, task_id=None, ep_index=None):
+    """在 active/paused 任务里找目标任务。
+
+    task_id 给定时按 id 找；否则按"该任务拥有 ep_index 这一集"匹配
+    （部分信号只带集号，不带 task_id）。
+    """
+    try:
+        if dm is None:
+            return None
+        for holder in (getattr(dm, 'active_tasks', {}), getattr(dm, 'paused_tasks', {})):
+            if task_id is not None and task_id in holder:
+                return holder[task_id]
+        if ep_index is not None:
+            for holder in (getattr(dm, 'active_tasks', {}), getattr(dm, 'paused_tasks', {})):
+                for _tid, task in list(holder.items()):
+                    eps = task.get('episodes') or []
+                    if 0 <= ep_index < len(eps):
+                        return task
+        return None
+    except Exception:
+        return None
+
+
 import collections
 
 
@@ -2795,8 +2849,19 @@ class FloatingBall(QWidget):
                     bvid = self.current_video_info.get('bvid', '')
                     title = self.current_video_info.get('title', '未知视频')
                     url = f"https://www.bilibili.com/video/{bvid}" if bvid else ""
+                    # 带上真实路径，供「下载历史 → 用视频工具处理」定位文件
+                    _sp, _fp = _episode_output_path(
+                        _find_task(getattr(self.parent, 'download_manager', None), task_id, ep_index),
+                        ep_index)
+                    _fsz = 0
+                    try:
+                        if _fp and os.path.exists(_fp):
+                            _fsz = os.path.getsize(_fp)
+                    except Exception:
+                        pass
                     self.parent.download_history.add_record(
-                        bvid=bvid, title=title, url=url, status="success",
+                        bvid=bvid, title=title, url=url, save_path=_sp, file_path=_fp,
+                        file_size=_fsz, status="success",
                     )
                 except Exception:
                     pass
@@ -2818,8 +2883,12 @@ class FloatingBall(QWidget):
                     bvid = self.current_video_info.get('bvid', '')
                     title = self.current_video_info.get('title', '未知视频')
                     url = f"https://www.bilibili.com/video/{bvid}" if bvid else ""
+                    _sp, _fp = _episode_output_path(
+                        _find_task(getattr(self.parent, 'download_manager', None), task_id, ep_index),
+                        ep_index)
                     self.parent.download_history.add_record(
-                        bvid=bvid, title=title, url=url, status="failed",
+                        bvid=bvid, title=title, url=url, save_path=_sp, file_path=_fp,
+                        status="failed",
                         error_msg=message[:200],
                     )
                 except Exception:
@@ -4907,9 +4976,7 @@ class VideoToolWindow(BaseWindow):
         self.status_label.setText(f"已添加: {file_info['filename']}")
 
     def _probe_file(self, path):
-        ffprobe_path = self.config.get_app_setting("ffmpeg_path", "ffmpeg").replace("ffmpeg", "ffprobe")
-        if not ffprobe_path.endswith("ffprobe"):
-            ffprobe_path = "ffprobe"
+        ffprobe_path = self._resolve_media_tool("ffprobe")
 
         info = {
             'path': path,
@@ -5302,20 +5369,76 @@ class VideoToolWindow(BaseWindow):
         if index >= 0:
             combo.setCurrentIndex(index)
 
+    def _resolve_media_tool(self, tool="ffprobe"):
+        """统一解析 ffmpeg / ffprobe 可执行文件路径。
+
+        原先 _probe_file 里写的是：
+            config.get_app_setting("ffmpeg_path", "ffmpeg").replace("ffmpeg", "ffprobe")
+        当配置为默认值 "ffmpeg" 时，得到的是**裸文件名** "ffprobe"，
+        只会去 PATH 里找；而程序自带的 ffprobe 在 <根>/ffmpeg/bin 下、
+        并未加入 PATH，因此总是报"ffprobe 未找到，无法读取详细文件信息"。
+
+        解析顺序：
+          1) 配置中显式指定的路径（且确实存在）
+          2) tool_manager 的 ffmpeg_path / ffmpeg_dir 同目录
+          3) 随程序分发的 ffmpeg/bin（源码运行与打包运行都覆盖）
+          4) 系统 PATH
+        """
+        name = tool if tool.endswith('.exe') else (tool + ('.exe' if IS_WINDOWS else ''))
+        # 1) 配置显式指定
+        try:
+            cfg_val = (self.config.get_app_setting(tool + "_path", "") or "").strip()
+            if cfg_val and os.path.isfile(cfg_val):
+                return cfg_val
+            if tool == "ffmpeg":
+                cfg_ff = (self.config.get_app_setting("ffmpeg_path", "") or "").strip()
+                if cfg_ff and cfg_ff != "ffmpeg" and os.path.isfile(cfg_ff):
+                    return cfg_ff
+        except Exception:
+            pass
+
+        # 2) tool_manager（打包/安装后工具的权威位置）
+        try:
+            tm = getattr(self.task_manager, "tool_manager", None) if self.task_manager else None
+            if tm is not None:
+                fdir = getattr(tm, "ffmpeg_dir", "") or ""
+                cands = [os.path.join(fdir, name) if fdir else ""]
+                fpath = getattr(tm, "ffmpeg_path", "") or ""
+                if fpath:
+                    cands.append(os.path.join(os.path.dirname(fpath), name))
+                for c in cands:
+                    if c and os.path.isfile(c):
+                        return os.path.normpath(c)
+        except Exception:
+            pass
+
+        # 3) 随程序分发的位置
+        try:
+            bases = []
+            if getattr(sys, "frozen", False):
+                exe_dir = os.path.dirname(sys.executable)
+                bases += [os.path.join(exe_dir, "_internal"), exe_dir]
+            bases.append(_pathsetup.project_root())
+            for base in bases:
+                for sub in (("ffmpeg", "bin"), ("ffmpeg",), ("_internal", "ffmpeg", "bin")):
+                    c = os.path.join(base, *sub, name)
+                    if os.path.isfile(c):
+                        return os.path.normpath(c)
+        except Exception:
+            pass
+
+        # 4) 系统 PATH
+        try:
+            found = shutil.which(tool)
+            if found:
+                return os.path.normpath(found)
+        except Exception:
+            pass
+        return name   # 交给系统自行解析（通常是裸名）
+
     def _build_ffmpeg_cmd(self, file_info, output_path):
         cmd = []
-        ffmpeg_path = self.config.get_app_setting("ffmpeg_path", "ffmpeg")
-        # 如果配置的ffmpeg路径无效，尝试从tool_manager获取
-        if not ffmpeg_path or ffmpeg_path == "ffmpeg":
-            try:
-                if self.task_manager and hasattr(self.task_manager, 'tool_manager'):
-                    tm = self.task_manager.tool_manager
-                    if hasattr(tm, 'ffmpeg_path') and tm.ffmpeg_path and os.path.exists(tm.ffmpeg_path):
-                        ffmpeg_path = tm.ffmpeg_path
-                        logger.info(f"VideoTool使用tool_manager的ffmpeg: {ffmpeg_path}")
-            except Exception:
-                pass
-        cmd.append(ffmpeg_path)
+        ffmpeg_path = self._resolve_media_tool("ffmpeg")
 
         cmd.extend(['-y'])
 
@@ -12904,6 +13027,14 @@ class BatchDownloadWindow(BaseWindow):
         except Exception as e:
             logger.error(f"取消任务失败：{str(e)}")
 
+    def _lookup_episode_path(self, task_id, ep_index):
+        """取该集真实产物路径（转到模块级实现，与 FloatingBall 共用）。"""
+        return _episode_output_path(_find_task(self.download_manager, task_id, ep_index), ep_index)
+
+    def _lookup_path_any_task(self, ep_index):
+        """无 task_id 场景：按集号找产物路径。"""
+        return _episode_output_path(_find_task(self.download_manager, None, ep_index), ep_index)
+
     def finish_episode(self, *args):
         try:
             self._finish_episode_impl(*args)
@@ -12937,8 +13068,18 @@ class BatchDownloadWindow(BaseWindow):
                             bvid = self.video_info.get('bvid', '')
                             title = self.video_info.get('title', '未知视频')
                             url = f"https://www.bilibili.com/video/{bvid}" if bvid else ""
+                            # 带上真实路径：否则历史记录里两个路径字段都是空，
+                            # 「下载历史 → 用视频工具处理」会一直提示"文件不存在"
+                            _sp, _fp = self._lookup_episode_path(task_id, ep_index)
+                            _fsz = 0
+                            try:
+                                if _fp and os.path.exists(_fp):
+                                    _fsz = os.path.getsize(_fp)
+                            except Exception:
+                                pass
                             parent.download_history.add_record(
                                 bvid=bvid, title=title, url=url,
+                                save_path=_sp, file_path=_fp, file_size=_fsz,
                                 status="success" if success else "failed",
                                 error_msg="" if success else message[:200],
                             )
@@ -12993,8 +13134,17 @@ class BatchDownloadWindow(BaseWindow):
                         bvid = self.video_info.get('bvid', '')
                         title = self.video_info.get('title', '未知视频')
                         url = f"https://www.bilibili.com/video/{bvid}" if bvid else ""
+                        # 该分支信号不带 task_id，按集号在所有任务里找产物路径
+                        _sp, _fp = self._lookup_path_any_task(index)
+                        _fsz = 0
+                        try:
+                            if _fp and os.path.exists(_fp):
+                                _fsz = os.path.getsize(_fp)
+                        except Exception:
+                            pass
                         parent.download_history.add_record(
                             bvid=bvid, title=title, url=url,
+                            save_path=_sp, file_path=_fp, file_size=_fsz,
                             status="success" if success else "failed",
                             error_msg="" if success else message[:200],
                         )
@@ -19784,12 +19934,24 @@ exit /b 0
             file_path = record.get("file_path", "")
             save_path = record.get("save_path", "")
             target = file_path if file_path and os.path.exists(file_path) else None
+            # 兜底：修复前写入的历史记录没有 file_path，
+            # 此时按标题在保存目录里找一次同名媒体文件，尽量让它可用。
+            if not target and save_path and os.path.isdir(save_path):
+                _title = (record.get("title") or "").strip()
+                if _title:
+                    for _ext in ('.mp4', '.mkv', '.flv', '.avi', '.mov',
+                                 '.mp3', '.m4a', '.flac', '.wav', '.aac'):
+                        _cand = os.path.join(save_path, _title + _ext)
+                        if os.path.isfile(_cand):
+                            target = _cand
+                            break
             if target:
                 self.open_video_tool()
                 if hasattr(self, '_video_tool_window') and self._video_tool_window:
                     self._video_tool_window._add_file(target)
             elif save_path and os.path.isdir(save_path):
                 self.open_video_tool()
+                self.show_notification("未找到该记录的成品文件，已打开视频工具（可手动添加）", "warning")
             else:
                 self.show_notification("文件不存在，无法用视频工具处理", "warning")
 
