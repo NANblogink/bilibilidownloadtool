@@ -1,6 +1,0 @@
-User-agent: *
-Allow: /
-Disallow: /api/
-Disallow: /assets/
-
-Sitemap: https://www.bilidown.cn/sitemap.xml
