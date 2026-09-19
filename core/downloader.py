@@ -1958,6 +1958,14 @@ class DownloadManager(QObject):
             if task_info:
                 downloaded_episodes = task_info.get("downloaded_episodes", [])
                 if ep_info not in downloaded_episodes:
+                    # 记录真实产物路径：下载历史/视频工具需要用它定位文件
+                    # （history 记录的 file_path 此前一直是空，导致"文件不存在"）
+                    try:
+                        if output_path and os.path.exists(output_path):
+                            ep_info['file_path'] = output_path
+                            ep_info['file_size'] = os.path.getsize(output_path)
+                    except Exception:
+                        pass
                     downloaded_episodes.append(ep_info)
                     task_info["downloaded_episodes"] = downloaded_episodes
             self._mutex.unlock()
