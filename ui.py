@@ -14331,27 +14331,52 @@ class BilibiliDownloader(BaseWindow):
             if not new_exe_name:
                 new_exe_name = os.path.basename(sys.executable) if hasattr(sys, 'frozen') else 'main.py'
             update_script = os.path.join(temp_dir, "updater.bat")
-            script_content = f"""@echo off
-chcp 65001 >nul
-echo 正在更新{APP_NAME}...
-timeout /t 2 /nobreak >nul
-
-xcopy /E /Y /Q "{source_dir}\\*" "{app_dir}\\"
-
-if %errorlevel% neq 0 (
-    echo 更新失败！
-    pause
-    exit /b 1
-)
-
-if exist "{app_dir}\\_internal\\version_info.json" (
-    copy /Y "{app_dir}\\_internal\\version_info.json" "{app_dir}\\version_info.json" >nul
-)
-
-echo 更新完成，正在启动程序...
-start "" "{app_dir}\\{new_exe_name}"
-exit /b 0
-"""
+            # 注意：用普通字符串拼接，避免 f-string 中反斜杠被二次转义
+            _bat_lines = [
+                "@echo off",
+                "chcp 65001 >nul",
+                "echo 正在更新%s..." % APP_NAME,
+                "",
+                "rem 先等待旧进程真正退出，避免新版本被单实例锁判为程序已启动",
+                "set _wait=0",
+                ":waitloop",
+                'tasklist /FI "IMAGENAME eq %s" 2>nul | find /I "%s" >nul'
+                % (new_exe_name, new_exe_name),
+                "if not errorlevel 1 (",
+                "    set /a _wait+=1",
+                "    if %_wait% geq 60 goto forcestart",
+                "    timeout /t 1 /nobreak >nul",
+                "    goto waitloop",
+                ")",
+                "goto docopy",
+                "",
+                ":forcestart",
+                "echo 旧进程未退出，尝试强制结束...",
+                'taskkill /F /IM "%s" >nul 2>&1' % new_exe_name,
+                "timeout /t 2 /nobreak >nul",
+                "goto docopy",
+                "",
+                ":docopy",
+                'robocopy "%s" "%s" /E /IS /IT /NFL /NDL /NJH /NJS /NP >nul'
+                % (source_dir, app_dir),
+                "if errorlevel 8 (",
+                "    echo 更新失败，错误码 %errorlevel%",
+                "    pause",
+                "    exit /b 1",
+                ")",
+                "",
+                'if exist "%s" (' % os.path.join(app_dir, "_internal", "version_info.json"),
+                '    copy /Y "%s" "%s" >nul'
+                % (os.path.join(app_dir, "_internal", "version_info.json"),
+                   os.path.join(app_dir, "version_info.json")),
+                ")",
+                "",
+                "echo 更新完成，正在启动程序...",
+                'start "" "%s"' % os.path.join(app_dir, new_exe_name),
+                "exit /b 0",
+                "",
+            ]
+            script_content = "\r\n".join(_bat_lines)
             with open(update_script, 'w', encoding='utf-8') as f:
                 f.write(script_content)
             _st("更新即将完成，程序将自动重启...")
