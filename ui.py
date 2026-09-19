@@ -5708,7 +5708,10 @@ class VideoToolWindow(BaseWindow):
         try:
             self.process = subprocess.Popen(
                 cmd,
-                stdout=subprocess.PIPE,
+                # stdout 必须丢弃：ffmpeg 默认把日志写 stderr（我们读它取进度），
+                # 但若它向 stdout 写入（如 -progress - 或输出到管道），
+                # 该管道无人读取，写满 64KB 缓冲即会阻塞进程 → 表现为"开始转换就卡死"。
+                stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 **subprocess_no_window_kwargs()
             )
@@ -5799,7 +5802,20 @@ class VideoToolWindow(BaseWindow):
                         self._log(f"警告: ffmpeg长时间无输出({no_output_timeout}秒)，请检查")
                         last_progress_time = time.time()
 
-            return_code = self.process.returncode
+            # 关键：读到 stderr EOF 时子进程可能尚未被收割，
+            # 此时 process.returncode / poll() 仍是 None，
+            # 直接拿它比较会把"成功"误判为失败
+            # （日志实证：ffmpeg 实际已成功完成，却报"返回码: None"并标记转换失败）。
+            # 因此必须先 wait() 收回退出码，拿不到再退回 poll()。
+            return_code = None
+            try:
+                self.process.wait(timeout=30)
+            except Exception:
+                pass
+            return_code = self.process.poll()
+            if return_code is None:
+                return_code = self.process.returncode
+
             if return_code != 0:
                 full_error = b''.join(error_output).decode('utf-8', errors='ignore')
                 last_errors = full_error[-2000:] if len(full_error) > 2000 else full_error

@@ -5937,12 +5937,26 @@ class BilibiliParser:
             fnval = 4048
             fnver = 0
             
-            # 判断登录状态：未登录带try_look=1（试看1080P），已登录不带（获取4K等高画质）
-            _is_logged_in = bool(self.cookies and self.cookies.get('SESSDATA'))
-            if not _is_logged_in:
+            # 判断是否使用试看参数 try_look。
+            #
+            # 原实现只看 Cookie 里**是否存在 SESSDATA 这个键**：
+            #     _is_logged_in = bool(self.cookies and self.cookies.get('SESSDATA'))
+            # 但 SESSDATA 过期后键依然存在，于是被判成"已登录"→ try_look=0，
+            # 而未登录本应 try_look=1（官方文档：try_look=1 可让未登录拿到
+            # 64/80 即 720P/1080P）。结果是 Cookie 过期的用户反而只能拿到
+            # 360P/240P —— 这正是"未登录却没有 1080P"的原因。
+            #
+            # 改用**实际登录状态**（nav 接口的 isLogin）判断；nav 失败时
+            # 才退回"是否有 SESSDATA 键"的宽松判断。
+            _try_look = 0
+            try:
+                _ui_probe = self.get_user_info()
+                _really_logged_in = bool(_ui_probe.get('success'))
+            except Exception:
+                _really_logged_in = bool(self.cookies and self.cookies.get('SESSDATA'))
+            if not _really_logged_in:
                 _try_look = 1
-            else:
-                _try_look = 0
+            logger.debug(f"试看参数判定：实际登录={_really_logged_in} → try_look={_try_look}")
 
             if media_type == "bangumi":
                 # 番剧使用正确的API
@@ -6085,8 +6099,12 @@ class BilibiliParser:
                 raise Exception(error_msg)
 
             # 获取登录状态（用于判断是否需要回退html5模式）
+            # 复用上面已取到的结果（get_user_info 内部有缓存，不会重复请求）
             user_info = self.get_user_info()
             is_login = user_info.get('success', False)
+            logger.info(
+                "[画质诊断] 实际登录=%s VIP=%s try_look=%s",
+                is_login, user_info.get('is_vip', False), _try_look)
 
             # 检查DASH模式下最高画质，如果未登录且最高画质<1080P，尝试html5模式获取1080P
             _data_src = play_data.get('data', play_data.get('result', {}))
