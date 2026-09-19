@@ -7,7 +7,6 @@ _SUBDIRS = (
     "core",
     os.path.join("core", "infra"),
     "parsers",
-    "build",
 )
 
 

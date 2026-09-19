@@ -83,7 +83,7 @@ REQUIRED_ASSETS = [
     "core/tool_manager.py",
     "core/icon_manager.py",
     "parsers/bilibili_parser.py",
-    "build/cli.py",
+    "core/cli.py",
     "version_info.json",
     "README.md",
     "CHANGELOG.md",
