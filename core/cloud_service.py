@@ -3,6 +3,7 @@ import logging
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 import threading
@@ -58,6 +59,64 @@ def collect_recent_logs(max_bytes=512 * 1024, tail_only=True):
         if total >= max_bytes:
             break
     return "\n".join(parts)
+
+
+def sanitize_error_path(path):
+    """把出错文件路径脱敏为「相对项目的模块路径」。
+
+    原始路径形如 C:\\Users\\<用户名>\\AppData\\Local\\BilibiliDownloadTool\\core\\downloader.py，
+    直接上报会暴露 Windows 用户名。这里剥掉程序根目录前缀，保留
+    core/downloader.py 这样既有定位价值、又不含隐私的部分。
+
+    依次尝试：项目根目录 -> 打包运行目录 -> 当前工作目录。
+    都不匹配时退回纯文件名，绝不回传完整路径。
+    """
+    p = str(path or "").strip()
+    if not p:
+        return ""
+    try:
+        norm = p.replace("\\", "/")
+    except Exception:
+        return ""
+
+    roots = []
+    for getter in (
+        lambda: __import__("_pathsetup").project_root(),
+        # 打包运行：exe 所在目录即程序根（PyInstaller onedir 布局）
+        lambda: os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False) else "",
+        # PyInstaller 解包目录（onefile 时源文件会被解到这里）
+        lambda: getattr(sys, "_MEIPASS", ""),
+        lambda: os.getcwd(),
+    ):
+        try:
+            r = str(getter() or "").replace("\\", "/").rstrip("/")
+            if r and r not in roots:
+                roots.append(r)
+        except Exception:
+            pass
+
+    low = norm.lower()
+    for r in roots:
+        if low.startswith(r.lower() + "/"):
+            rel = norm[len(r) + 1:]
+            # 相对路径中若仍含用户目录，继续按下面的规则清洗
+            m = re.search(r"/(?:Users|home|Documents and Settings)/[^/]+/(.+)$", rel, re.I)
+            return (m.group(1) if m else rel)
+
+    # 绝对路径但不在已知根下：剥掉用户目录前缀
+    m = re.search(r"/(?:Users|Documents and Settings)/[^/]+/(.+)$", norm, re.I)
+    if m:
+        return m.group(1)
+    m = re.search(r"^/(?:home|Users)/[^/]+/(.+)$", norm, re.I)
+    if m:
+        return m.group(1)
+
+    # 已经是相对路径：保留（不含盘符即无隐私）
+    if not re.match(r"^[A-Za-z]:", norm) and not norm.startswith("/"):
+        return norm
+
+    # 兜底：只留文件名
+    return os.path.basename(norm) or norm[:80]
 
 
 class CloudService:
@@ -741,7 +800,7 @@ class CloudService:
                     "client_id": self._client_id,
                     "extra": json.dumps(extra_data, ensure_ascii=False) if extra_data else "",
                     "error_line": int(error_line) if error_line else 0,
-                    "error_file": str(error_file)[:500],
+                    "error_file": sanitize_error_path(error_file)[:200],
                     "ip_address": ip_address,
                     "log_content": str(_log)[:1048576],  # 1MB
                 }
@@ -1240,7 +1299,7 @@ class CloudService:
                         "stack_trace": str(stack_trace)[:8000],
                         "system_info": str(system_info)[:4000],
                         "error_line": int(error_line) if error_line else 0,
-                        "error_file": str(error_file)[:500],
+                        "error_file": sanitize_error_path(error_file)[:200],
                         "ip_address": ip_address,
                     },
                     timeout=5,

@@ -327,6 +327,26 @@ def _episode_output_path(task, ep_index):
         return "", ""
 
 
+def _sanitize_reason_text(text, limit=120):
+    """清洗失败原因文本后再上报。
+
+    去掉 URL、本地绝对路径与用户名，避免把用户内容带进统计。
+    清洗后为空则返回空串（调用方应跳过上报）。
+    """
+    try:
+        s = str(text or "")
+        # 去掉 http/https URL（可能含视频地址与鉴权参数）
+        s = re.sub(r"https?://\S+", "<URL>", s)
+        # 去掉 Windows / Unix 绝对路径（可能含用户名）
+        s = re.sub(r"[A-Za-z]:\\[^\s，。；)]+", "<路径>", s)
+        s = re.sub(r"/(?:Users|home)/[^\s，。；)]+", "<路径>", s)
+        # 去掉过长空白
+        s = re.sub(r"\s+", " ", s).strip()
+        return s[:limit]
+    except Exception:
+        return ""
+
+
 def _classify_download_error(message):
     """把下载失败信息归一化为可聚合的原因标签。
 
@@ -2549,14 +2569,15 @@ class FloatingBall(QWidget):
                     self.parent.show_notification(error_msg, "info")
                 else:
                     self.parent.show_notification(f"解析失败：{error_msg}", "error")
-                    # 记录失败原因（截断且剥离 URL/标题，只保留可归类的短文本）
+                    # 记录失败原因：仅上传可归类的短文本，剥离 URL 与本地路径
                     try:
                         if hasattr(self.parent, 'cloud_service') and self.parent.cloud_service:
-                            _reason = str(error_msg)[:120]
-                            self.parent.cloud_service.report_event("parse_failed", extra={
-                                "reason": _reason,
-                                "type": str(video_info.get('type', ''))[:20],
-                            })
+                            _reason = _sanitize_reason_text(error_msg)
+                            if _reason:
+                                self.parent.cloud_service.report_event("parse_failed", extra={
+                                    "reason": _reason,
+                                    "type": str(video_info.get('type', ''))[:20],
+                                })
                     except Exception:
                         pass
     
@@ -2969,12 +2990,12 @@ class FloatingBall(QWidget):
                     )
                 except Exception:
                     pass
-            # 上报下载失败原因（归一化后便于按原因聚合）
+            # 上报下载失败原因（仅上传归一化标签，不上传原始信息）
+            # 原始信息可能包含完整视频 URL 与文件名，属于用户内容，一律不上报。
             try:
                 if self.parent and hasattr(self.parent, 'cloud_service') and self.parent.cloud_service:
                     self.parent.cloud_service.report_event("download_failed", extra={
                         "reason": _classify_download_error(message),
-                        "raw": str(message)[:160],
                     })
             except Exception:
                 pass
