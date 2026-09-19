@@ -10302,45 +10302,94 @@ class TaskManagerWindow(BaseWindow):
 
     def resume_task(self, task):
         task_id = task.get("id")
+        # 「继续」按钮在 paused / failed / pending 三种状态下都会出现
+        # （见列表渲染分支），但原实现只把 paused 当作续传，
+        # 其余状态会新建一个 task_id 并把**该任务的全部集数**重新下载一遍——
+        # 这正是用户反馈的"暂停后继续会失败，并自动重新触发再下 30 集"。
+        # 现在只要底层任务对象还在（active/paused），一律走续传：
+        # 续传会跳过 downloaded_episodes 与已存在的文件，不会重下。
+        if self.download_manager:
+            dm = self.download_manager
+            exists = False
+            try:
+                exists = (task_id in getattr(dm, 'active_tasks', {})
+                          or task_id in getattr(dm, 'paused_tasks', {}))
+            except Exception:
+                exists = False
+            if exists and getattr(dm, 'resume_task', None):
+                try:
+                    logger.info(f"继续任务 {task_id}（复用已有任务，跳过已完成集）")
+                    dm.resume_task(task_id)
+                    # 已有进度窗口则直接显示，没有就补建一个并接上进度信号，
+                    # 否则续传时看不到任何进度反馈。
+                    try:
+                        win = self.batch_windows.get(task_id)
+                        if win is None:
+                            win = BatchDownloadWindow(
+                                task.get("video_info", {}), 0, dm, self.parser, parent=self)
+                            eps = task.get("episodes", [])
+                            for i, ep in enumerate(eps):
+                                win.add_episode_progress(
+                                    format_ep_name(ep, i, task.get("video_info", {})),
+                                    ep.get('ep_title', '') or ep.get('title', '') or ep.get('name', ''),
+                                    task_id, i)
+                            dm.episode_progress_updated.connect(win.update_episode_progress)
+                            dm.episode_finished.connect(win.finish_episode)
+                            dm.global_progress_updated.connect(win._update_global_progress)
+                            win.cancel_all.connect(lambda: dm.cancel_all())
+                            win.window_closed.connect(lambda tid=task_id: self.on_batch_window_closed(tid))
+                            self.batch_windows[task_id] = win
+                        win.show()
+                    except Exception as e:
+                        logger.debug(f"显示续传进度窗口失败: {e}")
+                    self.refresh_task_list()
+                    return
+                except Exception as e:
+                    logger.error(f"续传任务 {task_id} 失败，回退为重新排队: {e}")
+
         if task.get("status") == "paused":
+            # 任务对象已不在内存（如重启后），没有可续传的进度，
+            # 只能重新排队；此时也保留原 task_id，避免产生重复任务记录。
             if self.download_manager:
                 self.download_manager.resume_task(task_id)
-        else:
-            new_task_id = str(int(time.time() * 1000))
-            download_params = {
-                "url": task.get("url", ""),
-                "video_info": task.get("video_info", {}),
-                "qn": task.get("qn", ""),
-                "save_path": task.get("save_path", ""),
-                "episodes": task.get("episodes", []),
-                "resume_download": True,
-                "task_id": new_task_id,
-                "download_video": task.get("download_video", True),
-                "download_danmaku": task.get("download_danmaku", False),
-                "danmaku_format": task.get("danmaku_format", "XML"),
-                "video_format": task.get("video_format", self.config.get_app_setting("video_output_format", "mp4")),
-                "audio_format": task.get("audio_format", self.config.get_app_setting("audio_output_format", "mp3")),
-                "audio_quality": task.get("audio_quality", self.config.get_app_setting("audio_quality", 30280))
-            }
+            self.refresh_task_list()
+            return
 
-            self.download_manager.start_download(download_params)
+        new_task_id = str(int(time.time() * 1000))
+        download_params = {
+            "url": task.get("url", ""),
+            "video_info": task.get("video_info", {}),
+            "qn": task.get("qn", ""),
+            "save_path": task.get("save_path", ""),
+            "episodes": task.get("episodes", []),
+            "resume_download": True,
+            "task_id": new_task_id,
+            "download_video": task.get("download_video", True),
+            "download_danmaku": task.get("download_danmaku", False),
+            "danmaku_format": task.get("danmaku_format", "XML"),
+            "video_format": task.get("video_format", self.config.get_app_setting("video_output_format", "mp4")),
+            "audio_format": task.get("audio_format", self.config.get_app_setting("audio_output_format", "mp3")),
+            "audio_quality": task.get("audio_quality", self.config.get_app_setting("audio_quality", 30280))
+        }
+
+        self.download_manager.start_download(download_params)
             
-            batch_window = BatchDownloadWindow(task.get("video_info", {}), 0, self.download_manager, self.parser, parent=self)
-            episodes = task.get("episodes", [])
-            for i, ep in enumerate(episodes):
-                ep_name = format_ep_name(ep, i, task.get("video_info", {}))
-                ep_tooltip = ep.get('ep_title', '') or ep.get('title', '') or ep.get('name', '')
-                batch_window.add_episode_progress(ep_name, ep_tooltip, new_task_id, i)
-            if self.download_manager:
-                self.download_manager.episode_progress_updated.connect(batch_window.update_episode_progress)
-                self.download_manager.episode_finished.connect(batch_window.finish_episode)
-                self.download_manager.global_progress_updated.connect(batch_window._update_global_progress)
-            batch_window.cancel_all.connect(lambda: self.download_manager.cancel_all())
-            batch_window.window_closed.connect(lambda tid=new_task_id: self.on_batch_window_closed(tid))
-            batch_window.show()
+        batch_window = BatchDownloadWindow(task.get("video_info", {}), 0, self.download_manager, self.parser, parent=self)
+        episodes = task.get("episodes", [])
+        for i, ep in enumerate(episodes):
+            ep_name = format_ep_name(ep, i, task.get("video_info", {}))
+            ep_tooltip = ep.get('ep_title', '') or ep.get('title', '') or ep.get('name', '')
+            batch_window.add_episode_progress(ep_name, ep_tooltip, new_task_id, i)
+        if self.download_manager:
+            self.download_manager.episode_progress_updated.connect(batch_window.update_episode_progress)
+            self.download_manager.episode_finished.connect(batch_window.finish_episode)
+            self.download_manager.global_progress_updated.connect(batch_window._update_global_progress)
+        batch_window.cancel_all.connect(lambda: self.download_manager.cancel_all())
+        batch_window.window_closed.connect(lambda tid=new_task_id: self.on_batch_window_closed(tid))
+        batch_window.show()
             
-            if new_task_id:
-                self.batch_windows[new_task_id] = batch_window
+        if new_task_id:
+            self.batch_windows[new_task_id] = batch_window
         
         self.refresh_task_list()
 
@@ -15586,8 +15635,15 @@ exit /b 0
         super().show()
         
         # 保证主窗口打开即为最大化，且窗口状态与视觉保持一致，
-        # 避免"首次未最大化/点击右上角变成还原"的状态错乱
-        if not self.isMaximized():
+        # 避免"首次未最大化/点击右上角变成还原"的状态错乱。
+        # 仅当「启动时最大化窗口」开启时执行——关闭后仍强制最大化
+        # 会让该设置完全失效（窗口依旧被撑满）。
+        _start_max = True
+        try:
+            _start_max = bool(self.config.get_app_setting("start_maximized", True))
+        except Exception:
+            _start_max = True
+        if _start_max and not self.isMaximized():
             self.showMaximized()
         
         self.raise_()
@@ -15730,14 +15786,22 @@ exit /b 0
                 except Exception:
                     pass
                 # 轮询式启动守卫：周期性检查并强制保持最大化，覆盖
-                # setMinimumSize 等不会触发 WindowStateChange 的几何变化
-                self._startup_guard = True
-                from PyQt5.QtCore import QTimer as _QT
-                self._guard_timer = _QT(self)
-                self._guard_timer.timeout.connect(self._poll_startup_guard)
-                self._guard_timer.start(300)
+                # setMinimumSize 等不会触发 WindowStateChange 的几何变化。
+                # 仅当"启动时最大化"开启时才启用守卫——否则守卫会在启动后
+                # 每 300ms 把非最大化窗口强扯回全屏。
+                _start_max = True
+                try:
+                    _start_max = bool(self.config.get_app_setting("start_maximized", True))
+                except Exception:
+                    _start_max = True
+                if _start_max:
+                    self._startup_guard = True
+                    from PyQt5.QtCore import QTimer as _QT
+                    self._guard_timer = _QT(self)
+                    self._guard_timer.timeout.connect(self._poll_startup_guard)
+                    self._guard_timer.start(300)
+                    QTimer.singleShot(60000, self._disarm_startup_guard)
                 QTimer.singleShot(160, self._delayed_enforce_min_size)
-                QTimer.singleShot(60000, self._disarm_startup_guard)
         except Exception:
             pass
 
@@ -19792,7 +19856,11 @@ exit /b 0
     
     def hide_cookie_ui(self):
         
-        self.showMaximized()
+        # 原先是 self.showMaximized()：这里只是切换"已登录"界面状态，
+        # 却把窗口强行最大化（明显是遗留错误），同样会让启动窗口设置失效。
+        # 改为不改变窗口尺寸/状态。
+        if not self.isVisible():
+            self.show()
         
         
         if not hasattr(self, 'logout_btn'):
@@ -19835,11 +19903,12 @@ exit /b 0
     
     def show_cookie_ui(self):
         
-        self.showMaximized()
-        
-        
-        if hasattr(self, 'logout_btn'):
-            self.logout_btn.hide()
+        # 注意：这里原先是 self.showMaximized()（且在同一函数里写了两遍）。
+        # 它在启动流程 show() 之后执行，会把窗口无条件撑满，
+        # 导致「启动时最大化窗口」这个设置完全失效。
+        # 改为仅确保窗口可见，不改变窗口尺寸/状态。
+        if not self.isVisible():
+            self.show()
         
         
 
@@ -19852,10 +19921,6 @@ exit /b 0
                 content_layout = content_widget.layout()
                 if content_layout:
                     content_layout.update()
-        
-        
-        
-        self.showMaximized()
     
     def adjust_layout_space(self):
         
@@ -23442,6 +23507,57 @@ exit /b 0
             if hasattr(self, 'select_danmaku_btn'):
                 self.select_danmaku_btn.setEnabled(True)
 
+    def _single_episode_of_current_video(self):
+        """返回"当前解析的这一个视频"对应的单集列表（只含 1 项）。
+
+        用于"用户没有显式选集数"时的兜底默认值。
+        此前该场景会调用 auto_select_all_episodes() 把整个合集全选，
+        导致：在收藏夹里只解析 2 个视频，却把两个合集共 60 集全部下载
+        （用户实测反馈"我只要下载两个视频，它自动把博主合集全下了"）。
+        默认只选当前视频才符合直觉；要下整个合集请显式点「全选」
+        或勾选「完全模式」。
+        """
+        info = self.current_video_info or {}
+        candidates = []
+        try:
+            if info.get("is_bangumi") and info.get("bangumi_info"):
+                candidates = info["bangumi_info"].get("episodes", [])
+            elif info.get("is_cheese") and info.get("cheese_info"):
+                candidates = info["cheese_info"].get("episodes", [])
+            elif info.get("collection"):
+                candidates = info["collection"]
+            elif info.get("episodes"):
+                candidates = info["episodes"]
+        except Exception:
+            candidates = []
+        if candidates:
+            return [candidates[0]]
+        return [info.copy()] if info else []
+
+    def set_selected_episodes(self, episodes, announce=True):
+        """统一设置已选集数并同步界面文案（供下载前兜底与全选共用）。"""
+        self.selected_episodes = list(episodes or [])
+        try:
+            if hasattr(self, 'select_episode_btn'):
+                if self.selected_episodes:
+                    self.select_episode_btn.setText(f"已选{len(self.selected_episodes)}集")
+                    self.select_episode_btn.setToolTip("点击修改集数选择")
+                else:
+                    self.select_episode_btn.setText("选择集数")
+                    self.select_episode_btn.setToolTip("点击选择要下载的集数")
+            for _n in ('danmaku_checkbox', 'danmaku_format_combo', 'select_danmaku_btn'):
+                if hasattr(self, _n):
+                    getattr(self, _n).setEnabled(True)
+        except Exception:
+            pass
+        if announce and len(self.selected_episodes) > 1:
+            try:
+                self.show_notification(
+                    f"未显式选集数，已默认下载当前视频（共 {len(self.selected_episodes)} 集）", "info")
+            except Exception:
+                pass
+        return self.selected_episodes
+
     def auto_select_all_episodes(self):
         if not self.current_video_info:
             return
@@ -23802,9 +23918,14 @@ exit /b 0
         
         danmaku_format = self.danmaku_format_combo.currentText() if hasattr(self, 'danmaku_format_combo') else 'XML'
         
-        # 完全模式下自动全选集数
+        # 兜底：用户没有显式选集数时，**只下载当前解析的这个视频**，
+        # 而不是把整个合集全选。
+        # 原实现写的是 auto_select_all_episodes()（注释虽写"完全模式下"，
+        # 但这里没有任何模式判断），导致在收藏夹里只解析 2 个视频
+        # 却把两个合集共 60 集全部加入下载。
+        # 「完全模式」的全选逻辑在解析完成处（按复选框状态）单独处理，不依赖这里。
         if not self.selected_episodes:
-            self.auto_select_all_episodes()
+            self.set_selected_episodes(self._single_episode_of_current_video())
         
         if not self.selected_episodes:
             self.show_notification("没有可下载的集数", "warning")
@@ -29274,6 +29395,16 @@ exit /b 0
         scale_btn_row.addWidget(apply_scale_btn)
         scale_btn_row.addWidget(reset_scale_btn)
         window_layout.addLayout(scale_btn_row)
+        
+        # 启动窗口模式：部分用户不希望启动即最大化
+        start_max_checkbox = QCheckBox("启动时最大化窗口")
+        start_max_checkbox.setChecked(bool(self.config.get_app_setting("start_maximized", True)))
+        start_max_checkbox.setToolTip(
+            "勾选：打开软件即铺满屏幕（默认）\n"
+            "取消：按上次关闭时的窗口大小打开；没有记录时居中显示一个舒适尺寸"
+        )
+        _fit_button_height(start_max_checkbox)
+        window_layout.addWidget(start_max_checkbox)
 
         # 折叠功能Tab：勾选后从顶部Tab栏折叠到右侧“更多”箭头菜单
         fold_group = QGroupBox("折叠功能Tab")
@@ -31052,6 +31183,24 @@ exit /b 0
             
             # 保存自定义缩放比例
             self.config.set_app_setting("custom_ui_scale", str(scale_spin.value()))
+
+            # 保存「启动时最大化窗口」；取消勾选时立刻生效（还原为普通窗口），
+            # 省得用户以为没起作用而要重启验证。
+            try:
+                _want_max = bool(start_max_checkbox.isChecked())
+                self.config.set_app_setting("start_maximized", _want_max)
+                if not _want_max:
+                    self._startup_guard = False
+                    _t = getattr(self, '_guard_timer', None)
+                    if _t is not None:
+                        _t.stop()
+                    if self.isMaximized():
+                        self.showNormal()
+                        _geo = getattr(self, '_normal_geometry', None)
+                        if _geo is not None and _geo.isValid():
+                            self.setGeometry(_geo)
+            except Exception as _e:
+                logger.debug(f"应用启动窗口设置失败: {_e}")
 
             selected_icon_mode = "default"
             for btn in icon_button_group.buttons():

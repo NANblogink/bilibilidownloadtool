@@ -868,15 +868,34 @@ if __name__ == "__main__":
                 splash.update_progress(95, "加载完成...")
                 app.processEvents()
                 splash.close_with_animation()
-                # 设置默认窗口尺寸（供用户从最大化还原时使用合理大小）。
-                # 无边框窗口的 showMaximized() 在此 Qt 版本下不可靠（可能静默失效），
-                # 因此直接物理铺满可用区，保证打开即为全屏；守卫会兜底维持全屏。
+                # 启动窗口模式由设置项 start_maximized 决定（默认开，保持原有行为）：
+                #   开 = 打开即铺满可用区（并启用启动守卫维持）
+                #   关 = 用上次窗口几何；没有记录时居中一个舒适尺寸
+                try:
+                    _start_max = bool(config.get_app_setting("start_maximized", True))
+                except Exception:
+                    _start_max = True
                 saved_geo = config.get_app_setting("window_geometry", "")
-                if not saved_geo:
-                    screen = QApplication.primaryScreen()
-                    if screen:
+                screen = QApplication.primaryScreen()
+                if _start_max:
+                    # 无边框窗口的 showMaximized() 在此 Qt 版本下不可靠（可能静默失效），
+                    # 因此直接物理铺满可用区；守卫会兜底维持全屏。
+                    if not saved_geo and screen:
                         window.setGeometry(screen.availableGeometry())
-                window.showMaximized()
+                    window.showMaximized()
+                else:
+                    if saved_geo:
+                        # init_ui 已按 window_geometry 设过几何，这里只需正常显示
+                        window.show()
+                    else:
+                        sg = screen.availableGeometry() if screen else None
+                        if sg:
+                            w = int(sg.width() * 0.72)
+                            h = int(sg.height() * 0.78)
+                            window.resize(w, h)
+                            window.move(sg.left() + (sg.width() - w) // 2,
+                                        sg.top() + (sg.height() - h) // 2)
+                        window.show()
                 window.raise_()
                 window.activateWindow()
             except Exception:
