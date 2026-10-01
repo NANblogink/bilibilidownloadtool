@@ -18230,7 +18230,10 @@ class BilibiliDownloader(BaseWindow):
 
         # 已解析视频卡片区：占据下方空白；空间不足自动收起
         self.parsed_card_panel = self._build_parsed_card_panel()
-        video_layout.addWidget(self.parsed_card_panel, stretch=1)
+        video_layout.addWidget(self.parsed_card_panel)
+        # 上方信息卡保持原高度，多余空间给卡片区
+        video_layout.setStretchFactor(self._video_card, 0)
+        video_layout.setStretchFactor(self.parsed_card_panel, 1)
         
         quality_layout = QHBoxLayout()
         quality_layout.setSpacing(scale(12))
@@ -26319,6 +26322,8 @@ class BilibiliDownloader(BaseWindow):
         """
         panel = QWidget()
         panel.setObjectName("parsedCardPanel")
+        # 不参与纵向挤压：信息卡优先，卡片区只吃剩余空间
+        panel.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         v = QVBoxLayout(panel)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(scale(8))
@@ -26376,7 +26381,11 @@ class BilibiliDownloader(BaseWindow):
         self.parsed_card_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.parsed_card_scroll.setStyleSheet(
             "QScrollArea { background: transparent; border: none; }")
+        # 有下限也有上限，避免把上面的信息卡挤扁
         self.parsed_card_scroll.setMinimumHeight(scale(150))
+        self.parsed_card_scroll.setMaximumHeight(scale(220))
+        self.parsed_card_scroll.setSizePolicy(
+            QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         self.parsed_card_host = QWidget()
         self.parsed_card_layout = QHBoxLayout(self.parsed_card_host)
@@ -26448,12 +26457,15 @@ class BilibiliDownloader(BaseWindow):
         card = QFrame()
         card.setObjectName("parsedCard")
         card.setFixedWidth(scale(160))
+        # 固定高度，避免被滚动区拉伸成整条竖框
+        card.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         card.setStyleSheet(scale_style(
             "QFrame#parsedCard { background: #ffffff; border: 1px solid #e6eaf2; }"
             "QFrame#parsedCard:hover { border: 1px solid #93c5fd; }"))
         cv = QVBoxLayout(card)
         cv.setContentsMargins(scale(7), scale(7), scale(7), scale(7))
         cv.setSpacing(scale(5))
+        cv.addStretch(0)
 
         cover = QLabel()
         cover.setFixedHeight(scale(78))
@@ -26495,6 +26507,8 @@ class BilibiliDownloader(BaseWindow):
         cv.addLayout(foot)
 
         card.setProperty("_check", chk)
+        # 封面78 + 标题36 + 底行24 + 间距边距，固定总高避免被拉伸
+        card.setFixedHeight(scale(78) + scale(36) + scale(24) + scale(26))
         return card
 
     def _update_parsed_card_visibility(self):
