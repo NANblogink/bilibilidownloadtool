@@ -92,9 +92,9 @@ for n in icons[:12]:
     w("    %-46s %8d B" % (n, len(z.read(n))))
 check("存在启动图标", len(icons) > 0)
 
-# 关键：APK 里同时有 p4a 自带的 @drawable/ic_launcher（SDL 图标）和我们
-# 的 @mipmap/icon。只有 manifest 引用的那个才是真正的应用图标。
-# aapt2 的 badging 输出会明确写出 application: icon='...'。
+# 关键：APK 里同时有 p4a 自带的 ic_launcher（SDL）
+# 和我们的 @mipmap/icon，只有 manifest 引用的才是应用图标
+# aapt2 的 badging 输出会写出 application: icon=...
 _mm = [n for n in icons if n.endswith("mipmap/icon.png")]
 check("存在 mipmap/icon.png（用户 logo）", bool(_mm))
 if _mm:
@@ -172,14 +172,14 @@ check("manifest 可解析出字符串池", len(strs) > 10, f"{len(strs)} 项")
 
 # 竖屏锁定。
 #
-# 注意：screenOrientation 在 AXML 里存的是**整数枚举**，不是字符串，
-# 所以字符串池里查不到 "portrait" 字面量。Android 的 ActivityInfo 定义为：
-#     0 = landscape      1 = portrait       2 = unspecified
-#     3 = behind         4 = sensor         5 = nosensor
-#     6 = sensorLandscape  7 = sensorPortrait  8 = reverseLandscape
-#     9 = reversePortrait  10 = fullSensor  11 = user ...
-# 因此真正可靠的判据是「属性名存在」且「取值为 1」。
-# 这里解析属性列表，取出 screenOrientation 的实际数值。
+# 注意：screenOrientation 在 AXML 里存的是整数枚举，
+# 不是字符串，所以字符串池里查不到 portrait 字面量
+# Android 的 ActivityInfo 定义为：
+# 0 = landscape      1 = portrait       2 = unspecified
+# 3 = behind         4 = sensor         5 = nosensor
+# 6 = sensorLandscape  7 = sensorPortrait  8 = reverseLandscape
+# 9 = reversePortrait  10 = fullSensor  11 = user ...
+# 因此可靠判据是「属性名存在」且「取值为 1」
 def _axml_orientation(data):
     import struct
     off = 8

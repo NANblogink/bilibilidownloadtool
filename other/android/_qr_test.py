@@ -1,6 +1,6 @@
 # Verify qrgen.py produces valid QR codes.
 # 1) structural checks (finder patterns, timing, size)
-# 2) cross-check against the reference 'qrcode' library if available
+# 2) cross-check against the reference qrcode library
 import io
 import os
 import sys
@@ -70,7 +70,7 @@ w("=== 2. 与参考库逐格对比 ===")
 try:
     import qrcode
 
-    # 关键：必须用**同一个掩码**去比。
+    # 关键：必须用同一个掩码去比
     # 两个实现都合法时也可能选不同掩码
     # （评分相同时的先后顺序不同），
     # 那不是 bug。旧版本直接拿默认掩码比，
@@ -129,7 +129,7 @@ try:
     _dec_path = os.path.join(tempfile.gettempdir(), "dsh_qr_dec.png")
     qrgen.make_png(URL, _dec_path, scale=8, border=4)
     _det = cv2.QRCodeDetector()
-    # cv2.imread 读不了含中文的路径，改用 imdecode 自己读字节
+    # cv2.imread 读不了中文路径，改用 imdecode 读字节
     with open(_dec_path, "rb") as _fh:
         _buf = numpy.frombuffer(_fh.read(), dtype=numpy.uint8)
     _data, _, _ = _det.detectAndDecode(

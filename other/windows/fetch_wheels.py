@@ -110,9 +110,9 @@ def fetch_for_arch(arch_tag, outdir, py_tag):
                 except Exception as e:
                     last = e
                     continue
-                # 这些 wheel 要装到**目标**机器上，不能按本机架构过滤，
+                # 这些 wheel 要装到目标机器上，不能按本机架构过滤，
                 # 因此这里重建候选：只看文件名里的目标架构标签，
-                # 并把解析结果一并带上（_pick 需要 pyver/abi/version）。
+                # 并把解析结果一并带上（_pick 需要 pyver/abi/version）
                 cand = []
                 for e in entries:
                     if arch_tag not in e["filename"].lower():

@@ -78,8 +78,8 @@ def _spec_value(key):
     return None
 
 
-# 关键：buildozer 读的是 `orientation`，不是 `android.orientation`。
-# 写成后者会被静默忽略，最终 manifest 里仍是 landscape。
+# 关键：buildozer 读的是 orientation，不是 android 前缀
+# 写成后者会被静默忽略，manifest 里仍是 landscape
 check("orientation = portrait", _spec_value("orientation") == "portrait",
       "实际=%r" % _spec_value("orientation"))
 check("no bogus android.orientation key",
@@ -135,7 +135,7 @@ except Exception:
     read_keys = set()
 print("      start_download reads:", sorted(read_keys))
 
-# The Android bridge must supply every key start_download reads that we care about
+# The Android bridge must supply every key start_download reads
 android_keys = set(re.findall(r"['\"]([a-z_]+)['\"]\s*:", src))
 required = {"video_info", "qn", "save_path", "episodes", "task_id",
             "download_content_type", "resume_download", "audio_quality"}

@@ -59,7 +59,7 @@ keys2 = sorted(set(re.findall(r"\{\s*['\"]index['\"]", par)))
 w(f"  episode dict 出现 {len(keys2)} 次（含 index 字段）")
 w()
 
-# 5) 登录相关：get_qrcode / poll_login_status 返回
+# 5) 登录相关：get_qrcode / poll_login_status
 w("=== parser: get_qrcode 返回字段 ===")
 i = par.find("def get_qrcode")
 seg = par[i:i + 3000]

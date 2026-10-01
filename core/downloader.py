@@ -69,7 +69,7 @@ class EpisodeDownloadThread(QThread):
         self.config = config
         self._is_running = True
         self.ep_title = f"第{ep_index+1}集_未知标题"
-        # 文件名序号（0 表示使用 ep_index+1）
+        # 序号（0 表示用 ep_index+1）
         self.seq_number = 0
         self.temp_files = []
         self._mutex = QMutex()
@@ -107,7 +107,7 @@ class EpisodeDownloadThread(QThread):
             if not video_url:
                 raise Exception("无有效视频链接")
 
-            # 并行下载video和audio流（不同CDN URL，互不限速）
+            # 并行下载video/audio（不同CDN，互不限速）
             video_path = None
             audio_path = None
             has_audio = bool(audio_url)
@@ -158,8 +158,8 @@ class EpisodeDownloadThread(QThread):
                 err_msg += "（检查FFmpeg环境变量）"
             if "下载已取消" in err_msg:
                 err_msg = "下载已取消"
-            # 文件被截断（服务器提前断流）不再静默产出残缺视频，
-            # 这里给出可操作的提示，便于用户改用其它线路或稍后重试。
+            # 服务器提前断流不再静默产出残缺视频，
+            # 改为提示用户换线路或稍后重试。
             if "不完整" in err_msg and ("字节" in err_msg or "下载不完整" in err_msg):
                 err_msg = (f"{err_msg}（服务器提前中断了传输，为避免保存残缺视频已中止；"
                            f"请重试，或在设置中降低下载线程数/更换网络后重试）")
@@ -176,7 +176,7 @@ class EpisodeDownloadThread(QThread):
         try:
             raw_title = self.config.get_app_setting("raw_title", False) if self.config else False
             if raw_title:
-                # 不处理标题：直接用原始标题，不添加前缀、不截断
+                # 不处理标题：用原始标题，不加前缀、不截断
                 if self.video_info.get('is_bangumi') and self.video_info.get('bangumi_info'):
                     title_candidates = [
                         self.ep_info.get('ep_title', ''),
@@ -190,7 +190,7 @@ class EpisodeDownloadThread(QThread):
                         self.ep_info.get('name', '')
                     ]
                 else:
-                    # 普通视频：优先用分P标题(part)，不用合集总标题
+                    # 普通视频优先用分P标题(part)，不用合集名
                     title_candidates = [
                         self.ep_info.get('part', ''),
                         self.ep_info.get('ep_title', ''),
@@ -244,7 +244,7 @@ class EpisodeDownloadThread(QThread):
                         self.ep_title = f"第{self.ep_index+1}集"
                 else:
                     self.ep_title = f"第{self.ep_index+1}集"
-            # [UP主] 文件名前缀（仅普通视频，先拼接再截断）
+            # [UP主] 前缀（仅普通视频，先拼再截断）
             if not self.video_info.get('is_bangumi') and not self.video_info.get('is_cheese'):
                 if self.config and self.config.get_app_setting("filename_add_author", False):
                     author = (self.video_info.get('owner') or {}).get('name') or ''
@@ -274,7 +274,7 @@ class EpisodeDownloadThread(QThread):
             if not os.path.exists(self.save_path):
                 os.makedirs(self.save_path, exist_ok=True)
 
-            # 测试写入权限 - 使用UUID确保文件名唯一，避免多线程冲突
+            # 测写入权限 - UUID 确保文件名唯一防多线程冲突
             import uuid
             test_file = os.path.join(self.save_path, f"permission_test_{uuid.uuid4().hex[:8]}.tmp")
             try:
@@ -416,7 +416,7 @@ class EpisodeDownloadThread(QThread):
                 else:
                     audio_url = self.ep_info.get('audio_url', '')
                     kid = self.ep_info.get('kid', None)
-                # video_urls 的 key 是整数，保持 selected_qn 为整数以正确匹配
+                # video_urls 的 key 是整数，selected_qn 需同为整数
                 selected_qn = int(self.selected_qn) if str(self.selected_qn).isdigit() else self.selected_qn
                 if selected_qn not in video_urls:
                     # 尝试字符串匹配（兼容旧数据）
@@ -425,7 +425,7 @@ class EpisodeDownloadThread(QThread):
                     else:
                         selected_qn = max((int(k[0]) if isinstance(k, tuple) else int(k)) for k in video_urls) if video_urls else ''
                 video_url, actual_codecid = self._find_video_url(video_urls, selected_qn, task_info.get('selected_codecid', 0) if task_info else 0, task_info.get('video_output_codec', None) if task_info else 0)
-                # 存储编码信息供merge_media使用
+                # 存编码信息供 merge_media 使用
                 self.ep_info['actual_codecid'] = actual_codecid
                 _tc = task_info.get('selected_codecid', 0) if task_info else 0
                 if not _tc and task_info:
@@ -447,7 +447,7 @@ class EpisodeDownloadThread(QThread):
                         raise Exception("访问权限不足")
                     raise Exception(error)
                 video_urls = play_info.get('video_urls', {})
-                # video_urls 的 key 是整数，保持 selected_qn 为整数以正确匹配
+                # video_urls 的 key 是整数，selected_qn 需同为整数
                 selected_qn = int(self.selected_qn) if str(self.selected_qn).isdigit() else self.selected_qn
                 if selected_qn not in video_urls:
                     # 尝试字符串匹配（兼容旧数据）
@@ -459,7 +459,7 @@ class EpisodeDownloadThread(QThread):
                         raise Exception("无可用的视频画质")
                 video_url, actual_codecid = self._find_video_url(video_urls, selected_qn, task_info.get('selected_codecid', 0) if task_info else 0, task_info.get('video_output_codec', None) if task_info else 0)
                 audio_url = play_info.get('audio_url', '')
-                # 存储编码信息供merge_media使用
+                # 存编码信息供 merge_media 使用
                 self.ep_info['actual_codecid'] = actual_codecid
                 _tc2 = task_info.get('selected_codecid', 0) if task_info else 0
                 if not _tc2 and task_info:
@@ -497,11 +497,11 @@ class EpisodeDownloadThread(QThread):
                 elif "下载已取消" in str(e):
                     raise
                 elif "不完整" in str(e):
-                    # 服务器提前断流导致的截断：海外线路访问 B站 CDN 时
-                    # IncompleteRead/短响应非常常见，且同一个 CDN 节点往往
-                    # 会连续返回短响应。因此这里重新获取一次播放地址
-                    # （可能命中另一个 CDN 节点/线路），而不是只对同一 URL
-                    # 重试，重试间隔也更长以便 CDN 恢复。
+                    # 服务器提前断流：海外线路访问B站CDN时
+                    # IncompleteRead/短响应很常见，且同一节点
+                    # 会连续短响应。故这里重新获取播放地址
+                    # （可能命中另一节点/线路），而非只对
+                    # 同一 URL 重试，间隔也更长以便 CDN 恢复。
                     retry_count += 1
                     if retry_count <= max_retry:
                         delay = min(2 * retry_count, 6)
@@ -585,7 +585,7 @@ class EpisodeDownloadThread(QThread):
                     else:
                         eta_str = f" 剩余{int(eta_seconds)}秒"
 
-            # 计算总进度：并行下载时合并video和audio进度
+            # 总进度：并行时合并 video/audio 进度
             total_p = p
             if stream_type and hasattr(self, '_progress_lock'):
                 with self._progress_lock:
@@ -607,7 +607,7 @@ class EpisodeDownloadThread(QThread):
                 status += f" ({speed_str})"
             if eta_str:
                 status += eta_str
-            # 将分片进度编码到状态字符串中
+            # 把分片进度编码进状态字符串
             emit_status = status
             if chunk_progresses:
                 import json
@@ -667,7 +667,7 @@ class EpisodeDownloadThread(QThread):
             (video_url, actual_codecid): 视频URL和实际使用的编码ID
         """
         codec_name_map = {"h264": 7, "hevc": 12, "av1": 13, "vp9": 14, "auto": None}
-        # codecid优先级（用户选择优先）
+        # codecid 优先级（用户选择优先）
         codec_priority = {12: 0, 13: 1, 7: 2, 14: 3}  # HEVC > AV1 > H.264 > VP9
 
         target_codecid = selected_codecid
@@ -677,14 +677,14 @@ class EpisodeDownloadThread(QThread):
         logger.info(f"[编码选择] selected_qn={selected_qn}, video_output_codec={video_output_codec}, "
                      f"target_codecid={target_codecid}, video_urls keys={list(video_urls.keys())[:10]}")
 
-        # 尝试1: 精确匹配 (qn, target_codecid) 元组键
+        # 尝试1: 精确匹配 (qn, target_codecid)
         if target_codecid:
             tuple_key = (int(selected_qn) if str(selected_qn).isdigit() else selected_qn, target_codecid)
             if tuple_key in video_urls:
                 logger.info(f"[编码选择] 精确匹配元组键 {tuple_key} 成功")
                 return video_urls[tuple_key], target_codecid
 
-        # 尝试2: 在元组键中找同qn的任意编码，优先选目标编码
+        # 尝试2: 同qn任意编码，优先目标编码
         qn_int = int(selected_qn) if str(selected_qn).isdigit() else selected_qn
         matching_entries = []
         for key in video_urls:
@@ -766,10 +766,10 @@ class EpisodeDownloadThread(QThread):
         add_episode_prefix = self.config.get_app_setting("add_episode_to_filename", True) if self.config else True
         seq_prefix = self._seq_prefix()
         if raw_title:
-            # 不处理标题：直接用 ep_title，不加任何前缀
+            # 不处理标题：直接用 ep_title，不加前缀
             base_title = self.ep_title or ''
         else:
-            # 去掉标题里已存在的 "第X集" 与序号前缀，避免叠加
+            # 去掉已有的 "第X集" 与序号前缀，防叠加
             base_title = re.sub(r'^第\d+集[ _\-]*', '', self.ep_title or '').strip() or (self.ep_title or '')
             base_title = re.sub(r'^\d+[.、][ _\-]*', '', base_title).strip() or base_title
         if seq_prefix:
@@ -801,7 +801,7 @@ class EpisodeDownloadThread(QThread):
                 if not merge_result:
                     raise Exception(f"合并失败：{merge_error}" if merge_error else "合并失败")
             else:
-                # 只存一次：优先同盘原子移动（os.rename），跨盘才回退复制
+                # 只存一次：优先同盘原子移动，跨盘才复制
                 move_file_no_copy(video_path, output_path, logger=logger)
 
             if not os.path.exists(output_path):
@@ -818,7 +818,7 @@ class EpisodeDownloadThread(QThread):
             logger.info(f"线程{self.ep_index}：下载完成")
             self.episode_finished.emit(self.ep_index, True, f"完成：{os.path.basename(output_path)}")
 
-            # 合并成功后立即清理临时文件（video/audio流），避免遗留多余的音频文件
+            # 合并后立即清理临时流，避免残留多余音频
             self._clean_temp_files()
         except Exception as e:
             if os.path.exists(output_path):
@@ -846,7 +846,7 @@ class EpisodeDownloadThread(QThread):
                     os.remove(file_path)
                     logger.debug(f"线程{self.ep_index}：清理临时文件: {file_path}")
                 except Exception:
-                    # 删除失败可能是文件占用，尝试 shutil.rmtree 强制删除
+                    # 删除失败常因文件占用，改 shutil.rmtree
                     try:
                         shutil.rmtree(file_path, ignore_errors=True)
                     except Exception:
@@ -855,7 +855,7 @@ class EpisodeDownloadThread(QThread):
                 logger.warning(f"线程{self.ep_index}：清理临时文件失败: {file_path}, {e}")
                 failed_paths.append(file_path)
         self.temp_files.clear()
-        # 清理失败的路径记录到全局待清理列表，下次启动时清理
+        # 清理失败的路径记账，下次启动再清理
         if failed_paths:
             try:
                 cache_file = os.path.join(get_cache_dir(self.config, self.save_path), "_pending_cleanup.txt")
@@ -904,7 +904,7 @@ class EpisodeDownloadThread(QThread):
             except Exception:
                 pass
 
-        # --- 2. 扫描缓存目录，清理遗留临时文件 ---
+        # --- 2. 扫描缓存目录清遗留临时文件 ---
         try:
             if os.path.isdir(cache_dir):
                 now = time.time()
@@ -918,7 +918,7 @@ class EpisodeDownloadThread(QThread):
                                      or fn.startswith(DownloadManager._ORPHAN_PREFIXES))
                         if not is_orphan:
                             continue
-                        # 跳过刚创建的文件（<10 分钟），避免误删并行实例正在用的临时文件
+                        # 跳过刚创建(<10分钟)的文件，防误删并行实例
                         if now - os.path.getmtime(full) < 600:
                             continue
                         os.remove(full)

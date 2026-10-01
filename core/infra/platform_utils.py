@@ -41,9 +41,9 @@ def tool_names(name):
     return [base, f"{name}.exe"] if not base.endswith('.exe') else [base]
 
 
-# 某些 Windows 环境下，CreateProcess 传入 CREATE_NO_WINDOW 会间歇性失败并报
-# [WinError 50] 不支持该请求（日志里 ffprobe 加密检测、PowerShell 显卡检测都中过）。
-# 一旦命中，本次运行就彻底不再使用该标志，避免每个调用点都反复踩同一个坑。
+# 某些 Windows 下 CreateProcess 带
+# CREATE_NO_WINDOW 会报 WinError 50，
+# 故一旦命中本次运行就弃用该标志。
 _NO_WINDOW_USABLE = True
 
 
@@ -93,7 +93,7 @@ def run_no_window(cmd, timeout=30, text=False, **kwargs):
     except OSError as e:
         if not note_no_window_failure(e):
             raise
-        # 去掉 CREATE_NO_WINDOW 重试；此时子进程可能会闪一个控制台窗口，
+        # 去掉 CREATE_NO_WINDOW 重试，此时
         # 但总好过功能直接失效。
         return subprocess.run(cmd, capture_output=True, text=text,
                               timeout=timeout, **kwargs)
@@ -325,7 +325,7 @@ def get_system_proxy():
             try:
                 proxy_server = winreg.QueryValueEx(internet_settings, 'ProxyServer')[0]
             except (UnicodeDecodeError, Exception):
-                # ProxyServer可能包含非UTF-8字符，尝试用原始字节读取
+                # ProxyServer 含非UTF-8字符，按原始字节读
                 try:
                     proxy_server_raw = winreg.QueryValueEx(internet_settings, 'ProxyServer')
                     proxy_server = str(proxy_server_raw[0]) if proxy_server_raw else ''
@@ -365,7 +365,7 @@ def detect_gpu():
     gpu_type: 'nvidia', 'amd', 'intel', 或 None
     """
     if IS_WINDOWS:
-        # 方法1: 优先用PowerShell Get-CimInstance（wmic在新版Windows可能弃用）
+        # 方法1: 优先 PowerShell Get-CimInstance
         try:
             result = run_no_window(
                 ['powershell', '-NoProfile', '-Command',
@@ -392,7 +392,7 @@ def detect_gpu():
             except Exception:
                 pass
 
-        # 方法2: 尝试wmic作为后备
+        # 方法2: wmic 作为后备
         try:
             result = subprocess.run(
                 ['wmic', 'path', 'win32_VideoController', 'get', 'name'],
@@ -413,7 +413,7 @@ def detect_gpu():
         except Exception:
             pass
 
-        # 方法3: 用nvidia-smi专门检测NVIDIA GPU（最可靠）
+        # 方法3: nvidia-smi 检测NVIDIA（最可靠）
         try:
             result = subprocess.run(
                 ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader,nounits'],
@@ -460,7 +460,7 @@ def to_short_path(path):
     """
     if not IS_WINDOWS or not path:
         return path
-    # 路径不含非ASCII字符，无需转换
+    # 路径全ASCII，无需转换
     if not has_non_ascii(path):
         return path
     try:
@@ -473,14 +473,14 @@ def to_short_path(path):
         # 首次调用获取所需缓冲区长度
         buf_size = GetShortPathNameW(path, None, 0)
         if buf_size == 0:
-            return path  # 转换失败（文件不存在或8.3短文件名被禁用）
+            return path  # 转换失败（文件不存在或8.3短名被禁用）
 
         # 实际获取短路径
         buf = ctypes.create_unicode_buffer(buf_size)
         result = GetShortPathNameW(path, buf, buf_size)
         if result > 0:
             short_path = buf.value
-            # 确认转换后路径确实为纯ASCII（罕见情况下仍含非ASCII）
+            # 确认转换后确实为纯ASCII
             if not has_non_ascii(short_path):
                 return short_path
         return path
@@ -525,10 +525,10 @@ def _resolve_ascii_candidate(path):
 # --------------------------------------------------------------------------
 # 统一平台行为 API
 #
-# 这些函数把历史上散落在 ui.py / parsers 里的 Windows 专有调用
-# （explorer /select、taskkill、shutdown /s、cmd /c、os.startfile）
-# 收敛到一处，使 Linux / macOS / Android 走各自的等价实现。
-# 所有函数都保证"失败不抛异常"，返回 bool 表示是否成功发起操作。
+# 把散落在 ui.py / parsers 的 Windows
+# 专有调用（explorer /select、taskkill、
+# cmd /c 等）收敛到一处，各平台等价实现。
+# 所有函数保证失败不抛异常，返回 bool。
 # --------------------------------------------------------------------------
 
 
@@ -543,7 +543,7 @@ def open_path(path):
         elif IS_MACOS:
             subprocess.Popen(['open', path], **subprocess_no_window_kwargs())
         elif IS_ANDROID:
-            # Termux / Kivy 环境没有 xdg-open，交给调用方降级
+            # Termux/Kivy 无 xdg-open，交调用方降级
             return False
         else:
             opener = shutil.which('xdg-open')
@@ -580,7 +580,7 @@ def reveal_in_file_manager(path, select=False):
                 subprocess.Popen(['open', path if os.path.isdir(path) else os.path.dirname(path)],
                                  **subprocess_no_window_kwargs())
             return True
-        # Linux / 其他：没有统一"选中"语义，打开所在目录
+        # Linux 无统一选中语义，打开所在目录
         target = path if os.path.isdir(path) else os.path.dirname(path)
         return open_path(target)
     except Exception:
@@ -592,7 +592,7 @@ def open_terminal(command=None, path=None):
     try:
         if IS_WINDOWS:
             if command:
-                # 用 cmd /k 保持窗口不关闭，便于用户查看输出
+                # 用 cmd /k 保持窗口不关闭
                 subprocess.Popen(['cmd', '/k', command],
                                  cwd=path, **subprocess_no_window_kwargs())
             else:
@@ -637,7 +637,7 @@ def kill_process_tree(pid, timeout=5):
             subprocess.call(['taskkill', '/F', '/T', '/PID', str(pid)],
                             **subprocess_no_window_kwargs())
             return True
-        # POSIX：先温和终止进程组，超时后强杀
+        # POSIX：先温和终止进程组，超时强杀
         import signal
         try:
             pgid = os.getpgid(pid)
@@ -693,7 +693,7 @@ def shutdown_system(delay_seconds=60, reason=""):
             subprocess.Popen(args, **subprocess_no_window_kwargs())
             return True, '已安排关机'
         if IS_MACOS:
-            # macOS 的 shutdown 只接受分钟粒度，且不支持自定义提示语
+            # macOS shutdown 只接受分钟粒度
             minutes = max(1, int(round(delay_seconds / 60.0)))
             subprocess.Popen(['sudo', '-n', 'shutdown', '-h', '+%d' % minutes],
                              **subprocess_no_window_kwargs())
@@ -799,8 +799,8 @@ def recommended_concurrency(explicit=None, cap=8, floor=1):
 # --------------------------------------------------------------------------
 # 跨平台桌面通知
 #
-# Windows 走 WinRT(winsdk)；macOS 走 osascript；Linux 走 notify-send
-# （D-Bus 桌面通知规范）。三者都只做"尽力而为"，失败静默返回 False，
+# Windows 走 WinRT；macOS 走 osascript；
+# Linux 走 notify-send。三者失败静默返回 False。
 # 绝不影响主流程。
 # --------------------------------------------------------------------------
 
@@ -822,7 +822,7 @@ def _notify_linux(title, message, urgency='normal'):
     sender = shutil.which('notify-send')
     if not sender:
         return False
-    # -a 是应用名，-u 是紧急度（low/normal/critical）
+    # -a 应用名，-u 紧急度(low/normal/critical)
     args = [sender, '-a', 'B站视频下载工具']
     if urgency in ('low', 'normal', 'critical'):
         args += ['-u', urgency]
@@ -873,14 +873,14 @@ def beep(kind='info'):
             winsound.MessageBeep(tone)
             return True
         if IS_MACOS:
-            # afplay 附带在 macOS 上，声音文件位于 /System/Library/Sounds
+            # afplay 是 macOS 自带，音效在 /System/Library/Sounds
             for name in (('Basso.aiff',) if kind == 'warn' else ('Glass.aiff', 'Ping.aiff')):
                 p = '/System/Library/Sounds/' + name
                 if os.path.exists(p):
                     subprocess.Popen(['afplay', p], **subprocess_no_window_kwargs())
                     return True
             return False
-        # Linux：优先 paplay/canberra，回退终端响铃
+        # Linux：优先 paplay/canberra，回退响铃
         for cmd in (['canberra-gtk-play', '-i', 'complete'],
                     ['paplay', '/usr/share/sounds/freedesktop/stereo/complete.oga']):
             if shutil.which(cmd[0]):
@@ -927,7 +927,7 @@ def get_safe_temp_dir(base_dir, sub_dir="temp", cache_dir=None, prefer_dir=None)
     if cache_dir:
         candidates.append(cache_dir)
 
-    # 2. 与下载目标同盘的 ASCII 目录（避免占用 C 盘）
+    # 2. 与下载目标同盘的 ASCII 目录（免占C盘）
     if prefer_dir:
         try:
             drive = os.path.splitdrive(os.path.abspath(prefer_dir))[0]
@@ -1019,7 +1019,7 @@ def move_file_no_copy(src, dst, overwrite=True, logger=None):
     except OSError as e:
         _rename_err = e
 
-    # 2) 跨卷回退：shutil.move（同盘时内部仍是 rename；跨盘才会真正复制）
+    # 2) 跨卷回退 shutil.move（跨盘才真复制）
     same_volume = False
     try:
         same_volume = os.path.splitdrive(src)[0].lower() == os.path.splitdrive(dst)[0].lower()
@@ -1065,7 +1065,7 @@ def link_or_copy(src, dst, overwrite=True, logger=None):
         else:
             return dst
 
-    # 1) 硬链接：同卷零额外空间，数据只存一份
+    # 1) 硬链接：同卷零额外空间，只存一份
     try:
         os.link(src, dst)
         if logger:

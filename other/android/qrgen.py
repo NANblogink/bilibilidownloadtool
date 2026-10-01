@@ -66,11 +66,11 @@ def _rs_encode(data, n):
 
 
 # ------------------------------------------------- 版本参数表（纠错等级 M）
-# 版本: (各块数据码字数列表, 每块纠错码字数, 对齐中心)
+# 版本: (各块数据码字数, 每块纠错码字数, 对齐中心)
 #
-# 注意：版本 8 以上有的块数据长度**不一样**（如 v8 = [38,38,39,39]）。
-# 早期版本我按「每块长度相同」处理，导致 v8 之后生成错误码流、扫不出来。
-# 下表数值取自 QR 规范（与 qrcode 库 base.rs_blocks 的输出一致）。
+# 注意：v8 起各块数据长度可能不同，如 v8=[38,38,39,39]
+# 早期按等长处理，导致 v8 以后生成错码流、扫不出来
+# 数值取自 QR 规范，与 qrcode 库 base.rs_blocks 一致
 DATA_M = {
     1:  ([16], 10, []),
     2:  ([28], 16, [6, 18]),
@@ -110,7 +110,7 @@ def _version_bits(v):
     """
     val = v << 12
     g = 0x1F25
-    # 计算 g 的最高位，用于逐位对齐
+    # 取 g 的最高位，用于逐位对齐
     top = g.bit_length() - 1
     rem = val
     for i in range(17, top - 1, -1):
@@ -236,31 +236,31 @@ def _place_format(m, v, mask):
     def bit(i):
         return (bits >> i) & 1
 
-    # 位序经与参考实现逐位比对确定（不是照抄文档，而是用 8 个掩码反推）：
-    #   第 8 行：(8,0)=bit14 (8,1)=bit13 (8,2)=bit12 (8,3)=bit11
-    #            (8,4)=bit10 (8,5)=bit9  (8,7)=bit8  (8,8)=bit7
-    #   第 8 列：(0,8)=bit0  (1,8)=bit1  (2,8)=bit2  (3,8)=bit3
-    #            (4,8)=bit4  (5,8)=bit5  (7,8)=bit6
-    # 副本 2 是同样的顺序，只是沿对角镜像。
+    # 位序由与参考实现逐位比对反推得到，非照抄文档
+    # 第 8 行：(8,0)=bit14 (8,1)=bit13 (8,2)=bit12
+    # (8,3)=bit11 (8,4)=bit10 (8,5)=bit9 (8,7)=bit8
+    # 第 8 列：(0,8)=bit0 (1,8)=bit1 (2,8)=bit2
+    # (3,8)=bit3 (4,8)=bit4 (5,8)=bit5 (7,8)=bit6
+    # 副本 2 顺序相同，只是沿对角镜像
     for i in range(6):
         m[8][i] = bit(14 - i)          # (8,0)..(8,5) = bit14..bit9
     m[8][7] = bit(8)
     m[8][8] = bit(7)
 
-    # 注意：(6,8) 属于垂直时序图形，不能覆盖，所以跳过 6
+    # 注意：(6,8) 属垂直时序图形，不能覆盖，故跳过
     for i in range(6):
         m[i][8] = bit(i)               # (0,8)..(5,8) = bit0..bit5
     m[7][8] = bit(6)
 
     # 副本 2a —— 右上，沿第 8 行自右向左：位号递增
-    #   实测（n=29）：(8,28)=bit0 (8,27)=bit1 (8,26)=bit2 (8,25)=bit3
-    #                (8,24)=bit4 (8,23)=bit5 (8,22)=bit6 (8,21)=bit7
+    # 实测 n=29：(8,28)=bit0 (8,27)=bit1 (8,26)=bit2
+    # (8,25)=bit3 (8,24)=bit4 (8,23)=bit5 (8,22)=bit6
     for i in range(8):
         m[8][n - 1 - i] = bit(i)
 
     # 副本 2b —— 左下，沿第 8 列自下向上：位号递减
-    #   实测：(28,8)=bit14 (27,8)=bit13 (26,8)=bit12 (25,8)=bit11
-    #        (24,8)=bit10 (23,8)=bit9  (22,8)=bit8  (21,8)=bit7(暗模块)
+    # 实测：(28,8)=bit14 (27,8)=bit13 (26,8)=bit12
+    # (25,8)=bit11 (24,8)=bit10 (23,8)=bit9 (22,8)=bit8
     for i in range(7):
         m[n - 1 - i][8] = bit(14 - i)
     m[n - 8][8] = 1                    # 固定暗模块
@@ -302,9 +302,9 @@ def _penalty(m, n):
             if v == m[r][c + 1] == m[r + 1][c] == m[r + 1][c + 1]:
                 score += 3
 
-    # 规则 3：出现 1:1:3:1:1 的类定位图形模式，每次 +40
-    #   规范定义是「1011101」两侧各有 4 个浅色模块；等价写法：
-    #   在 11 格窗口内匹配 10111010000 或 00001011101
+    # 规则 3：类定位图形 1:1:3:1:1，每次 +40
+    # 规范定义 1011101 两侧各 4 个浅色模块，等价于
+    # 11 格窗口内匹配 10111010000 或 00001011101
     pat1 = [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0]
     pat2 = [0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1]
     for line in list(m) + [list(col) for col in zip(*m)]:
@@ -313,7 +313,7 @@ def _penalty(m, n):
             if seg == pat1 or seg == pat2:
                 score += 40
 
-    # 规则 4：暗模块比例偏离 50%，按 5% 一档，每档 10 分
+    # 规则 4：暗模块比例偏离 50%，每 5% 一档 10 分
     dark = sum(sum(r) for r in m)
     total = n * n
     pct = dark * 100 / total
@@ -386,7 +386,7 @@ def _build_for_mask(text, v, mask):
     n = _size(v)
     codewords = _build_codewords(text, v)
 
-    # 先算出「功能图形占用」的格子，数据位不能写进去
+    # 先标出功能图形占用的格子，数据位不能写进去
     tmp = [[None] * n for _ in range(n)]
     _place_finder(tmp, v)
     _place_timing(tmp, v)
@@ -468,9 +468,9 @@ def make_png(text, path, scale=8, border=2):
         return (struct.pack(">I", len(data)) + tag + data
                 + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
 
-    # 用 8 位灰度 PNG（color type 0），像素值直接是 0(黑)/255(白)。
-    # 实测这种写法能被 OpenCV / zbar / 手机相机正确解码。
-    # 注意不要再附 PLTE——灰度图带调色板会触发 libpng 警告。
+    # 用 8 位灰度 PNG（color type 0），像素 0 黑 255 白
+    # 实测可被 OpenCV / zbar / 手机相机正确解码
+    # 不要再附 PLTE——灰度图带调色板会触发 libpng 警告
     png = b"\x89PNG\r\n\x1a\n"
     png += chunk(b"IHDR", struct.pack(">IIBBBBB", side, side, 8, 0, 0, 0, 0))
     png += chunk(b"IDAT", zlib.compress(raw, 9))

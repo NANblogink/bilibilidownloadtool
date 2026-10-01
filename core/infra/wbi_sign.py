@@ -46,8 +46,8 @@ class WbiSign:
             self.wbi_img_key = "img_key"
             self.wbi_sub_key = "sub_key"
         
-        # 补充 B 站当前风控要求的 dm_img 参数与 web_location
-        # 部分 API（如收藏夹内容列表）不接受 dm_img 参数，传 with_dm_params=False 跳过
+        # 补风控要求的 dm_img 与 web_location
+        # 部分API（收藏夹）不吃 dm_img，
         if with_dm_params:
             params = self._generate_dm_params(params)
             if not params.get("web_location"):

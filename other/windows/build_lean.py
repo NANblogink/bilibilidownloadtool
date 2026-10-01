@@ -72,9 +72,9 @@ args = [
     "--distpath=" + LEAN_DIST,
     "--workpath=" + BUILD_LEAN,
     "--specpath=" + BUILD_LEAN,
-    # 关键：必须把 core/ 等目录加入分析路径，否则 --hidden-import
-    # 指定的模块（如 pyqt5_bootstrap）无法被解析，会被静默丢弃，
-    # 导致 boot.py 启动时 ModuleNotFoundError。
+    # 关键：必须把 core/ 等目录加入分析路径，否则
+    # --hidden-import 指定的模块无法被解析，会被静默丢弃
+    # 导致 boot.py 启动时 ModuleNotFoundError
     "--paths", ROOT,
     "--paths", os.path.join(ROOT, "core"),
     "--paths", os.path.join(ROOT, "core", "infra"),
@@ -118,13 +118,13 @@ for extra in ("logo_alt_kaisui.ico", "myqrcode.png", "qunqrcode.png"):
         args.append("--add-data=%s;." % p)
 
 # ---------------------------------------------------------------- 内置 wheel
-# 注意：**默认不再把 wheel 打进精简包**。
+# 注意：默认不再把 wheel 打进精简包
 #
-# 原因：标准安装程序（Inno Setup）会自己把 wheels/ 放在 {tmp} 并调用
-# deploy_helper.exe 完成部署。若精简包同时也内置一份 wheel，安装包里
-# 就会出现两份（各 111.8 MB），白白浪费体积。
+# 原因：标准安装程序（Inno Setup）会自己把 wheels/
+# 放在 {tmp} 并调用 deploy_helper.exe 完成部署；若精简包
+# 也内置一份 wheel，安装包里就会出现两份，浪费体积
 #
-# 只有在需要「绿色免安装版」时才用 --embed-wheels 把 wheel 打进包内。
+# 只有需要「绿色免安装版」时才用 --embed-wheels
 _wheel_src = None
 if not _args.no_wheels:
     for cand in (os.path.join(ROOT, "wheels"),

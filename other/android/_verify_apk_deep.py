@@ -1,8 +1,8 @@
 # Deep-verify the freshly built APK:
-#   1. qrgen.pyc is present inside assets/private.tar
-#   2. no qrcode/PIL references (they must be absent)
-#   3. orientation=portrait and our own icon
-#   4. main.pyc / qt_compat.pyc present
+# 1. qrgen.pyc is present inside assets/private.tar
+# 2. no qrcode/PIL references (they must be absent)
+# 3. orientation=portrait and our own icon
+# 4. main.pyc / qt_compat.pyc present
 import io
 import os
 import re
@@ -75,17 +75,17 @@ check("包含 mipmap 图标", len(icons) >= 1,
 
 print()
 print("=== 6. 清单：竖屏 + 图标 ===")
-# 注意：AndroidManifest.xml 是**二进制 AXML**，
-# 直接 decode utf-8/utf-16 找字符串会误判。
-# 这里复用 _verify_apk.py 里已验证过的 AXML 解析器。
+# 注意：AndroidManifest.xml 是二进制 AXML，
+# 直接 decode utf-8/utf-16 找字符串会误判
+# 这里复用 _verify_apk.py 里已验证过的解析器
 sys.path.insert(0, AND)
 import _verify_apk as va
 
 raw = zf.read("AndroidManifest.xml")
 
 # screenOrientation 属性的数值：
-#   1 = SCREEN_ORIENTATION_PORTRAIT（竖屏锁定）
-#   0 = LANDSCAPE, -1 = UNSPECIFIED
+# 1 = SCREEN_ORIENTATION_PORTRAIT（竖屏锁定）
+# 0 = LANDSCAPE, -1 = UNSPECIFIED
 SCREEN_ORIENTATION = {0: "landscape", 1: "portrait", -1: "unspecified"}
 orient_val = va._axml_orientation(raw)
 orient = SCREEN_ORIENTATION.get(orient_val, "unknown(%r)" % orient_val)
@@ -98,8 +98,8 @@ check("清单含 PythonActivity",
       "org.kivy.android.PythonActivity" in strings)
 
 # 图标：aapt2 读到的是 icon='res/mipmap/icon.png'，
-# 而 AXML 字符串池里只有资源名（如 'icon'）。
-# 两者都查一下，避免因为解析层级不同误判。
+# 而 AXML 字符串池里只有资源名（如 'icon'）
+# 两者都查一下，避免因解析层级不同误判
 has_icon_name = "icon" in strings
 icon_res = [n for n in zf.namelist() if "mipmap" in n and n.endswith(".png")]
 check("清单引用 icon 资源", has_icon_name)

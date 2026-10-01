@@ -102,15 +102,15 @@ class ConfigLoader:
             "app_settings": {
                 "default_save_path": _default_download_dir(),
                 "last_save_path": "",
-                # 缓存/临时目录：留空表示自动选择（优先与下载目标同盘，
-                # 避免把临时文件写到系统盘 C: 导致 C 盘爆满）
+                # 缓存目录：留空自动选（优先同盘，
+                # 免写满系统盘 C:）
                 "cache_dir": "",
                 "max_threads": 2,
                 "auto_convert_incompatible": False,
                 "hevc_not_supported_ask": True,
                 "add_episode_to_filename": True,
-                # 文件名序号位数：0=不添加，2=01，3=001，4=0001
-                # 形如 "01. 视频标题.mp4"，便于按顺序整理课件/合集
+                # 序号位数：0=不加，2=01，3=001
+                # 形如 "01. 标题.mp4"，便于排序
                 "filename_sequence_digits": 2,
                 "batch_download_first": False,
                 "filename_add_author": False,
@@ -164,15 +164,15 @@ class ConfigLoader:
             if not cur:
                 s["default_save_path"] = _default_download_dir()
                 return
-            # 仅当路径恰好是"某个 core/B站下载"时才纠正，避免误改用户自定义目录
+            # 仅路径恰为 "某 core/B站下载" 才纠正
             norm = os.path.normpath(cur).replace("/", "\\").lower()
             if norm.endswith("\\core\\b站下载"):
                 s["default_save_path"] = _default_download_dir()
                 return
 
-            # 历史配置里可能保存了已被删除/移动的目录（例如早期版本的
-            # "V2.0.8 TO Github\B站下载"）。指向不存在的父目录会导致下载无处可存，
-            # 这里回落到项目根下的 B站下载，并在日志中说明。
+            # 历史配置可能存了已删除的目录
+            # 父目录不存在会导致下载无处可存，
+            # 故回落到项目根下 B站下载。
             parent = os.path.dirname(cur)
             if parent and not os.path.isdir(parent):
                 fallback = _default_download_dir()

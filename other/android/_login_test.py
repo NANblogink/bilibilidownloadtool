@@ -1,6 +1,6 @@
-# Reproduce the QR-login crash under Android-like conditions.
-# Android has NO qrcode module and NO PyQt5. This test simulates that by
-# blocking those imports, then driving the login popup end to end.
+# 在类 Android 环境下复现扫码登录崩溃
+# Android 无 qrcode 模块也无 PyQt5，本测试
+# 屏蔽这些 import，再端到端跑一遍登录弹窗
 import builtins
 import io
 import os
@@ -22,7 +22,7 @@ def w(s=""):
     L.append(str(s))
 
 
-# --- Block modules that do not exist on Android ---
+# --- 屏蔽 Android 上不存在的模块 ---
 BLOCKED = {"qrcode", "PIL", "PyQt5", "android", "jnius"}
 _real_import = builtins.__import__
 
@@ -103,7 +103,7 @@ pop = pop_holder.get("pop")
 if pop is not None:
     step("pop.open()", pop.open)
 
-    # 3b. start() 会起后台线程取二维码；Android 上没有 qrcode 模块
+    # 3b. start() 会起后台线程取码；Android 无 qrcode
     step("pop.start()", pop.start)
     import time
     time.sleep(2.5)

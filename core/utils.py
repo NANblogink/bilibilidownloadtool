@@ -12,10 +12,10 @@ class HEVCCheckThread(QThread):
     result_signal = pyqtSignal(bool)
 
     def run(self):
-        # HEVC 扩展是 Windows 特有的概念：
-        #   macOS 原生支持 HEVC 解码
-        #   Linux 由发行版 codec 包（如 gstreamer1.0-libav / ffmpeg）提供
-        # 因此这两个平台直接判定为"已支持"，避免用户被无意义地引导安装 Appx。
+        # HEVC 扩展是 Windows 特有概念：
+        # macOS 原生支持 HEVC 解码
+        # Linux 由发行版 codec 包提供
+        # 故这两平台直接判已支持，避免
         if IS_MACOS or IS_LINUX:
             self.result_signal.emit(True)
             return
@@ -181,7 +181,7 @@ def generate_qrcode(url):
     """
     errors = []
     
-    # 方案1: qrcode + Pillow (最可靠)
+    # 方案1: qrcode + Pillow（最可靠）
     try:
         import qrcode
         from PIL import Image
@@ -203,7 +203,7 @@ def generate_qrcode(url):
     except Exception as e:
         errors.append(f"Pillow方案失败: {e}")
     
-    # 方案2: qrcode + PyQt5 QImage/QPainter
+    # 方案2: qrcode + PyQt5 QImage
     try:
         import qrcode
         from PyQt5.QtGui import QImage, QPainter, QColor
@@ -244,7 +244,7 @@ def generate_qrcode(url):
     except Exception as e:
         errors.append(f"PyQt5方案失败: {e}")
     
-    # 方案3: 在线 QR API 兜底（requests 已可用）
+    # 方案3: 在线QR API兜底
     try:
         safe_url = urllib.parse.quote(url, safe='')
         api_url = f"https://api.qrserver.com/v1/create-qr-code/?size=240x240&data={safe_url}"

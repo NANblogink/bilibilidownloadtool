@@ -12,7 +12,7 @@ import re
 import sys
 
 SRC = r"C:\Windows\Fonts\msyh.ttc"
-# 同时抽取一份粗体，供标题使用
+# 另抽一份粗体，供标题使用
 SRC_BOLD = r"C:\Windows\Fonts\msyhbd.ttc"
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)))
 PROJECT = os.path.normpath(os.path.join(OUT_DIR, "..", ".."))
@@ -46,7 +46,7 @@ base = set(
     "０１２３４５６７８９"
 )
 chars |= base
-# 补充常用汉字，避免运行时动态拼接的字符串缺字
+# 补充常用汉字，避免动态拼接字符串缺字
 chars |= set("零一二三四五六七八九十百千万亿年月日时分秒周星期"
              "大小多少高低长短宽窄深浅轻重快慢新旧好坏对错"
              "上下左右前后内外中间东西南北中"
@@ -88,7 +88,7 @@ def build(src_path, out_name, label):
         print(f"  跳过（不存在）：{src_path}")
         return None
 
-    # .ttc 是字体集合，取第一个（Regular）或按名称挑
+    # .ttc 是字体集合，取第一个或按名称挑
     try:
         coll = TTCollection(src_path, lazy=False)
         font = coll.fonts[0]
@@ -101,7 +101,7 @@ def build(src_path, out_name, label):
                     nm = "?"
                 names.append(nm)
             print(f"  ttc 内含 {len(coll.fonts)} 个字体：{names}")
-            # 优先选名字里带 Regular / 不含 Bold 的
+            # 优先选名字带 Regular / 不含 Bold 的
             for f in coll.fonts:
                 try:
                     nm = (f["name"].getDebugName(4) or "")

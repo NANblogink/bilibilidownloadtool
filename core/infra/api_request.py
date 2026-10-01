@@ -12,7 +12,7 @@ from wbi_sign import WbiSign
 
 logger = logging.getLogger(__name__)
 
-# 条件导入：优先使用orjson，失败则使用标准json模块
+# 优先用 orjson，失败退标准 json
 import json as _std_json
 try:
     import orjson
@@ -30,7 +30,7 @@ class ApiRequest:
     def __init__(self, session=None):
         if session is None:
             self.session = requests.Session()
-            # 扩大连接池以支持收藏夹分页等并发请求，避免 "Connection pool is full" 警告
+            # 扩大连接池，避免 pool is full 警告
             _adapter = HTTPAdapter(pool_connections=20, pool_maxsize=32, max_retries=0)
             self.session.mount('https://', _adapter)
             self.session.mount('http://', _adapter)
@@ -38,7 +38,7 @@ class ApiRequest:
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
                 'Referer': 'https://www.bilibili.com'
             })
-            self.session.trust_env = False  # 不读取系统代理，让开梯子也能直连B站
+            self.session.trust_env = False  # 不读系统代理，开梯子也能直连B站
             self.session.proxies = {}
         else:
             self.session = session

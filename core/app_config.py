@@ -17,8 +17,8 @@ APP_WEBSITE = "https://www.bilidown.cn"
 APP_REPO = "https://github.com/NANblogink/bilibilidownloadtool"
 BETA_QQ_GROUP = "https://jq.qq.com/?_wv=1027&k=714822491"
 
-# 是否为内测版本（打包内测包时改为 True，正式包保持 False）
-# 内测包启动时需要输入授权QQ号验证，正式包无此限制
+# 内测包为 True，正式包 False
+# 内测包需验证授权QQ号
 IS_BETA_BUILD = False
 
 SHORTCUT_NAME = APP_NAME + APP_VERSION
@@ -43,7 +43,7 @@ def load_version_info():
     if hasattr(sys, '_MEIPASS'):
         candidate_paths.append(os.path.join(sys._MEIPASS, 'version_info.json'))
 
-    # 本模块位于 core/，version_info.json 在项目根
+    # core/ 的上级即项目根
     root_dir = _pathsetup.project_root()
     candidate_paths.append(os.path.join(root_dir, 'version_info.json'))
     candidate_paths.append(os.path.join(root_dir, 'config', 'version_info.json'))
@@ -87,12 +87,12 @@ def is_safe_install_path(path):
     except Exception:
         return False, f"路径无效：{raw}"
 
-    # 1. 拒绝驱动器根目录，如 D:\ D:/ D: C:\
+    # 1. 拒绝驱动器根目录
     drive, tail = os.path.splitdrive(norm_path)
     if drive and (not tail or tail in (os.sep, '/', '\\')):
         return False, f"禁止使用驱动器根目录作为安装/卸载路径：{drive}"
 
-    # 2. 路径最后一段必须存在且包含应用标识，避免误选浅层无关目录
+    # 2. 末段需存在且含应用标识，防误选浅目录
     last_part = os.path.basename(norm_path)
     if not last_part:
         return False, f"路径无效：{norm_path}"
@@ -101,7 +101,7 @@ def is_safe_install_path(path):
         return False, (f"安装目录名需包含应用标识(Bilibili/哔哩)，"
                        f"当前目录名为：{last_part}")
 
-    # 3. 拒绝系统关键目录（即使名字巧合也拒绝）
+    # 3. 拒绝系统关键目录
     win_dir = os.environ.get('SystemRoot', r'C:\Windows')
     pf = os.environ.get('ProgramFiles', r'C:\Program Files')
     pf86 = os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')

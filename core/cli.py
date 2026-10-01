@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 本脚本位于 build/ 子目录；项目根在其上一级。
+# 在 build/ 下，根在上一级
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
@@ -101,28 +101,28 @@ def _logo_to_ascii(width=90):
 
         img = Image.open(logo_path)
         img = img.convert('L')
-        # 增强对比度（拉伸直方图，让文字更清晰）
+        # 增强对比度，文字更清晰
         img = ImageOps.autocontrast(img, cutoff=2)
-        # 不反转！原图：深色文字+图标 / 浅色背景
+        # 不反转！原图深字浅底
         aspect = img.height / img.width
         new_width = width
         new_height = int(new_width * aspect * 0.45)  # 0.45: 字符高宽比约2:1
         img = img.resize((new_width, new_height), Image.LANCZOS)
 
         pixels = list(img.getdata())
-        # 8级灰度字符表（从暗到亮）：
-        # 密字符表示深色区域（文字/图标），空字符表示浅色区域（背景）
+        # 8级灰度字符表（暗到亮）
+        # 密字符=深色区，空字符=浅色区
         shade_chars = ["@", "%", "#", "*", "+", "=", "-", " "]
         result = []
         for y in range(new_height):
             row = ""
             for x in range(new_width):
                 px = pixels[y * new_width + x]
-                # 0(黑)=@(最密) ~ 255(白)=空格(最疏)
+                # 0黑=@最密 ~ 255白=空格最疏
                 level = min(int(px / 32), 7)  # 256/8=32 每级
                 row += shade_chars[level]
             result.append(row)
-        # 裁掉顶部和底部连续空白行
+        # 裁掉首尾连续空白行
         while result and not result[-1].strip():
             result.pop()
         while result and not result[0].strip():
@@ -361,7 +361,7 @@ def do_download_video():
             video_urls = play_info.get("video_urls", {})
             quality_desc = play_info.get("quality_desc", "")
             audio_url = play_info.get("audio_url", "")
-            # 获取KID（付费课程/番剧DRM解密用，未提供时download_file内部会从m4s自动提取）
+            # 取KID（付费/番剧DRM解密用）
             ep_kid = play_info.get("kid")
 
             video_url = ""
@@ -682,7 +682,7 @@ def do_download_cover():
             print("  [错误] 未获取到封面链接")
             return
 
-        # B站封面需要加referer
+        # B站封面需加referer
         print(f"  封面链接: {cover_url[:80]}...")
 
         save_path = get_save_path()

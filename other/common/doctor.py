@@ -30,7 +30,7 @@ def _looks_like_project(path):
 
 
 if not _looks_like_project(PROJECT_ROOT):
-    # 从 stdin 运行（如 CI 管道）时 __file__ 不可靠，改为向上逐级探测。
+    # 从 stdin 运行（如 CI）时 __file__ 不可靠，向上探测
     starts = [os.getcwd(), HERE]
     for start in starts:
         cur = os.path.abspath(start)
@@ -94,7 +94,7 @@ except Exception as exc:  # pragma: no cover
 
 if pu is not None:
     record(OK, "PLATFORM_NAME = %s" % pu.PLATFORM_NAME)
-    # 三个 IS_* 必须恰好有一个为真（Android 归入 linux 系但不单独算）
+    # 三个 IS_* 必须恰好一个为真（Android 归 linux 系）
     flags = [pu.IS_WINDOWS, pu.IS_MACOS, pu.IS_LINUX]
     record(OK if sum(bool(f) for f in flags) == 1 else FAIL,
            "平台标志互斥",
@@ -203,14 +203,14 @@ if pu:
         except Exception as exc:
             record(FAIL, label, "不应抛异常: %s" % exc)
 
-    # 提示音与通知：只验证后端存在，不真的发声弹窗（自检不该打扰用户）
+    # 提示音与通知：只验证后端存在，不真的发声弹窗
     backend = pu.notification_backend()
     record(OK if backend != "none" or pu.IS_WINDOWS else WARN,
            "通知后端: %s" % backend)
     record(OK, "beep() 可用（未实际发声）")
 
-    # 关机能力：只检查底层命令是否存在，绝不真的调用 shutdown，
-    # 否则运行自检会把用户的机器关掉。
+    # 关机能力：只查底层命令是否存在，绝不真的调用
+    # 否则运行自检会把用户的机器关掉
     import shutil as _sh
     can_shutdown = bool(_sh.which("systemctl") or _sh.which("shutdown"))
     if pu.IS_WINDOWS:
@@ -240,12 +240,12 @@ try:
 except Exception as exc:
     record(FAIL, "界面模块导入失败", str(exc))
 
-# 残留 Windows 专有调用扫描（只在非 Windows 平台有意义）
+# 残留 Windows 专有调用扫描（仅非 Windows 有意义）
 if pu and not pu.IS_WINDOWS:
     import re
 
-    # 这些文件本身就是"平台适配层"，里面出现 Windows 调用是正常的
-    # （它们都被 IS_WINDOWS 守卫）。
+    # 这些文件本身就是平台适配层，出现 Windows 调用正常
+    # （它们都被 IS_WINDOWS 守卫）
     PLATFORM_LAYER = {"platform_utils.py", "toast_winrt.py", "cert_installer.py",
                       "pyqt5_bootstrap.py", "cli.py"}
     BAD = [

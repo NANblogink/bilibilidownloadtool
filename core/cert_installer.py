@@ -32,7 +32,7 @@ def relaunch_as_admin():
         ret = ctypes.windll.shell32.ShellExecuteW(
             None, "runas", sys.executable, params, None, 1  # SW_SHOWNORMAL
         )
-        # ShellExecuteW 返回值 > 32 表示成功
+        # 返回值 >32 即成功
         if ret > 32:
             return True
         return False
@@ -78,20 +78,20 @@ def is_cert_installed(cer_path):
     if sys.platform != "win32":
         return False, False
     try:
-        # 用 certutil -verify 验证过于复杂，这里用 -store 查找证书指纹
-        # 先从证书文件读取指纹（SHA1 哈希）
+        # -verify 太复杂，改用 -store 查指纹
+        # 先从证书文件读取 SHA1 指纹
         import subprocess
         result = subprocess.run(
             ["certutil", "-dump", cer_path],
             capture_output=True, text=True, timeout=10,
             creationflags=0x08000000,
         )
-        # 解析出证书指纹（Cert Hash(sha1)）
+        # 解析证书指纹
         thumbprint = ""
         for line in result.stdout.split("\n"):
             line = line.strip()
             if "Cert Hash(sha1):" in line:
-                # 形如 "Cert Hash(sha1): ab cd ef ..."
+                # 形如 Cert Hash(sha1): ab cd
                 thumbprint = line.split(":", 1)[1].strip().replace(" ", "")
                 break
         if not thumbprint:
@@ -104,7 +104,7 @@ def is_cert_installed(cer_path):
                     capture_output=True, text=True, timeout=10,
                     creationflags=0x08000000,
                 )
-                # 输出包含证书指纹表示已存在
+                # 含指纹即表示已存在
                 return thumbprint.lower() in (r.stdout + r.stderr).lower()
             except Exception:
                 return False
@@ -133,7 +133,7 @@ def auto_install_cert(silent=True):
     if not cer_path:
         return False, "未找到证书文件 BilibiliDownloader_dev.cer"
 
-    # 检查是否已安装，避免重复安装
+    # 先查是否已装，避免重复安装
     try:
         root_ok, publisher_ok = is_cert_installed(cer_path)
         if root_ok and publisher_ok:
@@ -160,15 +160,15 @@ def auto_install_cert(silent=True):
 
 def install_cert(cer_path, store_name, store_location="LocalMachine"):
     """用 certutil 安装证书到指定存储区"""
-    # certutil -addstore -f <StoreLocation>\<StoreName> <cer_path>
-    # 使用 -user 参数安装到 CurrentUser，否则需要管理员
+    # -addstore -f <位置>\<存储名> <cer>
+    # 加 -user 装到 CurrentUser，免管理员
     if store_location == "LocalMachine":
         args = ["certutil", "-addstore", "-f", store_name, cer_path]
     else:
         args = ["certutil", "-user", "-addstore", "-f", store_name, cer_path]
 
     try:
-        # CREATE_NO_WINDOW 避免黑色窗口
+        # CREATE_NO_WINDOW 免黑窗
         result = subprocess.run(
             args,
             capture_output=True,
@@ -211,7 +211,7 @@ def main():
     print(f"证书文件: {cer_path}")
     print()
 
-    # 安装到受信任根证书颁发机构
+    # 装到受信任根证书颁发机构
     print("[1/2] 安装到受信任根证书颁发机构...")
     ok1, msg1 = install_cert(cer_path, "Root", "LocalMachine")
     if ok1:

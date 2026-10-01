@@ -82,9 +82,9 @@ def sanitize_error_path(path):
     roots = []
     for getter in (
         lambda: __import__("_pathsetup").project_root(),
-        # 打包运行：exe 所在目录即程序根（PyInstaller onedir 布局）
+        # 打包运行：exe 所在目录即程序根
         lambda: os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False) else "",
-        # PyInstaller 解包目录（onefile 时源文件会被解到这里）
+        # PyInstaller 解包目录（onefile 用）
         lambda: getattr(sys, "_MEIPASS", ""),
         lambda: os.getcwd(),
     ):
@@ -99,11 +99,11 @@ def sanitize_error_path(path):
     for r in roots:
         if low.startswith(r.lower() + "/"):
             rel = norm[len(r) + 1:]
-            # 相对路径中若仍含用户目录，继续按下面的规则清洗
+            # 残留用户目录的继续按下面规则清洗
             m = re.search(r"/(?:Users|home|Documents and Settings)/[^/]+/(.+)$", rel, re.I)
             return (m.group(1) if m else rel)
 
-    # 绝对路径但不在已知根下：剥掉用户目录前缀
+    # 不在已知根下：剥掉用户目录前缀
     m = re.search(r"/(?:Users|Documents and Settings)/[^/]+/(.+)$", norm, re.I)
     if m:
         return m.group(1)
@@ -111,7 +111,7 @@ def sanitize_error_path(path):
     if m:
         return m.group(1)
 
-    # 已经是相对路径：保留（不含盘符即无隐私）
+    # 已是相对路径：保留（无盘符即无隐私）
     if not re.match(r"^[A-Za-z]:", norm) and not norm.startswith("/"):
         return norm
 
@@ -120,7 +120,7 @@ def sanitize_error_path(path):
 
 
 class CloudService:
-    # 数据采集类别（用户可控开关，细粒度到每一项）
+    # 数据采集类别（用户可逐项开关）
     CONSENT_INSTALL = "event_install"           # 安装事件上报
     CONSENT_LAUNCH = "event_launch"             # 启动事件上报
     CONSENT_PARSE = "event_parse_video"        # 视频解析事件上报
@@ -263,7 +263,7 @@ class CloudService:
                 seen.add(norm)
                 paths.append(p)
 
-        # 1) 用户数据目录（跨重装、跨版本稳定，最可靠）
+        # 1) 用户数据目录（跨版本最可靠）
         for base in (os.environ.get('LOCALAPPDATA'), os.environ.get('APPDATA')):
             if base:
                 _add(os.path.join(base, 'BilibiliDownloadTool', 'client_id.txt'))
@@ -309,7 +309,7 @@ class CloudService:
             d = os.path.dirname(path)
             if d:
                 os.makedirs(d, exist_ok=True)
-            # 先写临时文件再改名，避免写入中断留下半截文件
+            # 先写临时文件再改名，避免半截文件
             tmp = path + '.tmp'
             with open(tmp, 'w', encoding='utf-8') as f:
                 f.write(cid)
@@ -343,7 +343,7 @@ class CloudService:
             parts.append(platform.machine() or '')
         except Exception:
             pass
-        # Windows: 机器 GUID（安装时生成，重装系统才会变），最稳定
+        # Windows: 机器 GUID，重装系统才变，最稳
         if IS_WINDOWS:
             try:
                 import subprocess
@@ -365,7 +365,7 @@ class CloudService:
                         break
             except Exception:
                 pass
-        # 网卡 MAC（取排序后的第一个，避免虚拟网卡顺序抖动）
+        # 网卡 MAC（取排序后第一个，防顺序抖动）
         try:
             import uuid as _uuid
             mac = _uuid.getnode()
@@ -382,18 +382,18 @@ class CloudService:
         try:
             paths = self._get_client_id_file_paths()
 
-            # 1) 依次读取所有已知位置，取第一个有效值
+            # 1) 依次读所有已知位置，取首个有效值
             for p in paths:
                 cid = self._read_client_id_from(p)
                 if cid:
-                    # 回写其它位置，保证后续重装/换目录时仍能读到同一个设备码
+                    # 回写其它位置，重装/换目录仍读到同一码
                     for other in paths:
                         if other != p and not self._read_client_id_from(other):
                             self._write_client_id_to(other, cid)
                     self._is_new_install = False
                     return cid
 
-            # 2) 本地没有记录：优先用可复现的机器指纹，保证重装后设备码不变
+            # 2) 无记录时用可复现指纹，重装码不变
             cid = None
             machine_id = self._machine_identity()
             if machine_id and len(machine_id) >= 16:
@@ -405,8 +405,8 @@ class CloudService:
             for p in paths:
                 self._write_client_id_to(p, cid)
 
-            # 只有无法从任何位置恢复历史设备码时才算“新安装”
-            # （机器指纹命中说明是同一台机器的重装，不应重复触发新手流程）
+            # 只有任何位置都恢复不出历史码才算新装
+            # （指纹命中说明是重装，不重复触发新手流程）
             self._is_new_install = machine_id == ""
             return cid
         except Exception as e:
@@ -476,7 +476,7 @@ class CloudService:
             logger.debug(f"环境信息上报失败: {e}")
 
     def report_event(self, event_type, extra=""):
-        # 根据事件类型映射到对应的细粒度同意开关
+        # 按事件类型映射到细粒度同意开关
         consent_map = {
             "install": self.CONSENT_INSTALL,
             "launch": self.CONSENT_LAUNCH,
@@ -493,15 +493,15 @@ class CloudService:
         }
         consent_key = consent_map.get(event_type)
         if consent_key is None:
-            # 未定义的事件类型，默认不上报
+            # 未定义的事件类型默认不上报
             logger.debug(f"统计上报已跳过（未知事件类型）: {event_type}")
             return
         if not self.is_consent(consent_key):
             logger.debug(f"统计上报已跳过（用户未同意）: {event_type}")
             return
 
-        # extra 支持字符串或字典；字典会序列化为 JSON，便于云端按字段统计。
-        # 只上报匿名技术字段，绝不包含标题、URL、Cookie 等可识别内容。
+        # extra 可为字符串或字典（字典转 JSON）
+        # 只报匿名技术字段，绝不含标题/URL/Cookie
         if isinstance(extra, dict):
             try:
                 _extra = json.dumps(extra, ensure_ascii=False)[:2000]
@@ -581,7 +581,7 @@ class CloudService:
             logger.info(f"当前版本 {self.current_version}({current_parsed}) >= 最新版本 {latest_version_str}({latest_parsed})，无需更新")
             return False
 
-        # 检查用户是否选择了"忽略此版本"或"今日不再提示"
+        # 用户是否选了"忽略此版本"/"今日不再提示"
         try:
             config_file = "app_config.json"
             if os.path.exists(config_file):
@@ -630,7 +630,7 @@ class CloudService:
                 "platform": self.platform,
                 "channel": channel,
             }
-            # 附带设备码，服务端据此判断是否返回内测版本
+            # 附带设备码，服务端据此判断是否返回内测版
             if self._client_id:
                 params["client_id"] = self._client_id
             resp = self.session.get(
@@ -787,7 +787,7 @@ class CloudService:
                                 pct = int(progress_state["downloaded"] * 100 / total_size)
                                 progress_callback(pct, progress_state["downloaded"], total_size)
                     else:
-                        # iter_content 返回空块，检查是否超时
+                        # iter_content 返回空块，检查超时
                         if time.time() - last_data_time > 30:
                             raise Exception(f"分片{chunk_idx}数据传输超时(30s)")
         except Exception as e:
@@ -865,7 +865,7 @@ class CloudService:
                         f.write(chunk)
                         downloaded += len(chunk)
                         chunk_count += 1
-                        # 每10个chunk输出一次debug
+                        # 每 10 个 chunk 输出一次 debug
                         if chunk_count % 10 == 0:
                             print(f"[DEBUG下载] 已读取 {chunk_count} 个chunk, 共 {downloaded} bytes")
                         if progress_callback and (downloaded - last_report >= report_interval):
@@ -885,7 +885,7 @@ class CloudService:
             print(f"[DEBUG下载] 总计: {downloaded} bytes, chunk数: {chunk_count}")
             logger.info(f"[下载] 下载完成, 总计: {downloaded} bytes")
 
-            # 校验实际下载字节数是否与 content-length 声明一致，避免服务器提前断流导致文件截断、zip 损坏
+            # 校验实收字节数是否与 content-length 一致，
             if total > 0 and downloaded < total:
                 pct = downloaded * 100.0 / total
                 print(f"[DEBUG下载] 文件下载不完整: 已下载 {downloaded}/{total} bytes ({pct:.1f}%)")
@@ -939,7 +939,7 @@ class CloudService:
                 except Exception:
                     pass
 
-                # 调用方未附带日志时，自动补充最近的日志尾部，便于云端定位
+                # 调用方没带日志时自动补最近日志尾部
                 _log = log_content or collect_recent_logs()
                 payload = {
                     "action": "report_error",

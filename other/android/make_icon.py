@@ -33,16 +33,16 @@ if not os.path.isfile(SRC):
 src = Image.open(SRC).convert("RGBA")
 print(f"  {SRC}: {src.size} {src.mode}")
 
-# 源图是白底 + 蓝色电视图标。做成启动图标时：
-#   1) 裁掉多余留白，让图形占满画布
-#   2) 用透明或白色背景都可以；Android 自适应图标建议留安全边距
-# 这里保留原图比例，居中放置，四周留约 8% 边距。
+# 源图是白底 + 蓝色电视图标，做启动图标时：
+# 1) 裁掉多余留白，让图形占满画布
+# 2) 透明或白底皆可；自适应图标建议留安全边距
+# 这里保留原比例居中，四周留约 8% 边距
 W, H = src.size
 side = max(W, H)
 canvas = Image.new("RGBA", (side, side), (255, 255, 255, 0))
 canvas.paste(src, ((side - W) // 2, (side - H) // 2), src)
 
-# 去掉纯白背景 → 透明，这样在深色启动器上也好看
+# 去掉纯白背景 → 透明，深色启动器上也好看
 datas = canvas.getdata()
 new_data = []
 for r, g, b, a in datas:
@@ -67,13 +67,13 @@ for name, px in DENSITIES.items():
     tile.save(fp)
     print(f"  {name:8s} {px:3d}x{px:<3d} -> {os.path.relpath(fp, HERE)}")
 
-# p4a 用的主图标：给一个足够大的方形图（512）
+# p4a 用的主图标：给足够大的方形图（512）
 main = canvas.resize((512, 512), Image.LANCZOS)
 main.save(OUT_ICON)
 print(f"\n=== 主图标 ===")
 print(f"  {os.path.relpath(OUT_ICON, HERE)}  {os.path.getsize(OUT_ICON)/1024:.0f} KB  {main.size}")
 
-# 顺带生成 Kivy 界面内用的小图标（标题栏）
+# 顺带生成 Kivy 界面内的小图标（标题栏）
 ui_icon = canvas.resize((128, 128), Image.LANCZOS)
 ui_path = os.path.join(HERE, "logo_ui.png")
 ui_icon.save(ui_path)

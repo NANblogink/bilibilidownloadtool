@@ -12,7 +12,7 @@ import requests
 import threading
 import subprocess
 
-# 注入子目录搜索路径（core / parsers / build），使扁平 import 继续可用
+# 注入子目录搜索路径
 if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _pathsetup  # noqa: F401,E402
@@ -47,8 +47,8 @@ def get_app_icon(config=None):
     icon_path = get_effective_icon_path(config)
     if icon_path and os.path.exists(icon_path):
         return QIcon(icon_path)
-    # 兜底：get_effective_icon_path 失败时（自定义图标被删、路径解析异常等）
-    # 直接按稳定顺序找任一可用图标，避免窗口/任务栏出现空白图标。
+    # 图标失效时兜底
+    # 按序找可用图标
     try:
         for key in ("default", "alt"):
             p = resolve_builtin_icon_path(key)
@@ -116,7 +116,7 @@ _TASK_ICONS = {
     "activity": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><polyline points='22 12 18 12 15 21 9 3 6 12 2 12'/></svg>",
     "speed_up": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 19V5'/><path d='m5 12 7-7 7 7'/></svg>",
     "speed_down": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 5v14'/><path d='m19 12-7 7-7-7'/></svg>",
-    # 文件/目录选择窗口用图标（替代原先的 emoji）
+    # 文件选择窗用图标
     "home": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z'/><polyline points='9 22 9 12 15 12 15 22'/></svg>",
     "monitor": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='2' y='3' width='20' height='14' rx='2'/><line x1='8' x2='16' y1='21' y2='21'/><line x1='12' x2='12' y1='17' y2='21'/></svg>",
     "hard_drive": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><line x1='22' x2='2' y1='12' y2='12'/><path d='M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z'/><line x1='6' x2='6.01' y1='16' y2='16'/><line x1='10' x2='10.01' y1='16' y2='16'/></svg>",
@@ -252,8 +252,8 @@ def get_app_icon_pixmap(config=None, width=None, height=None):
     icon_path = get_effective_icon_path(config)
     if not icon_path or not os.path.exists(icon_path):
         return QPixmap()
-    # 优先用 QIcon 按目标尺寸取图：多尺寸 ICO 会挑最接近的原生图层渲染，
-    # 比"加载整张原图再缩放到目标尺寸"清晰得多（后者会被重采样变模糊）。
+    # QIcon取图最清晰
+    # 缩放大图会模糊
     if width and height:
         icon = QIcon(icon_path)
         if not icon.isNull():
@@ -343,9 +343,9 @@ def _sanitize_reason_text(text, limit=120):
     """
     try:
         s = str(text or "")
-        # 去掉 http/https URL（可能含视频地址与鉴权参数）
+        # 去URL防泄露
         s = re.sub(r"https?://\S+", "<URL>", s)
-        # 去掉 Windows / Unix 绝对路径（可能含用户名）
+        # 去绝对路径防泄露
         s = re.sub(r"[A-Za-z]:\\[^\s，。；)]+", "<路径>", s)
         s = re.sub(r"/(?:Users|home)/[^\s，。；)]+", "<路径>", s)
         # 去掉过长空白
@@ -414,7 +414,7 @@ class RealtimeStatsMonitor(QObject):
     - 网速：psutil.net_io_counters() 前后差值 / 时间差。
     """
 
-    stats_updated = pyqtSignal(str, float, float)  # (fps 文本, 上行 B/s, 下行 B/s)
+    stats_updated = pyqtSignal(str, float, float)  # fps,上行,下行B/s
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -603,7 +603,7 @@ def init_dpi_scale():
         return
     _DPI_INITIALIZED = True
     
-    # 优先使用用户自定义的缩放比例
+    # 优先用自定义缩放
     try:
         _config = Config()
         custom_scale = _config.get_app_setting("custom_ui_scale", "")
@@ -616,9 +616,9 @@ def init_dpi_scale():
     except Exception:
         pass
     
-    # 自动检测DPI。统一取物理DPI（physicalDotsPerInch / GetDC LOGPIXELSX），
-    # 不依赖 logicalDotsPerInch——该值在 PyInstaller 打包的 system-DPI-aware
-    # exe 下偏小（常为96），会与导入期的物理值不一致导致界面突然变小。
+    # 统一取物理DPI
+    # logicalDPI偏小
+    # 不一致会致界面变小
     try:
         from PyQt5.QtWidgets import QApplication
         app = QApplication.instance()
@@ -1040,7 +1040,7 @@ def _is_single_episode(video_info, ep, total=None):
         if total is not None:
             return int(total) <= 1
         if not isinstance(video_info, dict) or not video_info:
-            # 拿不到视频信息时保守处理，保持原有显示
+            # 取不到信息则保守
             return False
         if video_info.get('is_bangumi') or video_info.get('is_cheese') or video_info.get('ugc_season'):
             return False
@@ -1050,8 +1050,8 @@ def _is_single_episode(video_info, ep, total=None):
             seq = video_info.get(key)
             if isinstance(seq, list) and len(seq) > 1:
                 return False
-        # 条目自带 bvid 且与父视频不同 => 收藏夹/合集里的独立投稿，
-        # 它们各自的 page 都是 1，绝不能拿来当集数
+        # bvid异则为独立稿
+        # 各自page都是1
         try:
             _ep_bv = str(ep.get('bvid') or '')
             _vi_bv = str(video_info.get('bvid') or '')
@@ -1077,8 +1077,8 @@ def format_ep_name(ep, index, video_info=None, total=None, seq_start=None):
             _start = int(seq_start)
         except Exception:
             _start = 0
-        # 与 downloader 完全一致：起始序号为 0（未指定）时按 index+1 计数，
-        # 否则从起始序号开始连续递增（起始序号是 1 基的）。
+        # 起始0则index+1
+        # 否则从起始号递增
         number = (_start + (index or 0)) if _start > 0 else (index or 0) + 1
         return f"{_seq_display_prefix(number)}{name}"
 
@@ -1099,9 +1099,9 @@ def format_ep_name(ep, index, video_info=None, total=None, seq_start=None):
         title = ep.get('title', '') or ep.get('name', '')
         if title and title.lstrip().startswith('│'):
             return f"  {title}"
-        # 启用文件名序号时，downloader 会把"第N集_"前缀换成序号（得到
-        # "01. 标题.mp4"），因此这里也必须显示成 "01. 标题" 而不是
-        # "01. 第1集 - 标题"，否则界面和实际文件名对不上。
+        # 序号时前缀换号
+        # 界面须显示01.标题
+        # 否则与文件名不符
         if seq_start is not None and _SEQ_DIGITS > 0 and not _is_single_episode(video_info, ep, total):
             _base = re.sub(r'^第\d+集[ _\-]*', '', title).strip()
             if not _base:
@@ -1117,13 +1117,13 @@ def format_ep_name(ep, index, video_info=None, total=None, seq_start=None):
             return _with_seq(f"第{page}集")
 
 
-# 供函数内部被同名局部函数遮蔽时调用（避免递归）
+# 供被遮蔽时调用
 _format_ep_name_global = format_ep_name
 
 
-# 文件名序号位数（0 = 不添加），由主窗口在启动/保存设置时同步到模块级。
-# 这样 format_ep_name 这种无状态工具函数也能把序号显示出来，
-# 保证「界面上看到的编号」与「下载后的文件名」完全一致。
+# 序号位数0为不加
+# 使无状态函数也能显示
+# 保证界面与文件名一致
 _SEQ_DIGITS = 0
 
 
@@ -1715,7 +1715,7 @@ class ExpandedCard(QDialog):
         self.episode_page_spin.setMinimumHeight(scale(36))
         url_layout.addWidget(self.episode_page_spin)
 
-        # 集数范围：只解析指定的几集，范围外不请求播放地址（大合集/长课程省时省流量）
+        # 只解析指定集省流量
         self.episode_range_edit = QLineEdit()
         self.episode_range_edit.setPlaceholderText("集数范围")
         self.episode_range_edit.setToolTip(
@@ -1783,7 +1783,7 @@ class ExpandedCard(QDialog):
         self.resolution_combo = QComboBox()
         self.resolution_combo.setStyleSheet(f"padding: {scale(6)}px; border: {scale(1)}px solid #dde3ed; border-radius: 0; font-size: {scale(12)}px;")
         self.resolution_combo.setMinimumHeight(scale(28))
-        # 默认只显示无需登录的分辨率，登录后会更新
+        # 默认显示免登录
         self.resolution_combo.addItems(["480P", "360P"])
         self.resolution_combo.setCurrentIndex(0)  # 默认选择最高质量
         resolution_layout.addWidget(resolution_label)
@@ -1831,7 +1831,7 @@ class ExpandedCard(QDialog):
         download_type_label.setMinimumHeight(scale(28))
         download_type_label.setMinimumWidth(scale(60))
 
-        # 下载内容类型下拉选择：有声视频/仅音频/仅视频
+        # 下载内容类型下拉
         self.download_content_combo = QComboBox()
         self.download_content_combo.setStyleSheet(f"font-size: {scale(10)}px; padding: {scale(2)}px;")
         self.download_content_combo.addItem("有声视频（视频+音频）")
@@ -1840,7 +1840,7 @@ class ExpandedCard(QDialog):
         self.download_content_combo.setCurrentIndex(0)  # 默认下载有声视频
         self.download_content_combo.setMinimumWidth(scale(120))
 
-        # 保留原有的复选框（弹幕/封面/字幕）
+        # 保留原有复选框
         self.download_danmaku_checkbox = QCheckBox("弹幕")
         self.download_danmaku_checkbox.setStyleSheet(f"font-size: {scale(10)}px;")
         self.download_danmaku_checkbox.setChecked(True)
@@ -2029,7 +2029,7 @@ class ExpandedCard(QDialog):
         self.adjustSize()
     
     def on_resize(self, event):
-        # 确保内容区域自适应窗口大小
+        # 内容区自适应窗口
         if self.initial_card and self.initial_card.isVisible():
             self.initial_card.resize(self.width(), self.height())
             self._adjust_initial_card_layout()
@@ -2142,7 +2142,7 @@ class FloatingBall(QWidget):
         
         self.setFixedSize(self.base_size, self.base_size)
         
-        # 使用 setMask 限制为圆形区域，防止透明角落拦截鼠标
+        # setMask防挡鼠标
         self._update_ball_mask()
         
         screen = QApplication.primaryScreen()
@@ -2184,7 +2184,7 @@ class FloatingBall(QWidget):
     
     def show(self):
         super().show()
-        # show 后重新设置 mask，因为 setWindowFlags 可能会清除 mask
+        # 设flags清mask
         self._update_ball_mask()
     
     def paintEvent(self, event):
@@ -2590,7 +2590,7 @@ class FloatingBall(QWidget):
             logger.error(f"解析完成回调异常：{e}")
 
     def _on_parse_finished_impl(self, video_info):
-        # 直播链接由主窗口 on_parse_finished 处理，这里直接跳过
+        # 直播由主窗处理
         if video_info.get('type') == 'live':
             return
 
@@ -2663,7 +2663,7 @@ class FloatingBall(QWidget):
                     item.setData(Qt.UserRole, video_info)
                     self.video_list.addItem(item)
             
-            # 弹幕信息由主窗口 update_ui 统一获取，这里不再重复请求，避免并发弹幕请求导致卡顿
+            # 弹幕由主窗统一取
         else:
             
             if self.parent and hasattr(self.parent, 'show_notification'):
@@ -2672,7 +2672,7 @@ class FloatingBall(QWidget):
                     self.parent.show_notification(error_msg, "info")
                 else:
                     self.parent.show_notification(f"解析失败：{error_msg}", "error")
-                    # 记录失败原因：仅上传可归类的短文本，剥离 URL 与本地路径
+                    # 只上传可归类短文本
                     try:
                         if hasattr(self.parent, 'cloud_service') and self.parent.cloud_service:
                             _reason = _sanitize_reason_text(error_msg)
@@ -2707,7 +2707,7 @@ class FloatingBall(QWidget):
                 if not os.path.exists(folder):
                     os.makedirs(folder, exist_ok=True)
 
-                # 测试写入权限 - 使用UUID确保文件名唯一，避免多线程冲突
+                # UUID防多线程冲突
                 import uuid
                 test_file = os.path.join(folder, f"permission_test_{uuid.uuid4().hex[:8]}.tmp")
                 with open(test_file, 'w') as f:
@@ -2731,7 +2731,7 @@ class FloatingBall(QWidget):
                 self.parent.show_notification("内部错误：缺少必要组件", "error")
             return
 
-        # 0: 有声视频（视频+音频）, 1: 仅音频, 2: 仅视频（无声）
+        # 0有声1音频2无声
         if content_type is not None:
             download_content_type = content_type
         elif hasattr(self, 'download_content_combo'):
@@ -2754,7 +2754,7 @@ class FloatingBall(QWidget):
         if not selected_items:
             if self.video_list.count() == 1:
                 selected_items = [self.video_list.item(0)]
-            elif download_content_type >= 0:  # 需要下载内容时必须选择
+            elif download_content_type >= 0:  # 下载内容必选
                 if self.parent and hasattr(self.parent, 'show_notification'):
                     self.parent.show_notification("请选择要下载的视频", "warning")
                 return
@@ -2796,7 +2796,7 @@ class FloatingBall(QWidget):
                 if not os.path.exists(save_path):
                     os.makedirs(save_path, exist_ok=True)
 
-                # 测试写入权限 - 使用UUID确保文件名唯一，避免多线程冲突
+                # UUID防多线程冲突
                 import uuid
                 test_file = os.path.join(save_path, f"permission_test_{uuid.uuid4().hex[:8]}.tmp")
                 with open(test_file, 'w') as f:
@@ -2826,7 +2826,7 @@ class FloatingBall(QWidget):
                 "episodes": selected_videos,
                 "resume_download": True,
                 "task_id": task_id,
-                "download_content_type": download_content_type,  # 0:有声视频, 1:仅音频, 2:仅视频
+                "download_content_type": download_content_type,  # 0有声1音频2无声
                 "download_danmaku": download_danmaku,
                 "video_format": _config.get_app_setting("video_output_format", "mp4") if _config else "mp4",
                 "audio_format": _config.get_app_setting("audio_output_format", "mp3") if _config else "mp3",
@@ -2895,7 +2895,7 @@ class FloatingBall(QWidget):
             if hasattr(self.parent, 'show_notification'):
                 self.parent.show_notification(f"开始下载 {len(selected_videos)} 个{download_type_str}", "success")
             
-            # 对于 BilibiliDownloader 主窗口，使用 BatchDownloadWindow 显示下载进度
+            # 主窗用批下载窗口
             if hasattr(self.parent, 'batch_windows'):
                 existing_window = None
                 for window in self.parent.batch_windows.values():
@@ -2917,7 +2917,7 @@ class FloatingBall(QWidget):
                     batch_window.window_closed.connect(lambda tid=task_id: self.parent.on_batch_window_closed(tid))
                     batch_window.show()
                     self.parent.batch_windows[task_id] = batch_window
-            # 对于 FloatingBall 自身，使用内置的 download_widget
+            # 悬浮球用内置控件
             elif hasattr(self, 'video_info_widget') and hasattr(self, 'download_widget'):
                 self.video_info_widget.hide()
                 self.download_widget.show()
@@ -3049,7 +3049,7 @@ class FloatingBall(QWidget):
                     bvid = self.current_video_info.get('bvid', '')
                     title = self.current_video_info.get('title', '未知视频')
                     url = f"https://www.bilibili.com/video/{bvid}" if bvid else ""
-                    # 带上真实路径，供「下载历史 → 用视频工具处理」定位文件
+                    # 带路径供工具定位
                     _sp, _fp = _episode_output_path(
                         _find_task(getattr(self.parent, 'download_manager', None), task_id, ep_index),
                         ep_index)
@@ -3093,8 +3093,8 @@ class FloatingBall(QWidget):
                     )
                 except Exception:
                     pass
-            # 上报下载失败原因（仅上传归一化标签，不上传原始信息）
-            # 原始信息可能包含完整视频 URL 与文件名，属于用户内容，一律不上报。
+            # 只上报归一化标签
+            # 原文可能含URL不报
             try:
                 if self.parent and hasattr(self.parent, 'cloud_service') and self.parent.cloud_service:
                     self.parent.cloud_service.report_event("download_failed", extra={
@@ -3121,7 +3121,7 @@ def join_support_group():
     except Exception:
         return False
 
-# ---------- Windows 通知中心推送（基于 WinRT / winsdk，避免 PowerShell 的 RPC_R_SERVERFAULT 问题） ----------
+# ---- WinRT通知推送 ----
 _WINRT_TOAST_APP_ID = "B站视频下载工具"
 _winrt_toast_refs = []
 _warned_no_winsdk = False
@@ -3191,8 +3191,8 @@ def _winrt_toast(title, message, actions=None, progress=None, attribution="", ap
     title = _esc(title)
     body = _esc(message)
 
-    # 统一使用 ToastGeneric 模板（支持应用图标/进度条/归属文字/底图）。
-    # appLogoOverride 让每条通知都显示应用图标，不依赖系统对免安装应用的图标关联。
+    # 用Toast模板
+    # appLogo显图标
     binding = "<text>%s</text><text>%s</text>" % (title, body)
     logo_src = app_logo or _toast_logo_png()
     if logo_src:
@@ -3237,7 +3237,7 @@ def _winrt_toast(title, message, actions=None, progress=None, attribution="", ap
                     if cb is not None:
                         cb()
                         return
-                    # 读不到 arguments 时兜底：执行唯一前台回调（多按钮时退化为全部执行，尽力而为）
+                    # 读不到则执行唯一回调
                     for _cb in list(_map.values()):
                         try:
                             _cb()
@@ -3295,7 +3295,7 @@ def windows_notify_done(title, message, success=1, fail=0):
 def windows_notify_progress(title, message, percent, status=""):
     """进度通知：percent 传 0~100 的整数。"""
     if not IS_WINDOWS:
-        # 非 Windows 平台没有常驻进度条通知，退化为一条普通通知。
+        # 非Win退化通知
         try:
             from platform_utils import native_notify
             return native_notify(title, message or ("下载进度 %d%%" % int(percent)))
@@ -3308,18 +3308,18 @@ def windows_notify_progress(title, message, percent, status=""):
 
 
 def windows_notify_with_actions(title, message):
-    # 带按钮的通知只有 Windows 支持；其他平台降级为普通通知
-    # （用户仍能从界面里完成同样的操作）。
+    # 按钮通知仅Win支持
+    # 其余平台界面操作
     if not IS_WINDOWS:
         return windows_notify(title, message)
-    # 加入交流群：用 foreground 前台回调打开浏览器，比 system 的 protocol 激活更可靠
+    # 前台回调开浏览器
     def _join_group():
         try:
             _webbrowser.open("https://qm.qq.com/q/FuEDO9DXmG")
         except Exception:
             pass
     actions = [("joingroup", "加入交流群", _join_group, "foreground")]
-    # 一键复制日志：打包耗时可能较长（日志文件大），必须放后台线程，避免阻塞主线程导致UI卡死
+    # 复制日志须后台
     def _copy_log_file():
         try:
             def _worker():
@@ -3339,7 +3339,7 @@ def windows_notify_with_actions(title, message):
         except Exception:
             pass
     actions.insert(0, ("copylogs", "一键复制日志", _copy_log_file, "foreground"))
-    # 错误类通知：左侧用真实警告图标(感叹号)，顶部归属文字标明应用名
+    # 错误通知用警告图标
     return _winrt_toast(title, message, actions,
                         attribution="B站视频下载工具",
                         app_logo=_toast_warning_png())
@@ -3544,7 +3544,7 @@ class ParseProgressWindow(QDialog):
         self.update_progress_signal.connect(self._update_progress_slot)
         self.add_log_signal.connect(self._add_log_slot)
         
-        # 解析耗时/活动监测：避免用户误以为卡死
+        # 显示耗时防误判卡死
         self._last_activity_time = time.time()
         self._start_time = time.time()
         self._last_log_progress = None
@@ -3642,7 +3642,7 @@ class ParseProgressWindow(QDialog):
             self.progress_label.setText(message)
             self._last_activity_time = time.time()
             log_message = f"[{progress}%] {message}"
-            # 去重：进度值和消息都相同时不重复追加（例如循环重试阶段）
+            # 进度与消息同则不重复
             if not (progress == self._last_log_progress and message == self._last_log_msg):
                 self._append_log(log_message)
             self._last_log_progress = progress
@@ -3864,7 +3864,7 @@ class FlowLayout(QLayout):
         w = item.widget() if item is not None else None
         return self._spans.get(w, 1) if w is not None else 1
 
-    # ---- QLayout 必须实现的接口 ----
+    # ---- QLayout接口 ----
     def addItem(self, item):
         self._items.append(item)
 
@@ -3957,8 +3957,8 @@ class FlowLayout(QLayout):
         def width_for_cols(n):
             return col_w * n + self._h_spacing * (n - 1)
 
-        # 第一遍：按 span 分配到行列，记录每行高度
-        placed = []          # (item, col, row_index, span, height)
+        # 第一遍分行列
+        placed = []          # 项,列,行,跨度,高
         row_heights = []
         col = 0
         row = 0
@@ -3983,7 +3983,7 @@ class FlowLayout(QLayout):
                 col = 0
                 row += 1
 
-        # 第二遍：按行高对齐（同行卡片等高，视觉更整齐）
+        # 第二遍按行高对齐
         y = eff.y()
         for r, rh in enumerate(row_heights):
             for item, c, rr, span, h in placed:
@@ -4049,7 +4049,7 @@ class _EdgeGrip(QWidget):
 
     def mouseMoveEvent(self, event):
         if self._fwd_button is not None:
-            # 正在转发按钮点击，不触发窗口缩放
+            # 转发点击不触发缩放
             event.accept()
             return
         if event.buttons() & Qt.LeftButton and self._window.resizing:
@@ -4062,7 +4062,7 @@ class _EdgeGrip(QWidget):
             self._fwd_button = None
             try:
                 btn.setDown(False)
-                # 仅当松开时仍落在按钮范围内才真正触发点击
+                # 松开仍在范围内才点击
                 if btn.rect().contains(btn.mapFromGlobal(self._global_pos(event))):
                     btn.click()
             except Exception:
@@ -4077,15 +4077,15 @@ class BaseWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        # FramelessWindowHint 会移除 WS_MAXIMIZEBOX 导致 Windows 拒绝最大化请求，
-        # 必须显式加上三个 ButtonHint（按钮本身因无边框不会显示，但 Windows 内部状态正确）
+        # Frameless无MaxBox
+        # 加三ButtonHint
         self.setWindowFlags(
             Qt.FramelessWindowHint | Qt.Window |
             Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint | Qt.WindowCloseButtonHint
         )
         self.setAutoFillBackground(True)
 
-        # 边缘缩放窄条（8方向），提供悬浮光标与拖拽缩放
+        # 八方向边缘缩放条
         self._edge_grips = []
         for direction in ('top', 'bottom', 'left', 'right',
                           'top-left', 'top-right', 'bottom-left', 'bottom-right'):
@@ -4100,7 +4100,7 @@ class BaseWindow(QMainWindow):
         self.resizing = False
         self.resize_direction = None
         self.edge_size = 10
-        # 开启鼠标追踪，使mouseMoveEvent在没有按下按钮时也能触发（用于边缘光标变化）
+        # 开鼠标追踪供悬停光标
         self.setMouseTracking(True)
 
     def _get_resize_direction(self, pos):
@@ -4150,7 +4150,7 @@ class BaseWindow(QMainWindow):
 
     def _update_edge_resize(self, global_pos):
         """按当前方向更新窗口几何（含最小值钳制）"""
-        # 用户首次手动拖拽改尺寸后即解除启动守卫，避免守卫每 300ms 把窗口强掕回全屏导致"回弹"
+        # 手拖后解除启动守卫
         self._disarm_resize_guard()
         direction = self.resize_direction
         if not direction:
@@ -4171,7 +4171,7 @@ class BaseWindow(QMainWindow):
             h = start_g.height() - dy
         if 'bottom' in direction:
             h = start_g.height() + dy
-        # 最小值钳制（与 setMinimumSize 一致）
+        # 最小值钳制
         min_size = self.minimumSize()
         min_w = min_size.width() if min_size.width() > 0 else scale(280)
         min_h = min_size.height() if min_size.height() > 0 else scale(200)
@@ -4244,7 +4244,7 @@ class BaseWindow(QMainWindow):
     def showEvent(self, event):
         try:
             super().showEvent(event)
-            # 显示时中央控件可能重新置顶盖住窄条，重新摆放并 raise
+            # 重摆控件并raise
             self._layout_edge_grips()
         except Exception:
             pass
@@ -4252,14 +4252,14 @@ class BaseWindow(QMainWindow):
     def mousePressEvent(self, event):
         try:
             if event.button() == Qt.LeftButton:
-                # 每次按下都重置状态，防止上次release丢失导致卡死
+                # 每次按下重置状态
                 self.dragging = False
                 self.resizing = False
                 self.resize_direction = None
 
                 pos = event.pos()
-                # 边缘检测：只在真正位于边缘时才设置resizing
-                # （常态下边缘有 _EdgeGrip 窄条接管，这里兜底窄条未覆盖到的空隙）
+                # 仅边缘resizing
+                # 兜底窄条未覆盖处
                 direction = self._get_resize_direction(pos)
                 if direction:
                     self._begin_edge_resize(direction, event.globalPos())
@@ -4267,7 +4267,7 @@ class BaseWindow(QMainWindow):
                     self.dragging = True
                     self.start_pos = event.globalPos() - self.frameGeometry().topLeft()
 
-                # 所有分支都accept事件，防止事件冒泡
+                # 全分支accept
                 event.accept()
         except Exception:
             event.accept()
@@ -4281,8 +4281,8 @@ class BaseWindow(QMainWindow):
                 self.move(event.globalPos() - self.start_pos)
                 event.accept()
             else:
-                # 未按下按钮时，根据鼠标位置更新光标形状（边缘resize提示）
-                # （常态下边缘光标由 _EdgeGrip 窄条提供，这里兜底）
+                # 按位置更新光标形状
+                # 兜底边缘光标
                 direction = self._get_resize_direction(event.pos())
                 cursor = self._cursor_for_direction(direction) if direction else None
                 if cursor is not None:
@@ -4327,7 +4327,7 @@ class VideoToolWindow(BaseWindow):
         self.file_list = []
         self.converting = False
         self.cancel_requested = False
-        self._closing = False  # 窗口关闭标志，防止线程访问已销毁的UI
+        self._closing = False  # 关窗标志防访问UI
         self.process = None
         self.output_dir = ""
         self.subtitle_path = ""
@@ -4336,7 +4336,7 @@ class VideoToolWindow(BaseWindow):
 
         self.add_log_signal.connect(self._add_log_slot)
 
-        # 初始化控件状态（默认复制流模式）
+        # 默认复制流模式
         self._on_video_codec_changed(self.video_codec_combo.currentText())
         self._on_audio_codec_changed(self.audio_codec_combo.currentText())
 
@@ -4355,7 +4355,7 @@ class VideoToolWindow(BaseWindow):
         body_layout.setContentsMargins(scale(10), scale(8), scale(10), scale(10))
         body_layout.setSpacing(scale(10))
 
-        # 左栏 - 文件管理区 (280px)
+        # 左栏文件管理区
         left_panel = self._create_left_panel()
         body_layout.addWidget(left_panel)
 
@@ -4527,7 +4527,7 @@ class VideoToolWindow(BaseWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(scale(8))
 
-        # 上半部：QTabWidget 参数设置区
+        # 上半参数设置区
         tab_widget = QTabWidget()
         tab_widget.addTab(self._create_tab_basic(), "基础")
         tab_widget.addTab(self._create_tab_video(), "视频")
@@ -4535,7 +4535,7 @@ class VideoToolWindow(BaseWindow):
         tab_widget.addTab(self._create_tab_advanced(), "高级")
         layout.addWidget(tab_widget, stretch=1)
 
-        # 下半部：视频信息展示面板（独立区域）
+        # 下半信息展示面板
         info_group = self._create_info_panel()
         layout.addWidget(info_group)
 
@@ -5109,17 +5109,17 @@ class VideoToolWindow(BaseWindow):
         # 加载历史记录
         history_files = []
 
-        # 方式1: 从download_history模块获取历史记录
+        # 方式1从历史记录取
         if hasattr(self, 'parent') and hasattr(self.parent(), 'download_history'):
             try:
                 records = self.parent().download_history.get_all_records()
                 for record in records:
                     file_path = record.get('file_path', '')
                     save_path = record.get('save_path', '')
-                    # 如果有具体文件路径且存在
+                    # 有路径且存在
                     if file_path and os.path.exists(file_path) and file_path not in history_files:
                         history_files.append(file_path)
-                    # 如果只有保存目录，扫描该目录中的视频文件
+                    # 仅有目录则扫描
                     elif save_path and os.path.isdir(save_path):
                         try:
                             for f in os.listdir(save_path):
@@ -5134,11 +5134,11 @@ class VideoToolWindow(BaseWindow):
             except Exception as e:
                 logger.warning(f"从download_history获取记录失败: {e}")
 
-        # 方式2: 从task_manager获取任务信息
+        # 方式2从任务管理器取
         if hasattr(self, '_main_window') and hasattr(self._main_window, 'task_manager'):
             tasks = self._main_window.task_manager.get_all_tasks()
             for task in tasks:
-                # 尝试多个可能的文件路径字段
+                # 尝试多个路径字段
                 path = (task.get('file_path', '') or
                        task.get('output_path', '') or
                        task.get('save_path', ''))
@@ -5158,9 +5158,9 @@ class VideoToolWindow(BaseWindow):
                         except Exception:
                             pass
 
-        # 方式3: 扫描默认下载目录
+        # 方式3扫默认目录
         default_dirs = []
-        # 获取配置的默认下载路径
+        # 取配置的默认路径
         if self.config:
             configured_path = self.config.get_app_setting("default_download_path", "")
             if configured_path:
@@ -5483,12 +5483,12 @@ class VideoToolWindow(BaseWindow):
         """视频编码切换时，根据是否为复制流模式启用/禁用相关控件"""
         is_copy = "复制数据流" in text or "copy" in text.lower()
 
-        # GPU加速：复制流模式不需要GPU
+        # 复制流不需GPU
         self.gpu_checkbox.setEnabled(not is_copy)
         if is_copy:
             self.gpu_checkbox.setChecked(False)
 
-        # 视频参数控件：复制流模式下全部禁用（分辨率、码率、帧率）
+        # 复制流下禁用视频参数
         self.resolution_combo.setEnabled(not is_copy)
         self.custom_resolution.setEnabled(not is_copy and self.resolution_combo.currentText() == "自定义")
         self.bitrate_mode_combo.setEnabled(not is_copy)
@@ -5502,7 +5502,7 @@ class VideoToolWindow(BaseWindow):
         """音频编码切换时，根据是否为复制流模式启用/禁用相关控件"""
         is_copy = "复制数据流" in text or "copy" in text.lower()
 
-        # 音频参数控件：复制流模式下全部禁用
+        # 复制流下禁用音频参数
         self.sample_rate_combo.setEnabled(not is_copy)
         self.audio_bitrate_combo.setEnabled(not is_copy)
         self.channels_combo.setEnabled(not is_copy)
@@ -5681,7 +5681,7 @@ class VideoToolWindow(BaseWindow):
         except Exception:
             pass
 
-        # 2) tool_manager（打包/安装后工具的权威位置）
+        # tool_manager权威
         try:
             tm = getattr(self.task_manager, "tool_manager", None) if self.task_manager else None
             if tm is not None:
@@ -5718,13 +5718,13 @@ class VideoToolWindow(BaseWindow):
                 return os.path.normpath(found)
         except Exception:
             pass
-        return name   # 交给系统自行解析（通常是裸名）
+        return name   # 交给系统解析
 
     def _build_ffmpeg_cmd(self, file_info, output_path):
         cmd = []
-        # 必须把解析到的 ffmpeg 路径作为命令第一个参数。
-        # （此前重写本函数时漏掉了这行，导致 cmd[0] 变成 '-y'，
-        #   Popen 直接抛 FileNotFoundError → 报"未找到 ffmpeg"并中断转换。）
+        # ffmpeg作cmd0
+        # 曾漏掉此行导致
+        # Popen抛未找到
         cmd.append(self._resolve_media_tool("ffmpeg"))
 
         cmd.extend(['-y'])
@@ -5747,7 +5747,7 @@ class VideoToolWindow(BaseWindow):
         use_gpu = self.gpu_checkbox.isChecked() and not is_video_copy
 
         if is_video_copy:
-            # 复制流模式：直接复制视频流，不重新编码
+            # 复制流不重编码
             cmd.extend(['-c:v', 'copy'])
         elif use_gpu:
             if "264" in video_codec_text or "h.264" in video_codec_text.lower():
@@ -5772,14 +5772,14 @@ class VideoToolWindow(BaseWindow):
             else:
                 cmd.extend(['-c:v', 'libx264'])
 
-        # 码率参数 - 仅在非复制流模式下添加
+        # 码率仅非复制流加
         mode_text = self.bitrate_mode_combo.currentText()
         is_nvenc = use_gpu and not is_video_copy
         if not is_video_copy:
             if "CRF" in mode_text:
                 crf_val = self.crf_spinbox.value()
                 if is_nvenc:
-                    # NVENC编码器不支持-crf，使用 -rc vbr -cq 等效替代
+                    # NVENC用cq
                     cmd.extend(['-rc', 'vbr', '-cq', str(crf_val), '-qmin', str(max(crf_val - 5, 10)), '-qmax', str(min(crf_val + 19, 51))])
                 else:
                     cmd.extend(['-crf', str(crf_val)])
@@ -5794,14 +5794,14 @@ class VideoToolWindow(BaseWindow):
                     max_br = self.max_bitrate.value()
                     cmd.extend(['-maxrate', f'{max_br}k', '-bufsize', f'{max_br * 2}k'])
 
-        # 分辨率和滤镜 - 仅在非复制流模式下添加
+        # 缩放仅非复制流加
         vf_filters = []
 
         if not is_video_copy:
             res_text = self.resolution_combo.currentText()
             if res_text != "原始":
-                # 使用 scale=W:H:force_original_aspect_ratio=decrease 保持宽高比
-                # 并用 pad 补黑边到精确尺寸（可选，这里只做缩放不补边）
+                # scale保持宽高比
+                # pad补黑边可选
                 if "4K" in res_text:
                     vf_filters.append("scale=3840:2160:force_original_aspect_ratio=decrease")
                 elif "1080" in res_text:
@@ -5846,7 +5846,7 @@ class VideoToolWindow(BaseWindow):
         if vf_filters:
             cmd.extend(['-vf', ','.join(vf_filters)])
 
-        # 帧率 - 仅在非复制流模式下添加
+        # 帧率仅非复制流加
         if not is_video_copy:
             fps_text = self.framerate_combo.currentText()
             if fps_text == "自定义":
@@ -5856,7 +5856,7 @@ class VideoToolWindow(BaseWindow):
                 cmd.extend(['-r', str(fps_val)])
 
         if is_audio_copy:
-            # 复制流模式：直接复制音频流，不重新编码
+            # 复制流不重编码
             cmd.extend(['-c:a', 'copy'])
         else:
             codec_map = {'AAC': 'aac', 'MP3': 'libmp3lame', 'FLAC': 'flac',
@@ -5864,7 +5864,7 @@ class VideoToolWindow(BaseWindow):
             codec = codec_map.get(audio_codec_text.upper(), 'aac')
             cmd.extend(['-c:a', codec])
 
-        # 音频参数 - 仅在非复制流模式下添加
+        # 音频参仅非复制流加
         if not is_audio_copy:
             sr_text = self.sample_rate_combo.currentText()
             if sr_text != "原始":
@@ -5921,7 +5921,7 @@ class VideoToolWindow(BaseWindow):
         self._log("=" * 50)
         self._log("开始转换任务...")
 
-        # 在子线程中执行转换，避免阻塞UI主线程
+        # 子线程转换防阻塞
         import threading
         def _conversion_worker():
             total_files = len(self.file_list)
@@ -5931,7 +5931,7 @@ class VideoToolWindow(BaseWindow):
                         self._log("用户取消转换")
                     break
 
-                # 使用信号安全地更新UI
+                # 用信号安全更新UI
                 try:
                     self.status_label.setText(f"正在转换 ({idx + 1}/{total_files}): {file_info['filename']}")
                     output_ext = self.format_combo.currentText().lower()
@@ -5939,7 +5939,7 @@ class VideoToolWindow(BaseWindow):
                     break
                 self._log(f"\n[{idx + 1}/{total_files}] 处理: {file_info['filename']}")
                 base_name = os.path.splitext(file_info['filename'])[0]
-                # 去除已存在的_converted后缀，避免重复
+                # 去_converted
                 base_name = base_name.rsplit('_converted', 1)[0] if '_converted' in base_name else base_name
                 output_filename = f"{base_name}_converted.{output_ext}"
                 output_path = os.path.join(self.output_dir, output_filename)
@@ -5992,9 +5992,9 @@ class VideoToolWindow(BaseWindow):
         try:
             self.process = subprocess.Popen(
                 cmd,
-                # stdout 必须丢弃：ffmpeg 默认把日志写 stderr（我们读它取进度），
-                # 但若它向 stdout 写入（如 -progress - 或输出到管道），
-                # 该管道无人读取，写满 64KB 缓冲即会阻塞进程 → 表现为"开始转换就卡死"。
+                # stdout须丢弃
+                # 写stdout无人读
+                # 写满64KB即卡死
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 **subprocess_no_window_kwargs()
@@ -6086,11 +6086,11 @@ class VideoToolWindow(BaseWindow):
                         self._log(f"警告: ffmpeg长时间无输出({no_output_timeout}秒)，请检查")
                         last_progress_time = time.time()
 
-            # 关键：读到 stderr EOF 时子进程可能尚未被收割，
-            # 此时 process.returncode / poll() 仍是 None，
-            # 直接拿它比较会把"成功"误判为失败
-            # （日志实证：ffmpeg 实际已成功完成，却报"返回码: None"并标记转换失败）。
-            # 因此必须先 wait() 收回退出码，拿不到再退回 poll()。
+            # EOF时未收割
+            # poll仍为None
+            # 直接比较会误判失败
+            # 曾报返回码None
+            # 先wait再poll
             return_code = None
             try:
                 self.process.wait(timeout=30)
@@ -6111,10 +6111,10 @@ class VideoToolWindow(BaseWindow):
             return return_code == 0
 
         except FileNotFoundError:
-            # 注意：本方法运行在转换子线程中，绝不能在这里弹 QMessageBox
-            # （跨线程创建模态窗口会卡死/闪退）。
-            # 调用方 _conversion_worker 已根据返回值写日志并 emit 结果，
-            # 这里只记录明确的排查提示即可。
+            # 本方法在子线程
+            # 跨线程弹窗会卡死
+            # 调用方已写日志
+            # 只记排查提示
             _ff = cmd[0] if cmd else "ffmpeg"
             self._log(f"错误: 未找到 ffmpeg 可执行文件：{_ff}")
             self._log("请在「设置 → 下载设置」中配置正确的 ffmpeg 路径，"
@@ -6172,7 +6172,7 @@ class VideoToolWindow(BaseWindow):
 
     def _log(self, message):
         import threading
-        # 窗口已关闭时不再写日志，避免访问已销毁的控件
+        # 关窗后不写日志
         if self._closing:
             return
         timestamp = time.strftime("%H:%M:%S")
@@ -6197,7 +6197,7 @@ class VideoToolWindow(BaseWindow):
             pass
 
     def closeEvent(self, event):
-        self._closing = True  # 标记窗口正在关闭，线程检测到后立即退出
+        self._closing = True  # 关窗标志供线程检测
         if self.converting:
             reply = QMessageBox.question(
                 self, "确认关闭",
@@ -6208,9 +6208,9 @@ class VideoToolWindow(BaseWindow):
                 self._closing = False
                 event.ignore()
                 return
-            # 停止转换并等待线程结束，防止访问已销毁的UI
+            # 停转换等线程
             self.cancel_requested = True
-            # 强制终止ffmpeg进程（在停止转换之前先杀进程，让_run_ffmpeg快速返回）
+            # 先杀ffmpeg
             if self.process and self.process.poll() is None:
                 try:
                     self.process.terminate()
@@ -6221,7 +6221,7 @@ class VideoToolWindow(BaseWindow):
                     except Exception:
                         pass
             self.process = None
-            # 等待转换线程结束（最多2秒）
+            # 等线程结束最多2秒
             _ct = getattr(self, '_conversion_thread', None)
             if _ct and _ct.is_alive():
                 _ct.join(timeout=2)
@@ -6273,14 +6273,14 @@ class NotificationWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         
-        # WindowDoesNotAcceptFocus：通知永不接受输入焦点，避免打断用户当前
-        # 正在使用的程序（例如全屏游戏被顶到后台）。
+        # 通知不接受焦点
+        # 免打断全屏游戏
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool | Qt.Window |
                             Qt.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAutoFillBackground(False)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
-        # 初始状态设置鼠标穿透，防止未显示时拦截事件
+        # 初始鼠标穿透
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         
         self.container = QWidget(self)
@@ -6352,7 +6352,7 @@ class NotificationWidget(QWidget):
 
             self.layout.activate()
             self.content_layout.activate()
-            # 用 QTextDocument 计算换行后的实际高度（adjustSize 对 wordWrap 不准）
+            # Document算高
             from PyQt5.QtGui import QTextDocument
             text_avail = ideal_width - extra_width
             doc = QTextDocument(message)
@@ -6364,14 +6364,14 @@ class NotificationWidget(QWidget):
 
             self.center()
 
-            # 先清除旧 mask，显示后再延迟更新
+            # 先清mask再更新
             self.clearMask()
             self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
-            # 只显示、不抢焦点：不调用 activateWindow()，否则会顶掉用户前台程序
+            # 只显示不抢焦点
             self.show()
             self.raise_()
 
-            # 延迟更新 mask，确保窗口已完全渲染
+            # 延迟更新mask
             QTimer.singleShot(50, self._update_mask)
 
             QTimer.singleShot(1000, self._make_clickthrough)
@@ -6424,7 +6424,7 @@ class NotificationWidget(QWidget):
         """安全隐藏：隐藏后设置鼠标穿透，不再拦截其他窗口的事件"""
         self.hide()
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        # 清除 mask，防止隐藏后残留
+        # 清除mask防残留
         self.clearMask()
 
     def mousePressEvent(self, event):
@@ -6433,7 +6433,7 @@ class NotificationWidget(QWidget):
 class AnnouncementDialog(QDialog):
     action_triggered = pyqtSignal(dict)
 
-    # 公告配色：与全局设计语言统一（柔和底色 + 高饱和强调色 + 渐变头部）
+    # 公告配色与全局统一
     _THEME = {
         "info":    {"accent": "#2563eb", "accent2": "#3b82f6", "soft": "#eff6ff",
                     "border": "#bfdbfe", "icon": "info",  "label": "公告"},
@@ -6459,10 +6459,10 @@ class AnnouncementDialog(QDialog):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setWindowTitle(title_text)
         self.setAttribute(Qt.WA_DeleteOnClose, True)
-        # 圆角窗口必须开启透明背景，否则四角会渲染成黑色方块
+        # 圆角须开透明背景
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setObjectName("annDialog")
-        # 注意：不可开启 autoFillBackground，否则会整块填充矩形背景、破坏圆角
+        # autoFill破圆角
 
         self.setStyleSheet(scale_style(f"""
             /* 外层窗口透明：圆角与投影由内层卡片绘制，避免四角出现黑块 */
@@ -6514,7 +6514,7 @@ class AnnouncementDialog(QDialog):
             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
         """))
 
-        # 外层留出投影空间；真正的白底圆角由内层 card 绘制
+        # 外层留投影内层画圆角
         _shadow_pad = scale(16)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(_shadow_pad, _shadow_pad, _shadow_pad, _shadow_pad)
@@ -6565,7 +6565,7 @@ class AnnouncementDialog(QDialog):
 
         root.addWidget(header)
 
-        # ---------- 正文（支持 Markdown）----------
+        # ---- 正文Markdown ----
         body_wrap = QVBoxLayout()
         body_wrap.setContentsMargins(scale(18), scale(16), scale(18), 0)
         body_wrap.setSpacing(0)
@@ -6638,12 +6638,12 @@ class AnnouncementDialog(QDialog):
 
         root.addLayout(btn_row)
 
-        # 宽度约束需加上外层投影留白，否则实际卡片会偏窄
+        # 宽度需加投影留白
         self.setMinimumWidth(scale(440) + _shadow_pad * 2)
         self.setMaximumWidth(scale(620) + _shadow_pad * 2)
         self.adjustSize()
 
-        # 投影加在内层卡片上：外层窗口透明，四角保持透明圆角
+        # 投影加内层保四角透明
         try:
             shadow = QGraphicsDropShadowEffect(card)
             shadow.setBlurRadius(scale(26))
@@ -6678,7 +6678,7 @@ def _markdown_to_html(text):
     for line in lines:
         # 代码块
         if line.strip().startswith('```'):
-            # 先关闭引用块（如果在引用中）
+            # 先关闭引用块
             if in_bq:
                 result.append('<br>'.join(bq_lines))
                 result.append('</blockquote>')
@@ -6780,12 +6780,12 @@ def _markdown_to_html(text):
 def _md_inline(text):
     """处理行内的Markdown语法（先转义原文，再生成标签）"""
 
-    # 1. 先全局转义所有特殊字符（在生成任何标签之前）
+    # 先全局转义特殊字符
     text = text.replace('&', '&amp;')
     text = text.replace('<', '&lt;')
     text = text.replace('>', '&gt;')
 
-    # 2. 链接 [text](url) —— 先处理，避免和加粗冲突
+    # 先处理链接防冲突
     def _link_repl(m):
         link_text = m.group(1)  # 已被转义
         url = m.group(2).replace('&amp;', '&')  # URL中的&恢复原样
@@ -6800,7 +6800,7 @@ def _md_inline(text):
         return f'<b style="color:#262626">{inner}</b>'
     text = re.sub(r'\*\*(.+?)\*\*', _bold_repl, text)
 
-    # 4. 斜体 *text*（排除已经是加粗的 **）
+    # 斜体排除已加粗
     def _italic_repl(m):
         inner = m.group(1)  # 已被转义
         return f'<i>{inner}</i>'
@@ -6814,7 +6814,7 @@ def _md_inline(text):
                 f'font-family:Consolas,monospace;color:#d63384">{inner}</code>')
     text = re.sub(r'`([^`]+)`', _code_repl, text)
 
-    # 不需要再转义了，所有文本内容已在步骤1中完成转义
+    # 已在步骤1转义过
 
     return text
 
@@ -6974,7 +6974,7 @@ class BetaAuthDialog(QDialog):
         if not result or not result.get("has_update"):
             QMessageBox.information(self, "下载正式版", "当前已是最新正式版")
             return
-        # 把结果传给主窗口去处理更新
+        # 结果交给主窗更新
         if hasattr(self.parent(), 'signal_emitter'):
             self.parent().signal_emitter.update_available.emit(result)
         self._verified = True
@@ -7048,7 +7048,7 @@ class UpdateDialog(QDialog):
             is_force = update_info.get("force_update", False)
             accent = "#cf1322" if is_force else "#409eff"
 
-            # 自适应尺寸：随 DPI/屏幕占比自适应，可缩放，默认更大
+            # 随DPI自适应可缩放
             screen = QApplication.primaryScreen()
             sg = screen.geometry() if screen else None
             base_w, base_h = scale(560), scale(620)
@@ -7299,7 +7299,7 @@ class UpdateDialog(QDialog):
 
     def _on_skip_clicked(self):
         """稍后再说"""
-        # 如果在更新链中，用户选择跳过则清除标记，避免反复弹出
+        # 跳过则清标记免反复弹
         if self.auto_mode and hasattr(self.parent(), '_clear_update_chain'):
             self.parent()._clear_update_chain()
         self.reject()
@@ -7314,7 +7314,7 @@ class UpdateDialog(QDialog):
         self.status_label.show()
         self.status_label.setText("正在下载更新包...")
 
-        # 标记更新链（重启后继续检查是否还有更新）
+        # 标记更新链供重启续查
         latest_ver = self.update_info.get("latest_version", "")
         parent = self.parent()
         if latest_ver and hasattr(parent, '_mark_update_chain'):
@@ -7538,7 +7538,7 @@ class AnnouncementBar(QWidget):
     closed = pyqtSignal(str)
     action_triggered = pyqtSignal(dict)
 
-    # 与 AnnouncementDialog 共用同一套配色，保证「弹窗 / 顶部条」观感一致
+    # 与公告弹窗共用配色
     _THEME = {
         "info":    {"bg1": "#eff6ff", "bg2": "#e0edff", "border": "#bfdbfe",
                     "accent": "#2563eb", "accent2": "#3b82f6", "text": "#1e40af", "icon": "info"},
@@ -7573,7 +7573,7 @@ class AnnouncementBar(QWidget):
         layout.setContentsMargins(scale(16), scale(6), scale(10), scale(6))
         layout.setSpacing(scale(11))
 
-        # 图标：圆角色块 + 矢量图标（替换原来的衬线字母，观感更统一）
+        # 圆角色块加矢量图标
         try:
             icon_container = QLabel()
             icon_container.setFixedSize(scale(26), scale(26))
@@ -7589,7 +7589,7 @@ class AnnouncementBar(QWidget):
 
         title = announcement.get("title", "")
         content = announcement.get("content", "")
-        # 标题加粗用强调色，正文用深色，层次分明
+        # 标题用强调色正文深色
         _t = f"<span style='font-weight:700;'>{title}</span>" if title else ""
         _sep = "&nbsp;&nbsp;" if (title and content) else ""
         msg_label = QLabel(f"{_t}{_sep}<span style='color:#475569;'>{content}</span>")
@@ -8156,15 +8156,15 @@ class DanmakuSelectionDialog(QDialog):
         # 选择所有筛选后的弹幕
         for original_index, _ in self.filtered_danmakus:
             self.selected_indices.add(original_index)
-        # 更新当前页面的复选框状态
+        # 更新当前页复选框
         self.load_danmakus()
     
     def deselect_all(self):
-        # 取消选择所有筛选后的弹幕
+        # 取消筛选后全选
         for original_index, _ in self.filtered_danmakus:
             if original_index in self.selected_indices:
                 self.selected_indices.remove(original_index)
-        # 更新当前页面的复选框状态
+        # 更新当前页复选框
         self.load_danmakus()
     
     def prev_page(self):
@@ -8352,7 +8352,7 @@ class _WindowResizeFilter(QObject):
             return super().eventFilter(obj, event)
         et = event.type()
         if et == QEvent.HoverMove:
-            # QHoverEvent 无 globalPos()，改用 QCursor.pos() 取全局坐标
+            # 用QCursor取坐标
             self._update_cursor(QCursor.pos())
         elif et == QEvent.MouseButtonPress:
             if event.button() == Qt.LeftButton and self._start_resize(event):
@@ -8686,8 +8686,8 @@ class EpisodeSelectionDialog(ResizableDialog):
             self._card_spacing = scale(26)
             self._card_margin = scale(12)
             self._min_card_w = scale(140)
-            # 初始窗口宽度：提高上限让卡片模式一开始就有足够空间，
-            # 否则首次打开时列数偏少、需要手动拖窗口才正常。
+            # 初始宽度取大些
+            # 否则首开列数偏少
             init_w = min(scale(1040), int(sg.width() * 0.82))
             self._recalc_grid(init_w)
             min_h = max(scale(480), int(sg.height() * 0.4))
@@ -8843,8 +8843,8 @@ class EpisodeSelectionDialog(ResizableDialog):
 
         self.card_view = QListWidget()
         self.card_view.setViewMode(QListWidget.IconMode)
-        # 用 Fixed 而非 Adjust：Adjust 会把网格单元改小以塞进视口，
-        # 导致最后一列右侧留下一条空白。Fixed 尊重我们算好的网格尺寸。
+        # 用Fixed非Adjust
+        # Adjust会留空白
         self.card_view.setResizeMode(QListWidget.Fixed)
         self.card_view.setFlow(QListWidget.LeftToRight)
         self.card_view.setSpacing(0)
@@ -8909,9 +8909,9 @@ class EpisodeSelectionDialog(ResizableDialog):
         cover_label.setMaximumSize(scale(120), scale(80))
         cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 0; background-color: #f1f5f9;"))
         cover_label.setAlignment(Qt.AlignCenter)
-        # 有封面地址时先显示"加载中…"而不是"无封面"：
-        # 封面是异步下载的，若一上来就写"无封面"，会在下载完成前
-        # 让人以为封面丢失（实测下载期间确实一直显示"无封面"）。
+        # 有地址先显加载中
+        # 封面是异步下载
+        # 否则误以为封面丢失
         cover_label.setText("加载中…" if ep.get('cover', '') else "无封面")
         layout.addWidget(cover_label)
         
@@ -8920,7 +8920,7 @@ class EpisodeSelectionDialog(ResizableDialog):
             def load_cover():
                 class CoverLoader(QThread):
                     class SignalEmitter(QObject):
-                        # 传 bytes 而非 QPixmap，避免在工作线程创建 QPixmap 触发 sipBadCatcherResult
+                        # 传bytes免建图
                         finished = pyqtSignal(bytes, int)
 
                     def __init__(self, url, label_index):
@@ -8965,9 +8965,9 @@ class EpisodeSelectionDialog(ResizableDialog):
 
                     if _ok:
                         return
-                    # 失败：退避后重新排队，最多 3 次。
-                    # 此前列表模式失败就直接显示"加载失败"，封面接口偶发超时/限流时
-                    # 会看到一排"无封面/加载失败"，观感很差。
+                    # 失败退避重排最多3次
+                    # 此前失败即显失败
+                    # 限流时观感差
                     if _retry < 3:
                         try:
                             cover_label.setText("加载中…")
@@ -9171,7 +9171,7 @@ border-radius: 0;
 
                 class CoverLoader(QThread):
                     class SignalEmitter(QObject):
-                        # 传 bytes 而非 QPixmap，避免在工作线程创建 QPixmap 触发 sipBadCatcherResult
+                        # 传bytes免建图
                         finished = pyqtSignal(bytes, int)
 
                     def __init__(self, url, label_index):
@@ -9223,7 +9223,7 @@ border-radius: 0;
 
                     if _ok:
                         return
-                    # 失败：退避后重新排队加载，最多 3 次（封面接口偶发超时/限流）
+                    # 失败退避重排最多3次
                     if _retry < 3:
                         try:
                             cover_label.setText("加载中…")
@@ -9277,8 +9277,8 @@ border-radius: 0;
             else:
                 episode_num = f"第{index+1}集"
 
-        # 兼容 ep_index 为整数的情况：QLabel 只接受字符串，
-        # 直接传 int 会抛 TypeError 导致整个选择对话框无法打开。
+        # QLabel只收str
+        # 传int抛错
         episode_num = str(episode_num)
         episode_label = QLabel(episode_num)
         episode_label.setStyleSheet(scale_style("""
@@ -9430,7 +9430,7 @@ border-radius: 0;
             for si in range(start, end):
                 _sec_title, bvid_groups = sections[si]
                 flat_items = [it for g in bvid_groups for it in g]
-                # 额外合集：建一个父节点，内部再挂各 bvid 组/单集
+                # 额外合集建父节点
                 sec_parent = None
                 if _sec_title:
                     sec_parent = _make_section_header(_sec_title, flat_items)
@@ -9702,10 +9702,10 @@ border-radius: 0;
                 # 检查是否有免费部分
                 has_free_part = ep.get('has_free_part', False)
                 if has_free_part:
-                    # 有免费部分，保持亮色，但显示免费时长
+                    # 有免费部分保持亮色
                     free_duration = ep.get('free_duration', 0)
                     if free_duration > 0:
-                        # 更新时长显示为免费时长
+                        # 时长显示为免费时长
                         for i in range(item_widget.layout().count()):
                             widget = item_widget.layout().itemAt(i).widget()
                             if isinstance(widget, QVBoxLayout):
@@ -9808,7 +9808,7 @@ border-radius: 0;
         if self.current_sort == "index":
             # 按集数排序
             def get_episode_index(ep):
-                # 尝试获取page或ep_index
+                # 取page或ep_index
                 page = ep.get('page')
                 if page:
                     try:
@@ -9843,7 +9843,7 @@ border-radius: 0;
             self.populate_list_view()
         else:
             self.stacked_view.setCurrentWidget(self.card_view)
-            # 强制布局 + 按真实可用宽度重算网格，再创建卡片
+            # 按真实宽度重算网格
             try:
                 self.stacked_view.layout().activate()
             except Exception:
@@ -9874,7 +9874,7 @@ border-radius: 0;
     def process_pending_cover_loading(self):
         while self.pending_cover_loading and self.active_loaders < self.max_loaders:
             entry = self.pending_cover_loading.pop(0)
-            # 兼容 5 元组（旧）与 6 元组（带重试计数）
+            # 兼容5元组与6元组
             if len(entry) >= 6:
                 cover_url, cover_label, target_w, target_h, use_crop, _retry = entry[:6]
             else:
@@ -9885,7 +9885,7 @@ border-radius: 0;
             
             class CoverLoader(QThread):
                 class SignalEmitter(QObject):
-                    # 传 bytes 而非 QPixmap，避免在工作线程创建 QPixmap 触发 sipBadCatcherResult
+                    # 传bytes免建图
                     finished = pyqtSignal(bytes)
 
                 def __init__(self, url):
@@ -9939,7 +9939,7 @@ border-radius: 0;
 
                 if _ok:
                     return
-                # 失败：退避后重新排队，最多 3 次
+                # 失败退避重排最多3次
                 if _retry < 3:
                     try:
                         cover_label.setText("加载中…")
@@ -10205,17 +10205,17 @@ border-radius: 0;
         avail = max(int(win_w) - self._card_margin * 2, self._min_card_w)
         self._card_gap = scale(8)
 
-        # 每个单元格至少要容纳 min_card_w + 左右 gap
+        # 每格容min_card_w
         per_cell_min = self._min_card_w + self._card_gap * 2
         self._cols = max(1, avail // per_cell_min)
 
-        # 单元格宽度 = 可用宽度 / 列数，整除保证不溢出
+        # 格宽等于可用宽除列数
         self._grid_w = max(avail // self._cols, per_cell_min)
         self._card_w = self._grid_w - self._card_gap * 2
         if self._card_w < scale(60):
             self._card_w = scale(60)
             self._grid_w = int(self._card_w + self._card_gap * 2)
-        # 卡片高度按封面比例（16:9）+ 标题区约55px
+        # 高按16:9加标题区
         self._card_h = int(self._card_w * 9 / 16) + scale(55)
         self._grid_h = int(round(self._card_h + self._card_gap * 2))
         self._opt_w = int(self._card_margin * 2 + self._cols * self._grid_w)
@@ -10226,8 +10226,8 @@ border-radius: 0;
         super().resizeEvent(event)
         if not hasattr(self, 'card_radio') or not self.card_radio.isChecked():
             return
-        # 布局尚未稳定时 viewport 宽度是旧值，直接用会算偏，
-        # 导致卡片铺不满、右侧留一条空白。这里延迟到事件循环下一轮再算。
+        # 布局未稳值是旧值
+        # 故延迟到下一轮再算
         self._apply_card_grid()
 
     def _apply_card_grid(self):
@@ -10243,8 +10243,8 @@ border-radius: 0;
                 return
             sv = getattr(self, 'stacked_view', None)
             if sv is not None:
-                # 关键：card_view 在 QStackedWidget 中，从未显示过的页面几何是陈旧值
-                # （viewport 只有几百像素），必须先把卡片页设为当前页再取宽度。
+                # 未显示页几何是陈旧值
+                # 须先切到该页再取宽
                 try:
                     if sv.currentWidget() is not self.card_view:
                         sv.setCurrentWidget(self.card_view)
@@ -10268,7 +10268,7 @@ border-radius: 0;
             QApplication.processEvents()
 
             avail_w = self.card_view.viewport().width()
-            # 视口明显小于对话框内部区域时，说明布局还没生效，退回窗口宽度估算
+            # 视口过小则退回窗口宽
             if avail_w < scale(200) or avail_w < self.width() - scale(200):
                 avail_w = max(self.width() - self._card_margin * 2 - scale(24), scale(200))
             self._recalc_grid(avail_w)
@@ -10278,9 +10278,9 @@ border-radius: 0;
 
     def showEvent(self, event):
         super().showEvent(event)
-        # 首次显示后布局才稳定（viewport 宽度此时才是最终值）。
-        # init_ui 阶段算出的网格是基于"还没布局"的宽度，所以这里必须重算，
-        # 否则卡片模式要手动拖一下窗口才正常。
+        # 首显后布局才稳定
+        # init网格须重算
+        # 否则要手拖窗口才正常
         self._schedule_card_grid_settle()
 
     def _schedule_card_grid_settle(self):
@@ -10908,12 +10908,12 @@ class TaskManagerWindow(BaseWindow):
 
     def resume_task(self, task):
         task_id = task.get("id")
-        # 「继续」按钮在 paused / failed / pending 三种状态下都会出现
-        # （见列表渲染分支），但原实现只把 paused 当作续传，
-        # 其余状态会新建一个 task_id 并把**该任务的全部集数**重新下载一遍——
-        # 这正是用户反馈的"暂停后继续会失败，并自动重新触发再下 30 集"。
-        # 现在只要底层任务对象还在（active/paused），一律走续传：
-        # 续传会跳过 downloaded_episodes 与已存在的文件，不会重下。
+        # 继续钮三态都出现
+        # 只认paused
+        # 其余重下全部集
+        # 即暂停后失败反馈
+        # 任务还在则一律续传
+        # 续传会跳过已下载
         if self.download_manager:
             dm = self.download_manager
             exists = False
@@ -10926,8 +10926,8 @@ class TaskManagerWindow(BaseWindow):
                 try:
                     logger.info(f"继续任务 {task_id}（复用已有任务，跳过已完成集）")
                     dm.resume_task(task_id)
-                    # 已有进度窗口则直接显示，没有就补建一个并接上进度信号，
-                    # 否则续传时看不到任何进度反馈。
+                    # 有进度窗则直接显示
+                    # 否则续传看不到进度
                     try:
                         win = self.batch_windows.get(task_id)
                         if win is None:
@@ -10954,8 +10954,8 @@ class TaskManagerWindow(BaseWindow):
                     logger.error(f"续传任务 {task_id} 失败，回退为重新排队: {e}")
 
         if task.get("status") == "paused":
-            # 任务对象已不在内存（如重启后），没有可续传的进度，
-            # 只能重新排队；此时也保留原 task_id，避免产生重复任务记录。
+            # 任务不在内存无法续传
+            # 重排队留task_id
             if self.download_manager:
                 self.download_manager.resume_task(task_id)
             self.refresh_task_list()
@@ -11641,7 +11641,7 @@ class TaskManagerWindow(BaseWindow):
             except:
                 pass
         
-        # 显示完成信息（绿色）或错误信息（红色）
+        # 完成绿色错误红色
         completion_msg = task.get('completion_message', '')
         error_msg = task.get('error_message', '')
 
@@ -11680,7 +11680,7 @@ class TaskManagerWindow(BaseWindow):
         
         content_layout.addWidget(info_group)
 
-        # 根据任务类型显示不同的标题
+        # 按任务类型换标题
         if task_type_field == "cover":
             files_group = QGroupBox("下载封面")
         elif download_danmaku and not download_video:
@@ -11799,7 +11799,7 @@ class TaskManagerWindow(BaseWindow):
                         _display_clean = re.sub(r'^第\d+集[ _\-]*', '', ep_title_raw) if ep_title_raw else ''
                         display_name = f"第{page}集 - {_display_clean}" if _display_clean else f"第{page}集"
                 
-                # 用与下载时一致的规则生成clean_title（与downloader.py的_init_ep_title保持一致）
+                # title须一致
                 title_candidates = [
                     ep.get('ep_title', ''),
                     ep.get('title', ''),
@@ -11817,7 +11817,7 @@ class TaskManagerWindow(BaseWindow):
                 for c in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
                     ep_title_for_file = ep_title_for_file.replace(c, '_')
                 clean_title = ep_title_for_file.replace("正片_", "")
-                # 与downloader一致：截断到30字符
+                # 截断30字符
                 clean_title_truncated = clean_title[:30]
                 
                 if download_video:
@@ -11827,9 +11827,9 @@ class TaskManagerWindow(BaseWindow):
                     try:
                         save_dir = task.get('save_path', '')
                         import glob as _glob
-                        # 候选列表：覆盖下载器可能生成的所有文件名格式
+                        # 覆盖所有命名格式
                         candidates = []
-                        # 格式1: 第N集 - 标题.ext （下载器主格式，空格-破折号）
+                        # 格式1破折号式
                         _tc = re.sub(r'^第\d+集[ _\-]*', '', actual_title) if actual_title else ''
                         if _tc:
                             _tc_clean = _tc[:30]
@@ -11837,11 +11837,11 @@ class TaskManagerWindow(BaseWindow):
                                 _tc_clean = _tc_clean.replace(ch, '_')
                             _tc_clean = _tc_clean.replace("正片_", "")
                             candidates.append(f"第{page}集 - {_tc_clean}.{video_format}")
-                        # 格式2: 第N集_标题.ext （下划线格式）
+                        # 格式2下划线式
                         candidates.append(f"{clean_title_truncated}.{video_format}")
                         # 格式3: 第N集.ext
                         candidates.append(f"第{page}集.{video_format}")
-                        # 格式4: 原始标题各种变体
+                        # 格式4原始标题变体
                         if ep_title_raw and ep_title_raw != f"第{page}集":
                             candidates.append(f"第{page}集 - {ep_title_raw}.{video_format}")
                             candidates.append(f"第{page}集_{ep_title_raw}.{video_format}")
@@ -11869,7 +11869,7 @@ class TaskManagerWindow(BaseWindow):
                                     file_exists = True
                                     break
                         
-                        # 最终兜底：搜索目录中包含集数的视频文件
+                        # 兜底搜含集数的文件
                         if not file_exists and save_dir and os.path.isdir(save_dir):
                             for alt_ext in ['mp4', 'flv', 'mkv', 'webm']:
                                 alt_path = os.path.join(save_dir, f"{clean_title_truncated}.{alt_ext}")
@@ -11877,7 +11877,7 @@ class TaskManagerWindow(BaseWindow):
                                     file_path = alt_path
                                     file_exists = True
                                     break
-                        # 终极兜底：扫描整个目录找包含集数的视频文件
+                        # 终极兜底扫全目录
                         if not file_exists and save_dir and os.path.isdir(save_dir):
                             for ext in ['mp4', 'mkv', 'flv', 'webm']:
                                 for f in os.listdir(save_dir):
@@ -12035,7 +12035,7 @@ class TaskManagerWindow(BaseWindow):
         btn_layout.addStretch(1)
         content_layout.addLayout(btn_layout)
         
-        # 将内容区域添加到主布局（用ScrollArea包裹，防止超出屏幕）
+        # 滚动区防超屏
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(content_widget)
@@ -12117,7 +12117,7 @@ class TaskManagerWindow(BaseWindow):
             danmaku_items = []
             
             if danmaku_format == '.xml':
-                # 逐行读取XML文件，避免一次性加载大文件到内存
+                # 逐行读XML省内存
                 pattern = re.compile(r'(<d p=[^>]+>(.*?)</d>)')
                 p_pattern = re.compile(r'p="([^"]+)"')
                 
@@ -12316,7 +12316,7 @@ class TaskManagerWindow(BaseWindow):
             danmaku_list.setSelectionMode(QListWidget.ExtendedSelection)
             danmaku_list.setContextMenuPolicy(Qt.CustomContextMenu)
             
-            # 批量填充弹幕列表，优化性能
+            # 批量填充优化性能
             batch_size = 100
             for i in range(0, len(danmaku_items), batch_size):
                 batch_items = danmaku_items[i:i+batch_size]
@@ -12459,11 +12459,11 @@ class TaskManagerWindow(BaseWindow):
         video_info = task.get("video_info", {})
         
         existing_window = None
-        # 检查是否存在已有的下载窗口，不管是否可见
+        # 查已有下载窗不论可见
         if task_id and task_id in self.batch_windows:
             existing_window = self.batch_windows[task_id]
         else:
-            # 如果没有对应task_id的窗口，检查是否有其他BatchDownloadWindow
+            # 再查其他批下载窗
             for window in self.batch_windows.values():
                 if isinstance(window, BatchDownloadWindow):
                     existing_window = window
@@ -12597,7 +12597,7 @@ class SegmentedProgressBar(QWidget):
                     min(self._radius, 3), min(self._radius, 3))
                 painter.fillPath(fill_path, self._chunk_color)
 
-            # 分割线（最后一段右边不画）
+            # 末段右边不画线
             if i < n - 1:
                 pen = QPen(self._border_color, self._separator_width)
                 painter.setPen(pen)
@@ -12627,8 +12627,8 @@ class BatchDownloadWindow(BaseWindow):
     window_closed = pyqtSignal()
     
     def __init__(self, video_info, total_episodes, download_manager=None, parser=None, parent=None):
-        # 不传 parent 给 BaseWindow，避免父窗口（最大化主窗口）遮挡子窗口
-        # 只保存 parent 引用用于信号通信
+        # 不传parent
+        # 存parent供信号
         self._parent_ref = parent
         super().__init__(None)
 
@@ -12824,14 +12824,14 @@ class BatchDownloadWindow(BaseWindow):
         group_layout.setContentsMargins(scale(12), scale(12), scale(12), scale(12))
         group_layout.setSpacing(scale(10))
 
-        # 使用分片进度条（默认4片，收到分片数据时动态调整）
+        # 分片进度条默认4片
         progress = SegmentedProgressBar(segment_count=4)
         status = QLabel("等待下载...")
         status.setObjectName("epStatus")
         status.setMinimumHeight(scale(20))
         status.setWordWrap(True)
 
-        # 按钮用 objectName + 父窗口统一样式表，避免每个 widget 调用 setStyleSheet（重量级操作）
+        # 用objectName
         pause_btn = QPushButton("暂停")
         pause_btn.setObjectName("epPauseBtn")
         pause_btn.clicked.connect(lambda checked, tid=task_id, eidx=ep_index: self.on_pause_resume(tid, eidx))
@@ -12880,7 +12880,7 @@ class BatchDownloadWindow(BaseWindow):
         if len(args) == 4:
             task_id, ep_index, progress, status = args
             
-            # 解析分片进度数据: __CHUNKS__[p1,p2,...]__
+            # 解析分片进度数据
             import json, re
             chunk_progresses = None
             clean_status = status
@@ -12913,16 +12913,16 @@ class BatchDownloadWindow(BaseWindow):
                         
                         self.status_labels[bar_index].setText(clean_status)
                         bar = self.progress_bars[bar_index]
-                        # 分片进度条：更新每片进度
+                        # 更新每片进度
                         if chunk_progresses and isinstance(bar, SegmentedProgressBar):
                             if len(chunk_progresses) != bar.segment_count:
                                 bar.set_segment_count(len(chunk_progresses))
                             bar.set_all_progress(chunk_progresses)
                         elif isinstance(bar, SegmentedProgressBar):
-                            # 无分片数据时，整体填充所有片
+                            # 无分片则整体填充
                             bar.set_all_progress([int(progress)] * bar.segment_count)
                         else:
-                            # 降级到普通QProgressBar
+                            # 降级为普通进度条
                             bar.setValue(int(progress))
                     except (ValueError, TypeError):
                         pass
@@ -13478,8 +13478,8 @@ class BatchDownloadWindow(BaseWindow):
                             bvid = self.video_info.get('bvid', '')
                             title = self.video_info.get('title', '未知视频')
                             url = f"https://www.bilibili.com/video/{bvid}" if bvid else ""
-                            # 带上真实路径：否则历史记录里两个路径字段都是空，
-                            # 「下载历史 → 用视频工具处理」会一直提示"文件不存在"
+                            # 带路径否则历史空
+                            # 否则提示文件不存在
                             _sp, _fp = self._lookup_episode_path(task_id, ep_index)
                             _fsz = 0
                             try:
@@ -13544,7 +13544,7 @@ class BatchDownloadWindow(BaseWindow):
                         bvid = self.video_info.get('bvid', '')
                         title = self.video_info.get('title', '未知视频')
                         url = f"https://www.bilibili.com/video/{bvid}" if bvid else ""
-                        # 该分支信号不带 task_id，按集号在所有任务里找产物路径
+                        # 无task按集号找
                         _sp, _fp = self._lookup_path_any_task(index)
                         _fsz = 0
                         try:
@@ -13654,12 +13654,12 @@ class BilibiliDownloader(BaseWindow):
         self.config = config
         self.task_manager = task_manager
         self.download_manager = download_manager
-        # 把"文件名序号"设置同步到模块级，供 format_ep_name 显示使用
+        # 同步序号设置到模块级
         try:
             set_sequence_digits(self.config.get_app_setting("filename_sequence_digits", 2))
         except Exception:
             pass
-        # 记录最大化之前的正常尺寸，供"最大化时拖动标题栏需先还原"使用
+        # 记录最大化前尺寸
         self._normal_geometry = None
         
         try:
@@ -13716,10 +13716,10 @@ class BilibiliDownloader(BaseWindow):
         self.signal_emitter.update_chain_continue.connect(self._on_update_chain_continue)
         self.signal_emitter.announcements_ready.connect(self._on_announcements_ready)
 
-        # v_voucher 极验验证回调：在主线程弹出极验对话框
+        # 极验回调弹验证框
         self.v_voucher_captcha_requested.connect(self._on_v_voucher_captcha_requested, Qt.QueuedConnection)
 
-        # 在初始化 UI 之前先检查代理和网络连接
+        # 初始UI前先查代理
         self._check_network_before_start()
         
         try:
@@ -13740,7 +13740,7 @@ class BilibiliDownloader(BaseWindow):
 
         from cloud_service import CloudService
         self.cloud_service = CloudService(version_info.get("version"))
-        # 后台周期性检查云端下发的"远程拉取日志"指令（软件运行时才会响应）
+        # 轮询远程拉日志
         try:
             self.cloud_service.start_log_pull_loop(interval=20)
         except Exception:
@@ -13750,9 +13750,9 @@ class BilibiliDownloader(BaseWindow):
         QTimer.singleShot(1500, self._show_data_consent_notice)
         QTimer.singleShot(2000, self._report_launch_stats)
         QTimer.singleShot(3000, self._check_cloud_info)
-        # 商店(MSIX)版首次启动：隐私权限说明弹窗
+        # MSIX首启弹隐私
         QTimer.singleShot(2600, self._maybe_show_privacy_consent)
-        # 内测包启动时验证QQ授权
+        # 内测包验QQ授权
         try:
             import app_config
             is_beta = getattr(app_config, 'IS_BETA_BUILD', False)
@@ -13761,7 +13761,7 @@ class BilibiliDownloader(BaseWindow):
                 QTimer.singleShot(800, self._check_beta_auth)
         except Exception as e:
             logger.error(f"[内测授权] 读取内测标识失败: {e}")
-        # 预创建设置窗口，避免首次打开时卡顿
+        # 预建设置窗免首开卡顿
         QTimer.singleShot(1500, self._preload_settings_dialog)
         self.update_check_timer = QTimer(self)
         self.update_check_timer.timeout.connect(self._check_cloud_info)
@@ -13782,14 +13782,14 @@ class BilibiliDownloader(BaseWindow):
             if hasattr(self.download_manager, 'merge_finished'):
                 self.download_manager.merge_finished.connect(self.on_merge_finished)
         
-        # 实时监测剪切板：dataChanged信号为主，定时器轮询为辅（Windows上信号不一定可靠）
+        # 剪贴板信号为主
         self._last_clipboard_url = ""
-        self._last_clipboard_len = 0  # 缓存长度用于快速短路比较
+        self._last_clipboard_len = 0  # 缓存长度快短路
         self._clipboard_auto_detect = self.config.get_app_setting("clipboard_auto_detect", True)
         self._clipboard = QApplication.clipboard()
         if self._clipboard_auto_detect:
             self._clipboard.dataChanged.connect(self._on_clipboard_changed)
-            # 备用定时器：1.5秒检查一次（dataChanged已处理实时性，定时器仅作兜底）
+            # 备用定时器仅兜底
             self._clipboard_timer = QTimer(self)
             self._clipboard_timer.setInterval(1500)
             self._clipboard_timer.timeout.connect(self._on_clipboard_changed)
@@ -13798,10 +13798,10 @@ class BilibiliDownloader(BaseWindow):
     def mousePressEvent(self, event):
         try:
             if event.button() == Qt.LeftButton and event.y() < scale(32):
-                # 拖动窗口也属于"用户手动改变窗口状态"，
-                # 必须同样解除启动守卫。此前只有边缘缩放会解除，
-                # 拖动标题栏时守卫仍每 300ms 把窗口强拽回全屏，
-                # 表现为"一拖顶部栏就直接最大化"。
+                # 拖动也算手动改状态
+                # 拖动也须解除守卫
+                # 否则守卫拖回全屏
+                # 表现为一拖就最大化
                 self._disarm_resize_guard()
                 self.dragging = True
                 self.start_pos = event.globalPos() - self.frameGeometry().topLeft()
@@ -13814,7 +13814,7 @@ class BilibiliDownloader(BaseWindow):
     def mouseMoveEvent(self, event):
         try:
             if hasattr(self, 'dragging') and self.dragging and event.buttons() == Qt.LeftButton:
-                # 最大化状态下拖动：先还原为普通尺寸，并让光标保持在标题栏的相对位置
+                # 最大化时拖动先还原
                 if self.isMaximized():
                     self.showNormal()
                     geo = getattr(self, '_normal_geometry', None)
@@ -13859,7 +13859,7 @@ class BilibiliDownloader(BaseWindow):
         if self.floating_toolbar_enabled:
             self.init_floating_ball()
         
-        # 在主线程中初始化系统托盘
+        # 主线程初始化托盘
         self.init_system_tray()
     
     def _report_launch_stats(self):
@@ -13868,7 +13868,7 @@ class BilibiliDownloader(BaseWindow):
                 if self.cloud_service.is_first_launch:
                     self.cloud_service.report_event("install")
                 self.cloud_service.report_event("launch")
-                # 附带匿名环境信息，便于按系统/分辨率/硬件维度下钻失败率
+                # 附环境信息便于下钻
                 self.cloud_service.report_env()
         except Exception as e:
             logger.debug(f"上报启动统计失败: {e}")
@@ -13876,9 +13876,9 @@ class BilibiliDownloader(BaseWindow):
     def _show_data_consent_notice(self):
         """首次启动时显示数据采集提示（美观的自定义对话框）"""
         try:
-            # 商店版（MSIX）环境：跳过可见的数据采集弹窗。
-            # 该环境在权限页会生成一个不可见的模态窗口，反复触发系统提示音，
-            # 只能靠 Ctrl+F4 关闭，严重影响首次启动体验。改为静默采集、不做首启询问。
+            # MSIX跳过采集弹窗
+            # 该环境弹窗不可见
+            # 只能Ctrl+F4关
             try:
                 from main import _is_msix_environment
                 if _is_msix_environment():
@@ -14112,7 +14112,7 @@ class BilibiliDownloader(BaseWindow):
         text = text.strip()
         if not text:
             return False
-        # 如果是URL格式（包含http/https），检查域名
+        # URL格式则查域名
         if re.search(r'https?://', text, re.IGNORECASE):
             url_patterns = [
                 r'https?://(?:www\.)?bilibili\.com',
@@ -14122,11 +14122,11 @@ class BilibiliDownloader(BaseWindow):
                 r'https?://cheese\.bilibili\.com',
             ]
             return any(re.search(p, text, re.IGNORECASE) for p in url_patterns)
-        # 如果不是URL格式，检查是否为纯BV号/av号/ep号/ss号
+        # 否则查BV/av/ep号
         standalone_patterns = [
             r'^BV1[0-9A-Za-z]{9}$',   # 纯BV号
             r'^av\d+$',                # 纯av号
-            r'^\d{10,}$',              # 纯数字ID（兼容旧格式/video/数字）
+            r'^\d{10,}$',              # 纯数字兼容旧格式
             r'^ep\d+$',                # 纯ep号
             r'^ss\d+$',                # 纯ss号
         ]
@@ -14136,19 +14136,19 @@ class BilibiliDownloader(BaseWindow):
         """剪切板内容变化时实时检测B站链接（性能优化：长度短路+延迟正则）"""
         try:
             text = self._clipboard.text().strip()
-            # 快速短路1: 空内容直接跳过
+            # 空内容直接跳过
             if not text:
                 return
-            # 快速短路2: 长度不同肯定变了（比全文比较快）
+            # 长度不同即变了
             text_len = len(text)
             if text_len != self._last_clipboard_len:
                 self._last_clipboard_len = text_len
             elif text == self._last_clipboard_url:
-                # 长度相同且内容相同，跳过
+                # 长度内容同则跳过
                 return
             if not hasattr(self, 'url_edit'):
                 return
-            # 只提取链接本身，去掉复制时带上的前后文案
+            # 只取链接去掉文案
             link = self._extract_bilibili_link(text)
             if not link or not self._is_bilibili_url(link):
                 return
@@ -14165,13 +14165,13 @@ class BilibiliDownloader(BaseWindow):
         if not text:
             return ""
         text = text.strip()
-        # 优先提取URL：从http(s)开始到空白结束，并去掉结尾标点
+        # 从http取到空白止
         url_m = re.search(r'https?://[^\s]+', text, re.IGNORECASE)
         if url_m:
             url = url_m.group(0).rstrip('。，,;；!！?？)]}>】"\'')
             if re.search(r'(?:bilibili\.com|b23\.tv)', url, re.IGNORECASE):
                 return url
-        # 无URL则从文案中提取视频ID
+        # 无URL则提取ID
         m = re.search(r'BV1[0-9A-Za-z]{9}', text, re.IGNORECASE)
         if m:
             return m.group(0)
@@ -14237,7 +14237,7 @@ class BilibiliDownloader(BaseWindow):
         client_id = self.cloud_service.client_id
         logger.info(f"[内测授权] 设备码: {client_id[:16]}...")
 
-        # 每次启动都弹窗验证，不做本地缓存
+        # 每次启动都验证不缓存
         logger.info("[内测授权] 弹出验证窗口")
         dlg = BetaAuthDialog(self, client_id, self.cloud_service)
         if dlg.exec_() != QDialog.Accepted:
@@ -14250,7 +14250,7 @@ class BilibiliDownloader(BaseWindow):
         普通版(绿色版/安装版)以UAC和系统提示体现权限，商店沙箱版不会自动出现隐私提示，
         因此首次启动时主动弹窗告知并获取同意。同意后不再弹出。"""
         try:
-            # 仅在 MSIX 沙箱环境弹窗
+            # 仅MSIX沙箱弹窗
             try:
                 _exe = os.path.abspath(sys.executable).lower().replace('\\', '/')
                 _is_msix = 'windowsapps' in _exe
@@ -14351,16 +14351,16 @@ class BilibiliDownloader(BaseWindow):
 
     def _check_cloud_info(self):
         self._check_pending_update_ready()
-        # 检查是否开启了自动检查更新
+        # 查是否开启自动更新
         auto_check = self.config.get_app_setting("auto_check_update", True) if self.config else True
-        # 如果在更新链中，即使用户关闭了自动检查也要继续（确保能更新完）
+        # 更新链中仍继续
         in_update_chain = self._is_in_update_chain()
         if not auto_check and not in_update_chain:
             return
         import threading
         def _worker():
             try:
-                # 内测包使用 beta 通道检查更新
+                # 内测包走beta通道
                 try:
                     import app_config
                     update_channel = "beta" if getattr(app_config, 'IS_BETA_BUILD', False) else "stable"
@@ -14368,14 +14368,14 @@ class BilibiliDownloader(BaseWindow):
                     update_channel = "stable"
                 update_info = self.cloud_service.check_update(channel=update_channel)
                 if update_info.get("has_update"):
-                    # 如果在更新链中，直接开始下载（不弹确认框）
+                    # 更新链中直接下载
                     if in_update_chain:
                         logger.info("[更新链] 检测到后续更新，自动继续更新")
                         self.signal_emitter.update_chain_continue.emit(update_info)
                     else:
                         self.signal_emitter.update_available.emit(update_info)
                 else:
-                    # 没有更新了，清除更新链标记
+                    # 无更新则清标记
                     if in_update_chain:
                         logger.info("[更新链] 已是最新版本，清除更新链标记")
                         self._clear_update_chain()
@@ -14427,11 +14427,11 @@ class BilibiliDownloader(BaseWindow):
         """标记开始更新链（重启后继续检查）"""
         try:
             path = self._get_update_chain_path()
-            # 这里原先写的是 import version_info as _vi，但项目里并没有
-            # version_info 这个模块（只有 version_info.json），因此每次都会抛
-            # ModuleNotFoundError，导致"更新链"永远标记不上——多级更新
-            # （如 2.1.0 → 2.1.1 → 2.2.0）走到一半就停了。
-            # 模块级已经加载好了 version_info 字典，直接用即可。
+            # 曾误import
+            # 实际只有json
+            # 抛NotFound
+            # 多级更新因此中断
+            # 模块级已有字典直接用
             if isinstance(version_info, dict):
                 current = str(version_info.get('version', '') or '')
             else:
@@ -14478,7 +14478,7 @@ class BilibiliDownloader(BaseWindow):
             if latest_parsed == (0, 0, 0) or current_parsed >= latest_parsed:
                 logger.info(f"UI层拦截：当前版本 {version_info.get('version', '')}({current_parsed}) >= 最新版本 {latest}({latest_parsed})，不显示更新")
                 return
-            # 已有已下载未安装的同版本更新包：只弹"更新已就绪"，不重复弹更新窗口
+            # 同版本包只提示
             st = _read_update_state()
             if st.get("downloaded") and st.get("target_version") == latest:
                 logger.info(f"已存在已下载的更新包 (v{latest})，跳过更新窗口，仅提示更新已就绪")
@@ -14518,7 +14518,7 @@ class BilibiliDownloader(BaseWindow):
             try:
                 cs = CloudService()
                 def _progress_cb(pct, done, total):
-                    # 保存下载进度，应用中途退出后也能从状态文件恢复
+                    # 存进度以便退出后恢复
                     try:
                         st = _read_update_state()
                         st["progress"] = max(0, min(100, int(pct))) if pct is not None else 0
@@ -14885,7 +14885,7 @@ class BilibiliDownloader(BaseWindow):
             if not new_exe_name:
                 new_exe_name = os.path.basename(sys.executable) if hasattr(sys, 'frozen') else 'main.py'
             update_script = os.path.join(temp_dir, "updater.bat")
-            # 注意：用普通字符串拼接，避免 f-string 中反斜杠被二次转义
+            # 普通拼接免转义
             _bat_lines = [
                 "@echo off",
                 "chcp 65001 >nul",
@@ -14942,10 +14942,10 @@ class BilibiliDownloader(BaseWindow):
             _st("更新即将完成，程序将自动重启...")
             subprocess.Popen(['cmd', '/c', update_script], **subprocess_no_window_kwargs())
         else:
-            # POSIX（Linux / macOS）热更新：
-            # 先直接复制文件，再启动一个脱离父进程的重启脚本——
-            # 因为本进程即将退出，不能由它自己去重启。
-            # 需保留的用户数据（与 Windows 分支的 /XF 保持一致）
+            # POSIX热更新流程
+            # 复制再启重启脚本
+            # 本进程将退出
+            # 数据与Win分支一致
             _keep = {
                 "client_id.txt", "app_config.json", "data_consent.json",
                 "download_tasks.json", "download_history.json", "cookie.txt",
@@ -14973,7 +14973,7 @@ class BilibiliDownloader(BaseWindow):
                         _sync_tree(s, d, _depth + 1)
                     else:
                         shutil.copy2(s, d)
-                # 删除目标目录中源目录已不存在的条目
+                # 删除源已不存在的条目
                 if _depth > 0 or True:
                     try:
                         for name in os.listdir(dst_dir):
@@ -14997,7 +14997,7 @@ class BilibiliDownloader(BaseWindow):
                 copied_ok = False
                 logger.warning(f"热更新复制文件失败（可能无写权限）: {_e}")
 
-            # 找出要重启的目标：优先包内非卸载器可执行文件，否则当前解释器/入口
+            # 优先包内非卸载器
             new_exe_name = None
             for f in sorted(os.listdir(source_dir)):
                 low = f.lower()
@@ -15014,7 +15014,7 @@ class BilibiliDownloader(BaseWindow):
             else:
                 restart_target = os.path.join(app_dir, 'main.py')
 
-            # 用 shell 脚本延迟重启：等本进程退出后再拉起，避免单实例锁冲突
+            # 延迟启避免锁冲突
             restart_script = os.path.join(temp_dir, "restart.sh")
             try:
                 with open(restart_script, 'w', encoding='utf-8') as f:
@@ -15394,8 +15394,8 @@ class BilibiliDownloader(BaseWindow):
             """))
 
             def _add_qq_friend():
-                # tencent:// 是 QQ 自定义协议，各平台都由 webbrowser 交给系统处理；
-                # 只有 Windows 需要经 cmd start 才能可靠唤起。
+                # 由系统处理协议
+                # 仅Win需cmd
                 url = "tencent://Message/?Uin=2273962061&websiteName=q-zone.qq.com&Menu=yes"
                 try:
                     if IS_WINDOWS:
@@ -15480,7 +15480,7 @@ class BilibiliDownloader(BaseWindow):
                                 from platform_utils import reveal_in_file_manager
                                 reveal_in_file_manager(abs_zip, select=True)
                             def _on_success():
-                                # 自动复制日志压缩包到剪贴板
+                                # 复制日志包到剪贴板
                                 try:
                                     from logger_config import _copy_path_to_clipboard
                                     ok = _copy_path_to_clipboard(zip_path)
@@ -15535,7 +15535,7 @@ class BilibiliDownloader(BaseWindow):
         try:
             proxy = get_system_proxy()
             if proxy:
-                # 确保代理字符串可以安全写入日志
+                # 确保代理可安全写日志
                 try:
                     safe_proxy = str(proxy).encode('utf-8', errors='replace').decode('utf-8')
                 except Exception:
@@ -15543,7 +15543,7 @@ class BilibiliDownloader(BaseWindow):
                 logger.warning(f"检测到系统代理设置：{safe_proxy}")
                 return True, safe_proxy
             
-            # 检查环境变量中的代理设置
+            # 查环境变量中的代理
             http_proxy = os.environ.get('HTTP_PROXY') or os.environ.get('http_proxy')
             https_proxy = os.environ.get('HTTPS_PROXY') or os.environ.get('https_proxy')
             
@@ -15624,7 +15624,7 @@ class BilibiliDownloader(BaseWindow):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(scale(15))
         
-        # 两种类型都提供"继续使用"和"退出"按钮
+        # 两类都提供继续与退出
         continue_btn = QPushButton("继续使用")
         continue_btn.setObjectName("continueBtn")
         exit_btn = QPushButton("退出")
@@ -15659,7 +15659,7 @@ class BilibiliDownloader(BaseWindow):
         try:
             from requests.exceptions import RequestException
 
-            # 测试连接B站API（显式禁用代理，避免梯子干扰）
+            # 测API时禁代理
             test_url = "https://api.bilibili.com/x/web-interface/nav"
             response = requests.get(test_url, timeout=5, proxies={}, verify=False)
             return True, None
@@ -15671,13 +15671,13 @@ class BilibiliDownloader(BaseWindow):
         if self.floating_toolbar_enabled:
             self.init_floating_ball()
         
-        # 在主线程中初始化系统托盘
+        # 主线程初始化托盘
         self.init_system_tray()
     
     def _check_network_before_start(self):
-        # 代理已在 main.py 中通过 NO_PROXY=* 和 requests.Session.trust_env=False 彻底绕过，
-        # 这里不再弹出阻塞初始化的代理对话框，也不再进行阻塞式的网络测试。
-        # 仅做一次本地代理检测并记录日志，不影响启动流程。
+        # 代理已在main绕过
+        # 不再弹阻塞式代理框
+        # 仅本地检测并记日志
         try:
             has_proxy, proxy_info = self.check_proxy_settings()
             if has_proxy:
@@ -15686,7 +15686,7 @@ class BilibiliDownloader(BaseWindow):
             pass
 
     def _on_network_test_result(self, success, error_msg):
-        # 网络测试已不再自动触发，保留此槽函数以兼容旧信号连接
+        # 保留空槽兼容旧信号
         try:
             if not success:
                 logger.debug(f"网络连接提示：{error_msg}")
@@ -15722,8 +15722,8 @@ class BilibiliDownloader(BaseWindow):
                 self.parse_favorite_btn.setEnabled(self.content_list.count() > 0)
             if hasattr(self, 'download_cover_favorite_btn'):
                 self.download_cover_favorite_btn.setEnabled(self.content_list.count() > 0)
-            # 全部加载完毕后按最终视口宽度重算卡片尺寸，并把滚动位置复位到顶部，
-            # 避免首屏出现"顶格 / 首行被裁切"的错位
+            # 重算卡片并复位滚动
+            # 避免首屏顶格或被裁
             try:
                 if total_count:
                     self._calc_card_size()
@@ -15733,7 +15733,7 @@ class BilibiliDownloader(BaseWindow):
                 pass
             if total_count == 0:
                 self.status_label.setText("暂无视频")
-                # 清除骨架屏，显示居中的暂无视频提示
+                # 清骨架屏显示暂无视频
                 if hasattr(self, 'content_list') and self.content_list:
                     self.content_list.clear()
                     empty_item = QListWidgetItem("暂无视频")
@@ -15788,7 +15788,7 @@ class BilibiliDownloader(BaseWindow):
         dialog.setWindowFlags(Qt.FramelessWindowHint | Qt.Window | Qt.Dialog)
         make_resizable(dialog)
 
-        # 自适应尺寸：缩放尺寸与屏幕占比中取较小者，随 DPI/屏幕自适应，默认更大
+        # 缩放与占比取较小者
         screen = QApplication.primaryScreen()
         sg = screen.geometry() if screen else None
         base_w, base_h = scale(620), scale(720)
@@ -16217,7 +16217,7 @@ class BilibiliDownloader(BaseWindow):
             if os.path.exists(bento4_dir):
                 results.append(f"✅ Bento4目录存在: {bento4_dir}")
                 
-                # 检查mp4decrypt
+                # 查mp4decrypt
                 mp4decrypt_path = os.path.join(bento4_dir, exe('mp4decrypt'))
                 if os.path.exists(mp4decrypt_path):
                     results.append(f"✅ {exe('mp4decrypt')}存在: {mp4decrypt_path}")
@@ -16233,7 +16233,7 @@ class BilibiliDownloader(BaseWindow):
             else:
                 results.append(f"❌ Bento4目录不存在: {bento4_dir}")
                 
-                # 尝试检查其他可能的路径
+                # 再查其他可能路径
                 results.append("\n尝试查找其他路径:")
                 import sys
                 possible_paths = []
@@ -16264,7 +16264,7 @@ class BilibiliDownloader(BaseWindow):
         results.append(f"当前工作目录: {os.getcwd()}")
         results.append(f"脚本目录: {os.path.dirname(os.path.abspath(__file__))}")
         
-        # 检查sys._MEIPASS目录内容
+        # 查_MEIPASS内容
         if hasattr(sys, '_MEIPASS') and os.path.exists(sys._MEIPASS):
             results.append("\nsys._MEIPASS目录内容:")
             try:
@@ -16293,7 +16293,7 @@ class BilibiliDownloader(BaseWindow):
         
         layout = QVBoxLayout(dialog)
         
-        # 创建文本编辑框显示结果
+        # 建文本框显示结果
         text_edit = QTextEdit()
         text_edit.setReadOnly(True)
         text_edit.setText("\n".join(results))
@@ -16377,7 +16377,7 @@ class BilibiliDownloader(BaseWindow):
                 # 存储日志信息
                 log_messages = []
                 
-                # 创建进度更新回调 - 使用信号槽方式确保线程安全
+                # 用信号槽保证线程安全
                 class ProgressSignals(QObject):
                     update = pyqtSignal(int, str)
                 
@@ -16453,9 +16453,9 @@ class BilibiliDownloader(BaseWindow):
             else:
                 QMessageBox.information(self, "安装结果", msg)
         else:
-            # 检查是否需要管理员权限
+            # 检查是否需要管理员
             if result.get('needs_admin', False):
-                # 显示询问对话框，是否以管理员权限重新启动
+                # 询问是否以管理员重启
                 reply = QMessageBox.question(
                     self, 
                     "权限不足", 
@@ -16561,10 +16561,10 @@ class BilibiliDownloader(BaseWindow):
         
         super().show()
         
-        # 保证主窗口打开即为最大化，且窗口状态与视觉保持一致，
-        # 避免"首次未最大化/点击右上角变成还原"的状态错乱。
-        # 仅当「启动时最大化窗口」开启时执行——关闭后仍强制最大化
-        # 会让该设置完全失效（窗口依旧被撑满）。
+        # 保证打开即最大化
+        # 避免状态错乱
+        # 仅在设置开启时执行
+        # 否则该设置会失效
         _start_max = True
         try:
             _start_max = bool(self.config.get_app_setting("start_maximized", True))
@@ -16655,8 +16655,8 @@ class BilibiliDownloader(BaseWindow):
                     if self.floating_toolbar_enabled and self.floating_ball:
                         self.floating_ball.hide()
                     self.update_progress_bar_position()
-                # 启动守卫：初始化期间若被被动顶出最大化（最小尺寸收敛等）
-                # 立即纠正回最大化，直到窗口稳定后守卫自动解除
+                # 被顶出则纠正
+                # 稳定后守卫自动解除
                 if getattr(self, '_startup_guard', False):
                     if not (self.windowState() & Qt.WindowMinimized) and not self.isMaximized():
                         self.showMaximized()
@@ -16665,7 +16665,7 @@ class BilibiliDownloader(BaseWindow):
     
     def resizeEvent(self, event):
         try:
-            # 诊断：定位运行期窗口从最大化被缩小为普通尺寸的来源（临时）
+            # 诊断窗口缩小来源
             try:
                 if getattr(self, '_diag_armed', False):
                     was_max = getattr(self, '_diag_prev_max', False)
@@ -16683,7 +16683,7 @@ class BilibiliDownloader(BaseWindow):
                 pass
             super().resizeEvent(event)
             self.update_progress_bar_position()
-            # 窗口过矮（小屏或用户缩小）时切换紧凑布局，避免内容互相重叠
+            # 窗口过矮切紧凑布局
             full_min = getattr(self, '_full_min_height', 0)
             if full_min > 0:
                 self._apply_adaptive_density(self.height() < full_min)
@@ -16693,16 +16693,16 @@ class BilibiliDownloader(BaseWindow):
     def showEvent(self, event):
         try:
             super().showEvent(event)
-            # 首次显示后样式/字体已完成度量，需重新收敛一次最小尺寸防止偏差。
-            # 延迟到窗口状态稳定后再收敛：showMaximized 的首次 showEvent 阶段
-            # isMaximized() 可能仍为 False，此时收紧最小值会把无边框窗口顶出最大化，
-            # 导致“启动后瞬间缩小”的现象。故这里只排期，不在 showEvent 内同步执行。
+            # 首显后重收敛
+            # 延迟到状态稳定再收敛
+            # isMaximized假
+            # 故只排期不同步执行
             if (not getattr(self, '_min_size_reenforced', False)
                     and not getattr(self, '_init_enforce_scheduled', False)):
                 self._init_enforce_scheduled = True
                 self._diag_armed = True
-                # 持续窗口尺寸日志：每秒记录启动后秒数与窗口大小，
-                # 用于定位窗口被缩小的时机（临时诊断）
+                # 每秒记录窗口尺寸
+                # 用于定位缩小时机
                 try:
                     import time as _t
                     self._diag_start_ts = _t.monotonic()
@@ -16712,10 +16712,10 @@ class BilibiliDownloader(BaseWindow):
                     self._size_log_timer.start(1000)
                 except Exception:
                     pass
-                # 轮询式启动守卫：周期性检查并强制保持最大化，覆盖
-                # setMinimumSize 等不会触发 WindowStateChange 的几何变化。
-                # 仅当"启动时最大化"开启时才启用守卫——否则守卫会在启动后
-                # 每 300ms 把非最大化窗口强扯回全屏。
+                # 轮询守卫保持最大化
+                # 覆盖不触发事件的变化
+                # 仅在设置开启时启用
+                # 否则300ms扯回
                 _start_max = True
                 try:
                     _start_max = bool(self.config.get_app_setting("start_maximized", True))
@@ -16754,7 +16754,7 @@ class BilibiliDownloader(BaseWindow):
             path = self._diag_log_path()
             with open(path, "a", encoding="utf-8") as _f:
                 _f.write(line)
-            # 尺寸相对上一秒明显变小（被缩小）时记录调用栈
+            # 尺寸骤减时记录调用栈
             prev = getattr(self, '_prev_diag_size', None)
             cur = (self.width(), self.height())
             if (prev is not None and not minimized
@@ -16785,7 +16785,7 @@ class BilibiliDownloader(BaseWindow):
                 return
             wa = screen.availableGeometry()
             cur = self.geometry()
-            # 判断是否物理铺满可用区（允许小误差，含任务栏/DPI）
+            # 判断是否铺满可用区
             tol = 12
             if (abs(cur.width() - wa.width()) > tol
                     or abs(cur.height() - wa.height()) > tol
@@ -16802,7 +16802,7 @@ class BilibiliDownloader(BaseWindow):
             t = getattr(self, '_guard_timer', None)
             if t is not None:
                 t.stop()
-            # 用户已手动改变过窗口大小：不再强捋回全屏，保留用户拖拽结果
+            # 用户已改尺寸则不强捋
             if getattr(self, '_user_resized', False):
                 return
             screen = QApplication.primaryScreen()
@@ -16968,7 +16968,7 @@ class BilibiliDownloader(BaseWindow):
         tab_bar_h = tab_widget.tabBar().sizeHint().height()
         target = max(scale(200), need + tab_bar_h + scale(24))
 
-        # 上限：不超过屏幕可用高度的 45%（并保证至少 260），避免锁死窗口最小高度
+        # 上限不超可用高45%
         try:
             screen = QApplication.primaryScreen()
             if screen:
@@ -16980,7 +16980,7 @@ class BilibiliDownloader(BaseWindow):
         tab_widget.setMinimumHeight(target)
 
     def _on_tab_changed_adaptive(self, _index):
-        # 切换标签页后内容需求可能变大，同步抬高窗口最小值（只增不减，且不超过屏幕）
+        # 切页后同步抬高最小值
         if not getattr(self, '_min_size_reenforced', False):
             return
         self._enforce_content_minimum_size()
@@ -16991,13 +16991,13 @@ class BilibiliDownloader(BaseWindow):
             central = self.centralWidget()
             if central is None:
                 return
-            # 测量顺序：先在常规密度下测量全尺寸需求（tab 显式最小高度必须在
-            # 常规密度下按当前页设置，否则窗口放大后间距恢复时该值会过时偏小）
+            # 先在常规密度测全尺寸
+            # 否则值会过时偏小
             self._adaptive_compact = False
             self._apply_adaptive_density(False)
             self._update_tab_explicit_minimum()
             self._full_min_height = central.minimumSizeHint().height() + scale(6)
-            # 紧凑密度下的需求（tab 最小高度随之收紧，保证测量值与实际状态一致）
+            # 紧凑密度下的需求
             self._apply_adaptive_density(True)
             self._update_tab_explicit_minimum()
             compact_min_h = central.minimumSizeHint().height() + scale(6)
@@ -17012,40 +17012,40 @@ class BilibiliDownloader(BaseWindow):
                 clamp_w = int(sg.width() * 0.92)
                 clamp_h = int(sg.height() * 0.92)
 
-            # 屏幕足够时按内容需要；屏幕过矮时退到屏幕92%，并由紧凑模式兜底
+            # 够则按内容否则92%
             target_w = min(need_w, clamp_w) if clamp_w else need_w
             target_h = min(self._full_min_height, clamp_h) if clamp_h else self._full_min_height
 
-            # 关键：窗口最小高度不能被"内容需求"锁死。
-            # 内容最小高度约 1100（某些标签页较高），若直接作为窗口最小值，
-            # 768P/900P 笔记本上窗口无法缩小且超出屏幕，用户无法使用。
-            # 因此给最小高度一个紧凑上限，保证窗口始终放得下。
+            # 最小高不锁死
+            # 内容最小高1100
+            # 768P无法缩小
+            # 故给紧凑上限
             compact_base = max(scale(480), int((clamp_h or target_h) * 0.55))
             target_h = min(target_h, compact_base)
 
-            # 同理给最小宽度一个上限：内容最小宽度可能到 1400+（部分标签页较宽），
-            # 直接作为窗口最小值会让窗口在 1080P/小屏上无法缩小。
-            # 内容超宽时由标签页内部的横向滚动兜底。
+            # 最小宽度同理设上限
+            # 否则小屏无法缩小
+            # 超宽由横向滚动兜底
             width_base = max(scale(680), int((clamp_w or target_w) * 0.62))
             target_w = min(target_w, width_base)
 
             new_min_w = max(min(self.minimumSize().width(), width_base), target_w)
             new_min_h = max(min(self.minimumSize().height(), compact_base), target_h)
-            # centralWidget 的布局隐含最小宽度可能到 1400+，会顶住窗口不让缩小；
-            # 显式给出上限，超宽内容由各标签页的滚动区兜底。
+            # 隐含最小宽偏大
+            # 显式设上限
             try:
                 central.setMinimumWidth(min(central.minimumSizeHint().width(), width_base))
             except Exception:
                 pass
-            # 最大化状态下收紧最小值会把无边框窗口顶出最大化导致"启动后瞬间变小"，
-            # 因此最大化时只做测量、不改窗口最小值，等还原后再套用。
+            # 收紧会顶出最大化
+            # 故只测量等还原后套用
             if not self.isMaximized():
                 self.setMinimumSize(new_min_w, new_min_h)
-            # 重算后紧凑状态可能需要变化（如切换标签页触发但窗口尺寸未变、不触发resizeEvent）
+            # 重算后紧凑态可能需变
             compact = self.height() < self._full_min_height
             self._apply_adaptive_density(compact)
             if compact:
-                # 最终处于紧凑态时，tab 最小高度也按紧凑密度收敛
+                # tab高随紧凑收敛
                 self._update_tab_explicit_minimum()
         except Exception as e:
             logger.debug(f"收敛窗口最小尺寸失败: {e}")
@@ -17164,7 +17164,7 @@ class BilibiliDownloader(BaseWindow):
     def _do_auto_shutdown(self):
         try:
             from platform_utils import shutdown_system, native_notify
-            # 先给用户一条可见提示（Linux 上尤其重要：没有提示会显得"莫名其妙关机"）
+            # 先给可见提示
             native_notify("B站下载工具", "下载完成，60秒后自动关机", urgency="critical")
             ok, msg = shutdown_system(
                 delay_seconds=60,
@@ -17183,7 +17183,7 @@ class BilibiliDownloader(BaseWindow):
                 self.status_label.setText(f"解析进度：{progress}% - {message}")
             if hasattr(self, 'main_progress'):
                 self.main_progress.setValue(progress)
-            # 更新解析进度窗口的进度
+            # 更新解析进度窗
             if hasattr(self, 'parse_progress_window') and self.parse_progress_window:
                 self.parse_progress_window.update_progress(progress, message)
         except Exception as e:
@@ -17209,9 +17209,9 @@ class BilibiliDownloader(BaseWindow):
                     if screen:
                         sg = screen.availableGeometry()
                         # 先夹紧"尺寸"再夹紧"位置"。
-                        # 原实现只夹位置不夹尺寸：若上次几何来自更大的显示器
-                        # （或 DPI 变化），恢复出来的窗口会比当前屏幕还大，
-                        # 表现为"窗口异常大、超出屏幕"。
+                        # 只夹位置不夹尺寸
+                        # DPI变化会超屏
+                        # 表现为窗口异常大
                         max_w = max(sg.width() - scale(20), scale(640))
                         max_h = max(sg.height() - scale(20), scale(480))
                         w = max(min(w, max_w), scale(640))
@@ -17285,11 +17285,11 @@ class BilibiliDownloader(BaseWindow):
         
         title_label = QLabel(f"{version_info['description']} {version_info['version']}")
         title_label.setObjectName("titleLabel")
-        # 标题栏文字加大一档（原来与正文同号，显得小气）
+        # 标题字号加大一档
         title_label.setStyleSheet(scale_style("font-size: 18px; font-weight: 600; letter-spacing: 0.3px;"))
-        # 允许压缩：标题栏最小宽度会直接顶住"窗口最小宽度"，
-        # 但这里用 Preferred 而非 Ignored —— Ignored 会让标签被压到只剩几像素，
-        # 表现为"顶部栏的字全挤在一起"。
+        # 最小宽会顶住窗口
+        # 用Preferred
+        # Ignored会挤字
         title_label.setMinimumWidth(0)
         title_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         title_layout.addWidget(title_label)
@@ -17301,7 +17301,7 @@ class BilibiliDownloader(BaseWindow):
         self.author_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         title_layout.addWidget(self.author_label)
         
-        # 帮助入口：原标题过长（占 314px），直接把标题栏最小宽度顶高
+        # 帮助入口原标题过长
         help_btn = QPushButton("遇到问题点我")
         help_btn.setObjectName("helpBtn")
         help_btn.setToolTip("遇到错误？下载不了？点这里看解决办法")
@@ -17320,8 +17320,8 @@ class BilibiliDownloader(BaseWindow):
         help_btn.clicked.connect(self._show_help_dialog)
         title_layout.addWidget(help_btn)
 
-        # ===== 实时状态：UI 帧率 / 上行 / 下行 =====
-        # 无背景，纯文字 + 矢量图标（复用 _TASK_ICONS 的 SVG，不使用 emoji）
+        # ===== 状态:帧率/上下行 =====
+        # 纯文字加矢量图标
         self._stats_icons = {}
         for _k in ("activity", "speed_up", "speed_down"):
             try:
@@ -17332,9 +17332,9 @@ class BilibiliDownloader(BaseWindow):
         def _mk_stat_label(text="—"):
             lb = QLabel(text)
             lb.setStyleSheet(scale_style("color: #ffffff; font-size: 15px; background: transparent;"))
-            # 用 Preferred 而不是 Ignored：Ignored 会忽略尺寸提示，
-            # 实测把这几段文字压成 0 宽（数据算出来了但看不见）。
-            # 这里保留自然宽度，靠下面的最小宽度上限来防止顶高窗口最小宽度。
+            # 用Preferred
+            # Ignored压成0宽
+            # 靠最小宽度上限防顶高
             lb.setMinimumWidth(scale(52))
             lb.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
             return lb
@@ -17376,7 +17376,7 @@ class BilibiliDownloader(BaseWindow):
         self.login_info_widget = QWidget()
         self.login_info_layout = QHBoxLayout(self.login_info_widget)
         self.login_info_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
-        self.login_info_layout.setSpacing(scale(0))  # 设置间距为0，使头像和昵称完全紧贴
+        self.login_info_layout.setSpacing(scale(0))  # 间距0使头像紧贴
         
         self.avatar_label = QLabel()
         self.avatar_label.setMinimumSize(scale(24), scale(24))
@@ -17389,10 +17389,10 @@ class BilibiliDownloader(BaseWindow):
         self.login_info_label.setStyleSheet(scale_style("color: #ffffff; font-size: 15px; padding: 0px; font-weight: bold;"))
         self.login_info_label.setAlignment(Qt.AlignCenter)
         self.login_info_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        # 设置用户名标签的边距，确保与头像紧贴
+        # 调边距使与头像紧贴
         self.login_info_layout.addWidget(self.login_info_label)
 
-        # 醒目的登录按钮：未登录显示，登录后隐藏（用户名显示在 login_info_label）
+        # 未登录显示登录后隐藏
         self.login_btn = QPushButton("登录")
         self.login_btn.setObjectName("loginBtn")
         self.login_btn.setStyleSheet(scale_style(
@@ -17418,7 +17418,7 @@ class BilibiliDownloader(BaseWindow):
         minimize_btn.clicked.connect(self.showMinimized)
         title_layout.addWidget(minimize_btn)
 
-        # 最大化/还原按钮（最大化时显示还原图标，还原时显示最大化图标）
+        # 最大化还原图标切换
         self.maximize_btn = QPushButton("▢")
         self.maximize_btn.setObjectName("maximizeBtn")
         self.maximize_btn.setToolTip("最大化")
@@ -17437,7 +17437,7 @@ class BilibiliDownloader(BaseWindow):
         content_layout.setContentsMargins(scale(18), scale(16), scale(18), scale(16))
         content_layout.setSpacing(scale(14))
         content_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        # 不做宽度上限：宽屏应铺满，靠内部字段的合理分组来避免"被拉散"。
+        # 宽屏铺满不设上限
 
         header_layout = QHBoxLayout()
         header_layout.setSpacing(scale(10))
@@ -17474,7 +17474,7 @@ class BilibiliDownloader(BaseWindow):
         sys_info_group = QGroupBox("系统信息")
         sys_info_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         sys_layout = QVBoxLayout(sys_info_group)
-        # 收紧内边距与行距：原来上下留白过多，整卡占用高度偏大
+        # 收紧内边距行距
         sys_layout.setSpacing(scale(2))
         sys_layout.setContentsMargins(scale(8), scale(4), scale(8), scale(6))
 
@@ -17574,8 +17574,8 @@ class BilibiliDownloader(BaseWindow):
             "cpu": processor or "未知",
         }
         
-        # 诊断信息（系统/屏幕/Python/处理器）放入独立容器，窗口过矮时可整体隐藏。
-        # 排成一行四项，避免原来两行占用过多竖向空间。
+        # 诊断信息独立容器
+        # 排一行四项省竖向空间
         info_layout = QGridLayout()
         info_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
         info_layout.setHorizontalSpacing(scale(18))
@@ -17600,7 +17600,7 @@ class BilibiliDownloader(BaseWindow):
         self.sys_debug_widget.setLayout(info_layout)
         sys_layout.addWidget(self.sys_debug_widget)
 
-        # 窗口过矮时折叠为单行概要，点击弹出完整系统信息
+        # 过矮折为单行可点开
         self.sys_debug_summary_btn = QPushButton("系统详情 ▸")
         self.sys_debug_summary_btn.setObjectName("sysDebugSummaryBtn")
         _fit_button_height(self.sys_debug_summary_btn)
@@ -17658,8 +17658,8 @@ class BilibiliDownloader(BaseWindow):
         url_layout.addWidget(self.batch_parse_btn)
         content_layout.addLayout(url_layout)
 
-        # 解析范围控制：原来挤成一行、字号只有 11px、控件高度不齐，
-        # 现改为对齐的字段组：统一高度/字号，标签与控件成对，右侧留白。
+        # 原来挤一行字号不齐
+        # 现改为对齐的字段组
         parse_ctrl_layout = QHBoxLayout()
         parse_ctrl_layout.setSpacing(scale(16))
         parse_ctrl_layout.setContentsMargins(scale(0), 0, scale(0), 0)
@@ -17681,10 +17681,10 @@ class BilibiliDownloader(BaseWindow):
 
         # 「范围」组
         parse_ctrl_layout.addWidget(_field_label("范围"))
-        # 这里是主解析 Tab 唯一的解析控制区（BilibiliDownloader 类内），
-        # 名称必须与 on_parse() 读取的一致：parse_mode_combo / episode_page_spin。
-        # 历史问题：曾被创建成 batch_parse_mode_combo / batch_episode_page_spin，
-        # 而 on_parse 读的是不带前缀的名字，导致"范围/指定分P"界面上有、实际不生效。
+        # 主解析Tab控制区
+        # 名须与on_parse同
+        # 曾被加batch前缀
+        # 导致范围设置不生效
         self.parse_mode_combo = QComboBox()
         self.parse_mode_combo.addItem("自动（合集/分P）", "auto")
         self.parse_mode_combo.addItem("仅当前视频分P", "video_only")
@@ -17735,13 +17735,13 @@ class BilibiliDownloader(BaseWindow):
 
         
         self.tab_widget = QTabWidget()
-        # 注意：不要在这里 setMinimumHeight——显式最小高度会覆盖 QTabWidget 的
-        # minimumSizeHint，父布局会按过小的值分配空间，导致标签页内容被压缩重叠。
-        # 真实最小高度由 _enforce_content_minimum_size 按各页需要计算后设置。
+        # 勿设最小高度
+        # 会覆盖致重叠
+        # 由_enforce算
         self.tab_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        # 标签栏样式统一由 _BASE_STYLE 提供（分段控件观感）。
-        # 这里只做一项功能性配置：标签较多时允许横向滚动，
-        # 窗口变窄时不会把 10 个标签挤成一团。
+        # 样式由基础表给
+        # 标签多时允许横向滚动
+        # 窗口窄时不挤成一团
         try:
             self.tab_widget.setUsesScrollButtons(True)
             _tabbar = self.tab_widget.tabBar()
@@ -17763,8 +17763,8 @@ class BilibiliDownloader(BaseWindow):
         info_layout.setSpacing(scale(15))
         
         self.cover_label = QLabel()
-        # 放大封面并放宽上限：原来最大只有 200x130，整张卡片偏矮、
-        # 在高窗口下下方留白明显。提高上限让封面能填充更多竖向空间。
+        # 放大封面并放宽上限
+        # 提高上限填竖向空间
         self.cover_label.setMinimumSize(scale(120), scale(84))
         self.cover_label.setMaximumSize(scale(300), scale(200))
         self.cover_label.setStyleSheet(scale_style("border: 1px solid #e6eaf2; border-radius: 0; background-color: #f8fafc;"))
@@ -17841,8 +17841,8 @@ class BilibiliDownloader(BaseWindow):
         self.type_label.setMinimumHeight(scale(24))
         self.type_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         
-        # 不要把"时长/类型"的值设为 stretch=1：宽屏上两者会被推到布局两端，
-        # 形成"一个在左一个在最右"的散乱观感。改为按内容取自然宽度并整体靠左。
+        # 勿设stretch=1
+        # 否则被推到两端显散乱
         meta_layout.addWidget(duration_label)
         meta_layout.addWidget(self.duration_label)
         meta_layout.addSpacing(scale(28))
@@ -17851,16 +17851,16 @@ class BilibiliDownloader(BaseWindow):
         meta_layout.addStretch(1)
         info_right_layout.addLayout(meta_layout)
         
-        # quality_layout / full_mode_layout 在下方构建后就近并入本卡右侧，
-        # 使封面 + 标题 + 时长/类型 + 清晰度/音质 + 完全模式集中在一张卡里，
-        # 而不是各自占一行、在下方留下大片空白。
+        # 并入本卡右侧
+        # 使信息集中在一张卡
+        # 避免各自占行留空白
         self._video_info_extra_layout = info_right_layout
 
         info_layout.addLayout(info_right_layout, stretch=1)
 
-        # 用一个容器把「视频信息 + 下载选项 + 保存路径」收成一张卡片。
-        # 此前它们各自是 video_layout 的独立行，行与行之间、以及整块下方
-        # 留下大片空白（实测 827px 高只用到上半部分）。
+        # 用容器收成一张卡
+        # 此前各自是独立行
+        # 827px只用上半
         self._video_card = QWidget()
         self._video_card.setObjectName("videoInfoCard")
         self._video_card.setStyleSheet(scale_style(
@@ -17869,8 +17869,8 @@ class BilibiliDownloader(BaseWindow):
         _vcard = QVBoxLayout(self._video_card)
         _vcard.setContentsMargins(scale(14), scale(12), scale(14), scale(14))
         _vcard.setSpacing(scale(10))
-        # 信息区不参与纵向伸展：否则标题/时长留在顶部、清晰度被推到底部，
-        # 中间撑出一大段空白。让它保持自然高度、整体靠上。
+        # 信息区不参与纵向伸展
+        # 否则中间撑出大片空白
         _vcard.addLayout(info_layout)
         self._video_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         video_layout.addWidget(self._video_card)
@@ -17997,7 +17997,7 @@ class BilibiliDownloader(BaseWindow):
         quality_layout.addWidget(audio_quality_label)
         quality_layout.addWidget(self.audio_quality_combo, stretch=1)
         quality_layout.addWidget(self.select_episode_btn)
-        # 并入信息卡右侧（见上方注释）
+        # 并入信息卡右侧
         self._video_info_extra_layout.addSpacing(scale(6))
         self._video_info_extra_layout.addLayout(quality_layout)
         
@@ -18009,7 +18009,7 @@ class BilibiliDownloader(BaseWindow):
         self.full_mode_checkbox.setEnabled(True)
         full_mode_layout.addWidget(self.full_mode_checkbox)
         full_mode_layout.addStretch(1)
-        # 同样并入信息卡右侧，避免单独占一行
+        # 同样并入避免单独占行
         self._video_info_extra_layout.addLayout(full_mode_layout)
         
         path_layout = QHBoxLayout()
@@ -18033,10 +18033,10 @@ class BilibiliDownloader(BaseWindow):
         path_layout.addWidget(path_label)
         path_layout.addWidget(self.path_edit, stretch=1)
         path_layout.addWidget(self.browse_btn)
-        # 收进信息卡（与视频信息、清晰度等同属一张卡），不再单独占一行
+        # 收进信息卡不再单占行
         _vcard.addLayout(path_layout)
-        # 路径行固定在卡片底部，余量集中在"视频信息"与"下载选项"之间，
-        # 由 info_layout 的 stretch 吸收，避免出现大片空白或封面被拉变形。
+        # 路径行置底余量居中
+        # 由stretch吸空白
         
         # 弹幕解析标签页
         danmaku_tab = QWidget()
@@ -18090,8 +18090,8 @@ class BilibiliDownloader(BaseWindow):
         
         danmaku_layout.addWidget(danmaku_info_group)
 
-        # 弹幕预览列表：此前该标签页只有一个信息分组，未解析时整片空白。
-        # 解析后把弹幕逐条列出，既提升空间利用率，也方便确认内容是否正常。
+        # 此前未解析时整片空白
+        # 解析后逐条列出
         danmaku_preview_group = QGroupBox("弹幕预览")
         danmaku_preview_layout = QVBoxLayout(danmaku_preview_group)
         danmaku_preview_layout.setSpacing(scale(6))
@@ -18435,8 +18435,8 @@ class BilibiliDownloader(BaseWindow):
         self.content_list.itemDoubleClicked.connect(self.on_content_double_clicked)
         self.content_list.itemClicked.connect(self.on_content_clicked)
         
-        # content_list 本身即为滚动容器，不能再嵌套 QScrollArea。
-        # 两层滚动容器会导致初始滚动位置偏移（首次进入时卡片顶格、首行被裁切，
+        # 已是滚动容器勿再嵌套
+        # 两层滚动会致位置偏移
         # 滚动一次才恢复正常）。
         content_section_layout.addWidget(self.content_list, stretch=1)
 
@@ -18794,7 +18794,7 @@ class BilibiliDownloader(BaseWindow):
         path_label = QLabel("保存路径：")
         path_label.setStyleSheet(scale_style("font-size: 15px; font-weight: 500; color: #333;"))
         self.all_path_edit = QLineEdit()
-        # 与path_edit保持一致，优先读取用户上次选择的路径
+        # 与path_edit一致
         last_path_all = self.config.get_app_setting("last_save_path")
         default_path_all = last_path_all if last_path_all else os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载")
         self.all_path_edit.setText(default_path_all)
@@ -18809,7 +18809,7 @@ class BilibiliDownloader(BaseWindow):
         path_layout.addWidget(path_select_btn)
         all_in_one_layout.addLayout(path_layout)
         
-        # 各标签页内容包一层纵向滚动区：窗口缩小时可滚动查看，避免控件互相重叠
+        # 各页包滚动区防重叠
         self.tab_widget.insertTab(0, self._wrap_tab_scrollable(all_in_one_tab), "综合下载")
         self.tab_widget.addTab(self._wrap_tab_scrollable(video_tab), "视频解析")
         self.tab_widget.addTab(self._wrap_tab_scrollable(danmaku_tab), "弹幕解析")
@@ -18946,7 +18946,7 @@ class BilibiliDownloader(BaseWindow):
             logger.warning(f"字幕解析Tab加载失败: {e}")
             self.subtitle_tab = None
 
-        # 录播工具托盘（归主窗口所有，不随LiveTab销毁）
+        # 录播托盘归主窗所有
         try:
             from recording_tray import RecordingTrayManager
             show_tray = self.config.get_app_setting("show_recording_tray", True) if self.config else True
@@ -18959,10 +18959,10 @@ class BilibiliDownloader(BaseWindow):
             logger.warning(f"录播工具托盘初始化失败: {e}")
             self.recording_tray = None
 
-        # 流媒体播放器弹窗（独立窗口，非Tab）
+        # 播放器弹窗是独立窗口
         self.stream_player_dialog = None
 
-        # ---- 折叠功能Tab：箭头按钮 + 下拉菜单 ----
+        # ---- 折叠Tab:箭头加菜单 ----
         self._tab_fold_meta = [(self.tab_widget.tabText(i), i) for i in range(self.tab_widget.count())]
         self.fold_menu = QMenu(self)
         self.fold_menu.setStyleSheet(scale_style("""
@@ -18983,16 +18983,16 @@ class BilibiliDownloader(BaseWindow):
 
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
 
-        # 默认显示"视频解析"tab（而不是"综合下载"tab）
+        # 默认显示视频解析页
         for i in range(self.tab_widget.count()):
             if self.tab_widget.tabText(i) == "视频解析":
                 self.tab_widget.setCurrentIndex(i)
                 break
 
-        # 按配置折叠指定功能Tab
+        # 按配置折叠功能Tab
         self._apply_folded_tabs()
 
-        # 为tab_widget设置合适的大小策略
+        # 设tab_widget策略
         self.tab_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         content_layout.addWidget(self.tab_widget, stretch=1)
 
@@ -19012,8 +19012,8 @@ class BilibiliDownloader(BaseWindow):
         self.status_label.setMinimumHeight(scale(24))
         self.status_label.setWordWrap(True)
         self.status_label.setStyleSheet(scale_style("font-size: 15px;"))
-        # 占满整行宽度（带 alignment 会让标签按 sizeHint 收窄导致单行文本被折行），
-        # 垂直方向按内容自适应（长消息自动换行成两行）
+        # 占满整行防文本折行
+        # 垂直按内容自适应
         status_sp = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         status_sp.setHeightForWidth(True)
         self.status_label.setSizePolicy(status_sp)
@@ -19026,8 +19026,8 @@ class BilibiliDownloader(BaseWindow):
         btn_layout.setSpacing(scale(10))
         btn_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
 
-        # 底部操作区：三级层次（主操作实心蓝 / 次操作浅底描边 / 危险红）。
-        # 用 QSS 的 variant 属性而非内联样式，避免与全局设计系统重复定义。
+        # 底部三级:主次危险
+        # 用QSS免重复定义
         def _mark(btn, variant):
             btn.setProperty("variant", variant)
             return btn
@@ -19088,13 +19088,13 @@ class BilibiliDownloader(BaseWindow):
         btn_layout.addWidget(self.settings_btn)
         content_layout.addLayout(btn_layout)
 
-        # 整个内容列（含底部按钮栏）包进纵向滚动区：
-        # 窗口高度不足时整体滚动，而不是让按钮栏压到标签页内容上。
-        # 之前只有标签页内部可滚动，底部按钮栏是固定兄弟项，
+        # 含按钮栏包进滚动
+        # 高度不足时整体滚动
+        # 此前是固定兄弟项
         # 窗口缩小时两者会重叠。
         content_widget.setAutoFillBackground(True)
-        # 给内容列一个合理的最小高度：低于此值才出现滚动条，
-        # 高于此值正常铺满，不影响宽屏观感。
+        # 给内容列合理最小高度
+        # 高于此值正常铺满
         content_widget.setMinimumHeight(scale(620))
         _content_scroll = QScrollArea()
         _content_scroll.setObjectName("contentScroll")
@@ -19109,9 +19109,9 @@ class BilibiliDownloader(BaseWindow):
         _content_scroll.setWidget(content_widget)
         main_layout.addWidget(_content_scroll, stretch=1)
 
-        # 内容布局已完整构建，按内容真实最小尺寸收敛窗口最小值
+        # 按内容最小尺寸收敛
         self._enforce_content_minimum_size()
-        # 切换标签页后同步更新内容最小需求（不同标签页所需高度不同）
+        # 切页后同步更新需求
         self.tab_widget.currentChanged.connect(self._on_tab_changed_adaptive)
 
         self.signal_emitter.user_info_updated.connect(self.update_user_info)
@@ -19436,7 +19436,7 @@ class BilibiliDownloader(BaseWindow):
         loading_dialog.show()
         _dialog_alive = [True]
         
-        # 进度回调通过信号在主线程更新 dialog，避免工作线程直接操作 QWidget
+        # 信号在主线程更新
         def _on_progress(value, msg):
             if _dialog_alive[0]:
                 loading_dialog.update_progress(value, msg)
@@ -19479,7 +19479,7 @@ class BilibiliDownloader(BaseWindow):
                     self.signal_emitter.folder_content_page.emit(page_items, page_num, total_count)
 
                 def cancel_check():
-                    # 弹窗关闭（取消或完成）即视为取消
+                    # 关闭即视为取消
                     return not _dialog_alive[0]
 
                 content = self.parser.get_folder_content(
@@ -19605,7 +19605,7 @@ class BilibiliDownloader(BaseWindow):
             
             class CoverLoader(QThread):
                 class SignalEmitter(QObject):
-                    # 传 bytes 而非 QPixmap，避免在工作线程创建 QPixmap 触发 sipBadCatcherResult
+                    # 传bytes免建图
                     finished = pyqtSignal(bytes)
                 
                 def __init__(self, url):
@@ -19652,8 +19652,8 @@ class BilibiliDownloader(BaseWindow):
                             cover_label.setPixmap(cropped)
                             cover_label.setStyleSheet("background: transparent; border: none;")
                             return
-                    # 失败（或解码失败）：退避后自动重试，最多 3 次。
-                    # 封面接口偶发超时/限流，直接显示"加载失败"观感很差。
+                    # 失败退避重试最多3次
+                    # 限流时显示失败观感差
                     if attempt < 3:
                         cover_label.setText("加载中…")
                         delay = int(1200 * (attempt + 1))
@@ -19789,7 +19789,7 @@ class BilibiliDownloader(BaseWindow):
             if list_w <= 0:
                 return
             base_card_w = scale(170)
-            max_card_w = scale(220)  # 限制最大宽度，防止卡片过大
+            max_card_w = scale(220)  # 限制最大宽度
             spacing = scale(8)
             padding = scale(24)
             available_w = list_w - padding
@@ -19815,7 +19815,7 @@ class BilibiliDownloader(BaseWindow):
             self._calc_card_size()
             self._fav_total_items = []
             self._fav_loaded_count = 0
-            # 重新加载时把滚动位置归零，避免沿用上一轮的位置导致首行被裁切
+            # 重载时滚动位置归零
             try:
                 self.content_list.scrollToTop()
                 self.content_list.verticalScrollBar().setValue(0)
@@ -19866,7 +19866,7 @@ class BilibiliDownloader(BaseWindow):
         logger.info(f"开始更新收藏内容列表，共 {len(items)} 个项目")
         
         if not items:
-            # 当没有内容时，显示提示信息
+            # 无内容时显示提示
             empty_item = QListWidgetItem("暂无视频")
             empty_item.setFlags(empty_item.flags() & ~Qt.ItemIsSelectable)
             empty_item.setForeground(QColor('#94a3b8'))
@@ -20008,7 +20008,7 @@ class BilibiliDownloader(BaseWindow):
         try:
             if not hasattr(self, 'all_episode_list') or self.all_episode_list.count() == 0:
                 return
-            # 收集所有项及其勾选状态、原始索引
+            # 收集项与勾选状态
             items = []
             for i in range(self.all_episode_list.count()):
                 item = self.all_episode_list.item(i)
@@ -20040,10 +20040,10 @@ class BilibiliDownloader(BaseWindow):
                 return (t or '').strip()
 
             if index == 0:
-                # 默认顺序：按原始索引升序
+                # 默认按原始索引升序
                 items.sort(key=lambda x: x['data'] if x['data'] is not None else 0)
             elif index == 1:
-                # 时长升序：通过原始索引从episodes取duration
+                # 升序取duration
                 items.sort(key=lambda x: get_duration(episodes[x['data']]) if x['data'] < len(episodes) else 0)
             elif index == 2:
                 # 时长降序
@@ -20063,7 +20063,7 @@ class BilibiliDownloader(BaseWindow):
             logger.debug(f"集数排序失败: {e}")
     
     def _on_all_select_path(self):
-        # 内联实现选择保存路径（原select_save_path定义在FloatingBall类中）
+        # 内联实现选择保存路径
         default_path = self.path_edit.text().strip() if hasattr(self, 'path_edit') and self.path_edit else os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载")
         if hasattr(self, 'show_custom_file_dialog'):
             folder = self.show_custom_file_dialog("选择保存路径")
@@ -20090,10 +20090,10 @@ class BilibiliDownloader(BaseWindow):
                 return
         else:
             return
-        # 到此处 folder 一定有效
+        # folder必有效
         if folder and hasattr(self, 'all_path_edit'):
             self.all_path_edit.setText(folder)
-        # 同步到配置，确保下次启动也能记住
+        # 同步到配置以便记住
         if folder:
             try:
                 self.config.set_app_setting("last_save_path", folder)
@@ -20129,8 +20129,8 @@ class BilibiliDownloader(BaseWindow):
                 else:
                     _total_eps = len(episodes)
                     for i, ep in enumerate(episodes):
-                        # 统一走 format_ep_name：单集不再显示"第1集"，
-                        # 启用文件名序号时显示与最终文件名一致的 "01. 标题"。
+                        # 走format_ep_name
+                        # 序号显01.标题
                         title = format_ep_name(ep, i, video_info, total=_total_eps, seq_start=0)
                         duration_str = ""
 
@@ -20159,7 +20159,7 @@ class BilibiliDownloader(BaseWindow):
             if hasattr(self, 'full_mode_codec_combo'):
                 self.full_mode_codec_combo.clear()
                 self.full_mode_codec_combo.addItem("自动（优先H.264）", 0)
-                # 始终显示所有编码选项，不限于B站提供的（支持自动转码）
+                # 始终显示所有编码选项
                 for cid, name in [(7, "H.264 (AVC)"), (12, "H.265 (HEVC)"), (13, "AV1")]:
                     display = name
                     if available_codecs and cid not in available_codecs:
@@ -20170,9 +20170,9 @@ class BilibiliDownloader(BaseWindow):
                 current = self.all_qn_combo.currentText()
                 self.all_qn_combo.clear()
                 for q in qualities:
-                    # qualities格式: [(qn, name), ...] 或 [(qn, codecid, name), ...] 或 [{"qn": ..., "name": ...}, ...]
+                    # qualities三格式
                     if isinstance(q, (tuple, list)) and len(q) == 3:
-                        # 新格式：(qn, codecid, name) - 每个qn只显示一次（取第一个编码）
+                        # 新格式每qn只显一次
                         qn_val, codecid, qn_name = q
                         existing_qn_vals = [self.all_qn_combo.itemData(i) for i in range(self.all_qn_combo.count())]
                         if qn_val not in existing_qn_vals:
@@ -20205,8 +20205,8 @@ class BilibiliDownloader(BaseWindow):
                 self.show_notification("请先解析视频链接哦", "warning")
                 return
 
-            # 防重入：同一次提交可能被多个按钮/信号重复触发（历史日志中出现过
-            # 同一合集在 11 秒内被创建 50 个任务），这里做一次节流拦截。
+            # 防重入需节流
+            # 曾11秒建50个任务
             _now = time.time()
             if _now - getattr(self, '_last_all_dl_ts', 0) < 3.0:
                 logger.warning("重复的下载提交已被忽略（3 秒内）")
@@ -20293,11 +20293,11 @@ class BilibiliDownloader(BaseWindow):
                 self.show_notification("请选择保存路径", "warning")
                 return
             
-            # 下载前检查保存路径的写入/删除权限，无权限则提示更换
+            # 下载前先查写入权限
             path_ok, save_path = self.check_save_path_permission(save_path, allow_change=True)
             if not path_ok:
                 return
-            # 同步回输入框（用户可能更换了路径）
+            # 同步回输入框
             if hasattr(self, 'all_path_edit') and self.all_path_edit.text().strip() != save_path:
                 self.all_path_edit.setText(save_path)
             if hasattr(self, 'path_edit') and self.path_edit.text().strip() != save_path:
@@ -20343,15 +20343,15 @@ class BilibiliDownloader(BaseWindow):
                 "audio_quality": audio_quality
             }
 
-            # 这里原先是 format_ep_name 的重复实现，缺少"单集视频不显示第1集"
-            # 的判断，导致批量下载多个独立投稿时每行都顶着"第1集"。
-            # 统一改为复用模块级实现，并显式传入本次实际下载的集数。
+            # 此前是重复实现
+            # 缺判断致显第1集
+            # 改为复用模块级实现
             def format_ep_name(ep, idx, vi, total=None, seq_start=None):
-                # 必须接受 total/seq_start：下方多处调用会显式传入这两个关键字
-                # （曾因签名不收关键字参数而抛出
-                #  “format_ep_name0 got an unexpected keyword argument 'total'”，
-                #  导致整批下载在准备阶段即失败）。
-                # total 为 None 时回退到本次实际选择的集数。
+                # 须收total
+                # 曾因不收关键字参数
+                # 抛unexpected错
+                # 致整批准备失败
+                # None则回退本次
                 if total is None:
                     total = len(selected_episodes)
                 if seq_start is None:
@@ -20444,7 +20444,7 @@ class BilibiliDownloader(BaseWindow):
         logger = logging.getLogger(__name__)
         logger.info(f"标签页切换到索引：{index}")
 
-        # 功能使用统计：只记录标签名称，用于判断哪些功能真正被使用
+        # 只记标签名
         try:
             if hasattr(self, 'cloud_service') and self.cloud_service:
                 _names = {0: "视频解析", 1: "弹幕解析", 2: "收藏夹", 3: "封面下载",
@@ -20457,10 +20457,10 @@ class BilibiliDownloader(BaseWindow):
         except Exception:
             pass
 
-        # Tab 顺序：0=视频解析, 1=弹幕解析, 2=收藏夹, 3=封面下载, 4=下载历史,
-        #           5=直播, 6=表情包, 7=音频解析, 8=字幕解析
+        # 0解析1弹幕2收藏
+        # 3封4史5直6表7音8字
         if index == 2:
-            # 收藏夹自动刷新门控：仅当设置为"自动"时切到该标签才自动拉取
+            # 仅自动时切页拉取
             if self.config.get_app_setting("favorites_refresh_mode", "manual") == "auto":
                 logger.info("切换到收藏夹标签页，自动刷新收藏夹列表")
                 self.refresh_folders()
@@ -20648,8 +20648,8 @@ class BilibiliDownloader(BaseWindow):
             file_path = record.get("file_path", "")
             save_path = record.get("save_path", "")
             target = file_path if file_path and os.path.exists(file_path) else None
-            # 兜底：修复前写入的历史记录没有 file_path，
-            # 此时按标题在保存目录里找一次同名媒体文件，尽量让它可用。
+            # 旧记录无file_path
+            # 按标题在目录里找一次
             if not target and save_path and os.path.isdir(save_path):
                 _title = (record.get("title") or "").strip()
                 if _title:
@@ -20747,7 +20747,7 @@ class BilibiliDownloader(BaseWindow):
             self.show_notification("请选择要解析的内容", "warning")
             return
         
-        # 收集所有选中视频的URL
+        # 收集所有选中URL
         urls = []
         for item in selected_items:
             content_item = item.data(Qt.UserRole)
@@ -20766,13 +20766,13 @@ class BilibiliDownloader(BaseWindow):
             self.show_notification("没有可解析的视频", "warning")
             return
         
-        # 如果只选择了一个视频，使用单独解析逻辑
+        # 单选走单独解析
         if len(urls) == 1:
             video_url = urls[0]
             self.url_edit.setText(video_url)
             self.on_parse()
         else:
-            # 如果选择了多个视频，使用批量解析逻辑
+            # 多选走批量解析
             self.start_batch_parse_with_urls(urls)
     
     def check_cookie_validity(self, skip_user_info=False):
@@ -20802,9 +20802,9 @@ class BilibiliDownloader(BaseWindow):
     
     def hide_cookie_ui(self):
         
-        # 原先是 self.showMaximized()：这里只是切换"已登录"界面状态，
-        # 却把窗口强行最大化（明显是遗留错误），同样会让启动窗口设置失效。
-        # 改为不改变窗口尺寸/状态。
+        # 曾误用showMax
+        # 致设置失效
+        # 改为不改窗口状态
         if not self.isVisible():
             self.show()
         
@@ -20849,10 +20849,10 @@ class BilibiliDownloader(BaseWindow):
     
     def show_cookie_ui(self):
         
-        # 注意：这里原先是 self.showMaximized()（且在同一函数里写了两遍）。
-        # 它在启动流程 show() 之后执行，会把窗口无条件撑满，
-        # 导致「启动时最大化窗口」这个设置完全失效。
-        # 改为仅确保窗口可见，不改变窗口尺寸/状态。
+        # 曾写两遍showMax
+        # 它在show后撑满
+        # 致启动最大化设置失效
+        # 改为仅确保可见
         if not self.isVisible():
             self.show()
         
@@ -21001,7 +21001,7 @@ class BilibiliDownloader(BaseWindow):
                 self.update_login_info_display()
                 self.load_default_avatar()
                 
-                # 重置登录对话框，确保下次点击登录时创建新的对话框
+                # 重置登录框
                 self.login_dialog = None
                 
                 self.show_notification("退出登录成功！", "success")
@@ -21083,7 +21083,7 @@ class BilibiliDownloader(BaseWindow):
                     self.showMaximized()
                     print("主窗口已显示")
                     
-                    # 在子线程中加载用户信息，避免UI卡死
+                    # 子线程加载防卡
                     import threading
                     def load_user_info_in_thread():
                         try:
@@ -21134,7 +21134,7 @@ class BilibiliDownloader(BaseWindow):
                 if self.tab_widget.tabText(i) == "视频解析":
                     self.tab_widget.setCurrentIndex(i)
                     return
-            # 兜底：未找到则切到第1个tab（视频解析通常在第1位置）
+            # 未找到切第1tab
             if self.tab_widget.count() > 1:
                 self.tab_widget.setCurrentIndex(1)
         except Exception:
@@ -21149,7 +21149,7 @@ class BilibiliDownloader(BaseWindow):
         if not self._is_bilibili_url(url):
             self.show_notification("请输入B站链接（支持bilibili.com、b23.tv、BV号等）", "warning")
             return
-        # 保存当前解析的URL，用于登录后重新解析
+        # 存URL供重解析
         self._last_parse_url = url
         self.config.set_app_setting("last_parse_url", url)
         self.clear_parse_video_info()
@@ -21170,7 +21170,7 @@ class BilibiliDownloader(BaseWindow):
         
         import threading
         
-        # 读取权限不足重试次数配置
+        # 读权限不足重试次数
         perm_retry = self.config.get_app_setting("permission_denied_retries", 1)
         try:
             perm_retry = int(perm_retry)
@@ -21188,15 +21188,15 @@ class BilibiliDownloader(BaseWindow):
                 
                 # 检查是否已被取消
                 if self.parse_cancelled:
-                    # 必须发终止信号，否则"解析"按钮会一直禁用
+                    # 须发终止信号
                     self.signal_emitter.parse_finished.emit(
                         {"success": False, "type": "parse_abort", "silent": True, "error": "解析已取消"})
                     return
                 
-                # 发送信号，在主线程中显示解析进度窗口
+                # 在主线程显示进度窗
                 self.signal_emitter.show_parse_progress.emit()
                 
-                # 发送进度更新信号（解析阶段进度条保持0%，只更新文字）
+                # 解析阶段只更新文字
                 progress_callback(0, "正在识别链接类型...")
                 media_parse_video_info = self.parser.parse_media_url(url)
                 if media_parse_video_info.get("error"):
@@ -21212,13 +21212,13 @@ class BilibiliDownloader(BaseWindow):
 
                 try:
                     if media_type == "live":
-                        # 处理直播间链接：切换到直播Tab并填入房间号
+                        # 直播切Tab填房间号
                         progress_callback(0, "跳转到直播Tab...")
                         self.signal_emitter.parse_finished.emit({"success": True, "type": "live", "room_id": media_id, "message": "已切换到直播Tab"})
                         return
 
                     if media_type == "audio":
-                        # 处理音频链接：切换到音频Tab并填入au号触发查询
+                        # 音频切Tab填au号
                         progress_callback(0, "跳转到音频Tab...")
                         self.signal_emitter.parse_finished.emit({"success": True, "type": "audio", "id": media_id, "message": "已切换到音频Tab"})
                         return
@@ -21250,8 +21250,8 @@ class BilibiliDownloader(BaseWindow):
                             )
                         else:
                             # 处理 UP 主「合集 / 系列」页：
-                            # 形如 space.bilibili.com/{mid}/lists/{id}?type=series|season
-                            # 直接列出整个分类，无需逐个进入视频明细页。
+                            # 形如lists/{id}
+                            # 直接列分类
                             progress_callback(0, "获取合集/系列信息...")
                             try:
                                 _mid, _list_id, _list_type = str(media_id).split(":")
@@ -21292,13 +21292,13 @@ class BilibiliDownloader(BaseWindow):
 
                         progress_callback(100, "加载完成！")
                         self.signal_emitter.show_space_videos.emit(space_info, videos_info)
-                        # 关键：此分支不再走主流程，必须显式通知 UI 复位解析状态，
-                        # 否则"解析"按钮会一直保持禁用，用户只能重启程序
+                        # 须显式通知UI复位
+                        # 否则解析按钮一直禁用
                         self.signal_emitter.parse_finished.emit({"success": True, "type": "space_ready"})
                         return
                     else:
                         # 处理其他类型
-                        # 读取解析范围和指定分P
+                        # 读解析范围与分P
                         episode_page = getattr(self, 'episode_page_spin', None)
                         episode_page = episode_page.value() if episode_page else 0
                         parse_mode = getattr(self, 'parse_mode_combo', None)
@@ -21309,7 +21309,7 @@ class BilibiliDownloader(BaseWindow):
                         if url_page and not episode_page and parse_mode != "video_only":
                             episode_page = url_page
                         ep = episode_page if episode_page and episode_page > 0 else None
-                        # 集数范围（如 "1-5,8,10-12"）：只解析命中的集，范围外不请求播放地址
+                        # 范围外不请求播放地址
                         _range_widget = getattr(self, 'episode_range_edit', None)
                         episode_range = _range_widget.text().strip() if _range_widget else ""
                         # 传入权限不足重试次数
@@ -21318,12 +21318,12 @@ class BilibiliDownloader(BaseWindow):
                         media_info = self.parser.parse_media(media_type, media_id, False, progress_callback, permission_denied_retries=perm_retry, cancel_check=_cancel_check, episode_page=ep, parse_mode=parse_mode, episode_range=episode_range)
                         # 检查是否被停止或取消
                         if self.parse_cancelled:
-                            # 必须发终止信号，否则"解析"按钮会一直禁用
+                            # 须发终止信号
                             self.signal_emitter.parse_finished.emit(
                                 {"success": False, "type": "parse_abort", "silent": True, "error": "解析已取消"})
                             return
                         if self.parse_stopped:
-                            # 停止时如果有部分结果则显示（标记为部分结果）
+                            # 停止时有结果则显示
                             if media_info.get("success"):
                                 media_info["_partial"] = True
                                 media_info["_stop_reason"] = "用户停止"
@@ -21392,7 +21392,7 @@ class BilibiliDownloader(BaseWindow):
             if not self.stream_player_dialog:
                 self.stream_player_dialog = StreamPlayerDialog(
                     config=self.config, parent=self, initial_url=url)
-            # 设置URL刷新回调（用于B站直播流过期自动重试）
+            # 设URL刷新回调
             if url_refresher:
                 self.stream_player_dialog.set_url_refresher(url_refresher)
             if url:
@@ -21425,7 +21425,7 @@ class BilibiliDownloader(BaseWindow):
 
     def _reset_parse_ui_state(self):
         """把解析相关的界面状态恢复为"可以再次解析"。"""
-        # 成功路径已经安排了"延迟1秒关闭进度窗口"，这里就不要再抢着关
+        # 已有延迟关闭勿重复关
         _keep_pw = getattr(self, '_parse_progress_handled', False)
         self._parse_progress_handled = False
         try:
@@ -21459,7 +21459,7 @@ class BilibiliDownloader(BaseWindow):
         try:
             print(f"=== on_parse_finished被调用，video_info: {video_info}")
 
-            # 解析被取消/中止：仅复位界面状态，不弹错误提示
+            # 取消时仅复位不报错
             if video_info.get("type") == "parse_abort":
                 if hasattr(self, 'parse_progress_window') and self.parse_progress_window:
                     self.parse_progress_window.close()
@@ -21469,8 +21469,8 @@ class BilibiliDownloader(BaseWindow):
                     self.main_progress.setValue(0)
                 return
 
-            # UP主主页 / 合集系列列表已通过 show_space_videos 单独展示，
-            # 这里只需复位解析状态（此前遗漏导致"解析"按钮永久禁用）
+            # 主页合集已单独展示
+            # 曾遗漏致按钮永久禁用
             if video_info.get("type") == "space_ready":
                 if hasattr(self, 'parse_progress_window') and self.parse_progress_window:
                     self.parse_progress_window.close()
@@ -21501,7 +21501,7 @@ class BilibiliDownloader(BaseWindow):
                 self.show_notification("已切换到直播Tab", "info")
                 return
 
-            # 处理音频（歌曲）链接：切换到音频Tab并填入au号触发查询
+            # 音频切Tab填au
             if video_info.get("type") == "audio" and video_info.get("success"):
                 audio_id = video_info.get("id", "")
                 if audio_id and hasattr(self, 'audio_tab') and self.audio_tab:
@@ -21525,11 +21525,11 @@ class BilibiliDownloader(BaseWindow):
                 self.show_notification("已切换到音频Tab", "info")
                 return
 
-            # 更新进度为100%并显示加载完成
+            # 进度100%显示完成
             if hasattr(self, 'parse_progress_window') and self.parse_progress_window:
                 QTimer.singleShot(0, lambda: self.parse_progress_window.update_progress(100, "加载完成"))
-                # 延迟关闭窗口，让用户看到加载完成的提示。
-                # 打上标记，避免外层 finally 里的复位逻辑把它立刻关掉。
+                # 延迟关闭让用户看到
+                # 免被finally关
                 _pw = self.parse_progress_window
                 self._parse_progress_handled = True
 
@@ -21546,21 +21546,21 @@ class BilibiliDownloader(BaseWindow):
 
                 QTimer.singleShot(1000, _close_pw)
 
-            # 确保parse_btn存在
+            # 确保parse_btn在
             if hasattr(self, 'parse_btn'):
                 self.parse_btn.setEnabled(True)
             else:
                 print("错误：parse_btn控件不存在")
             
-            # 确保main_progress存在
+            # 确保进度条在
             if hasattr(self, 'main_progress'):
                 self.main_progress.setValue(0)
             else:
                 print("错误：main_progress控件不存在")
             
             if not video_info.get("success"):
-                # 用户在拿到任何信息之前就停止：提示为"已停止"而不是"解析失败"，
-                # 并且不清空界面上已有的内容。
+                # 无信息显示已停止
+                # 且不清空已有内容
                 if video_info.get("cancelled"):
                     logger.info("解析已被用户停止（未获得有效结果）")
                     if hasattr(self, 'status_label'):
@@ -21573,25 +21573,25 @@ class BilibiliDownloader(BaseWindow):
                 error_msg = video_info.get("error", "未知错误")
                 logger.warning(f"视频解析错误: {error_msg}")
                 
-                # 确保在主线程中更新UI
+                # 在主线程更新UI
                 QTimer.singleShot(0, lambda: self.update_ui_error(error_msg))
-                # 关闭解析进度窗口，仅通过通知中心推送带操作按钮的失败通知
+                # 关进度窗改用通知推送
                 if hasattr(self, 'parse_progress_window') and self.parse_progress_window:
                     self.parse_progress_window.close()
                 windows_notify_with_actions("解析失败", error_msg)
                 return
 
-            # 检测充电/DRM加密内容，若未登录则提示用户登录以获取完整内容
+            # 充电DRM内容需登录
             if self._check_login_required_for_content(video_info):
-                # 用户已登录成功，自动重新解析以获取完整内容
+                # 登录后自动重解析
                 QTimer.singleShot(100, self._reparse_last_url)
                 return
 
             self.current_video_info = video_info
             
-            # 判断是否为部分结果（用户中途停止）。
-            # 解析器现在会在停止时返回 cancelled=True 并带上已解析到的集数，
-            # 因此这里同时识别 cancelled / partial，保证"停止后保留当前结果"。
+            # 判断是否为部分结果
+            # 停止返cancelled
+            # 识别partial
             is_partial = bool(video_info.get("_partial")
                               or video_info.get("partial")
                               or video_info.get("cancelled"))
@@ -21607,8 +21607,8 @@ class BilibiliDownloader(BaseWindow):
             else:
                 print(f"解析成功，标题：{video_info.get('title', '未知标题')}")
                 QTimer.singleShot(0, lambda: self.show_notification(f"解析成功，共找到 {episodes_count} 个视频", "success"))
-                # 未登录/非会员时 B站只给试看片段：必须显式告知用户，
-                # 否则用户会以为"下载失败"或"只下了几秒"。
+                # 非会员只给试看片段
+                # 须告知否则以为失败
                 _preview_notice = video_info.get('preview_notice') or ""
                 if _preview_notice:
                     QTimer.singleShot(300, lambda: self.show_notification(_preview_notice, "warning"))
@@ -21619,12 +21619,12 @@ class BilibiliDownloader(BaseWindow):
                     except Exception:
                         pass
             
-            # 确保在主线程中更新UI
+            # 在主线程更新UI
             QTimer.singleShot(0, lambda: self.update_ui(video_info))
             
             QTimer.singleShot(0, lambda: self._populate_all_in_one_tab(video_info))
             
-            # 视频解析完成后自动触发字幕解析（跟随全局解析）
+            # 解析完触发字幕解析
             if hasattr(self, 'subtitle_tab') and self.subtitle_tab:
                 QTimer.singleShot(0, lambda: self.subtitle_tab.auto_parse_from_main(video_info))
         except Exception as e:
@@ -21632,7 +21632,7 @@ class BilibiliDownloader(BaseWindow):
             logger.debug("traceback", exc_info=True)
             if hasattr(self, 'parse_progress_window') and self.parse_progress_window:
                 QTimer.singleShot(0, lambda: self.parse_progress_window.close())
-            # 确保在主线程中显示通知
+            # 在主线程显示通知
             QTimer.singleShot(0, lambda: self.show_notification(f"解析失败：{str(e)}", "error"))
     
     def on_show_space_videos(self, space_info, videos):
@@ -21643,7 +21643,7 @@ class BilibiliDownloader(BaseWindow):
             self.show_notification(f"显示视频列表失败：{str(e)}", "error")
 
     def _on_show_space_videos_impl(self, space_info, videos_info):
-        # 先关闭解析进度模态窗口，否则新对话框会被它挡住无法显示
+        # 先关进度窗否则被挡
         if hasattr(self, 'parse_progress_window') and self.parse_progress_window:
             try:
                 self.parse_progress_window.close()
@@ -21717,7 +21717,7 @@ class BilibiliDownloader(BaseWindow):
             COL_AUDIO = 6
             COL_ACTION = 7
 
-            # 可选排序字段：(显示名, 字段key)
+            # 可选排序字段
             SORT_FIELDS = [
                 ("时长", "duration"),
                 ("播放量", "play"),
@@ -21728,8 +21728,8 @@ class BilibiliDownloader(BaseWindow):
                 ("标题", "title"),
             ]
 
-            # 非模态模式下用信号通知父窗口用户选择了什么操作
-            parse_action_requested = pyqtSignal(str, object)  # (action_type, data)
+            # 非模态用信号通知父窗
+            parse_action_requested = pyqtSignal(str, object)  # 动作类型,数据
 
             class LoadWorker(QThread):
                 finished = pyqtSignal(object)
@@ -21758,8 +21758,8 @@ class BilibiliDownloader(BaseWindow):
                         self.error.emit(str(e))
 
             def __init__(self, parent, space_info, videos_info):
-                # 不传 parent 给 QDialog，使列表窗口成为独立窗口
-                # 避免父窗口（最大化主窗口）遮挡子窗口，或模态时阻塞整个应用
+                # 不传parent
+                # 避免被遮挡或阻塞应用
                 super().__init__(None)
                 self.parent_widget = parent
                 self.space_info = space_info
@@ -21772,7 +21772,7 @@ class BilibiliDownloader(BaseWindow):
                 self._parse_single_bvid = None
                 self._parse_urls = []
 
-                # 保存原始顺序，用于重置排序
+                # 存原始顺序供重置
                 self._original_videos = list(self.videos)
 
                 self.loaders = []
@@ -21840,8 +21840,8 @@ class BilibiliDownloader(BaseWindow):
 
                 name = self.space_info.get('name', '')
                 if self.space_info.get('is_list'):
-                    # 直接解析「合集/系列」页时，窗口标题要体现分类类型，
-                    # 否则用户会以为这是 UP 主的全部投稿。
+                    # 合集标题须体现分类
+                    # 否则误以为是全部投稿
                     _kind = "系列" if self.space_info.get('list_type') == 'series' else "合集"
                     title_label = QLabel(f"{name}（{_kind}）" if name else f"UP主{_kind}列表")
                 else:
@@ -22116,7 +22116,7 @@ class BilibiliDownloader(BaseWindow):
                     if wrapper is None:
                         continue
                     rl = wrapper.layout()
-                    # 顺序: label(0), combo(1), dir(2), del(3), stretch(4)
+                    # 0标签1组合2目录3删除
                     combo = rl.itemAt(1).widget()
                     dir_combo = rl.itemAt(2).widget()
                     key = combo.currentData()
@@ -22130,7 +22130,7 @@ class BilibiliDownloader(BaseWindow):
                 if not conditions:
                     return
 
-                # 排序前记录已勾选的 bvid，排序后恢复勾选状态
+                # 排序前后恢复勾选状态
                 selected_bvids = set()
                 for row in range(self.table.rowCount()):
                     chk = self.table.item(row, self.COL_CHECK)
@@ -22322,7 +22322,7 @@ class BilibiliDownloader(BaseWindow):
                 if face:
                     self.image_manager.enqueue(face, self.avatar_label)
                     return
-                # 合集/系列没有 UP 主头像，别让标签一直停在"加载中..."
+                # 无头像勿停加载中
                 if self.space_info.get('is_list'):
                     self.avatar_label.setText(
                         "系列" if self.space_info.get('list_type') == 'series' else "合集")
@@ -22629,7 +22629,7 @@ class BilibiliDownloader(BaseWindow):
                     self._sync_header_checkbox()
                     self._update_header_checkbox_pos()
 
-                # 同步原始顺序快照，供“重置排序”使用
+                # 存快照供重置排序
                 self._original_videos = list(self.videos)
                 self._update_loaded_label()
                 self.load_more_btn.setVisible(len(self.videos) < self.total)
@@ -22676,12 +22676,12 @@ class BilibiliDownloader(BaseWindow):
                         video['_row_download_content_type'] = content_type
                         selected_videos.append(video)
 
-                    # 启动异步下载（QThread，不因对话框状态而中断）
+                    # 异步下载不因关窗中断
                     self.parent_widget.download_space_videos(
                         selected_videos, self.space_info, first_qn, first_audio_qn, content_type
                     )
                     self.parent_widget.show_notification(f"已开始下载 {len(selected_videos)} 个视频", "success")
-                    # 保持列表窗口在前，不被批量下载窗口或主窗口遮挡
+                    # 启动异步下载
                     self.raise_()
                     self.activateWindow()
                 except Exception as e:
@@ -22891,7 +22891,7 @@ class BilibiliDownloader(BaseWindow):
                         return
 
                     class DetailCoverLoader(QThread):
-                        # 传 bytes 而非 QPixmap，避免在工作线程创建 QPixmap 触发 sipBadCatcherResult
+                        # 传bytes免建图
                         image_ready = pyqtSignal(bytes)
 
                         def __init__(self, url):
@@ -23009,7 +23009,7 @@ class BilibiliDownloader(BaseWindow):
 
         dialog = SpaceVideosDialog(self, space_info, videos_info)
 
-        # 非模态显示：用 show() 替代 exec_()，避免阻塞其他窗口（如批量下载窗口）
+        # 非模态避免阻塞其他窗
         def _on_parse_action(action, data):
             if action == 'parse_single':
                 bvid = data
@@ -23037,7 +23037,7 @@ class BilibiliDownloader(BaseWindow):
         try:
             logger.error(f"更新错误状态UI: {error_msg}")
             
-            # 确保所有UI控件都存在
+            # 确保所有控件存在
             if hasattr(self, 'video_title'):
                 self.video_title.setText("解析失败")
             else:
@@ -23102,29 +23102,29 @@ class BilibiliDownloader(BaseWindow):
         try:
             logger.info("=== 开始创建批量下载窗口 ===")
 
-            # 检查all_download_tasks是否为空
+            # 检查任务列表为空
             if not all_download_tasks:
                 logger.error("all_download_tasks为空，无法创建批量下载窗口")
                 self.show_notification("没有可下载的任务", "error")
                 return
 
-            # 显示开始添加任务的通知
+            # 提示开始添加任务
             self.show_notification(f"开始添加 {len(all_download_tasks)} 个任务到下载队列", "info")
             
-            # 创建一个唯一的task_id用于标识这次批量下载
+            # 建唯一task_id
             import time
             batch_task_id = str(int(time.time() * 1000))
             
             logger.info(f"批量下载窗口任务ID：{batch_task_id}")
             logger.info(f"共有 {len(all_download_tasks)} 个任务要添加")
             
-            # 检查self.download_manager是否存在
+            # 查download_manager
             if not self.download_manager:
                 logger.error("self.download_manager不存在，无法创建批量下载窗口")
                 self.show_notification("下载管理器不存在", "error")
                 return
             
-            # 检查BatchDownloadWindow是否存在
+            # 检查批下载窗存在
             try:
                 from ui import BatchDownloadWindow
                 logger.info("BatchDownloadWindow导入成功")
@@ -23146,9 +23146,9 @@ class BilibiliDownloader(BaseWindow):
             batch_window.window_closed.connect(lambda tid=batch_task_id: self.on_batch_window_closed(tid))
             logger.info("信号连接完成")
             
-            # 批量下载窗口为正常层级窗口（BaseWindow 已支持边缘调整大小）
+            # 该窗支持边缘调整大小
             
-            # 先显示空窗口，让用户立即看到反馈
+            # 先显空窗给反馈
             logger.info("显示批量下载窗口（空）")
             batch_window.show()
             batch_window.raise_()
@@ -23158,11 +23158,11 @@ class BilibiliDownloader(BaseWindow):
             logger.info("添加任务到窗口")
             total_tasks = len(all_download_tasks)
 
-            # 方案：不阻塞信号，先启动下载，再分批添加 widget
-            # progress_cb 已节流(3%/1.5s)，信号量很少，不会淹没主线程
-            # 1. 分批启动下载任务（每批 10 个，间隔 10ms），避免 100 次同步 start_download 阻塞主线程
-            # 2. 同时分批添加 widget（每批 5 个，间隔 10ms）
-            # 3. 下载和 widget 添加并行，互不阻塞
+            # 不阻塞信号先启动再加
+            # 回调已节流信号少
+            # 分批启动每批10个
+            # 每批5个widget
+            # 下载与添加并行
 
             self.batch_windows[batch_task_id] = batch_window
             logger.info(f"保存窗口引用，当前窗口数量：{len(self.batch_windows)}")
@@ -23176,7 +23176,7 @@ class BilibiliDownloader(BaseWindow):
             except Exception:
                 pass
 
-            # 交替分批：启动下载 + 添加 widget
+            # 交替分批启动与添加
             _batch_index = [0]
             _batch_size = 10
 
@@ -23185,7 +23185,7 @@ class BilibiliDownloader(BaseWindow):
                     start = _batch_index[0]
                     end = min(start + _batch_size, total_tasks)
 
-                    # 添加这批 widget（先添加 widget，再启动下载，确保进度信号能找到对应的 widget）
+                    # 先加widget
                     for i in range(start, end):
                         video, episodes, task_id, download_params = all_download_tasks[i]
                         for j, ep in enumerate(episodes):
@@ -23229,7 +23229,7 @@ class BilibiliDownloader(BaseWindow):
         # 显示开始处理的通知
         self.show_notification(f"完全模式：开始处理 {len(videos)} 个视频", "info")
 
-        # 在主线程中获取UI元素的值，避免在子线程中访问UI元素
+        # 主线程取值免跨线程
         tv_mode = False
         save_path = self.path_edit.text().strip() if hasattr(self, 'path_edit') else ""
         if not save_path:
@@ -23250,21 +23250,21 @@ class BilibiliDownloader(BaseWindow):
 
         logger.info(f"弹幕设置：{download_danmaku}, 格式：{danmaku_format}")
 
-        # 获取默认清晰度（如果未指定则使用配置中的默认值）
+        # 未指定用配置默认值
         default_qn = selected_quality if selected_quality else self.config.get_app_setting("default_quality", 80)
         logger.info(f"默认清晰度：{default_qn}")
 
-        # 在主线程中读取编解码选择，避免子线程访问 UI
+        # 主线程读编解码
         selected_codecid = self.full_mode_codec_combo.currentData() if hasattr(self, 'full_mode_codec_combo') and self.full_mode_codec_combo.isVisible() else 0
 
-        # 默认下载选项（当视频未手动指定时使用）
+        # 默认下载选项
         default_download_options = {
             "danmaku": download_danmaku,
             "cover": False,
             "subtitle": False,
         }
 
-        # 创建一个线程来处理视频解析，避免阻塞UI线程
+        # 建线程解析防阻塞
         class SpaceVideoParserThread(QThread):
             parse_done = pyqtSignal(list, int, int, dict)
             error = pyqtSignal(str)
@@ -23318,8 +23318,8 @@ class BilibiliDownloader(BaseWindow):
 
                             logger.info(f"处理视频：{bvid} - {video.get('title', '未知标题')}")
 
-                            # 空间列表按单视频下载：仅解析当前视频自身分P，不展开所属合集，
-                            # 否则同合集的每个选中视频都会生成一个"整个合集"的任务，导致重复下载
+                            # 单视频只解析自身分P
+                            # 否则每项都建整合集
                             media_info = self.parser.parse_media("video", bvid, self.tv_mode, cancel_check=self._cancel_check, parse_mode="video_only")
 
                             if not media_info.get('success'):
@@ -23329,7 +23329,7 @@ class BilibiliDownloader(BaseWindow):
                             quality_options = media_info.get('qualities', [])
                             if quality_options:
                                 selected_qn = self.default_qn
-                                # qualities 可能是 (qn, name) 或 (qn, codecid, name) 格式
+                                # qualities新老格式
                                 try:
                                     qn_available = [q[0] for q in quality_options]
                                 except (IndexError, TypeError):
@@ -23342,7 +23342,7 @@ class BilibiliDownloader(BaseWindow):
                             
                             task_id = str(int(time.time() * 1000) + i)
 
-                            # 优先使用每行手动指定的下载选项，否则使用默认值
+                            # 优先手选项否则默认
                             opts = video.get('_row_download_options', self.default_download_options)
                             download_content_type = video.get('_row_download_content_type', self.content_type)
                             download_danmaku = opts.get('danmaku', self.download_danmaku)
@@ -23351,7 +23351,7 @@ class BilibiliDownloader(BaseWindow):
                             download_video = download_content_type in (0, 2)
                             download_audio = download_content_type in (0, 1)
 
-                            # 没有任何下载类型时跳过
+                            # 无下载类型则跳过
                             if not download_video and not download_audio and not download_danmaku and not download_cover and not download_subtitle:
                                 logger.info(f"视频 {bvid} 未选择任何下载类型，跳过")
                                 return None
@@ -23390,8 +23390,8 @@ class BilibiliDownloader(BaseWindow):
                                 "video_format": self.video_format,
                                 "audio_format": self.audio_format,
                                 "audio_quality": self.selected_audio_quality if self.selected_audio_quality else self.config.get_app_setting("audio_quality", 30280),
-                                # 批次内连续序号（1 基）：收藏夹/合集批量下载时每个视频都是
-                                # 独立任务，若不带上起始序号，每个任务的第一个文件都会编成 "01"。
+                                # 批次内连续序号1基
+                                # 否则每任务都编01
                                 "sequence_start": i + 1
                             }
                             
@@ -23424,8 +23424,8 @@ class BilibiliDownloader(BaseWindow):
                     
                     self.progress.emit(100, "处理完成")
                     
-                    # 按原始列表顺序排列：as_completed 的完成顺序是随机的，
-                    # 会让进度窗口里的条目和文件名序号对不上列表顺序。
+                    # 按原始列表顺序排列
+                    # 否则与文件名对不上
                     try:
                         all_download_tasks.sort(
                             key=lambda t: (t[3] or {}).get('sequence_start', 0))
@@ -23455,7 +23455,7 @@ class BilibiliDownloader(BaseWindow):
             cancel_check=_cancel_check
         )
         
-        # 设置线程的父对象为当前窗口，确保线程能够正确清理
+        # 设父对象确保线程清理
         self.parser_thread.setParent(self)
         
         self.parser_thread.progress.connect(self.signal_emitter.parse_progress)
@@ -23481,13 +23481,13 @@ class BilibiliDownloader(BaseWindow):
         except Exception as e:
             logger.debug(f"关闭解析进度窗口时异常（可忽略）：{e}")
 
-        # 检查all_download_tasks是否为空
+        # 检查任务列表是否为空
         if not all_download_tasks:
             logger.error("all_download_tasks为空，无法创建批量下载窗口")
             self.show_notification("没有可下载的任务", "error")
             return
 
-        # 直接在主线程中创建批量下载窗口
+        # 主线程创建批下载窗
         logger.info("直接在主线程中创建批量下载窗口")
         self.create_window_and_start_downloads_wrapper(all_download_tasks, success_count, total_videos, space_info)
         logger.info("窗口创建完成")
@@ -23497,7 +23497,7 @@ class BilibiliDownloader(BaseWindow):
             print("=== 开始更新UI ===")
             print(f"视频信息：{video_info}")
             
-            # 直接使用类属性获取控件
+            # 用类属性获取控件
             video_title = self.video_title
             type_label = self.type_label
             duration_label = self.duration_label
@@ -23505,7 +23505,7 @@ class BilibiliDownloader(BaseWindow):
             quality_combo = self.quality_combo
             select_episode_btn = self.select_episode_btn
             
-            # 确保所有需要的控件都存在
+            # 确保所需控件存在
             if not hasattr(self, 'video_title'):
                 print("错误：video_title控件不存在")
                 return
@@ -23615,7 +23615,7 @@ class BilibiliDownloader(BaseWindow):
                 print(f"加载封面：{cover_url}")
                 
                 class CoverLoader(QThread):
-                    # 传 bytes 而非 QPixmap，避免在工作线程创建 QPixmap 触发 sipBadCatcherResult
+                    # 传bytes免建图
                     cover_ready = pyqtSignal(bytes)
 
                     def __init__(self, url):
@@ -23675,7 +23675,7 @@ class BilibiliDownloader(BaseWindow):
                 while quality_combo.count() > 1:
                     quality_combo.removeItem(1)
 
-                # 按qn去重，每个分辨率只显示一个（编码由设置页面决定）
+                # 按qn去重每分辨率
                 _seen_qn = set()
                 for item in video_info["qualities"]:
                     if isinstance(item, (tuple, list)) and len(item) == 3:
@@ -23690,7 +23690,7 @@ class BilibiliDownloader(BaseWindow):
                     quality_combo.addItem(name, qn)
 
                 quality_combo.setEnabled(True)
-                # 默认选择最高质量（第一个可用选项）
+                # 默认选最高质量
                 if quality_combo and quality_combo.count() > 1:
                     quality_combo.setCurrentIndex(1)
                     self.selected_qn = quality_combo.itemData(1)
@@ -23713,18 +23713,18 @@ class BilibiliDownloader(BaseWindow):
                     30216: "低音质 (64K)"
                 }
                 
-                # 从视频信息中获取实际支持的音频质量
+                # 从信息取支持音质
                 audio_qualities = []
                 if video_info.get('audio_qualities'):
-                    # 如果视频信息中包含音频质量信息，使用它
+                    # 有音质信息则用它
                     audio_qualities = video_info['audio_qualities']
                 elif video_info.get('episodes') and len(video_info['episodes']) > 0:
-                    # 如果视频信息中包含集数信息，尝试从第一个集数中获取音频质量信息
+                    # 否则从首个集数取
                     first_episode = video_info['episodes'][0]
                     if first_episode.get('audio_qualities'):
                         audio_qualities = first_episode['audio_qualities']
                 
-                # 只显示B站API实际返回支持的音质选项 + 自动最高音质
+                # 只显示API支持音质
                 full_audio_options = [
                     (0, "自动（最高音质）"),
                 ]
@@ -23739,7 +23739,7 @@ class BilibiliDownloader(BaseWindow):
                 if audio_quality_combo and audio_quality_combo.count() > 1:
                     audio_quality_combo.setCurrentIndex(0)
             
-            # 启用下载按钮（无论是否选择集数，因为可以只下载弹幕）
+            # 启用下载按钮
             self._set_download_buttons_enabled(True)
             self.cancel_btn.setEnabled(True)
             select_episode_btn.setEnabled(True)
@@ -23751,18 +23751,18 @@ class BilibiliDownloader(BaseWindow):
             if hasattr(self, 'full_mode_checkbox'):
                 self.full_mode_checkbox.setEnabled(True)
                 
-                # 检查是否勾选了完全模式，如果是则自动全选集数并下载
+                # 完全模式自动全选
                 if self.full_mode_checkbox.isChecked():
                     # 自动全选集数
                     self.auto_select_all_episodes()
-                    # 延迟一点时间后自动开始完全模式下载
+                    # 延迟后自动开始
                     QTimer.singleShot(500, self.on_full_mode_download)
             
             # 获取弹幕信息
             print("获取弹幕信息")
             if hasattr(self, 'danmaku_count_label'):
                 cid = video_info.get("cid", "")
-                # 尝试从episodes或collection中获取cid
+                # 从episodes取cid
                 if not cid:
                     # 检查番剧
                     if video_info.get("is_bangumi") and video_info.get("bangumi_info"):
@@ -23851,7 +23851,7 @@ class BilibiliDownloader(BaseWindow):
             if hasattr(self, 'status_label'):
                 print(f"解析文本框文字：{self.status_label.text()}")
             
-            # 输出弹幕数量label
+            # 输出弹幕数量标签
             if hasattr(self, 'danmaku_count_label'):
                 logger.debug(f"弹幕数量已更新")
             
@@ -24052,7 +24052,7 @@ class BilibiliDownloader(BaseWindow):
         
         class PreviewLoader(QThread):
             class Signals(QObject):
-                # 传 bytes 而非 QPixmap，避免在工作线程创建 QPixmap 触发 sipBadCatcherResult
+                # 传bytes免建图
                 finished = pyqtSignal(bytes)
 
             def __init__(self, url):
@@ -24685,7 +24685,7 @@ class BilibiliDownloader(BaseWindow):
         elif is_cheese:
             episodes = self.current_video_info["cheese_info"].get("episodes", [])
         else:
-            # 检查是否有 collection 或 episodes
+            # 查collection
             if self.current_video_info.get("collection"):
                 episodes = self.current_video_info.get("collection", [])
             elif self.current_video_info.get("episodes"):
@@ -24726,7 +24726,7 @@ class BilibiliDownloader(BaseWindow):
             self.show_notification("请先解析视频链接哦", "warning")
             return
 
-        # 防重入：该入口可能被多个按钮/信号重复触发，3 秒内的重复提交直接忽略
+        # 3秒内重复提交忽略
         _now = time.time()
         if _now - getattr(self, '_last_on_download_ts', 0) < 3.0:
             logger.warning("重复的下载提交已被忽略（3 秒内）")
@@ -24780,7 +24780,7 @@ class BilibiliDownloader(BaseWindow):
                 return
             selected_qn = self.selected_qn
         else:
-            # 仅音频/弹幕/封面/字幕时使用默认清晰度
+            # 仅音频弹幕用默认
             selected_qn = 80  # 1080P
         
         save_path = self.path_edit.text().strip()
@@ -24788,11 +24788,11 @@ class BilibiliDownloader(BaseWindow):
             self.show_notification("请选择视频保存路径哦", "warning")
             return
         
-        # 下载前检查保存路径的写入/删除权限，无权限则提示更换
+        # 下载前先查写入权限
         path_ok, save_path = self.check_save_path_permission(save_path, allow_change=True)
         if not path_ok:
             return
-        # 同步回输入框（用户可能更换了路径）
+        # 同步回输入框
         if self.path_edit.text().strip() != save_path:
             self.path_edit.setText(save_path)
             try:
@@ -24853,12 +24853,12 @@ class BilibiliDownloader(BaseWindow):
         
         task_id = str(int(time.time() * 1000))
         
-        # 获取用户选择的音频质量
+        # 取用户选择的音质
         audio_quality = 30280  # 默认高音质
         if hasattr(self, 'audio_quality_combo') and self.audio_quality_combo.currentIndex() > 0:
             audio_quality = self.audio_quality_combo.currentData()
         else:
-            # 如果没有选择，使用配置中的值
+            # 未选则用配置值
             audio_quality = self.config.get_app_setting("audio_quality", 30280)
         
         download_params = {
@@ -25032,12 +25032,12 @@ class BilibiliDownloader(BaseWindow):
         
         danmaku_format = self.danmaku_format_combo.currentText() if hasattr(self, 'danmaku_format_combo') else 'XML'
         
-        # 兜底：用户没有显式选集数时，**只下载当前解析的这个视频**，
+        # 未选集只下当前视频
         # 而不是把整个合集全选。
-        # 原实现写的是 auto_select_all_episodes()（注释虽写"完全模式下"，
-        # 但这里没有任何模式判断），导致在收藏夹里只解析 2 个视频
-        # 却把两个合集共 60 集全部加入下载。
-        # 「完全模式」的全选逻辑在解析完成处（按复选框状态）单独处理，不依赖这里。
+        # 原实现误调全选函数
+        # 但此处无模式判断
+        # 致60集全加入
+        # 完全模式在解析处处理
         if not self.selected_episodes:
             self.set_selected_episodes(self._single_episode_of_current_video())
         
@@ -25062,7 +25062,7 @@ class BilibiliDownloader(BaseWindow):
         url = self.url_edit.text().strip()
         episodes = self.selected_episodes
         
-        # 检查是否已存在相同的下载任务
+        # 检查是否已有相同任务
         task_exists = False
         if hasattr(self, 'download_manager') and self.download_manager:
             if hasattr(self.download_manager, 'active_tasks'):
@@ -25091,12 +25091,12 @@ class BilibiliDownloader(BaseWindow):
         
         task_id = str(int(time.time() * 1000))
         
-        # 获取用户选择的音频质量
+        # 取用户选择的音质
         audio_quality = 30280  # 默认高音质
         if hasattr(self, 'audio_quality_combo') and self.audio_quality_combo.currentIndex() > 0:
             audio_quality = self.audio_quality_combo.currentData()
         else:
-            # 如果没有选择，使用配置中的值
+            # 未选则用配置值
             audio_quality = self.config.get_app_setting("audio_quality", 30280)
         
         download_params = {
@@ -25121,7 +25121,7 @@ class BilibiliDownloader(BaseWindow):
             "audio_quality": audio_quality
         }
 
-        # 完全模式也弹出批量下载窗口显示进度
+        # 完全模式也弹批下载窗
         logger.info(f"完全模式：开始下载，任务ID：{task_id}，共{len(episodes)}集")
         
         existing_window = None
@@ -25131,7 +25131,7 @@ class BilibiliDownloader(BaseWindow):
                 break
         
         if existing_window:
-            # 使用已有的窗口添加新的下载任务
+            # 用已有窗口加新任务
             for i, ep in enumerate(episodes):
                 ep_name = format_ep_name(ep, i, self.current_video_info, total=len(episodes), seq_start=0)
                 ep_tooltip = ep.get('ep_title', '') or ep.get('title', '') or ep.get('name', '')
@@ -25235,7 +25235,7 @@ class BilibiliDownloader(BaseWindow):
         self.cleanup_temp_files()
 
     def cleanup_temp_files(self):
-        # 临时文件现在保存在下载目录中，不需要单独清理
+        # 临时文件在下载目录
         pass
 
     def update_user_info(self, user_info):
@@ -25278,7 +25278,7 @@ class BilibiliDownloader(BaseWindow):
                             }
                             response = requests.get(url, headers=headers, timeout=5, proxies={}, verify=False)
                             if response.status_code == 200:
-                                # 检查 signal_emitter 是否仍然存在
+                                # 查signal_emitter
                                 se = getattr(self, 'signal_emitter', None)
                                 if se is not None:
                                     try:
@@ -25317,13 +25317,13 @@ class BilibiliDownloader(BaseWindow):
         self.resolution_combo.clear()
         
         if is_vip:
-            # VIP用户显示所有分辨率
+            # VIP显示所有分辨率
             self.resolution_combo.addItems(["1080P+", "1080P", "720P", "480P", "360P"])
         elif is_login:
-            # 普通登录用户显示到1080P
+            # 普通登录到1080P
             self.resolution_combo.addItems(["1080P", "720P", "480P", "360P"])
         else:
-            # 未登录用户只显示480P和360P
+            # 只480P与360P
             self.resolution_combo.addItems(["480P", "360P"])
         
         # 尝试恢复之前的选择
@@ -25367,7 +25367,7 @@ class BilibiliDownloader(BaseWindow):
         from PyQt5.QtCore import QUrl, QTimer
         from PyQt5.QtWebEngineWidgets import QWebEngineView
         try:
-            # API url -> H5 完整验证页
+            # 转H5验证页
             h5_url = url or ""
             if "/x/passport-login" in h5_url:
                 h5_url = h5_url.replace("/x/passport-login/web/h5-second/", "/h5-second/")
@@ -25392,9 +25392,9 @@ class BilibiliDownloader(BaseWindow):
                     _finished[0] = True
                     cookie_str = '; '.join(f'{k}={v}' for k, v in _all.items())
                     logger.info(f"内嵌风控验证捕获到登录 cookie: {list(_all.keys())}")
-                    # 1) 保存 cookie 到 parser
+                    # 存cookie
                     self.parser.save_cookies(cookie_str)
-                    # 2) 同时保存 WebEngine 的完整浏览器环境（UA + buvid3/_uuid 等）
+                    # 存WebEngine环境
                     try:
                         _ua = view.page().profile().httpUserAgent()
                         _headers = {
@@ -25406,8 +25406,8 @@ class BilibiliDownloader(BaseWindow):
                             "Origin": "https://passport.bilibili.com",
                         }
                         self.parser.save_browser_env(_all, user_agent=_ua, extra_headers=_headers)
-                        # 3) 把验证页的指纹 cookie（buvid3/buvid4/_uuid 等）注入 requests session，
-                        #    使 requests 与验证页使用同一套设备指纹，下次登录复用时不重复触发风控
+                        # 注入验证页指纹
+                        # 同指纹免重复风控
                         try:
                             for _k, _v in _all.items():
                                 if _k and _v and isinstance(_k, str) and isinstance(_v, str):
@@ -25454,7 +25454,7 @@ class BilibiliDownloader(BaseWindow):
             except Exception:
                 pass
 
-            # allCookies() 在 PyQt5 里异步返回空列表，不能用；这里只做定时器 guard
+            # allCookies返空
             def _poll_guard():
                 if not _finished[0]:
                     _timer.start(800)
@@ -25522,7 +25522,7 @@ class BilibiliDownloader(BaseWindow):
                             }
                             response = requests.get(url, headers=headers, timeout=5, proxies={}, verify=False)
                             if response.status_code == 200:
-                                # 检查 signal_emitter 是否仍然存在
+                                # 查signal_emitter
                                 se = getattr(self, 'signal_emitter', None)
                                 if se is not None:
                                     try:
@@ -25611,7 +25611,7 @@ class BilibiliDownloader(BaseWindow):
                 }
                 response = requests.get(url, headers=headers, timeout=5, proxies={}, verify=False)
                 if response.status_code == 200:
-                    # 检查 signal_emitter 是否仍然存在（窗口可能已被关闭）
+                    # 查signal_emitter
                     se = getattr(self, 'signal_emitter', None)
                     if se is not None:
                         try:
@@ -25735,7 +25735,7 @@ class BilibiliDownloader(BaseWindow):
                     status = pending_info['status']
                     del self.pending_progress[task_key]
                 
-                # 创建新的任务进度 widget
+                # 建进度widget
                 if task_key not in self.download_tasks:
                     task_widget = QWidget()
                     task_widget.setStyleSheet(scale_style("background-color: #f0fdf4; border-radius: 0; padding: 12px; margin-bottom: 8px;"))
@@ -25896,25 +25896,25 @@ class BilibiliDownloader(BaseWindow):
             if success:
                 self._check_and_convert_video(None, index, message)
         
-        # 检查是否所有下载任务都已完成
+        # 查是否全部下载完成
         all_completed = True
         if hasattr(self, 'download_manager') and self.download_manager:
             if hasattr(self.download_manager, 'active_tasks'):
                 all_completed = len(self.download_manager.active_tasks) == 0
         
-        # 如果所有任务都已完成，重新启用下载按钮
+        # 全部完成则启用按钮
         if all_completed and hasattr(self, 'download_btn'):
             self._set_download_buttons_enabled(True)
             if hasattr(self, 'status_label'):
                 self.status_label.setText("下载完成，可继续选择其他内容下载")
-            # 整批任务全部完成后，向 Windows 通知中心推送完成通知
+            # 全部完成推通知
             try:
                 windows_notify_done("下载完成", "所有下载任务均已完成")
             except Exception:
                 pass
 
     def on_batch_window_closed(self, task_id=None):
-        # 从 batch_windows 中移除已关闭的窗口
+        # 移除已关闭窗口
         if task_id and task_id in self.batch_windows:
             del self.batch_windows[task_id]
         
@@ -25942,11 +25942,11 @@ class BilibiliDownloader(BaseWindow):
             if hevc_supported:
                 return
 
-            # 获取视频编码信息（这里通过API获取，实际视频下载后才能确定，但可以检测B站返回的编码格式）
+            # 取视频编码信息
             has_hevc = False
             for ep in selected_videos:
                 ep_title = ep.get('title', ep.get('ep_title', f"第{ep.get('ep_index', 0)+1}集"))
-                # 检测是否有HEVC/AV1编码的剧集（通过检查dash信息）
+                # 检测HEVC或AV1
                 video_urls = ep.get('video_urls', {})
                 if video_urls:
                     for qn, url in video_urls.items():
@@ -26042,7 +26042,7 @@ class BilibiliDownloader(BaseWindow):
             logger.warning(f"打开个人中心异常: {e}")
 
     def toggle_maximize(self):
-        # 在最大化和还原之间切换，并更新按钮图标/提示
+        # 最大化还原并换图标
         if self.isMaximized():
             self.showNormal()
             geo = getattr(self, '_normal_geometry', None)
@@ -26060,7 +26060,7 @@ class BilibiliDownloader(BaseWindow):
                 self.maximize_btn.setToolTip("向下还原")
 
     def changeEvent(self, event):
-        # 监听窗口状态变化（如通过系统快捷键最大化/还原），同步按钮状态
+        # 监听窗口状态同步按钮
         super().changeEvent(event)
         if event.type() == QEvent.WindowStateChange:
             if hasattr(self, 'maximize_btn'):
@@ -26185,7 +26185,7 @@ class BilibiliDownloader(BaseWindow):
                     self.audio_tab.cleanup()
                 except Exception:
                     pass
-            # 清理字幕解析Tab资源
+            # 清理字幕Tab资源
             if hasattr(self, 'subtitle_tab') and self.subtitle_tab:
                 try:
                     self.subtitle_tab.cleanup()
@@ -26210,7 +26210,7 @@ class BilibiliDownloader(BaseWindow):
         except Exception:
             pass
         try:
-            # 检查是否开启了"关闭窗口时最小化到托盘"
+            # 查是否最小化到托盘
             minimize_to_tray = self.config.get_app_setting("minimize_to_tray", False)
             if minimize_to_tray and hasattr(self, 'tray_icon') and self.tray_icon:
                 event.ignore()
@@ -26218,7 +26218,7 @@ class BilibiliDownloader(BaseWindow):
                 if hasattr(self, 'tray_icon') and self.tray_icon:
                     self.tray_icon.showMessage("B站下载工具", "程序已最小化到系统托盘", QSystemTrayIcon.Information, 2000)
                 return
-            # 检查是否有正在进行的录制
+            # 查是否有正在录制
             if self._check_recording_before_exit():
                 event.ignore()
                 return
@@ -26284,7 +26284,7 @@ class BilibiliDownloader(BaseWindow):
         if not self.background_checkbox.isChecked():
             dialog.accept()
 
-            # 检查是否开启最小化到托盘
+            # 查是否最小化到托盘
             minimize_to_tray = self.config.get_app_setting("minimize_to_tray", False)
             if minimize_to_tray and hasattr(self, 'tray_icon') and self.tray_icon:
                 if hasattr(self, 'download_manager') and self.download_manager:
@@ -26326,7 +26326,7 @@ class BilibiliDownloader(BaseWindow):
                 self.live_tab.record_thread.wait(5000)
 
     def quit_directly(self):
-        # 检查是否有正在进行的录制
+        # 查是否有正在录制
         if self._check_recording_before_exit():
             return
         if hasattr(self, 'download_manager') and self.download_manager:
@@ -26358,7 +26358,7 @@ class BilibiliDownloader(BaseWindow):
         """录播工具托盘：停止录制 → 转发给 LiveTab 和 StreamPlayer"""
         if hasattr(self, 'live_tab') and self.live_tab:
             self.live_tab.handle_tray_stop(session_id)
-        # 转发给 StreamPlayer
+        # 转发StreamPlayer
         if hasattr(self, 'stream_player_dialog') and self.stream_player_dialog:
             self.stream_player_dialog.handle_tray_stop(session_id)
 
@@ -26613,7 +26613,7 @@ class BilibiliDownloader(BaseWindow):
         
         main_layout.addWidget(content_widget, stretch=1)
         
-        # 添加鼠标事件处理，实现窗口移动
+        # 鼠标事件实现窗口移动
         dialog.dragging = False
         dialog.start_pos = None
         
@@ -26941,7 +26941,7 @@ class BilibiliDownloader(BaseWindow):
                     dialog = EpisodeSelectionDialog(batch_parse_window, episodes, is_bangumi, video_info=ld.get('video_info', {}))
                     if dialog.exec_() == QDialog.Accepted:
                         ld['selected_episodes'] = dialog.selected_episodes
-                        # 检查UI元素是否仍然存在
+                        # 查UI元素是否还在
                         try:
                             if ld['select_btn'] and ld['select_btn'].isVisible():
                                 ld['select_btn'].setText(f"已选{len(ld['selected_episodes'])}集")
@@ -27123,14 +27123,14 @@ class BilibiliDownloader(BaseWindow):
                         self.signal_emitter.batch_parse_result.emit(link_data, False, "未识别到有效媒体ID")
                         return
 
-                    # 再次检查是否已停止/取消
+                    # 再查是否已停止
                     if self.parse_cancelled or self.parse_stopped:
                         self.signal_emitter.batch_parse_result.emit(link_data, False, "用户停止解析")
                         return
 
                     def _cancel_check():
                         return self.parse_cancelled or self.parse_stopped
-                    # 复用主解析 Tab 的解析控制项（同一个 Tab 内）
+                    # 复用主解析Tab项
                     _b_ep = getattr(self, 'episode_page_spin', None)
                     _b_ep = _b_ep.value() if _b_ep else 0
                     _b_mode = getattr(self, 'parse_mode_combo', None)
@@ -27246,8 +27246,8 @@ class BilibiliDownloader(BaseWindow):
                 try:
                     quality_options = ld['video_info'].get('qualities', [])
                     if quality_options:
-                        # qualities 元素可能是 (qn, name) 或 (qn, codecid, name)，统一取第一个和最后一个
-                        # 防御性处理：跳过非元组/列表或长度不足的元素，避免解包错误
+                        # qualities取首尾
+                        # 跳过解包失败的元素
                         qn_available = []
                         for q in quality_options:
                             try:
@@ -27402,7 +27402,7 @@ class BilibiliDownloader(BaseWindow):
             has_collection = bool(video_info.get("collection")) or is_bangumi or is_cheese
 
             if video_info.get("qualities"):
-                # qualities 元素可能是 (qn, name) 或 (qn, codecid, name)，统一取最后一个作为名称
+                # 取最后一个作为名称
                 quality_text = ", ".join([q[-1] for q in video_info["qualities"]])
                 link_data['quality_label'].setText(f"清晰度：{quality_text}")
                 link_data['download_video_btn'].setEnabled(True)
@@ -27806,7 +27806,7 @@ class BilibiliDownloader(BaseWindow):
                 if not select_folder:
                     for name, fpath in files:
                         ext = os.path.splitext(name)[1].lower()
-                        # 文件类型 → 图标库名称（不再使用系统图标）
+                        # 文件类型转图标名
                         if ext in ('.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm'):
                             _ic_name = "play"
                         elif ext in ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'):
@@ -27869,7 +27869,7 @@ class BilibiliDownloader(BaseWindow):
         create_nav_action("\u4e3b\u9875", "home", go_home)
         create_nav_action("\u684c\u9762", "monitor", go_desktop)
         create_nav_action("\u4e0b\u8f7d", "download", go_downloads)
-        # 导航行右侧留白，把"视图/搜索"挪到下面的操作行
+        # 留白把视图搜索挪下行
         _nav_spacer = QWidget()
         _nav_spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         nav_bar.addWidget(_nav_spacer)
@@ -28036,9 +28036,9 @@ class BilibiliDownloader(BaseWindow):
         search_edit.returnPressed.connect(do_search)
         
         # 「操作行」：视图切换 + 搜索。
-        # 原先这两项与返回/前进/主页/桌面/下载一起挤在导航行，
-        # 一行塞 7 个控件既难找也难看清；拆成独立的浅色操作行后
-        # 导航（去哪）与操作（怎么看/找）分工清晰。
+        # 原先挤在导航行
+        # 一行7个控件难看清
+        # 导航与操作分工清晰
         action_bar = QWidget()
         action_bar.setObjectName("actionBar")
         _ab = QHBoxLayout(action_bar)
@@ -28205,14 +28205,14 @@ class BilibiliDownloader(BaseWindow):
             self.show_notification("解析器未初始化，请重启应用", "error")
             return
         
-        # 已登录状态 → 显示用户信息面板
+        # 已登录显示用户面板
         user_info = getattr(self.parser, 'user_info', None)
         if user_info and user_info.get("success"):
             self.on_user_info_click(event)
             return
 
-        # 未登录/可能过期 → 直接弹出登录窗口（不再异步检查，避免卡住不弹窗）
-        # 之前先调 get_user_info() 异步检查，但网络超时/异常时回调链断裂导致不弹窗
+        # 未登录直接弹登录窗
+        # 异步检查超时会不弹窗
         self._show_login_dialog()
 
     def _check_login_required_for_content(self, video_info):
@@ -28242,11 +28242,11 @@ class BilibiliDownloader(BaseWindow):
             content_types = []
             if video_info.get("is_cheese"):
                 content_types.append("充电/课程")
-            # 充电视频（sponsor类型）：普通视频但需要充电才能观看完整内容
+            # 充电视频需充电才能看
             if video_info.get("is_charging_content"):
                 content_types.append("充电专属")
 
-            # 检测DRM加密：优先看 kid 字段，其次扫描 video_urls 中的 drm 标记
+            # 查kid与drm
             has_drm = False
             if video_info.get("kid"):
                 has_drm = True
@@ -28283,7 +28283,7 @@ class BilibiliDownloader(BaseWindow):
         """
         from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout
 
-        # 关闭可能仍开着的解析进度窗口
+        # 关闭遗留的进度窗
         if hasattr(self, 'parse_progress_window') and self.parse_progress_window:
             try:
                 self.parse_progress_window.close()
@@ -28352,15 +28352,15 @@ class BilibiliDownloader(BaseWindow):
         if user_choice['action'] == 'continue':
             return False  # 继续使用当前结果
 
-        # 用户点击了登录：打开登录窗口（不关闭主窗口，不打断当前进度）
+        # 打开登录窗不打断进度
         self._show_login_dialog()
 
-        # 登录窗口关闭后，检查是否登录成功
+        # 关窗后查是否登录成功
         parser = getattr(self, 'parser', None)
         if parser and parser.cookies and parser.cookies.get('SESSDATA'):
             self.show_notification("登录成功，正在重新解析以获取完整内容...", "success")
             return True  # 登录成功，重新解析
-        # 登录失败/取消，继续使用当前结果
+        # 登录失败继续用结果
         return False
 
     def _reparse_last_url(self):
@@ -28589,19 +28589,19 @@ class BilibiliDownloader(BaseWindow):
                 login_dialog.accept()
                 self.login_dialog = None
             else:
-                # 优先展示可读状态；拿不到 status 时回落到 error，避免只显示"未知状态"
+                # 取不到则用error
                 message = (video_info.get("status")
                            or video_info.get("message")
                            or video_info.get("error")
                            or "登录状态更新中…")
-                # 防止URL泄露到界面显示（如crossDomain URL）
+                # 防URL泄露到界面
                 if any(keyword in message for keyword in ['passport', 'bilibili.com', 'crossDomain', 'http://', 'https://']):
                     if len(message) > 60:
                         message = "登录状态更新中..."
                     else:
                         message = "登录处理中..."
                 qr_status.setText(message)
-                # 解析失败（无 status/code）说明是异常而非扫码状态，写日志便于排查
+                # 异常非扫码则记日志
                 if not video_info.get("status") and not video_info.get("code") and video_info.get("error"):
                     logger.warning(f"扫码轮询异常：{video_info.get('error')}")
                 
@@ -28806,7 +28806,7 @@ class BilibiliDownloader(BaseWindow):
                     def on_qr_status_clicked():
                         get_qrcode()
                     qr_status.mousePressEvent = lambda event: on_qr_status_clicked()
-                    # 超时后自动重新生成二维码（上限2次），避免扫到被替换/过期的旧码后只能干等
+                    # 超时重生成二维码
                     if _qr_timeout_regen[0] < 2:
                         _qr_timeout_regen[0] += 1
                         QTimer.singleShot(600, get_qrcode)
@@ -28825,7 +28825,7 @@ class BilibiliDownloader(BaseWindow):
                 
                 qr_status.setText("刷新中...")
                 qr_status.setStyleSheet(scale_style("font-size: 15px; color: #6b7280; text-align: center;"))
-                qr_code_label.clear()  # 清除旧的二维码图片/文字
+                qr_code_label.clear()  # 清除旧二维码
                 qr_code_label.setPixmap(QPixmap())  # 确保清空pixmap
                 
                 
@@ -29040,7 +29040,7 @@ class BilibiliDownloader(BaseWindow):
         password_edit.setStyleSheet(scale_style("font-size: 15px;"))
         password_layout.addWidget(password_edit)
 
-        # 记忆登录表单：开启时回填上一次输入的账号/密码
+        # 回填上次账号密码
         def _save_login_form():
             try:
                 if not (hasattr(self, 'config') and self.config):
@@ -29410,8 +29410,8 @@ class BilibiliDownloader(BaseWindow):
             login_btn.setEnabled(False)
             self.show_notification("正在建立登录环境...", "info")
 
-            # 发起登录前必须先建好浏览器指纹环境（buvid3/buvid4/_uuid 等），
-            # 否则 B 站把 requests 视为"无指纹的可疑环境" → 必然触发风控
+            # 登录前须建指纹环境
+            # 否则必触发风控
             def _do_warmup():
                 try:
                     self.parser.warmup_before_login()
@@ -29480,7 +29480,7 @@ class BilibiliDownloader(BaseWindow):
                                                 _web_view_cls = QWebEngineView
                                             except Exception:
                                                 _web_view_cls = None
-                                            # 优先内嵌 B 站官方手机号验证页面，验证成功后保持登录会话
+                                            # 内嵌官方手机验证页
                                             if _web_view_cls is not None and url:
                                                 _web_ok = self._open_web_risk_verify(url, login_dialog, login_dialog_ref)
                                                 if _web_ok:
@@ -29708,7 +29708,7 @@ class BilibiliDownloader(BaseWindow):
 
                                         switch_tab(1)
 
-                                        # 触发风控时自动跳出内嵌的 B 站官方手机号验证页面
+                                        # 风控时弹官方验证页
                                         QTimer.singleShot(400, on_verify_click)
                                     else:
                                         if "环境" in error_msg or "异常" in error_msg:
@@ -30137,7 +30137,7 @@ class BilibiliDownloader(BaseWindow):
             self._create_settings_dialog()
     
     # ==================== 设置窗口设计系统 ====================
-    # 统一设置窗口的视觉与间距，避免各分组各写一套样式导致风格不一致、控件拥挤。
+    # 统一设置窗视觉与间距
     SETTINGS_QSS = """
         /* 分组卡片：柔和底色 + 淡边框，标题用强调色 */
         QGroupBox {
@@ -30270,8 +30270,8 @@ class BilibiliDownloader(BaseWindow):
         dialog.setAutoFillBackground(True)
         dialog.setWindowTitle("设置")
         screen = QApplication.primaryScreen()
-        # 内容区最小 724（刚好容纳 2 列分组卡片）+ 侧栏宽度 = 窗口最小宽度。
-        # 窗口再窄也不会挤压控件：内容区由 QScrollArea 出滚动条兜底。
+        # 内容724加侧栏
+        # 过窄由滚动条兜底
         SIDEBAR_W = scale(150)
         CONTENT_MIN = scale(724)
         _min_w = min(SIDEBAR_W + CONTENT_MIN + scale(30), scale(1000))
@@ -30301,9 +30301,9 @@ class BilibiliDownloader(BaseWindow):
             }
         """)
         dialog.setStyleSheet(custom_style)
-        # 应用设置窗口统一设计系统（分组卡片 / 复选框间距 / 侧栏 / 输入控件）
+        # 设置窗统一设计系统
         dialog.setStyleSheet(custom_style + self.SETTINGS_QSS)
-        # 供下方控件构造引用（作为父对象 + QSS 作用域）
+        # 供下方控件引用
         _dlg_ref = dialog
         
         
@@ -30329,7 +30329,7 @@ class BilibiliDownloader(BaseWindow):
         
         main_layout.addWidget(title_bar)
 
-        # 标题栏拖动 - 仅在标题栏区域生效
+        # 标题栏拖动仅限该区
         dialog._drag_pos = None
 
         def title_press(event):
@@ -30357,7 +30357,7 @@ class BilibiliDownloader(BaseWindow):
         body_layout.setSpacing(scale(0))
 
         sidebar = QListWidget()
-        sidebar.setObjectName("settingsSidebar")   # 由 SETTINGS_QSS 统一美化
+        sidebar.setObjectName("settingsSidebar")   # 由SETTINGS_QSS美化
         sidebar.setFixedWidth(scale(150))
         sidebar_items = ["下载设置", "网络设置", "窗口设置", "其他设置", "数据与隐私", "关于我们"]
         for item_text in sidebar_items:
@@ -30384,7 +30384,7 @@ class BilibiliDownloader(BaseWindow):
         path_edit = QLineEdit(current_default)
         path_edit.setMinimumHeight(scale(32))
         path_edit.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 0;"))
-        # 限制最小宽度，避免超长路径把整页挤成单列
+        # 限宽防路径挤单列
         path_edit.setMinimumWidth(scale(240))
         path_layout.addWidget(path_edit)
         
@@ -30435,7 +30435,7 @@ class BilibiliDownloader(BaseWindow):
         window_layout = QVBoxLayout(window_group)
         window_layout.setContentsMargins(scale(10), scale(10), scale(10), scale(10))
         
-        # 组件缩放比例（DPI Scale）
+        # 组件缩放比例
         import ui as ui_module
         current_scale = global_dpi_scale * global_ui_shrink
         saved_scale = self.config.get_app_setting("custom_ui_scale", "")
@@ -30508,7 +30508,7 @@ class BilibiliDownloader(BaseWindow):
             # 立即更新全局缩放变量
             global_dpi_scale = new_scale
             global_ui_shrink = 1.0
-            # 重新应用主窗口样式表（scale_style会使用新的global值）
+            # 重应用样式表
             try:
                 self.setStyleSheet(get_base_style() + scale_style("""
                     QMainWindow {
@@ -30564,7 +30564,7 @@ class BilibiliDownloader(BaseWindow):
         scale_btn_row.addWidget(reset_scale_btn)
         window_layout.addLayout(scale_btn_row)
         
-        # 启动窗口模式：部分用户不希望启动即最大化
+        # 启动窗口模式设置
         start_max_checkbox = QCheckBox("启动时最大化窗口")
         start_max_checkbox.setChecked(bool(self.config.get_app_setting("start_maximized", True)))
         start_max_checkbox.setToolTip(
@@ -30574,7 +30574,7 @@ class BilibiliDownloader(BaseWindow):
         _fit_button_height(start_max_checkbox)
         window_layout.addWidget(start_max_checkbox)
 
-        # 折叠功能Tab：勾选后从顶部Tab栏折叠到右侧“更多”箭头菜单
+        # 勾选则折叠到更多菜单
         fold_group = QGroupBox("折叠功能Tab")
         fold_layout = QGridLayout(fold_group)
         fold_layout.setContentsMargins(scale(10), scale(10), scale(10), scale(10))
@@ -30680,9 +30680,9 @@ class BilibiliDownloader(BaseWindow):
             current_custom_icon_path
         )
 
-        # 统一用 icon_manager 的解析器查找内置图标。
-        # 原先这里只用 os.path.dirname(__file__) 拼文件名，
-        # 而备用图标实际位于 assets/icons/，"新奇"与"自定义"卡片因此显示为空白文件图标。
+        # 用icon_manager
+        # 原先只用__file__拼名
+        # 致卡片显示空白图标
         def _resolve_builtin_preview(icon_key):
             try:
                 p = resolve_builtin_icon_path(icon_key)
@@ -30693,9 +30693,9 @@ class BilibiliDownloader(BaseWindow):
         default_icon_btn.setIcon(QIcon(_resolve_builtin_preview("default")) if _resolve_builtin_preview("default") else self.style().standardIcon(QStyle.SP_FileIcon))
         alt_icon_btn.setIcon(QIcon(_resolve_builtin_preview("alt")) if _resolve_builtin_preview("alt") else self.style().standardIcon(QStyle.SP_FileIcon))
 
-        # 三张图标卡各需最小 152px（含边框），横向共需约 480px。
-        # 原先固定塞进 3 列网格，卡片宽度不足时会被压缩到互相重叠，
-        # 因此改用等宽水平排布，并把每列设为可拉伸，让三张卡自动均分宽度。
+        # 三卡共需480px
+        # 原固定3列会重叠
+        # 改等宽水平排布可拉伸
         for _c in range(3):
             icon_grid.setColumnStretch(_c, 1)
         icon_grid.addWidget(default_icon_btn, 0, 0)
@@ -30766,9 +30766,9 @@ class BilibiliDownloader(BaseWindow):
         browse_custom_icon_btn.clicked.connect(browse_custom_icon)
         clear_custom_icon_btn.clicked.connect(clear_custom_icon)
         custom_icon_path_edit.textChanged.connect(lambda _: refresh_custom_icon_card())
-        # 注意：icon_group 不再放进 window_group 内部。
-        # 三张图标卡最小宽度合计约 456px，塞进两列布局下的 window_group（仅约 440px）
-        # 会把卡片压到重叠。改为在页面层单独成卡片并按需占整行。
+        # icon_group不放窗内
+        # 456px超440px
+        # 会重叠故改为整行
 
         # 下载设置组
         download_group = QGroupBox("下载设置")
@@ -30793,7 +30793,7 @@ class BilibiliDownloader(BaseWindow):
             elif hasattr(self.parser, 'cookies') and self.parser.cookies:
                 is_vip = False
         
-        # 根据VIP状态设置可用的质量选项
+        # 按VIP设质量选项
         quality_options = [
             ("自动选择最高质量", 0),
             ("1080P", 80),
@@ -30802,7 +30802,7 @@ class BilibiliDownloader(BaseWindow):
             ("360P", 16)
         ]
         
-        # VIP用户额外的质量选项
+        # VIP额外质量选项
         if is_vip:
             vip_options = [
                 ("4K 杜比视界", 127),
@@ -30812,14 +30812,14 @@ class BilibiliDownloader(BaseWindow):
                 ("1080P+", 112),
                 ("720P高码率", 74)
             ]
-            # 将VIP选项插入到自动选择之后
+            # VIP项插到自动之后
             quality_options = [quality_options[0]] + vip_options + quality_options[1:]
         
         for text, value in quality_options:
             quality_combo.addItem(text, value)
         current_quality = self.config.get_app_setting("default_quality", 0)
         
-        # 确保当前选择的质量在可用选项中
+        # 确保当前选择仍可用
         current_index = 0
         for i, (text, value) in enumerate(quality_options):
             if value == current_quality:
@@ -30831,8 +30831,8 @@ class BilibiliDownloader(BaseWindow):
         quality_layout.addWidget(quality_combo, stretch=1)
         download_layout.addLayout(quality_layout)
         
-        # 复选框区：由 _settings_checkbox_grid 统一排布并加大间距，
-        # 避免原先 scale(8) 紧凑网格造成的复选框相互挤压
+        # 复选框区统一排布
+        # 避免scale8挤压
         auto_cover_checkbox = self._settings_checkbox(_dlg_ref, "自动下载视频封面")
         auto_cover_checkbox.setChecked(self.config.get_app_setting("auto_download_cover", True))
 
@@ -30889,7 +30889,7 @@ class BilibiliDownloader(BaseWindow):
         use_collection_folder_checkbox.setChecked(self.config.get_app_setting("use_collection_folder", False))
         use_collection_folder_checkbox.setToolTip("多P/合集视频单独放一个合集子文件夹")
 
-        # 复选框网格：卡片已整行占满（约 980px），可用 2 列 —— 既留足间距又不会过高
+        # 整行占满可用2列
         checkbox_layout = self._settings_checkbox_grid(_dlg_ref, [
             auto_cover_checkbox,
             auto_danmaku_checkbox,
@@ -30904,7 +30904,7 @@ class BilibiliDownloader(BaseWindow):
             use_collection_folder_checkbox,
         ], columns=2)
 
-        # 内联设置行：合集文件夹位置 / 收藏夹刷新方式
+        # 内联设置行
         collection_folder_mode_combo = QComboBox()
         collection_folder_mode_combo.addItem("UP主文件夹内", "author")
         collection_folder_mode_combo.addItem("独立", "root")
@@ -30935,13 +30935,13 @@ class BilibiliDownloader(BaseWindow):
         _fav_mode_h.addWidget(favorites_refresh_mode_combo, 1)
         _fav_mode_h.addStretch(1)
 
-        # 复选框网格与两个内联设置行分开：若塞进同一 QGridLayout，
-        # 网格的列宽分配会把这两行压扁并挤到 y=0 与首行复选框重叠
+        # 网格与内联行须分开
+        # 否则列宽分配会重叠
         download_layout.addLayout(checkbox_layout)
         download_layout.addWidget(_col_mode_widget)
         download_layout.addWidget(_fav_mode_widget)
 
-        # 文件名序号位数：下载后自动带序号（如 01. 标题.mp4），便于按顺序整理课件/合集
+        # 序号位数便于整理合集
         sequence_digits_combo = QComboBox()
         sequence_digits_combo.addItem("不添加序号", 0)
         sequence_digits_combo.addItem("2 位（01. 标题）", 2)
@@ -31072,7 +31072,7 @@ class BilibiliDownloader(BaseWindow):
         video_codec_layout.addWidget(video_codec_combo, stretch=1)
         download_layout.addLayout(video_codec_layout)
 
-        # 视频处理模式（决定是否重编码）
+        # 视频处理模式
         video_process_mode_layout = QHBoxLayout()
         video_process_mode_label = QLabel("视频处理模式：")
         video_process_mode_label.setMinimumHeight(scale(22))
@@ -31102,9 +31102,9 @@ class BilibiliDownloader(BaseWindow):
         audio_quality_combo = QComboBox()
         audio_quality_combo.setMinimumHeight(scale(26))
         audio_quality_combo.setStyleSheet(scale_style("padding: 8px 12px; border: 1px solid #dde3ed; border-radius: 0; max-width: 200px;"))
-        # 音质选项（动态支持B站API返回的所有音质ID）
-        # 官方文档：30251=Hi-Res无损, 30250=杜比全景声, 30280=192K, 30232=132K, 30216=64K
-        # API额外返回：100010=320K, 100009=192K, 100008=128K
+        # 音质选项动态支持
+        # 官方音质ID对照
+        # API额外音质ID
         audio_quality_options = [
             ("自动", 0),
             ("Hi-Res", 30251),
@@ -31228,8 +31228,8 @@ class BilibiliDownloader(BaseWindow):
         other_layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
         other_layout.setSpacing(scale(8))
         
-        # 复选框区：统一由 _settings_checkbox_grid 排布（行距 14 / 列距 34），
-        # 取代原先 scale(8) 的紧凑三列网格 —— 这是"复选框挤在一起"的直接原因
+        # 复选框区统一排布
+        # scale8挤压主因
         auto_update_checkbox = self._settings_checkbox(_dlg_ref, "启动时自动检查更新")
         auto_update_checkbox.setChecked(self.config.get_app_setting("auto_check_update", True))
 
@@ -31466,7 +31466,7 @@ class BilibiliDownloader(BaseWindow):
                     zip_path = package_logs()
                     def _on_done():
                         if zip_path:
-                            # 剪切板操作必须在主线程执行（Qt限制）
+                            # 剪贴板须在主线程
                             try:
                                 from logger_config import _copy_path_to_clipboard
                                 ok = _copy_path_to_clipboard(zip_path)
@@ -31584,8 +31584,8 @@ class BilibiliDownloader(BaseWindow):
                 return f"{bytes_val / (1024*1024*1024):.2f} GB"
 
         def _get_app_dir():
-            # 项目根（本文件在根目录）；不能再用 __file__ 的目录，
-            # 因为设置页逻辑与 core/ 分层后 __file__ 可能指向子目录
+            # 项目根不用__file__
+            # 分层后可能指向子目录
             try:
                 import _pathsetup
                 if getattr(sys, 'frozen', False):
@@ -31660,9 +31660,9 @@ class BilibiliDownloader(BaseWindow):
         storage_layout.addWidget(storage_info_label)
 
         # ---- 缓存目录（可修改）----
-        # 说明为什么重要：程序若装在含中文的路径下，C++ 工具(ffmpeg/mp4decrypt)
-        # 无法使用该路径，旧版本会退回到系统盘 C:\Users\...\Temp，
-        # 下载大文件时把 C 盘写满。这里允许指定缓存目录，默认自动选同盘。
+        # 中文路径C++工具不可用
+        # 退回系统盘Temp
+        # 会写满C盘故允许指定
         cache_tip = QLabel("缓存目录（下载中转/合并的临时文件存放位置）")
         cache_tip.setWordWrap(True)
         cache_tip.setStyleSheet(scale_style("font-size: 15px; color: #6b7280; font-weight: 600;"))
@@ -31823,15 +31823,15 @@ class BilibiliDownloader(BaseWindow):
         page1_scroll.setWidgetResizable(True)
         page1_scroll.setStyleSheet("QScrollArea { border: none; }")
         page1_widget = QWidget()
-        # 设定最小内容宽度：窗口变窄时由外层 QScrollArea 出横向滚动条，
-        # 而不是把控件挤压重叠（原问题：设置项太多时相互挤压）
+        # 设最小宽由滚动兜底
+        # 而非挤压控件重叠
         page1_widget.setMinimumWidth(scale(724))
-        # 流式布局：宽窗口自动 2~3 列排布分组，窄窗口自动退回单列，
-        # 从根本上避免'设置项太多时相互挤压'
+        # 宽窗2到3列窄窗单列
+        # 根本避免设置项挤压
         page1_layout = FlowLayout(page1_widget, margin=scale(15), 
                                     h_spacing=scale(14), v_spacing=scale(14),
                                     min_item_width=scale(440))
-        # 下载设置卡片内容多且高，让它整行占满（span=2），复选框可用宽度更大
+        # 下载卡整行占满
         page1_layout.add_item(path_group, span=1)
         page1_layout.add_item(thread_group, span=1)
         page1_layout.add_item(download_group, span=2)
@@ -31842,11 +31842,11 @@ class BilibiliDownloader(BaseWindow):
         page2_scroll.setWidgetResizable(True)
         page2_scroll.setStyleSheet("QScrollArea { border: none; }")
         page2_widget = QWidget()
-        # 设定最小内容宽度：窗口变窄时由外层 QScrollArea 出横向滚动条，
-        # 而不是把控件挤压重叠（原问题：设置项太多时相互挤压）
+        # 设最小内容宽
+        # 否则控件挤压重叠
         page2_widget.setMinimumWidth(scale(724))
-        # 流式布局：宽窗口自动 2~3 列排布分组，窄窗口自动退回单列，
-        # 从根本上避免'设置项太多时相互挤压'
+        # 宽窗2到3列窄窗单列
+        # 根本避免挤压
         page2_layout = FlowLayout(page2_widget, margin=scale(15), 
                                     h_spacing=scale(14), v_spacing=scale(14),
                                     min_item_width=scale(440))
@@ -31858,11 +31858,11 @@ class BilibiliDownloader(BaseWindow):
         page3_scroll.setWidgetResizable(True)
         page3_scroll.setStyleSheet("QScrollArea { border: none; }")
         page3_widget = QWidget()
-        # 设定最小内容宽度：窗口变窄时由外层 QScrollArea 出横向滚动条，
-        # 而不是把控件挤压重叠（原问题：设置项太多时相互挤压）
+        # 设最小内容宽
+        # 否则控件挤压重叠
         page3_widget.setMinimumWidth(scale(724))
-        # 流式布局：宽窗口自动 2~3 列排布分组，窄窗口自动退回单列，
-        # 从根本上避免'设置项太多时相互挤压'
+        # 宽窗2到3列窄窗单列
+        # 根本避免挤压
         page3_layout = FlowLayout(page3_widget, margin=scale(15), 
                                     h_spacing=scale(14), v_spacing=scale(14),
                                     min_item_width=scale(440))
@@ -31876,15 +31876,15 @@ class BilibiliDownloader(BaseWindow):
         page4_scroll.setWidgetResizable(True)
         page4_scroll.setStyleSheet("QScrollArea { border: none; }")
         page4_widget = QWidget()
-        # 设定最小内容宽度：窗口变窄时由外层 QScrollArea 出横向滚动条，
-        # 而不是把控件挤压重叠（原问题：设置项太多时相互挤压）
+        # 设最小内容宽
+        # 否则控件挤压重叠
         page4_widget.setMinimumWidth(scale(724))
-        # 流式布局：宽窗口自动 2~3 列排布分组，窄窗口自动退回单列，
-        # 从根本上避免'设置项太多时相互挤压'
+        # 宽窗2到3列窄窗单列
+        # 根本避免挤压
         page4_layout = FlowLayout(page4_widget, margin=scale(15), 
                                     h_spacing=scale(14), v_spacing=scale(14),
                                     min_item_width=scale(440))
-        # 其他设置卡片较长，整行占满后再让日志/存储并排
+        # 日志与存储并排
         page4_layout.add_item(other_group, span=2)
         page4_layout.add_item(log_group, span=1)
         page4_layout.add_item(storage_group, span=1)
@@ -31895,11 +31895,11 @@ class BilibiliDownloader(BaseWindow):
         page5_scroll.setWidgetResizable(True)
         page5_scroll.setStyleSheet("QScrollArea { border: none; }")
         page5_widget = QWidget()
-        # 设定最小内容宽度：窗口变窄时由外层 QScrollArea 出横向滚动条，
-        # 而不是把控件挤压重叠（原问题：设置项太多时相互挤压）
+        # 设最小内容宽
+        # 否则控件挤压重叠
         page5_widget.setMinimumWidth(scale(724))
-        # 流式布局：宽窗口自动 2~3 列排布分组，窄窗口自动退回单列，
-        # 从根本上避免'设置项太多时相互挤压'
+        # 宽窗2到3列窄窗单列
+        # 根本避免挤压
         page5_layout = FlowLayout(page5_widget, margin=scale(15), 
                                     h_spacing=scale(14), v_spacing=scale(14),
                                     min_item_width=scale(440))
@@ -31994,8 +31994,8 @@ class BilibiliDownloader(BaseWindow):
         page6_scroll.setWidgetResizable(True)
         page6_scroll.setStyleSheet("QScrollArea { border: none; }")
         page6_widget = QWidget()
-        # 设定最小内容宽度：窗口变窄时由外层 QScrollArea 出横向滚动条，
-        # 而不是把控件挤压重叠（原问题：设置项太多时相互挤压）
+        # 设最小宽由滚动兜底
+        # 否则控件挤压重叠
         page6_widget.setMinimumWidth(scale(430))
         page6_layout = QVBoxLayout(page6_widget)
         page6_layout.setContentsMargins(scale(18), scale(18), scale(18), scale(18))
@@ -32006,12 +32006,12 @@ class BilibiliDownloader(BaseWindow):
         _about_author = "寒烟似雪"
 
         # 头部：实色蓝主视觉
-        # 布局说明（修复顶部"奇怪"观感）：
-        #   1. 原先"检查更新"按钮用 AlignTop 对齐到 32px 上边距处，而左侧图标是垂直居中的，
-        #      两者基线不一致，视觉上一高一低像错位；
-        #   2. 名称行里版本徽章紧贴名称，右侧留大片空白，重心偏左。
-        # 现改为：整体垂直居中，按钮用等高的"文本+内边距"自适应高度并与图标居中对齐，
-        # 徽章与名称成组、右侧用弹性空间把按钮推到最右，形成 左信息 / 右操作 的稳定结构。
+        # 布局说明修复顶部观感
+        # 原先按钮与图标错位
+        # 基线不一致像错位
+        # 徽章紧贴名称重心偏左
+        # 改为整体垂直居中
+        # 徽章成组按钮靠右
         app_header = QWidget()
         app_header.setObjectName("aboutHeader")
         app_header.setAttribute(Qt.WA_StyledBackground, True)
@@ -32034,7 +32034,7 @@ class BilibiliDownloader(BaseWindow):
             QPushButton#aboutCheckBtn:pressed { background-color: #e8f1ff; color: #409eff; }
         """))
         app_header_lay = QHBoxLayout(app_header)
-        # 上下边距改为对称的适中值，避免头部过高显得空
+        # 上下边距改对称
         app_header_lay.setContentsMargins(scale(22), scale(20), scale(22), scale(20))
         app_header_lay.setSpacing(scale(16))
 
@@ -32044,13 +32044,13 @@ class BilibiliDownloader(BaseWindow):
         app_logo.setAlignment(Qt.AlignCenter)
         app_logo.setStyleSheet("background: transparent;")
         try:
-            # 直接用 QIcon 按目标尺寸取图，避免"先缩放到大图再二次缩放"导致模糊。
-            # 图标为多尺寸 ICO，Qt 会挑选最接近的原生图层，边缘最清晰。
-            # 不做圆形裁切（保持原图方形的完整图形）。
+            # 按尺寸取图免二次缩放
+            # 多尺寸ICO最清晰
+            # 不做圆形裁切
             _icon = get_app_icon(getattr(self, "config", None))
             _pix = QPixmap()
             if _icon is not None and not _icon.isNull():
-                # 用设备像素比取图：高分屏下按物理像素渲染，再设回逻辑尺寸
+                # 按设备像素比取图
                 _ratio = float(app_logo.devicePixelRatioF() or 1.0)
                 _want = int(_logo_size * _ratio)
                 _pix = _icon.pixmap(_want, _want)
@@ -32096,12 +32096,12 @@ class BilibiliDownloader(BaseWindow):
         about_check_btn.setMinimumWidth(scale(96))
         about_check_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         about_check_btn.clicked.connect(lambda: self._manual_check_update() if hasattr(self, '_manual_check_update') else None)
-        # 与左侧图标垂直居中对齐，修复原先 AlignTop 造成的一高一低
+        # 与图标居中修复错位
         app_header_lay.addWidget(about_check_btn, 0, Qt.AlignVCenter)
         page6_layout.addWidget(app_header)
 
         # ---- 本机信息 ----
-        # 每条信息右侧带"复制"按钮，点击即复制该项的值，方便用户反馈问题。
+        # 每项带复制按钮
         device_card = QWidget()
         device_card.setObjectName("aboutCard")
         device_card.setAttribute(Qt.WA_StyledBackground, True)
@@ -32110,7 +32110,7 @@ class BilibiliDownloader(BaseWindow):
         device_lay.setContentsMargins(scale(18), scale(16), scale(18), scale(14))
         device_lay.setSpacing(scale(2))
 
-        # 标题行：标题 + 右侧"复制全部"
+        # 标题行与复制全部
         device_head = QHBoxLayout()
         device_head.setContentsMargins(scale(4), 0, scale(2), scale(8))
         device_head.setSpacing(scale(8))
@@ -32119,7 +32119,7 @@ class BilibiliDownloader(BaseWindow):
         device_head.addWidget(device_title)
         device_head.addStretch(1)
 
-        # "复制全部"按钮先建立、后连接（_about_rows 由后面建行时填充）
+        # 先建按钮后连接
         _copy_all_btn = QPushButton("复制全部")
         _copy_all_btn.setObjectName("aboutCopyAllBtn")
         _copy_all_btn.setCursor(Qt.PointingHandCursor)
@@ -32137,14 +32137,14 @@ class BilibiliDownloader(BaseWindow):
         device_head.addWidget(_copy_all_btn)
         device_lay.addLayout(device_head)
 
-        # 记录每行的 (标签, 取值控件)，供"复制全部"使用
+        # 记录每行供复制全部
         _about_rows = []
 
         def _about_key(text):
             k = QLabel(text)
             k.setStyleSheet(scale_style("font-size: 14px; font-weight: 600; color: #6b7280;"))
-            # 按文字实际宽度给最小宽度，避免固定 64px 把"操作系统"等较长标签挤压/截断；
-            # 不设 setFixedWidth，让它在必要时可自适应。
+            # 按文字宽度给最小宽
+            # 不设固定宽可自适应
             k.setMinimumWidth(k.fontMetrics().horizontalAdvance(text) + scale(4))
             k.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
             return k
@@ -32183,7 +32183,7 @@ class BilibiliDownloader(BaseWindow):
             b.setCursor(Qt.PointingHandCursor)
             _bw, _bh = scale(56), scale(26)
             b.setFixedSize(_bw, _bh)
-            # 固定尺寸策略：布局不会压缩它
+            # 固定尺寸布局不压缩
             b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             b.setToolTip("复制" + (name or "该项"))
             b.setStyleSheet(scale_style("""
@@ -32213,7 +32213,7 @@ class BilibiliDownloader(BaseWindow):
             rl.setContentsMargins(scale(4), scale(7), scale(2), scale(7))
             rl.setSpacing(scale(10))
             rl.addWidget(_about_key(key), 0, Qt.AlignVCenter)
-            # 值标签：允许被压缩到很小（优先保证按钮完整），靠换行撑高
+            # 值标签可压缩靠换行
             value_widget.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
             value_widget.setMinimumWidth(scale(40))
             rl.addWidget(value_widget, 1)
@@ -32237,7 +32237,7 @@ class BilibiliDownloader(BaseWindow):
                 device_code = ''
         device_code = device_code or "未知"
 
-        # 设备码置顶：反馈问题时最常被索要
+        # 设备码置顶常被索要
         _dc_val = _about_val(device_code)
         _dc_val.setStyleSheet(scale_style(
             "font-size: 14px; color: #1f2329; font-family: Consolas, 'Courier New', monospace;"))
@@ -32305,7 +32305,7 @@ class BilibiliDownloader(BaseWindow):
         import threading as _hw_thr
         _hw_thr.Thread(target=_refresh_hw, daemon=True).start()
 
-        # ---- 资源解析（二维码/图标，兼容源码运行与打包后）----
+        # ---- 资源解析兼容打包 ----
         def _about_resolve(rel):
             cands = []
             if getattr(sys, 'frozen', False):
@@ -32501,10 +32501,10 @@ class BilibiliDownloader(BaseWindow):
         page6_layout.addWidget(ad_banner)
 
         # ---- 底部操作 ----
-        # 说明：这里不再单独放一个"加入交流群"操作区。
-        # 交流群二维码已在上面「联系与合作」卡片里，底部再放一次属于重复，
-        # 且会和紧随其后的「软件著作权」卡片叠成两块割裂的横条，观感很乱。
-        # 改为并入软著卡片底部，形成一行统一的操作区。
+        # 不再单独放交流群区
+        # 二维码已在上面卡片
+        # 否则叠成两块横条
+        # 改为并入软著卡底部
         _join_qun_btn = QPushButton("加入交流群")
         _join_qun_btn.setCursor(Qt.PointingHandCursor)
         _join_qun_btn.setStyleSheet(scale_style("""
@@ -32557,7 +32557,7 @@ class BilibiliDownloader(BaseWindow):
         """))
         view_cert_btn.clicked.connect(lambda: show_copyright_certificate(_dlg_ref))
         cert_btn_row.addWidget(view_cert_btn)
-        # 交流群入口并入同一行，替代原先独立的"底部操作"横条
+        # 交流群并入同一行
         cert_btn_row.addWidget(_join_qun_btn)
         cert_btn_row.addStretch(1)
         cert_note = QLabel("证书原件同时收录于仓库 copyright/ 目录")
@@ -32575,7 +32575,7 @@ class BilibiliDownloader(BaseWindow):
         body_layout.addWidget(stacked_widget, stretch=1)
         main_layout.addLayout(body_layout, stretch=1)
 
-        # 按钮布局（放在滚动区域外面）
+        # 按钮布局放在滚动区外
         btn_widget = QWidget()
         btn_widget.setStyleSheet(scale_style("background-color: #f8f9fa; border-top: 1px solid #e6eaf2;"))
         btn_layout = QHBoxLayout(btn_widget)
@@ -32610,8 +32610,8 @@ class BilibiliDownloader(BaseWindow):
             # 保存自定义缩放比例
             self.config.set_app_setting("custom_ui_scale", str(scale_spin.value()))
 
-            # 保存「启动时最大化窗口」；取消勾选时立刻生效（还原为普通窗口），
-            # 省得用户以为没起作用而要重启验证。
+            # 取消勾选立刻生效
+            # 省得用户以为没生效
             try:
                 _want_max = bool(start_max_checkbox.isChecked())
                 self.config.set_app_setting("start_maximized", _want_max)
@@ -32656,7 +32656,7 @@ class BilibiliDownloader(BaseWindow):
             minimize_to_tray = minimize_to_tray_checkbox.isChecked()
             self.config.set_app_setting("minimize_to_tray", minimize_to_tray)
 
-            # 保存折叠功能Tab并立即应用到主窗口
+            # 保存折叠设置并应用
             folded_list = [name for name, cb in fold_checkboxes.items() if cb.isChecked()]
             self.config.set_app_setting("folded_tabs", folded_list)
             if hasattr(self, "_apply_folded_tabs"):
@@ -32671,7 +32671,7 @@ class BilibiliDownloader(BaseWindow):
             self.config.set_app_setting("add_episode_to_filename", add_episode_prefix_checkbox.isChecked())
             _seq_digits_new = sequence_digits_combo.currentData()
             self.config.set_app_setting("filename_sequence_digits", _seq_digits_new)
-            # 同步到模块级，让选集列表/进度窗口的显示编号与最终文件名一致
+            # 同步模块级使编号一致
             set_sequence_digits(_seq_digits_new)
             self.config.set_app_setting("batch_download_first", batch_download_first_checkbox.isChecked())
             self.config.set_app_setting("filename_add_author", filename_add_author_checkbox.isChecked())
@@ -32703,12 +32703,12 @@ class BilibiliDownloader(BaseWindow):
             self.config.set_app_setting("hevc_not_supported_ask", hevc_not_support_ask_checkbox.isChecked())
             self.config.set_app_setting("file_dialog_style", file_dialog_combo.currentData())
 
-            # 保存并立即应用剪贴板自动检测设置
+            # 保存并应用剪贴板设置
             self.config.set_app_setting("clipboard_auto_detect", clipboard_detect_checkbox.isChecked())
             self.config.set_app_setting("remember_login", remember_login_checkbox.isChecked())
             self._apply_clipboard_auto_detect(clipboard_detect_checkbox.isChecked())
 
-            # 立即应用录制托盘显示设置
+            # 应用录制托盘设置
             if hasattr(self, 'recording_tray') and self.recording_tray:
                 self.recording_tray.set_visible(show_recording_tray_checkbox.isChecked())
 
@@ -32888,7 +32888,7 @@ class BilibiliDownloader(BaseWindow):
             main_layout.setContentsMargins(scale(2), scale(0), scale(2), scale(2))
             main_layout.setSpacing(scale(0))
             
-            # 添加鼠标事件处理，实现窗口移动
+            # 鼠标事件实现窗口移动
             dialog.mousePressEvent = lambda event: setattr(dialog, 'mouse_pos', event.globalPos() - dialog.pos())
             dialog.mouseMoveEvent = lambda event: dialog.move(event.globalPos() - getattr(dialog, 'mouse_pos', QPoint(0, 0)))
             
@@ -33290,8 +33290,8 @@ class CookieTestDialog(QDialog):
 
 
 # ==================== 软件著作权登记证书 ====================
-# 登记信息（2026-09-18 取得）。软件名称登记为 "B站视频解析工具 2.0.2"，
-# 即该版本通过登记；后续版本号变更不影响已登记的著作权归属。
+# 2026-09-18登记
+# 后续版本不影响归属
 COPYRIGHT_INFO = {
     "name": "B站视频解析工具",
     "registered_version": "2.0.2",

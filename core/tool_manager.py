@@ -26,7 +26,7 @@ def _app_tool_dirs():
     for d in (app_data_dir(), program_files_dir()):
         if d and d not in dirs:
             dirs.append(d)
-    # Windows 额外保留 LocalAppData（安装器可能把工具装在这里）
+    # Windows 另留 LocalAppData
     if IS_WINDOWS:
         local = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~\\AppData\\Local')
         cand = os.path.join(local, 'BilibiliDownloadTool')
@@ -87,7 +87,7 @@ def _extract_tar(archive_path, target_dir, progress_callback=None):
             base = os.path.abspath(target_dir)
             for i, m in enumerate(members):
                 name = m.name
-                # 跳过绝对路径与向上穿越的成员
+                # 跳过绝对路径与向上穿越成员
                 if name.startswith('/') or name.startswith('\\'):
                     continue
                 dest = os.path.abspath(os.path.join(base, name))
@@ -108,7 +108,7 @@ def _extract_archive(archive_path, target_dir, progress_callback=None):
         return _extract_zip(archive_path, target_dir, progress_callback)
     if low.endswith(('.tar.xz', '.txz', '.tar.gz', '.tgz', '.tar.bz2', '.tar')):
         return _extract_tar(archive_path, target_dir, progress_callback)
-    # 未知扩展名：先按 zip 试，失败再按 tar 试
+    # 未知扩展名：先 zip 后 tar
     ok, err = _extract_zip(archive_path, target_dir, progress_callback)
     if ok:
         return ok, err
@@ -143,8 +143,8 @@ def install_tools_from_cdn(dest_dir, need_ffmpeg=True, need_bento4=True, progres
         if need_ffmpeg:
             update(30, "正在从网络下载 FFmpeg...")
             ffmpeg_url = get_cdn_url('ffmpeg')
-            # Linux 官方静态包是 .tar.xz，Windows/macOS 是 .zip —— 扩展名必须匹配，
-            # 否则解压器会挑错分支直接失败。
+            # Linux 静态包是 .tar.xz，Win/mac 是 .zip，
+            # 扩展名不匹配会挑错分支直接失败。
             _ff_ext = '.tar.xz' if ffmpeg_url.lower().endswith(('.tar.xz', '.txz')) else '.zip'
             ffmpeg_archive = os.path.join(temp_dir, 'ffmpeg' + _ff_ext)
             ok, err = _download_file(
@@ -248,7 +248,7 @@ class ToolManager:
         if getattr(sys, 'frozen', False):
             self.install_dir = os.path.dirname(sys.executable)
             _parent_dir = os.path.dirname(self.install_dir)
-            # PyInstaller 6.x 文件夹模式：exe 在根目录，运行文件/工具均在 _internal 子目录
+            # PyInstaller 6.x：运行文件在 _internal
             _internal_dir = os.path.join(self.install_dir, '_internal')
             if os.path.isdir(_internal_dir):
                 self.install_dir = _internal_dir
@@ -258,8 +258,8 @@ class ToolManager:
                 logger.info(f"检测到工具在上级目录，使用: {self.install_dir}")
         else:
             # 源码 / 非打包运行：
-            #   项目目录下若有随仓库分发的 ffmpeg、bento4 就直接用，
-            #   否则落到用户可写的数据目录（Linux 上 /opt 通常不可写）。
+            # 仓库自带的 ffmpeg/bento4 直接用，
+            # 否则落用户可写目录（/opt 常不可写）
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             if self._looks_like_tool_home(project_root):
                 self.install_dir = project_root
@@ -273,7 +273,7 @@ class ToolManager:
                 else:
                     self.install_dir = ud_dir
             else:
-                # Linux / 其他：优先用户数据目录，避免往 /opt 写（需 root）
+                # Linux：优先用户数据目录，避开 /opt
                 self.install_dir = app_data_dir()
 
         self.ffmpeg_dir = os.path.join(self.install_dir, 'ffmpeg', 'bin')
@@ -393,14 +393,14 @@ class ToolManager:
             ffmpeg_candidates.insert(3, os.path.join(parent_dir, 'ffmpeg', 'bin'))
             ffmpeg_candidates.insert(4, os.path.join(exe_dir, 'ffmpeg', 'bin', exe('ffmpeg')))
             ffmpeg_candidates.insert(5, os.path.join(exe_dir, 'ffmpeg', 'bin'))
-            # 搜索用户数据目录（安装程序可能将工具安装在此）
+            # 搜用户数据目录（安装器装在这）
             for _ad in _app_tool_dirs():
                 ffmpeg_candidates.extend([
                     os.path.join(_ad, 'ffmpeg', 'bin', exe('ffmpeg')),
                     os.path.join(_ad, 'ffmpeg', 'bin'),
                 ])
         else:
-            # 源码运行时，额外搜索 dist 打包目录和上级目录
+            # 源码运行时另搜 dist 与上级目录
             dist_internal = os.path.join(self.project_root, 'dist', 'BilibiliDownloader', '_internal', 'ffmpeg', 'bin')
             dist_root = os.path.join(self.project_root, 'dist', 'BilibiliDownloader', 'ffmpeg', 'bin')
             parent_project = os.path.dirname(self.project_root)
@@ -417,7 +417,7 @@ class ToolManager:
                     os.path.join(_ad, 'ffmpeg', 'bin', exe('ffmpeg')),
                     os.path.join(_ad, 'ffmpeg', 'bin'),
                 ])
-            # 也搜索系统PATH中的ffmpeg
+            # 也搜系统PATH中的ffmpeg
             sys_ffmpeg = shutil.which(exe('ffmpeg'))
             if sys_ffmpeg:
                 ffmpeg_candidates.append(sys_ffmpeg)
@@ -454,7 +454,7 @@ class ToolManager:
                     os.path.join(_ad, 'bento4', 'bin', exe('mp4decrypt')),
                 ])
         else:
-            # 源码运行时，额外搜索 dist 打包目录
+            # 源码运行时另搜 dist 目录
             dist_internal_b4 = os.path.join(self.project_root, 'dist', 'BilibiliDownloader', '_internal', 'bento4')
             parent_project = os.path.dirname(self.project_root)
             bento4_candidates.extend([
@@ -468,7 +468,7 @@ class ToolManager:
                     os.path.join(_ad, 'bento4', get_bento4_sdk_dirname(), 'bin', exe('mp4decrypt')),
                     os.path.join(_ad, 'bento4', 'bin', exe('mp4decrypt')),
                 ])
-            # 也搜索系统PATH中的mp4decrypt
+            # 也搜系统PATH中的mp4decrypt
             sys_mp4decrypt = shutil.which(exe('mp4decrypt'))
             if sys_mp4decrypt:
                 bento4_candidates.append(sys_mp4decrypt)

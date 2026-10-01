@@ -143,7 +143,7 @@ try:
     check("单勾第4集", picker.checked == {3}, picker.checked)
     picker._apply_filter("第1集")
     visible = [r for r in picker.rows if not r.disabled]
-    # "第1集" 只精确命中第 1 集（"第10集" 不含子串 "第1集"）
+    # 「第1集」只精确命中第 1 集
     check("过滤「第1集」只命中第 1 集",
           [r.index + 1 for r in visible] == [1],
           [r.index + 1 for r in visible])

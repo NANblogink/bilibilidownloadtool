@@ -27,19 +27,19 @@ import tempfile
 
 # ---------------------------------------------------------------- 常量
 
-# 目标 Python 版本（与 wheel 的 cpXY 标签、以及主程序保持一致）
+# 目标版本，与 wheel cpXY 一致
 PY_VER = "3.10.11"
-PY_TAG = "cp310"          # 用于校验 wheel 的解释器标签
+PY_TAG = "cp310"          # 校验 wheel 的解释器标签
 PY_SHORT = "310"          # pythonXY._pth 里的 XY
 
-# 官方 embeddable 分发地址（按架构）
+# 官方 embeddable 地址（按架构）
 PY_URLS = {
     "win_amd64": "https://www.python.org/ftp/python/{v}/python-{v}-embed-amd64.zip",
     "win32":     "https://www.python.org/ftp/python/{v}/python-{v}-embed-win32.zip",
     "win_arm64": "https://www.python.org/ftp/python/{v}/python-{v}-embed-arm64.zip",
 }
 
-# 备用镜像前缀（官方不通时尝试）
+# 备用镜像（官方不通时试）
 PY_MIRRORS = [
     "",  # 官方
     "https://mirrors.aliyun.com/python-release/windows/",
@@ -106,7 +106,7 @@ def target_arch_tag():
     if bits == 32:
         return "win32"
     if cpu == "arm64":
-        # 无 arm64 embeddable + PyQt5 组合，用 x64 模拟
+        # 无 arm64 embeddable，用 x64 模拟
         return "win_amd64"
     return "win_amd64"
 
@@ -316,7 +316,7 @@ def deploy_python(root=None, local_zip=None):
         except Exception:
             pass
 
-    # ---- 启用 site-packages（关键：默认是关闭的）----
+    # ---- 启用 site-packages（默认关）----
     _fix_pth(stage)
 
     # ---- 原子替换 ----
@@ -402,7 +402,7 @@ def _arch_ok(platform_field):
     tgt = target_arch_tag()
     if pf == tgt:
         return True
-    # win_amd64 也接受（ARM64 模拟场景由 target_arch_tag 统一处理）
+    # win_amd64 也接受（ARM64 模拟）
     return pf == tgt
 
 
@@ -413,7 +413,7 @@ def _pyver_ok(pyver, abi):
     if pv in ("py3", "py2.py3", "any"):
         return True
     if ab == "abi3":
-        # abi3 向下兼容：cp38/cp39/cp310 都能用在 3.10
+        # abi3 向下兼容：cp38~cp310 通用
         m = re.match(r"^cp3(\d+)$", pv)
         if not m:
             return False
@@ -460,7 +460,7 @@ REQUIRED_PACKAGES = [
     ("PyQtWebEngine_Qt5", None),
 ]
 
-# PyPI 项目名（simple 索引用小写）
+# PyPI 项目名（simple 索引小写）
 PKG_INDEX_NAMES = {
     "PyQt5": "pyqt5",
     "PyQt5_Qt5": "pyqt5-qt5",

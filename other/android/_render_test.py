@@ -10,9 +10,9 @@ import traceback
 
 os.environ.setdefault("KIVY_NO_ARGS", "1")
 os.environ["KIVY_LOG_LEVEL"] = "error"
-# 注意：不能用 KIVY_WINDOW=mock —— Kivy 的 mock provider 在
-# EventLoop.ensure_window() 里会直接 sys.exit(1)，无法构建控件。
-# 这里改用真实但隐藏的窗口来做无头构建测试。
+# 注意：不能用 KIVY_WINDOW=mock —— 其 mock provider
+# 在 ensure_window() 里直接 sys.exit(1)，无法构建控件
+# 这里改用真实但隐藏的窗口做无头构建测试
 os.environ.pop("KIVY_WINDOW", None)
 os.environ["KIVY_NO_CONSOLELOG"] = "1"
 

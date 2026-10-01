@@ -65,7 +65,7 @@ os.environ["NO_PROXY"] = "*"
 os.environ["no_proxy"] = "*"
 
 # ==========================================================================
-# 1. 安装 Qt 兼容层（必须在 import 任何 core 模块之前）
+# 1. 安装 Qt 兼容层（须先于任何 core 模块）
 # ==========================================================================
 try:
     import qt_compat
@@ -100,7 +100,7 @@ from kivy.uix.textinput import TextInput      # noqa: E402
 from kivy.utils import platform               # noqa: E402
 
 # ------------------------------------------------------------------ 字体
-# Kivy 默认字体不含汉字，不换字体界面会全是方块 → 这就是"乱码"的根因。
+# Kivy 默认字体无汉字，不换字体界面全是方块
 _FONT_DIR = _HERE
 _FONT_REG = os.path.join(_FONT_DIR, "NotoSansSC-Regular.ttf")
 _FONT_BOLD = os.path.join(_FONT_DIR, "NotoSansSC-Bold.ttf")
@@ -118,7 +118,7 @@ def _register_fonts():
         LabelBase.register(name="CN", fn_regular=_FONT_BOLD)
         reg = "CN"
     if reg:
-        # 覆盖默认字体，这样 KV 里不用逐个指定 font_name
+        # 覆盖默认字体，KV 里就不用逐个指定 font_name
         try:
             from kivy.config import Config
             Config.set("kivy", "default_font", "CN")
@@ -130,7 +130,7 @@ def _register_fonts():
 FONT_NAME = _register_fonts()
 
 if platform != "android":
-    # 桌面上调试时模拟竖屏手机；无头/mock 窗口下没有 size，忽略即可
+    # 桌面调试时模拟竖屏手机；无头窗口无 size，忽略
     try:
         if Window is not None and getattr(Window, "size", None):
             Window.size = (420, 860)
@@ -172,7 +172,7 @@ def device_profile():
 PROFILE = device_profile()
 
 # ==========================================================================
-# 4. 界面 KV（配色对齐桌面版：#00a1d6 主色 / #f5f5f5 背景 / #333 文字）
+# 4. 界面 KV（配色对齐桌面版：主色/背景/文字）
 # ==========================================================================
 
 KV = """
@@ -360,7 +360,7 @@ class ParseTab(BoxLayout):
         self.orientation = "vertical"
         self.spacing = dp(6)
         self.padding = dp(10)
-        # 用户通过「选择集数」勾选的集下标集合；None = 全部
+        # 用户勾选的集下标集合；None = 全部
         self.selected_ep_indexes = None
         self._build()
 
@@ -389,7 +389,7 @@ class ParseTab(BoxLayout):
             background_color=(0.97, 0.97, 0.97, 1),
             foreground_color=(0.1, 0.1, 0.1, 1),
             cursor_color=(0.0, 0.63, 0.84, 1))
-        # 支持 desktop 版一样的"自动识别剪贴板链接"
+        # 支持与桌面版一致的自动识别剪贴板链接
         self.url_input.bind(focus=self._on_url_focus)
         card.add_widget(self.url_input)
 
@@ -473,7 +473,7 @@ class ParseTab(BoxLayout):
         a_row.add_widget(self.audio_spinner)
         info.add_widget(a_row)
 
-        # 集数：既支持手填范围，也支持像桌面版那样勾选具体集
+        # 集数：既支持手填范围，也支持勾选具体集
         e_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(8))
         e_row.add_widget(themed_label(text="集数", font_size=sp(13),
                                       size_hint_x=0.2, halign="left",
@@ -488,7 +488,7 @@ class ParseTab(BoxLayout):
             cursor_color=(0.0, 0.63, 0.84, 1))
         e_row.add_widget(self.ep_input)
 
-        # 对应桌面版的「选择集数」按钮：打开带勾选框的集数列表
+        # 对应桌面版「选择集数」：打开带勾选框的列表
         self.ep_pick_btn = Button(
             text="选择集数", background_normal="",
             background_color=(0.0, 0.63, 0.84, 1), color=(1, 1, 1, 1),
@@ -498,7 +498,7 @@ class ParseTab(BoxLayout):
         e_row.add_widget(self.ep_pick_btn)
         info.add_widget(e_row)
 
-        # 已选集数摘要（与桌面版"共 N 集视频，请点击选择集数"对应）
+        # 已选集数摘要（对应桌面版「共 N 集」提示）
         self.ep_summary_lbl = themed_label(
             text="", font_size=sp(11), color=(0.45, 0.45, 0.45, 1),
             size_hint_y=None, height=dp(18), halign="left", valign="middle")
@@ -681,10 +681,10 @@ class ParseTab(BoxLayout):
         self.meta_lbl.text = ""
         self.stat_lbl.text = ""
         self.parse_btn.disabled = True
-        # 与桌面版一致：解析期间「解析」按钮变成「停止解析」
+        # 与桌面版一致：解析期间按钮变为「停止解析」
         self._set_parsing_ui(True)
 
-        # 解析结果里的集数选择（桌面版用弹窗让用户挑，这里同样）
+        # 解析结果里的集数选择（桌面版用弹窗，这里同）
         ep_range = (self.ep_input.text or "").strip()
 
         def _worker():
@@ -815,7 +815,7 @@ class ParseTab(BoxLayout):
 
         eps = info.get("episodes") or []
         self.stat_lbl.text = "共 %d 个视频" % len(eps) if eps else ""
-        # 与桌面版一致的提示：集数多时引导用户点「选择集数」
+        # 与桌面版一致：集数多时引导点「选择集数」
         if hasattr(self, "ep_summary_lbl"):
             if len(eps) > 1:
                 self.ep_summary_lbl.text = (
@@ -873,9 +873,9 @@ class ParseTab(BoxLayout):
             ti("提示", "没有可下载的内容")
             return
 
-        # 应用「选择集数」的勾选结果：只下载用户选中的集。
-        # 做法是给引擎一份裁剪过的 episodes 拷贝，其余字段（video_info
-        # 里的标题/封面等）保持原样，这样与桌面版行为一致。
+        # 应用「选择集数」结果：只下载用户选中的集
+        # 做法是给引擎一份裁剪过的 episodes 拷贝，
+        # 其余字段（标题/封面等）保持原样，与桌面版一致
         picked = self.selected_ep_indexes
         if picked is not None:
             selected = [ep for i, ep in enumerate(eps) if i in picked]
@@ -971,7 +971,7 @@ class ParseTab(BoxLayout):
             self.ep_input.text = ""
             self.ep_summary_lbl.text = ""
             return
-        # 转成 1 基的集号文本，便于用户看到自己选了什么
+        # 转成 1 基集号文本，便于用户看到选了什么
         nums = sorted(i + 1 for i in indexes)
         if len(nums) <= 12:
             text = ",".join(str(n) for n in nums)
@@ -1196,8 +1196,8 @@ class HistoryTab(BoxLayout):
         try:
             kw = (self.search_input.text or "").strip()
             status = "" if self.filter == "全部" else self.filter
-            # 注意：get_records() 返回的是 (records, total) 元组，
-            # 不是一个列表 —— 这里必须解包。
+            # 注意：get_records() 返回 (records, total) 元组，
+            # 不是列表 —— 这里必须解包
             result = self.app.history.get_records(
                 keyword=kw, status_filter=status, limit=200)
             if isinstance(result, tuple):
@@ -1509,7 +1509,7 @@ class EpisodePicker(Popup):
         self.episodes = list(info.get("episodes") or [])
         self.rows = []
         self.checked = set()
-        # 初始状态：沿用上次选择；没有则默认全选（与桌面版默认一致）
+        # 初始沿用上次选择；没有则默认全选
         prev = parse_tab.selected_ep_indexes
         if prev is None:
             self.checked = set(range(len(self.episodes)))
@@ -1820,7 +1820,7 @@ class LoginPopup(Popup):
         code = res.get("code")
         if status:
             self._set_status(status)
-        # 86038 = 二维码已失效：自动换一张，省得用户自己点刷新
+        # 86038 = 二维码已失效：自动换一张，省得用户点刷新
         if code == 86038:
             self._stop_poll()
             self._set_status("二维码已失效，正在刷新…")
@@ -1986,7 +1986,7 @@ class BilibiliAndroidApp(App):
                 pass
 
     # ------------------------------------------------------------ 信号槽
-    # 注意：这些可能在**工作线程**被调用，必须 Clock.schedule_once 切回主线程
+    # 注意：这些可能在工作线程被调用，须 Clock 切主线程
     def _sig_global_progress(self, pct, text=""):
         Clock.schedule_once(
             lambda dt: self._apply_global_progress(pct, text), 0)
@@ -2121,7 +2121,7 @@ class BilibiliAndroidApp(App):
                 ti("提示", "没有可下载的内容")
                 return
 
-            # 只保留需要下载的集（episode_range 已在解析时应用）
+            # 只保留要下载的集（episode_range 已在解析时应用）
             row = self.task_tab.add_task(task_id, title, content_type)
             row.update_progress(0, "已加入队列")
             self._row_titles[task_id] = title
@@ -2404,7 +2404,7 @@ class BilibiliAndroidApp(App):
             pass
 
 
-# Python 关键字冲突：ti/confirm 已在上面定义，这里给 ti 一个别名方便调用
+# Python 关键字冲突：此处给 ti 一个别名方便调用
 ti = tip
 
 

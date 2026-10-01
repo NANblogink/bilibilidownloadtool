@@ -111,15 +111,15 @@ class _BoundSignal:
                 cbs.remove(slot)
 
     def emit(self, *args, **kwargs):
-        # 取快照后再调用，避免回调里 connect/disconnect 造成遍历异常
+        # 取快照后再调用，避免回调里 connect 造成遍历异常
         with self._sig._lock:
             cbs = list(self._sig._store.get(self._sig._key(self._obj), []))
         for cb in cbs:
             try:
                 cb(*args, **kwargs)
             except Exception:
-                # 信号回调不能影响主流程（与 Qt 的行为一致：槽里抛错不应
-                # 中断 emit 方），这里吞掉并记录。
+                # 信号回调不能影响主流程（Qt 里槽抛错不应中断
+                # emit 方），这里吞掉并记录
                 try:
                     import traceback
                     traceback.print_exc()
@@ -222,7 +222,7 @@ class QThread(QObject):
         if msecs is None:
             t.join()
             return True
-        # 注意：threading 没有毫秒级 join(timeout)，用秒
+        # 注意：threading 没有毫秒级 join，用秒
         t.join(timeout=max(0.0, msecs / 1000.0))
         return not t.is_alive()
 
@@ -230,8 +230,8 @@ class QThread(QObject):
         self._stop_flag.set()
 
     def terminate(self):
-        # Python 无法安全强杀线程；置标志让 run() 自行退出（桌面版内部
-        # 也是靠停止标志协作退出的）。
+        # Python 无法安全强杀线程；置标志让 run() 自行退出
+        # （桌面版内部也是靠停止标志协作退出的）
         self._stop_flag.set()
 
     def msleep(self, msecs):

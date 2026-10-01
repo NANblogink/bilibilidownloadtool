@@ -44,7 +44,7 @@ collected = set()
 
 # 1) source.dir 下的文件，按扩展名过滤
 for dirpath, dirnames, filenames in os.walk(src_dir):
-    # 跳过构建产物，p4a 同样会跳过（buildozer 会排除 .buildozer 等）
+    # 跳过构建产物，p4a 同样会跳过
     dirnames[:] = [d for d in dirnames
                    if d not in (".buildozer", "bin", "__pycache__",
                                 ".build_stage", ".git")]
