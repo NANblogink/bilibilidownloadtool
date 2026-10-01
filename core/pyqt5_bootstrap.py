@@ -563,7 +563,7 @@ def _looks_like_candidate(low):
         return 'win' in low
     if fam == _MAC_FAMILY:
         return 'macosx' in low or 'darwin' in low
-    # 接受manylinux排win与mac
+    # 接受manylinux排win/mac
     if 'win' in low or 'macosx' in low or 'darwin' in low:
         return False
     return ('manylinux' in low or 'musllinux' in low

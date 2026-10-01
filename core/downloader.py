@@ -498,7 +498,7 @@ class EpisodeDownloadThread(QThread):
                     raise
                 elif "不完整" in str(e):
                     # 提前断流：海外线路访问CDN时
-                    # IncompleteRead 很常见，且
+                    # IncompleteRead常见且
                     # 同一节点会连续短响应
                     # 可能命中另一节点
                     # 同URL重试间隔更长
@@ -1262,7 +1262,7 @@ class DownloadManager(QObject):
         else:
             save_path = os.path.normpath(save_path)
 
-        # 多任务共享 save_path，缓存路径
+        # 共享save_path缓存路径
         if not hasattr(self, '_validated_save_paths'):
             self._validated_save_paths = set()
         if save_path not in self._validated_save_paths:
@@ -1337,7 +1337,7 @@ class DownloadManager(QObject):
         current_url = download_params.get('url')
         current_qn = download_params.get('qn')
         current_episodes = download_params.get('episodes', [])
-        # 同 save_path 用目录名区分合集
+        # 同save_path目录名区分
         current_save = download_params.get('save_path', '')
 
         current_ep_indices = set()
@@ -1687,7 +1687,7 @@ class DownloadManager(QObject):
             clean_title = ep_title.replace("正片_", "")
             # 单视频常无 ep_title，会退化成
             # "第1集"这种无信息名。
-            # ep_title 空或仅"第N集"时用视频标题
+            # ep_title空且无实质标题
             # 若还带真实标题则保留该部分。
             try:
                 _vt = (task_info.get('video_info') or {}).get('title', '') or ''
@@ -1727,7 +1727,7 @@ class DownloadManager(QObject):
                 _seq_num = (_seq_base + ep_index) if _seq_base > 0 else (ep_index + 1)
                 # 去掉已有序号/集数前缀，防叠加
                 # 该名已表达顺序
-                # 须与 ui.format_ep_name 一致。
+                # 须与ui.format_ep_name一致
                 _stripped = re.sub(r'^第\d+集[ _\-]*', '', clean_title or '')
                 _stripped = re.sub(r'^\d+[.、][ _\-]*', '', _stripped).strip()
                 clean_title = _stripped or clean_title
@@ -1797,7 +1797,7 @@ class DownloadManager(QObject):
                     self.episode_progress_updated.emit(task_id, ep_index, 100, "视频下载完成（无声）")
                     logger.info(f"任务{task_id}：第{ep_index+1}集视频下载完成（无声）：{output_path}")
 
-                else:  # download_content_type == 0
+                else:  # download_content_type==0
                     has_audio = bool(audio_url)
 
                     if has_audio:
@@ -2063,7 +2063,7 @@ class DownloadManager(QObject):
                 downloaded_episodes = task_info.get("downloaded_episodes", [])
                 if ep_info not in downloaded_episodes:
                     # 记真实路径供历史定位
-                    # （file_path 曾为空，致"文件不存在"）
+                    # file_path曾为空致文件缺失
                     try:
                         if output_path and os.path.exists(output_path):
                             ep_info['file_path'] = output_path
@@ -2350,7 +2350,7 @@ class DownloadManager(QObject):
                     ep_info['audio_url'] = audio_url
                     ep_info['kid'] = kid
                 else:
-                    # 缓存了 video_urls 也要重取音频
+                    # 有video_urls也要重取音频
                     cid = ep_info.get('cid', '')
                     if cid:
                         audio_quality = task_info.get('audio_quality', 30280)
@@ -2579,7 +2579,7 @@ class DownloadManager(QObject):
                         raise Exception("TASK_PAUSED")
 
         def is_running():
-            # tryLock 避免与 progress_cb 抢锁；
+            # tryLock避与progress_cb抢锁
             # 锁不上时假定仍在运行，防误中断
             if self._mutex.tryLock(10):
                 try:
@@ -3148,7 +3148,7 @@ class DownloadManager(QObject):
                 del self.active_tasks[task_id]
                 logger.info(f"任务{task_id}已从活动任务列表中移除")
 
-                # 标 task_manager 为 cancelled
+                # 标task_manager为cancelled
                 if self.task_manager:
                     self.task_manager.update_task_status(task_id, "cancelled", "下载已取消")
                     try:
@@ -3215,7 +3215,7 @@ class DownloadManager(QObject):
             except Exception as e:
                 logger.error(f"任务{task_id}：关闭线程池失败：{str(e)}")
 
-        # 把 task_manager 活动任务标为 cancelled
+        # 活动任务全标为cancelled
         if self.task_manager:
             for task_id in task_ids:
                 self.task_manager.update_task_status(task_id, "cancelled", "下载已取消")
