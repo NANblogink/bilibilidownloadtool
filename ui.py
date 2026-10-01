@@ -20129,7 +20129,7 @@ class BilibiliDownloader(BaseWindow):
                 else:
                     _total_eps = len(episodes)
                     for i, ep in enumerate(episodes):
-                        #format_ep_name
+                        #fmt_ep_name
                         # 序号显01.标题
                         title = format_ep_name(ep, i, video_info, total=_total_eps, seq_start=0)
                         duration_str = ""
@@ -32920,7 +32920,7 @@ class BilibiliDownloader(BaseWindow):
             content_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
             content_layout.setSpacing(scale(0))
             
-            #WebEngineView
+            #WebEngine
             web_view = _get_web_engine_view_cls()()
             web_view.setStyleSheet("border: none;")
             web_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)

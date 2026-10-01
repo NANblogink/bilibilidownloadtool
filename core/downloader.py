@@ -498,7 +498,7 @@ class EpisodeDownloadThread(QThread):
                     raise
                 elif "不完整" in str(e):
                     # 海外线路断流
-                    # IncompleteRead
+                    #IncompRead
                     # 同一节点会连续短响应
                     # 可能命中另一节点
                     # 同URL重试间隔更长

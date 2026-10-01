@@ -12,7 +12,7 @@ def w(s=""):
     L.append(str(s))
 
 
-#1) 调parse_media
+#parse_media
 ui = io.open(os.path.join(ROOT, "ui.py"), encoding="utf-8").read()
 w("=== ui.py 中 parse_media 的调用方式 ===")
 for m in re.finditer(r"parse_media\(", ui):

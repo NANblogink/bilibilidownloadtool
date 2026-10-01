@@ -102,7 +102,7 @@ def platform_tag():
     if fam == _MAC_FAMILY:
         #macosx_arm
         return _interp_arch()
-    #manylinux_aarch
+    #manylinux_a
     return _linux_arch_tag(_interp_arch())
 
 

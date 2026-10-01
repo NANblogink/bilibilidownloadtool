@@ -71,7 +71,7 @@ def subprocess_no_window_kwargs():
 def subprocess_low_priority_kwargs():
     """返回低优先级子进程的创建参数，用于ffmpeg等CPU密集型任务，降低CPU噪音但不降速"""
     if IS_WINDOWS and _NO_WINDOW_USABLE:
-        # BELOW_NORMAL
+        #BELOW_NORM
         return {'creationflags': subprocess.CREATE_NO_WINDOW | 0x00004000}
     if IS_WINDOWS:
         return {'creationflags': 0x00004000}

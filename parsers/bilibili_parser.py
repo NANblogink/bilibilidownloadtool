@@ -997,7 +997,7 @@ class BilibiliParser:
         except Exception as e:
             logger.warning(f"解析 crossDomain URL 失败: {e}")
 
-        #源3Set-Cookie
+        #src3:cookie
         try:
             raw = resp.headers.get('set-cookie') or resp.headers.get('Set-Cookie') or ''
             parsed = {}
@@ -8627,7 +8627,7 @@ class BilibiliParser:
                 kid = m.group(1)
                 logger.info(f"{log_prefix}从base_url参数中提取到KID：{kid}")
 
-        #widevine_pssh
+        #widevine
         if not kid and video.get('widevine_pssh'):
             try:
                 pssh_data = _b64.b64decode(video['widevine_pssh'])
@@ -8991,7 +8991,7 @@ class BilibiliParser:
             logger.info(f"输入文件绝对路径：{input_file}")
             logger.info(f"输出文件绝对路径：{output_file}")
             
-            #temp_dir为ASCII
+            #temp_dir:ASC
             # 标记用了临时路径
             # 标记是副本
             need_temp_copy = False
