@@ -17,7 +17,7 @@ APP_WEBSITE = "https://www.bilidown.cn"
 APP_REPO = "https://github.com/NANblogink/bilibilidownloadtool"
 BETA_QQ_GROUP = "https://jq.qq.com/?_wv=1027&k=714822491"
 
-# 内测包为 True，正式包 False
+# 内测包 True，正式 False
 # 内测包需验证授权QQ号
 IS_BETA_BUILD = False
 
@@ -92,7 +92,7 @@ def is_safe_install_path(path):
     if drive and (not tail or tail in (os.sep, '/', '\\')):
         return False, f"禁止使用驱动器根目录作为安装/卸载路径：{drive}"
 
-    # 2. 末段需存在且含应用标识，防误选浅目录
+    # 2. 末段须存在且含应用标识
     last_part = os.path.basename(norm_path)
     if not last_part:
         return False, f"路径无效：{norm_path}"

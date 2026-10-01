@@ -15,7 +15,7 @@ class HEVCCheckThread(QThread):
         # HEVC 扩展是 Windows 特有概念：
         # macOS 原生支持 HEVC 解码
         # Linux 由发行版 codec 包提供
-        # 故这两平台直接判已支持，避免
+        # 故这两平台直接判已支持
         if IS_MACOS or IS_LINUX:
             self.result_signal.emit(True)
             return

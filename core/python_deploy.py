@@ -413,7 +413,7 @@ def _pyver_ok(pyver, abi):
     if pv in ("py3", "py2.py3", "any"):
         return True
     if ab == "abi3":
-        # abi3 向下兼容：cp38~cp310 通用
+        # abi3：cp38~cp310 通用
         m = re.match(r"^cp3(\d+)$", pv)
         if not m:
             return False

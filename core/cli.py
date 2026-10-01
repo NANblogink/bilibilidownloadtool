@@ -361,7 +361,7 @@ def do_download_video():
             video_urls = play_info.get("video_urls", {})
             quality_desc = play_info.get("quality_desc", "")
             audio_url = play_info.get("audio_url", "")
-            # 取KID（付费/番剧DRM解密用）
+            # 取KID（付费/番剧DRM解密）
             ep_kid = play_info.get("kid")
 
             video_url = ""

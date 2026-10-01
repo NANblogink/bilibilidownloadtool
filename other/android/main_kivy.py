@@ -46,7 +46,7 @@ import time
 import traceback
 
 # ==========================================================================
-# 0. 路径注入（必须最早执行）
+# 0. 路径注入（最早执行）
 # ==========================================================================
 _HERE = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(_HERE))
@@ -57,7 +57,7 @@ for _sub in ("", _HERE, "core", os.path.join("core", "infra"), "parsers",
     if os.path.isdir(_p) and _p not in sys.path:
         sys.path.insert(0, _p)
 
-# 移动端不做代理：B站为国内站点，直连最快
+# 移动端不代理，直连最快
 for _k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
            "ALL_PROXY", "all_proxy"):
     os.environ.pop(_k, None)
@@ -65,7 +65,7 @@ os.environ["NO_PROXY"] = "*"
 os.environ["no_proxy"] = "*"
 
 # ==========================================================================
-# 1. 安装 Qt 兼容层（须先于任何 core 模块）
+# 1. 装 Qt 兼容层（须最早）
 # ==========================================================================
 try:
     import qt_compat
@@ -100,7 +100,7 @@ from kivy.uix.textinput import TextInput      # noqa: E402
 from kivy.utils import platform               # noqa: E402
 
 # ------------------------------------------------------------------ 字体
-# Kivy 默认字体无汉字，不换字体界面全是方块
+# Kivy 默认字体无汉字
 _FONT_DIR = _HERE
 _FONT_REG = os.path.join(_FONT_DIR, "NotoSansSC-Regular.ttf")
 _FONT_BOLD = os.path.join(_FONT_DIR, "NotoSansSC-Bold.ttf")
@@ -118,7 +118,7 @@ def _register_fonts():
         LabelBase.register(name="CN", fn_regular=_FONT_BOLD)
         reg = "CN"
     if reg:
-        # 覆盖默认字体，KV 里就不用逐个指定 font_name
+        # 覆盖默认字体，免逐个指定
         try:
             from kivy.config import Config
             Config.set("kivy", "default_font", "CN")
@@ -130,7 +130,7 @@ def _register_fonts():
 FONT_NAME = _register_fonts()
 
 if platform != "android":
-    # 桌面调试时模拟竖屏手机；无头窗口无 size，忽略
+    # 桌面调试模拟竖屏手机
     try:
         if Window is not None and getattr(Window, "size", None):
             Window.size = (420, 860)
@@ -148,7 +148,7 @@ def resource_path(*parts):
 
 
 # ==========================================================================
-# 3. 设备自适应（保守，避免拖垮设备）
+# 3. 设备自适应（保守）
 # ==========================================================================
 
 def device_profile():
@@ -172,7 +172,7 @@ def device_profile():
 PROFILE = device_profile()
 
 # ==========================================================================
-# 4. 界面 KV（配色对齐桌面版：主色/背景/文字）
+# 4. 界面 KV（对齐配色）
 # ==========================================================================
 
 KV = """
@@ -340,10 +340,10 @@ def confirm(title, message, on_yes, on_no=None):
 
 
 # ==========================================================================
-# 6. 解析 Tab（对应桌面版主界面）
+# 6. 解析 Tab（同桌面）
 # ==========================================================================
 
-# 桌面版 ui.py L19978 的 qn 映射，保持一致
+# 桌面版 qn 映射保持一致
 QN_MAP = {"360P": 16, "480P": 32, "720P": 64,
           "1080P": 80, "1080P+": 112, "4K": 126, "8K": 127}
 QN_LIST = ["自动（最高）", "8K", "4K", "1080P+", "1080P", "720P", "480P", "360P"]
@@ -360,7 +360,7 @@ class ParseTab(BoxLayout):
         self.orientation = "vertical"
         self.spacing = dp(6)
         self.padding = dp(10)
-        # 用户勾选的集下标集合；None = 全部
+        # 勾选集下标；None 全选
         self.selected_ep_indexes = None
         self._build()
 
@@ -389,7 +389,7 @@ class ParseTab(BoxLayout):
             background_color=(0.97, 0.97, 0.97, 1),
             foreground_color=(0.1, 0.1, 0.1, 1),
             cursor_color=(0.0, 0.63, 0.84, 1))
-        # 支持与桌面版一致的自动识别剪贴板链接
+        # 自动识别剪贴板链接
         self.url_input.bind(focus=self._on_url_focus)
         card.add_widget(self.url_input)
 
@@ -473,7 +473,7 @@ class ParseTab(BoxLayout):
         a_row.add_widget(self.audio_spinner)
         info.add_widget(a_row)
 
-        # 集数：既支持手填范围，也支持勾选具体集
+        # 集数：手填范围或勾选
         e_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(8))
         e_row.add_widget(themed_label(text="集数", font_size=sp(13),
                                       size_hint_x=0.2, halign="left",
@@ -488,7 +488,7 @@ class ParseTab(BoxLayout):
             cursor_color=(0.0, 0.63, 0.84, 1))
         e_row.add_widget(self.ep_input)
 
-        # 对应桌面版「选择集数」：打开带勾选框的列表
+        # 同桌面版「选择集数」按钮
         self.ep_pick_btn = Button(
             text="选择集数", background_normal="",
             background_color=(0.0, 0.63, 0.84, 1), color=(1, 1, 1, 1),
@@ -498,7 +498,7 @@ class ParseTab(BoxLayout):
         e_row.add_widget(self.ep_pick_btn)
         info.add_widget(e_row)
 
-        # 已选集数摘要（对应桌面版「共 N 集」提示）
+        # 已选集数摘要
         self.ep_summary_lbl = themed_label(
             text="", font_size=sp(11), color=(0.45, 0.45, 0.45, 1),
             size_hint_y=None, height=dp(18), halign="left", valign="middle")
@@ -681,10 +681,10 @@ class ParseTab(BoxLayout):
         self.meta_lbl.text = ""
         self.stat_lbl.text = ""
         self.parse_btn.disabled = True
-        # 与桌面版一致：解析期间按钮变为「停止解析」
+        # 解析中按钮变「停止解析」
         self._set_parsing_ui(True)
 
-        # 解析结果里的集数选择（桌面版用弹窗，这里同）
+        # 结果里的集数选择
         ep_range = (self.ep_input.text or "").strip()
 
         def _worker():
@@ -774,7 +774,7 @@ class ParseTab(BoxLayout):
             m = _re.search(r"/(\d+)", u)
             if m:
                 return ("live", m.group(1))
-        # 兜底：交给 parser 自己判断
+        # 兜底：交给 parser 判断
         return ("video", u)
 
     def _parse_failed(self, msg):
@@ -794,7 +794,7 @@ class ParseTab(BoxLayout):
         title = info.get("title") or info.get("name") or "未知标题"
         self.title_lbl.text = title
 
-        # 新视频 → 清空上一部片子的集数勾选
+        # 换新视频则清空勾选
         self.selected_ep_indexes = None
         if hasattr(self, "ep_summary_lbl"):
             self.ep_summary_lbl.text = ""
@@ -815,7 +815,7 @@ class ParseTab(BoxLayout):
 
         eps = info.get("episodes") or []
         self.stat_lbl.text = "共 %d 个视频" % len(eps) if eps else ""
-        # 与桌面版一致：集数多时引导点「选择集数」
+        # 集数多则提示选择集数
         if hasattr(self, "ep_summary_lbl"):
             if len(eps) > 1:
                 self.ep_summary_lbl.text = (
@@ -824,7 +824,7 @@ class ParseTab(BoxLayout):
             else:
                 self.ep_summary_lbl.text = ""
 
-        # 用真实返回的清晰度填充下拉框（与桌面版一致）
+        # 用真实清晰度填下拉框
         quals = ["自动（最高）"]
         try:
             for q in (info.get("qualities") or []):
@@ -873,9 +873,9 @@ class ParseTab(BoxLayout):
             ti("提示", "没有可下载的内容")
             return
 
-        # 应用「选择集数」结果：只下载用户选中的集
-        # 做法是给引擎一份裁剪过的 episodes 拷贝，
-        # 其余字段（标题/封面等）保持原样，与桌面版一致
+        # 只下载用户勾选的集
+        # 做法：给引擎裁剪拷贝
+        # 其余字段保持原样
         picked = self.selected_ep_indexes
         if picked is not None:
             selected = [ep for i, ep in enumerate(eps) if i in picked]
@@ -971,7 +971,7 @@ class ParseTab(BoxLayout):
             self.ep_input.text = ""
             self.ep_summary_lbl.text = ""
             return
-        # 转成 1 基集号文本，便于用户看到选了什么
+        # 转成 1 基集号文本
         nums = sorted(i + 1 for i in indexes)
         if len(nums) <= 12:
             text = ",".join(str(n) for n in nums)
@@ -1196,7 +1196,7 @@ class HistoryTab(BoxLayout):
         try:
             kw = (self.search_input.text or "").strip()
             status = "" if self.filter == "全部" else self.filter
-            # 注意：get_records() 返回 (records, total) 元组，
+            # get_records() 返回元组
             # 不是列表 —— 这里必须解包
             result = self.app.history.get_records(
                 keyword=kw, status_filter=status, limit=200)
@@ -1463,7 +1463,7 @@ class SettingsTab(BoxLayout):
 
 
 # ==========================================================================
-# 9.5 集数选择弹窗（对应桌面版「选择集数」）
+# 9.5 集数选择弹窗
 # ==========================================================================
 
 class EpisodeRow(BoxLayout):
@@ -1489,7 +1489,7 @@ class EpisodeRow(BoxLayout):
         self.add_widget(lbl)
 
     def set_checked(self, value):
-        # 避免回调风暴：只在真的变化时改
+        # 只在真的变化时才改
         if self.cb.active != value:
             self.cb.active = value
 
@@ -1509,7 +1509,7 @@ class EpisodePicker(Popup):
         self.episodes = list(info.get("episodes") or [])
         self.rows = []
         self.checked = set()
-        # 初始沿用上次选择；没有则默认全选
+        # 沿用上次选择，否则全选
         prev = parse_tab.selected_ep_indexes
         if prev is None:
             self.checked = set(range(len(self.episodes)))
@@ -1675,7 +1675,7 @@ class LoginPopup(Popup):
         self.status_lbl.bind(size=lambda w, s: setattr(w, "text_size", s))
         content.add_widget(self.status_lbl)
 
-        # ---- 二维码区域（白底圆角，扫码更清晰）----
+        # ---- 二维码区域（白底）----
         qr_wrap = BoxLayout(size_hint_y=1, padding=dp(10))
         with qr_wrap.canvas.before:
             Color(1, 1, 1, 1)
@@ -1761,7 +1761,7 @@ class LoginPopup(Popup):
                 traceback.print_exc()
             self._set_status("请用 B站 App 扫码登录")
         else:
-            # 不让用户卡死：至少把链接打出来，便于排查
+            # 至少打印链接便于排查
             self._set_status("二维码生成失败，请点「刷新二维码」重试")
             if url:
                 print("[login] qr url:", url)
@@ -1796,7 +1796,7 @@ class LoginPopup(Popup):
                 parser = self.app.get_parser()
                 res = parser.poll_login_status(self._qrcode_key) or {}
             except Exception:
-                # 网络抖动就忽略，下一轮再试，不要因此中断
+                # 网络抖动忽略，下轮再试
                 return
             Clock.schedule_once(lambda dt: self._on_poll(res), 0)
 
@@ -1820,7 +1820,7 @@ class LoginPopup(Popup):
         code = res.get("code")
         if status:
             self._set_status(status)
-        # 86038 = 二维码已失效：自动换一张，省得用户点刷新
+        # 86038 = 二维码已失效
         if code == 86038:
             self._stop_poll()
             self._set_status("二维码已失效，正在刷新…")
@@ -1986,7 +1986,7 @@ class BilibiliAndroidApp(App):
                 pass
 
     # ------------------------------------------------------------ 信号槽
-    # 注意：这些可能在工作线程被调用，须 Clock 切主线程
+    # 可能在工作线程调用
     def _sig_global_progress(self, pct, text=""):
         Clock.schedule_once(
             lambda dt: self._apply_global_progress(pct, text), 0)
@@ -2121,7 +2121,7 @@ class BilibiliAndroidApp(App):
                 ti("提示", "没有可下载的内容")
                 return
 
-            # 只保留要下载的集（episode_range 已在解析时应用）
+            # 只保留要下载的集
             row = self.task_tab.add_task(task_id, title, content_type)
             row.update_progress(0, "已加入队列")
             self._row_titles[task_id] = title
@@ -2135,7 +2135,7 @@ class BilibiliAndroidApp(App):
                 "episodes": eps,
                 "resume_download": True,
                 "task_id": task_id,
-                # 0=有声视频 1=仅音频 2=仅视频（与桌面版一致）
+                # 0 有声 1 音频 2 视频
                 "download_content_type": content_type,
                 "download_danmaku": bool(want_danmaku),
                 "video_format": cfg.get_app_setting("video_output_format", "mp4"),
@@ -2316,7 +2316,7 @@ class BilibiliAndroidApp(App):
         root = BoxLayout(orientation="vertical")
         self._bg(root, (0.96, 0.96, 0.96, 1))
 
-        # 顶部标题栏（桌面版主色 #00a1d6）
+        # 顶部标题栏（主色）
         header = BoxLayout(size_hint_y=None, height=dp(58),
                            padding=(dp(12), 0), spacing=dp(10))
         self._bg(header, (0.0, 0.63, 0.84, 1))
@@ -2356,7 +2356,7 @@ class BilibiliAndroidApp(App):
         # 切到历史页时刷新
         self.tabs.bind(current_tab=self._on_tab_change)
 
-        # 启动后异步检查登录态 + 工具
+        # 启动后异步检查登录态
         Clock.schedule_once(lambda dt: self._check_login_state(), 1.0)
         return root
 
@@ -2404,7 +2404,7 @@ class BilibiliAndroidApp(App):
             pass
 
 
-# Python 关键字冲突：此处给 ti 一个别名方便调用
+# 给 ti 别名方便调用
 ti = tip
 
 

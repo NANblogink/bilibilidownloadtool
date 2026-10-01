@@ -88,12 +88,12 @@ def resolve_builtin_icon_path(icon_key="default"):
         if os.path.exists(candidate):
             # 历史 logo.ico 实为 PNG 改名，
             # 按 ICO 解析会得空白图标。故校验
-            # 魔数，假 ICO 跳过，避免任务栏空白。
+            # 魔数，假 ICO 跳过，免任务栏空白。
             if file_name.lower().endswith(".ico") and not _is_real_ico(candidate):
                 continue
             return candidate
     # 无真 ICO 时返回空串，让调用方
-    # 继续尝试其它源（如 logo_alt_kaisui），
+    # 继续试其它源（如 logo_alt_kaisui），
     # 而非退回渲染成空白的假 ICO。
     return ""
 

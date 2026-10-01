@@ -78,8 +78,8 @@ def is_cert_installed(cer_path):
     if sys.platform != "win32":
         return False, False
     try:
-        # -verify 太复杂，改用 -store 查指纹
-        # 先从证书文件读取 SHA1 指纹
+        # -verify 太复杂，改用 -store
+        # 先从证书文件读 SHA1 指纹
         import subprocess
         result = subprocess.run(
             ["certutil", "-dump", cer_path],
@@ -161,7 +161,7 @@ def auto_install_cert(silent=True):
 def install_cert(cer_path, store_name, store_location="LocalMachine"):
     """用 certutil 安装证书到指定存储区"""
     # -addstore -f <位置>\<存储名> <cer>
-    # 加 -user 装到 CurrentUser，免管理员
+    # 加 -user 装到 CurrentUser
     if store_location == "LocalMachine":
         args = ["certutil", "-addstore", "-f", store_name, cer_path]
     else:

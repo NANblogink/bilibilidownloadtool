@@ -114,15 +114,15 @@ def set_beta_flag(want):
         content = content[:m.start(1)] + target + content[m.end(1):]
         with open(APP_CONFIG, "w", encoding="utf-8", newline="") as f:
             f.write(content)
-    # 回读复验，防止「报成功但未落盘」
+    # 回读复验，防未落盘
     got = get_beta_flag()
     if got != want:
         raise RuntimeError("开关写入失败：期望 %s 实际 %s" % (want, got))
     return got
 
 
-# 开关备份标记：进程被强杀（TerminateProcess 不触发 finally/atexit）时，
-# 靠这个文件在下次运行时自愈，避免内测开关永久残留在仓库里。
+# 开关备份标记：被强杀时
+# 靠它下次运行自愈
 FLAG_MARKER = os.path.join(WORK_BETA, ".beta_flag_backup")
 
 
@@ -285,7 +285,7 @@ def step_assemble_lean(bm):
     os.makedirs(lean_internal, exist_ok=True)
     t = bm.copy_mpv_to(lean_internal)
 
-    # 防御：确认精简包里确实没有 PyQt5 / ffmpeg / bento4
+    # 确认精简包无 PyQt5
     for bad in ("PyQt5", "ffmpeg", "bento4"):
         p = os.path.join(lean_internal, bad)
         if os.path.exists(p):
@@ -332,15 +332,15 @@ def step_installer_embedded():
     if not os.path.isfile(full_zip):
         raise RuntimeError("内嵌安装器需要先产出 full.zip: %s" % full_zip)
 
-    # spec 是 Python 源码，里面的 Windows 路径是双反斜杠转义形式
-    # （'E:\\旧桌面备份\\...\\output\\xxx.zip'），所以搜索串也必须转义，
-    # 直接用单反斜杠的 os.path.join 是匹配不上的。
+    # spec 路径是双反斜杠转义
+    # 所以搜索串也必须转义
+    # 单反斜杠匹配不上该串
     old_esc = ROOT.replace("\\", "\\\\") + "\\\\output\\\\"
     new_esc = OUTPUT_BETA.replace("\\", "\\\\") + "\\\\"
     patched = content.replace(old_esc, new_esc)
 
     if patched == content:
-        # 退路：万一 spec 被改成单反斜杠或正斜杠写法
+        # 退路：spec 可能单反斜杠
         for old_f, new_f in ((ROOT + "\\output\\", OUTPUT_BETA + "\\"),
                              (ROOT.replace("\\", "/") + "/output/",
                               OUTPUT_BETA.replace("\\", "/") + "/")):
@@ -351,9 +351,9 @@ def step_installer_embedded():
     if patched == content:
         raise RuntimeError("未能改写内嵌 spec 的 datas 路径，请检查 spec 内容")
 
-    # 临时 spec 必须放在项目根目录，不能放工作目录：
-    # spec 里的 icon=['logo.ico'] 是相对路径，PyInstaller 按 SPECPATH
-    # （即 spec 所在目录）解析，放到 build_win_beta/ 下会找不到图标。
+    # 临时 spec 须放项目根目录
+    # icon 相对路径按 SPECPATH
+    # 解析，放工作目录找不到图标
     tmp_spec = os.path.join(ROOT, "%s_installer_embedded_beta.spec" % VERSION_NUM)
     with open(tmp_spec, "w", encoding="utf-8") as f:
         f.write(patched)
@@ -401,8 +401,8 @@ def main():
     log("输出: %s" % OUTPUT_BETA)
     log("=" * 62)
 
-    # 先把原值写进标记文件，再改开关。顺序不能反：
-    # 若在写标记前就被强杀，就没有任何线索知道原值是什么了。
+    # 先写标记文件，再改开关
+    # 反序被强杀就没线索了
     original = get_beta_flag()
     _write_marker(original)
     set_beta_flag(True)
@@ -430,8 +430,8 @@ def main():
             except Exception as e:
                 log("!!! 失败 [%s] %s" % (key, e))
                 failed.append((key, str(e)))
-                # 打包步骤彼此有依赖（后一步要用前一步的产物），
-                # 继续跑只会把旧产物打进包里，产出一个「看起来成功」的坏包。
+                # 打包步骤有依赖关系
+                # 继续跑只会产出坏包
                 if not args.keep_going:
                     log("遇到失败，停止后续步骤（用 --keep-going 可强制继续）")
                     break

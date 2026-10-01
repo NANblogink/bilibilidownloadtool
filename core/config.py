@@ -170,8 +170,8 @@ class ConfigLoader:
                 s["default_save_path"] = _default_download_dir()
                 return
 
-            # 历史配置可能存了已删除的目录
-            # 父目录不存在会导致下载无处可存，
+            # 历史配置可能存了已删目录
+            # 父目录缺失会让下载无处可存，
             # 故回落到项目根下 B站下载。
             parent = os.path.dirname(cur)
             if parent and not os.path.isdir(parent):

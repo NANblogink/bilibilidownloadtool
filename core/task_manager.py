@@ -44,7 +44,7 @@ class TaskManager:
 
     def save_tasks(self):
         try:
-            # 深拷贝并处理非JSON可序列化数据
+            # 深拷贝并处理非JSON序列化数据
             def _clean(obj):
                 if isinstance(obj, dict):
                     return {str(k): _clean(v) for k, v in obj.items()}

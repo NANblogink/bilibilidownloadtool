@@ -30,7 +30,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# orjson优先，文件仍json
+# orjson优先
 import json as std_json
 JSONDecodeError = std_json.JSONDecodeError
 try:
@@ -65,7 +65,7 @@ KID_CACHE_EXPIRY = 3600  # 1小时
 # 多线程并发访问保护
 KID_CACHE_LOCK = threading.Lock()
 
-# DRM密钥缓存防重复请求
+# DRM缓存防重请求
 DRM_KEY_CACHE = {}
 DRM_KEY_CACHE_EXPIRY = 3600  # DRM密钥有效期较长
 # 多线程并发访问保护
@@ -80,7 +80,7 @@ def _decode_subprocess_output(data):
     """
     if not data:
         return ''
-    # 优先GBK，回退UTF-8
+    # GBK优先
     for encoding in ('gbk', 'utf-8'):
         try:
             return data.decode(encoding)
@@ -116,7 +116,7 @@ class SimpleBiliDRM:
                 raise Exception(f"公钥获取失败或格式无效（长度={len(self._public_key) if self._public_key else 0}）")
             return self
         except Exception:
-            # 初始化失败也关session
+            # 失败关session
             if self.session and not self.session.closed:
                 await self.session.close()
             raise
@@ -209,13 +209,13 @@ class SimpleBiliDRM:
         return spc_b64
 
     async def get_key(self, kid):
-        # KID统一为32字节ASCII
+        # KID统一32字节
         kid_bytes = self._normalize_kid(kid)
 
         # 缓存键用规范化kid
-        # 各KID格式共用同一缓存
+        # 各格式共用缓存
         cache_key = kid_bytes.decode('ascii', errors='ignore').lower()
-        # 空cache_key会串缓存
+        # 空key会串缓存
         if not cache_key or not all(c in '0123456789abcdef' for c in cache_key):
             logger.warning(f"KID规范化后非合法hex，跳过缓存：{cache_key!r}")
             cache_key = None
@@ -297,7 +297,7 @@ class SimpleBiliDRM:
             logger.info(f"成功获取DRM密钥: {result_key}")
 
             # 写密钥缓存加锁
-            # cache_key合法才缓存
+            # 合法才缓存
             if cache_key is not None:
                 with DRM_KEY_CACHE_LOCK:
                     DRM_KEY_CACHE[cache_key] = (result_key, time.time())
@@ -380,8 +380,8 @@ class BilibiliParser:
         self.config = config
         self.cookies = {}
         self.csrf_token = ""
-        # curl_cffi模拟Chrome降风控
-        # 缺curl_cffi回退requests
+        # curl_cffi降风控
+        # 缺则用requests
         self.session = self._create_browser_session()
         self.user_info = None
         self.hevc_supported = False
@@ -398,7 +398,7 @@ class BilibiliParser:
         else:
             self.current_dir = os.path.dirname(os.path.abspath(__file__))
 
-        # 预计算ASCII临时目录
+        # 预算ASCII目录
         # 防中文路径致工具崩溃
         # 优先缓存目录，别写C盘
         _pref_cache_dir = ""
@@ -459,8 +459,8 @@ class BilibiliParser:
         
         self.cookies = self._load_cookies()
         logger.info(f"从文件加载的cookie：{self.cookies}")
-        # 写cookie必须带domain
-        # 否则api收不到，登录失效
+        # 写cookie须带域
+        # 否则登录失效
         self._apply_cookies_to_session(self.cookies, clear_first=True)
         
         self.csrf_token = self.cookies.get('bili_jct', '')
@@ -469,15 +469,15 @@ class BilibiliParser:
         
         self.session.verify = False
         self.session.proxies = {}  # 强制禁用代理
-        self.session.trust_env = False  # 不读系统代理，开梯也直连
+        self.session.trust_env = False  # 不读代理直连
 
-        # 注入完整WebEngine环境
+        # 注入WebEngine环境
         # 与环境一致防风控
         self.load_browser_env()
 
         self._load_cached_wbi_keys()
-        # daemon必须留，线程要联网
-        # 非守护线程致程序退不掉
+        # daemon必须留
+        # 非守护退不掉
         threading.Thread(target=self._update_wbi_keys, daemon=True).start()
         
         if 'bili_ticket' not in self.cookies:
@@ -539,7 +539,7 @@ class BilibiliParser:
             
             logger.info(f"session cookie：{dict(self.session.cookies)}")
             
-            # 同步取WBI密钥，确保就绪
+            # 同步取WBI密钥
             try:
                 _img_key, _ = self.wbi_sign.get_wbi_keys()
                 if not _img_key or _img_key == 'img_key':
@@ -665,7 +665,7 @@ class BilibiliParser:
             success, data = self._api_request(url, timeout=10, use_wbi=False)
             if not success:
                 logger.warning(f"获取 Wbi 密钥失败：{data['error']}，使用缓存密钥")
-                # 失败也返回True用缓存
+                # 失败也返True
                 img_key, sub_key = self.wbi_sign.get_wbi_keys()
                 return img_key and sub_key
             
@@ -675,7 +675,7 @@ class BilibiliParser:
             
             if not img_url or not sub_url:
                 logger.warning("获取 Wbi 密钥失败：未找到密钥信息，使用缓存密钥")
-                # 失败也返回True用缓存
+                # 失败也返True
                 img_key, sub_key = self.wbi_sign.get_wbi_keys()
                 return img_key and sub_key
             
@@ -688,7 +688,7 @@ class BilibiliParser:
             return True
         except Exception as e:
             logger.error(f"获取 Wbi 密钥失败：{str(e)}，使用缓存密钥")
-            # 失败也返回True用缓存
+            # 失败也返True
             img_key, sub_key = self.wbi_sign.get_wbi_keys()
             return img_key and sub_key
     
@@ -927,9 +927,9 @@ class BilibiliParser:
         return cookies
 
 
-    # B站cookie的父域
-    # 不能只用update写cookie
-    # update不写domain收不到
+    # B站cookie父域
+    # 不能只用update
+    # update不写域
     # 表现为扫码成功却过期
     COOKIE_DOMAIN = ".bilibili.com"
 
@@ -950,7 +950,7 @@ class BilibiliParser:
                 self.session.cookies.set(k, str(v), domain=self.COOKIE_DOMAIN)
                 applied += 1
             except Exception:
-                # cookie名非法则无域写入
+                # 名非法则无域
                 try:
                     self.session.cookies.update({k: str(v)})
                     applied += 1
@@ -958,7 +958,7 @@ class BilibiliParser:
                     pass
         return applied
 
-    # 登录态cookie名集合
+    # 登录态cookie集
     LOGIN_COOKIE_KEYS = ('DedeUserID', 'DedeUserID__ckMd5', 'SESSDATA', 'bili_jct', 'sid', 'buvid3')
 
     def _harvest_login_cookies(self, resp, login_data):
@@ -975,7 +975,7 @@ class BilibiliParser:
             return {k: v for k, v in (d or {}).items()
                     if k in self.LOGIN_COOKIE_KEYS and v}
 
-        # 解析源1：resp.cookies
+        # 源1:resp.cookies
         try:
             got = _pick({c.name: c.value for c in resp.cookies})
             if got:
@@ -984,7 +984,7 @@ class BilibiliParser:
         except Exception:
             pass
 
-        # 解析源2：crossDomain
+        # 源2:crossDomain
         try:
             cd_url = (login_data or {}).get('url') or ''
             if cd_url:
@@ -997,7 +997,7 @@ class BilibiliParser:
         except Exception as e:
             logger.warning(f"解析 crossDomain URL 失败: {e}")
 
-        # 解析源3：Set-Cookie头
+        # 源3:Set-Cookie
         try:
             raw = resp.headers.get('set-cookie') or resp.headers.get('Set-Cookie') or ''
             parsed = {}
@@ -1042,8 +1042,8 @@ class BilibiliParser:
         if not ok:
             logger.warning("登录 cookie 保存失败，登录态可能无法持久化")
 
-        # 查信息前确保网络已初始化
-        # 否则用旧状态显示未登录
+        # 查信息前先初始化
+        # 否则显未登录
         try:
             self._wait_session_ready(timeout=10)
         except Exception:
@@ -1058,7 +1058,7 @@ class BilibiliParser:
                 user_info = {}
             if user_info.get('success'):
                 break
-            # cookie生效有延迟，重试
+            # cookie延迟重试
             time.sleep(0.6 + attempt * 0.4)
 
         logger.info(
@@ -1088,7 +1088,7 @@ class BilibiliParser:
             if not isinstance(cookies, dict):
                 raise ValueError("Cookie格式不支持")
 
-            # 过滤无效cookie键值对
+            # 过滤无效键值
             cookies = {k: v for k, v in cookies.items() if self._is_valid_cookie_kv(k, v)}
             if not cookies:
                 raise ValueError("没有有效的cookie可保存（所有cookie数据均未通过验证）")
@@ -1172,10 +1172,10 @@ class BilibiliParser:
         # 值不能含换行、管道符
         if '\n' in value or '\r' in value or '| DEBUG' in value or '| INFO' in value or '| WARNING' in value or '| ERROR' in value:
             return False
-        # 值不能过长，约500字符
+        # 值不超500字符
         if len(value) > 1000:
             return False
-        # 值不能是dict或list片段
+        # 值非dict或list
         if value.startswith('{') or value.startswith('['):
             return False
         return True
@@ -1192,7 +1192,7 @@ class BilibiliParser:
             logger.warning(f"Cookie文本包含日志数据污染，已忽略。文本前50字符: {text[:50]}")
             return cookie_dict
 
-        # 试解析Python dict格式
+        # 试解析dict格式
         if (text.startswith('{') and text.endswith('}')) or (text.startswith('[') and text.endswith(']')):
             try:
                 import ast
@@ -1215,7 +1215,7 @@ class BilibiliParser:
             except Exception:
                 pass
 
-            # ast失败改用正则提取
+            # 失败改正则提取
             import re
             dict_pattern = re.compile(r"['\"](\w+)['\"]\s*:\s*['\"]([^'\"]*)['\"]")
             matches = dict_pattern.findall(text)
@@ -1227,7 +1227,7 @@ class BilibiliParser:
                     logger.info(f"通过正则提取到{len(cookie_dict)}个cookie(dict格式)")
                     return cookie_dict
 
-        # 标准格式key=value
+        # 格式key=value
         pairs = [pair.strip() for pair in text.split(';') if pair.strip()]
         for pair in pairs:
             if '=' in pair:
@@ -1541,7 +1541,7 @@ class BilibiliParser:
 
     def get_qrcode(self):
         # 扫码登录要干净的会话
-        # 否则复用登录态会一直未扫码
+        # 否则一直未扫码
         try:
             self._strip_login_cookies_from_session()
         except Exception:
@@ -1907,7 +1907,7 @@ class BilibiliParser:
     
     def get_user_detail(self):
         try:
-            # 取用户基本信息拿mid
+            # 取基本信息拿mid
             user_info = self.get_user_info()
             if not user_info.get("success"):
                 return {"success": False, "error": "未登录或Cookie失效"}
@@ -1935,22 +1935,22 @@ class BilibiliParser:
                 "mid": mid
             }
             
-            # 确保session带cookie
+            # 确保带cookie
             logger.info(f"当前session cookie: {dict(self.session.cookies)}")
             
-            # 不用Wbi签名直接请求
+            # 不用Wbi直请求
             logger.info(f"尝试获取用户详细信息，URL: {url}, params: {params}")
             success, result = self._api_request(url, use_wbi=False, params=params)
             logger.info(f"API请求结果 - success: {success}, result: {result}")
             
             if not success:
-                # API失败则用基本信息
+                # 失败用基本信息
                 logger.debug(f"获取用户详细信息失败：{result.get('error', '未知错误')}，使用基本信息")
                 return basic_user_detail
             
             code = result.get('code', -1)
             if code != 0:
-                # API报错则用基本信息
+                # 报错用基本信息
                 msg = result.get('message', '未知错误')
                 logger.debug(f"API返回错误：{msg}（code={code}），使用基本信息")
                 return basic_user_detail
@@ -1978,7 +1978,7 @@ class BilibiliParser:
         except Exception as e:
             # 异常时用基本信息
             logger.debug(f"获取用户详细信息失败：{str(e)}，使用基本信息")
-            # 确保user_info已定义
+            # 确保user_info在
             if 'user_info' not in locals():
                 user_info = self.get_user_info()
             return {
@@ -2275,7 +2275,7 @@ class BilibiliParser:
                 time.sleep(0.3)
                 success, data = self._request_space_videos_web(mid, page, ps, use_wbi=False)
 
-            # Web全失败回退APP接口
+            # Web失败回退APP
             if not success:
                 logger.info(f"Web 接口获取失败，回退到 APP 接口：{data.get('error')}")
                 time.sleep(0.3)
@@ -2348,7 +2348,7 @@ class BilibiliParser:
 
     def get_space_videos_page(self, mid, page=1, ps=30):
         """单独加载指定页的空间视频，供 UI 按需加载更多使用"""
-        # Web按页取，APP是游标
+        # Web按页APP游标
         success, data = self._request_space_videos_web(mid, page, ps, use_wbi=True)
         if not success:
             success, data = self._request_space_videos_web(mid, page, ps, use_wbi=False)
@@ -2369,7 +2369,7 @@ class BilibiliParser:
 
     def check_hevc_support(self):
         try:
-            # 优先用自带的ffmpeg
+            # 优先自带ffmpeg
             ffmpeg_exec = self.ffmpeg_local if self.ffmpeg_local and os.path.exists(self.ffmpeg_local) else shutil.which('ffmpeg')
             if not ffmpeg_exec or not os.path.exists(ffmpeg_exec):
                 self.hevc_supported = False
@@ -2390,7 +2390,7 @@ class BilibiliParser:
             import os
             import subprocess
 
-            # 项目根是parsers上一级
+            # 根是parsers上级
             hevc_appx = os.path.join(_pathsetup.project_root(), "hevc安装.Appx")
 
             if not os.path.exists(hevc_appx):
@@ -2435,7 +2435,7 @@ class BilibiliParser:
             import json
             import subprocess
 
-            # 中文路径优先8.3短路径
+            # 中文优先8.3短路径
             if has_non_ascii(video_path):
                 short_path = to_short_path(video_path)
                 if short_path != video_path:
@@ -2514,15 +2514,15 @@ class BilibiliParser:
         adaptive_crf = self._get_adaptive_crf(source_bitrate)
         codec_name = params['name']
 
-        # 中文路径优先8.3短路径
+        # 中文优先8.3短路径
         actual_input = to_short_path(input_path) if has_non_ascii(input_path) else input_path
         if actual_input != input_path:
             logger.info(f"[转码] 输入文件使用8.3短路径：{actual_input}")
 
         # 写临时文件再替换
-        # 含中文则用ASCII临时目录
+        # 中文用ASCII目录
         if has_non_ascii(output_path):
-            # 临时同盘，转码后原子移动
+            # 同盘转码后原子移动
             _tr_temp_dir = get_safe_temp_dir(
                 os.path.dirname(os.path.abspath(__file__)), "temp",
                 cache_dir=None,
@@ -2621,14 +2621,14 @@ class BilibiliParser:
                     pass
                 progress_callback = empty_progress
 
-            # 测源码率用自适应CRF
+            # 源码率用自适应CRF
             video_bitrate = self._get_video_bitrate(input_path, ffmpeg_path)
             adaptive_crf = self._get_adaptive_crf(video_bitrate)
 
-            # 中文路径优先8.3短路径
+            # 中文优先8.3短路径
             actual_input = to_short_path(input_path) if has_non_ascii(input_path) else input_path
             if has_non_ascii(output_path):
-                # 含中文则用ASCII临时目录
+                # 中文用ASCII目录
                 actual_output = os.path.join(self.safe_temp_dir, f"h264_convert_{os.getpid()}_{int(time.time() * 1000) % 100000000}.mp4")
                 need_move_output = True
             else:
@@ -2670,7 +2670,7 @@ class BilibiliParser:
 
             process.wait()
 
-            # 转码成功后移动临时文件
+            # 成功后移临时文件
             if need_move_output and os.path.exists(actual_output) and os.path.getsize(actual_output) > 0:
                 try:
                     # 同盘原子移动免双写
@@ -2895,7 +2895,7 @@ class BilibiliParser:
         """密码登录前先访问 B 站，让服务端下发 buvid3/buvid4/_uuid 等完整浏览器指纹 cookie。
         优先复用已通过设备验证的浏览器环境（同一套设备指纹），并剔除残留登录态，避免每次登录都被判定为可疑环境再次触发风控。"""
         try:
-            # 先剔除旧登录态cookie
+            # 先剔旧cookie
             self._strip_login_cookies_from_session()
 
             # 复用已验证设备指纹
@@ -2927,19 +2927,19 @@ class BilibiliParser:
             }
             self.session.headers.update(warmup_headers)
 
-            # 访问首页拿buvid与_uuid
+            # 首页拿buvid
             try:
                 self.session.get("https://www.bilibili.com/", timeout=10, allow_redirects=True)
             except Exception as e:
                 logger.warning(f"warmup 访问首页失败: {e}")
 
-            # 访问passport下发cookie
+            # passport下发
             try:
                 self.session.get("https://passport.bilibili.com/login", timeout=10, allow_redirects=True)
             except Exception as e:
                 logger.warning(f"warmup 访问 passport 失败: {e}")
 
-            # 访问nav补全buvid指纹
+            # nav补全buvid
             try:
                 self.session.get("https://api.bilibili.com/x/web-interface/nav", timeout=10)
             except Exception as e:
@@ -2958,7 +2958,7 @@ class BilibiliParser:
     def login_with_password(self, username, password, token, challenge, validate):
         try:
 
-            # 登录前须先建浏览器指纹
+            # 登录前先建指纹
             self.warmup_before_login()
 
             key_result = self.get_login_key()
@@ -2989,7 +2989,7 @@ class BilibiliParser:
             logger = logging.getLogger(__name__)
             
             
-            # 复用warmup的UA勿覆盖
+            # 复用warmup的UA
             _current_ua = self.session.headers.get('User-Agent') or 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
             headers = {
                 'User-Agent': _current_ua,
@@ -3651,14 +3651,14 @@ class BilibiliParser:
             return {"success": False, "error": _range_err}
         if ep_filter:
             logger.info(f"集数范围过滤已启用：{sorted(ep_filter)[:50]}{'...' if len(ep_filter) > 50 else ''}")
-        # parse_mode定合集加载策略
+        # mode定合集策略
         load_collection = parse_mode not in ("video_only", "page_only")
         force_full_collection = parse_mode == "collection"
         pp = f" (指定P{episode_page})" if episode_page else ""
         logger.info(f"开始解析媒体信息: 类型={media_type}, ID={media_id}{pp}")
         try:
             if cancel_check and cancel_check():
-                # 未取到信息即停止，非出错
+                # 未取到即停止
                 return {"success": False, "error": "解析已取消", "cancelled": True}
 
             bvid = None
@@ -3667,7 +3667,7 @@ class BilibiliParser:
             collection = []
             bangumi_info = None
             cheese_info = None
-            # 停止时回传已获基本信息
+            # 停止回传基本信息
             season_title = ""
             cover = ""
             desc = ""
@@ -3899,10 +3899,10 @@ class BilibiliParser:
                     if not title:
                         title = self._sanitize_filename(video_info['title'])
 
-                    # 按字段自动识别视频类型
+                    # 按字段识别类型
                     # 参考：https://sessionhu.github.io/bilibili-API-collect/docs/video/info.html
-                    # 有redirect_url即番剧影视
-                    # is_upower_exclusive专属充电
+                    # 有redirect即番剧
+                    # upower为充电
                     redirect_url = video_info.get('redirect_url', '') if video_info else ''
                     is_upower_exclusive = bool(video_info.get('is_upower_exclusive', False)) if video_info else False
                     is_upower_play = bool(video_info.get('is_upower_play', False)) if video_info else False
@@ -3945,8 +3945,8 @@ class BilibiliParser:
                         interact_info = {"stein_guide_cid": video_info['stein_guide_cid']}
                         logger.info(f"通过stein_guide_cid字段检测到互动视频：{video_info['stein_guide_cid']}")
                     
-                    # parse_mode控制合集加载
-                    # page_only单集，video_only当前P
+                    # mode控合集加载
+                    # page_only单集
                     if not load_collection:
                         pages = video_info.get('pages', [])
                         if parse_mode == "page_only" and episode_page and pages and len(pages) >= episode_page:
@@ -3982,7 +3982,7 @@ class BilibiliParser:
                         pages = video_info.get('pages', [])
                         has_ugc = 'ugc_season' in video_info
                         if pages and len(pages) >= episode_page and not has_ugc:
-                            # 仅多P非合集可走快速路径
+                            # 仅多P可走快速路径
                             target = pages[episode_page - 1]
                             cid = target.get('cid', cid)
                             collection = [{
@@ -4005,10 +4005,10 @@ class BilibiliParser:
                         logger.info(f"从API获取合集信息，共{len(collection)}集")
                         
                         # 合集仅1集时查系列
-                        # video_only禁回退系列合集
+                        # video_only禁回退
                         if parse_mode != "video_only" and len(collection) <= 1:
                             logger.info("合集信息只有1集，尝试查找视频所属系列...")
-                            # 复用已有mid免重复请求
+                            # 复用mid免重请求
                             _owner_mid = None
                             if video_info and video_info.get('owner'):
                                 _owner_mid = video_info.get('owner', {}).get('mid')
@@ -4017,7 +4017,7 @@ class BilibiliParser:
                                 collection = series_collection
                                 logger.info(f"找到系列，共{len(collection)}集")
                         
-                        # 合集系列都没有则用分P
+                        # 都无则用分P
                         if not collection and 'pages' in video_info:
                             for page in video_info['pages']:
                                 duration = page.get('duration', 0)
@@ -4113,8 +4113,8 @@ class BilibiliParser:
             if progress_callback:
                 progress_callback(40, "正在获取播放信息...")
             if cancel_check and cancel_check():
-                # 已有基本信息但无播放地址
-                # 返回部分信息留标题封面
+                # 有信息但无播放地址
+                # 返回部分留标题封面
                 logger.info("用户停止解析（尚未获取播放地址），返回已获得的基本信息")
                 return {
                     "success": True,
@@ -4153,8 +4153,8 @@ class BilibiliParser:
                 
                 total_episodes = len(episodes)
                 for i, ep in enumerate(episodes):
-                    # 范围外的集跳过播放请求
-                    # 独立标记out_of_range
+                    # 范围外跳过播放请求
+                    # 标记out_of_range
                     if ep_filter is not None:
                         _n = self._ep_number(ep)
                         if _n is None or _n not in ep_filter:
@@ -4163,8 +4163,8 @@ class BilibiliParser:
                         episodes[i]['out_of_range'] = False
                     try:
                         if cancel_check and cancel_check():
-                            # 停止时返回已解析的部分
-                            # 原先直接失败会清空界面
+                            # 停止返回已解析部分
+                            # 原先失败会清空界面
                             logger.info(f"用户停止解析，返回已完成的 {i}/{total_episodes} 集（课程）")
                             return {
                                 "success": True,
@@ -4226,7 +4226,7 @@ class BilibiliParser:
                 # 为每集单独检查权限
                 total_episodes = len(episodes)
                 for i, ep in enumerate(episodes):
-                    # 范围外的集跳过播放请求
+                    # 范围外跳过播放请求
                     if ep_filter is not None:
                         _n = self._ep_number(ep)
                         if _n is None or _n not in ep_filter:
@@ -4322,7 +4322,7 @@ class BilibiliParser:
             
             total_duration = 0
             
-            # collection已含全部剧集
+            # collection含全部
             if collection:
                 for i, ep in enumerate(collection):
                     
@@ -4353,9 +4353,9 @@ class BilibiliParser:
             else:
                 estimated_size_str = "未知"
 
-            # 未登录非会员只得试看片段
-            # 常见6分钟，此前只写日志
-            # 界面看不到会误判为失败
+            # 未登录只得试看
+            # 常见6分钟原只记日志
+            # 看不到会误判失败
             # 提升到顶层供UI提示
             _truncated_top = bool(play_info.get('is_truncated'))
             _avail_ms_top = play_info.get('available_duration_ms') or 0
@@ -4471,12 +4471,12 @@ class BilibiliParser:
             episodes = []
             ep_sections = {}          # ep对应所属合集标题
 
-            # 须遍历正片与其余sections
-            # elif链遇空main_section就截断
-            # 导致分P花絮OVA全丢
+            # 须遍历正片与其余段
+            # elif遇空段即截断
+            # 致花絮OVA全丢
             #
-            # 额外合集在section单数
-            # 早先只查了复数sections
+            # 额外合集在单数段
+            # 早先只查复数
             # 导致小合集完全未解析
             def _collect(section, section_title=None):
                 got = []
@@ -4492,10 +4492,10 @@ class BilibiliParser:
                             ep_sections[id(_e)] = section_title
                 return got
 
-            # 正片放在result.episodes
-            # 此时无main_section字段
+            # 正片在episodes
+            # 此时无main_section
             # 须与额外合集一起收集
-            # 否则部分缺失，兜底补不上
+            # 否则部分缺失
             top_eps = result.get('episodes')
             if isinstance(top_eps, list) and top_eps:
                 logger.info(f"正片剧集（result.episodes）：{len(top_eps)} 集")
@@ -4508,7 +4508,7 @@ class BilibiliParser:
                 for section in sections:
                     episodes.extend(_collect(section, section.get('title')))
 
-            # section是番剧额外合集
+            # section是额外合集
             extra_sections = result.get('section')
             if isinstance(extra_sections, list):
                 for section in extra_sections:
@@ -4535,7 +4535,7 @@ class BilibiliParser:
                 episodes = _deduped
                 logger.debug(f"番剧剧集收集完成：共 {len(episodes)} 集")
 
-            # 把合集标题落到episode
+            # 标题落到episode
             # 正片无标题，额外合集有
             for _ep in episodes:
                 if isinstance(_ep, dict):
@@ -4543,7 +4543,7 @@ class BilibiliParser:
                     if _st:
                         _ep['section_title'] = _st
 
-            # 兜底取顶层episodes或ep
+            # 兜底取顶层集
             if not episodes:
                 top = result.get('episodes')
                 if isinstance(top, list) and top:
@@ -4633,7 +4633,7 @@ class BilibiliParser:
                     "cover": ep.get('cover', season_cover),  
                     "share_url": ep.get('share_url', ''),
                     "status": ep.get('status', 0),
-                    # 空为正片，非空为额外合集
+                    # 空为正片非空为合集
                     "section_title": ep.get('section_title', '') or '',
                 })
 
@@ -4757,8 +4757,8 @@ class BilibiliParser:
                 if not success:
                     logger.error(f"API请求失败：{api_data['error']}")
                     logger.info("尝试使用其他API端点...")
-                    # 原先cheese端点与cid写死
-                    # 端点参数都不对必然失败
+                    # 原先端点与cid写死
+                    # 参数不对必然失败
                     # 改为课程实际可用端点
                     api_endpoints = [
                         ("https://api.bilibili.com/pugv/view/web/season", {"season_id": id_value}),
@@ -4961,7 +4961,7 @@ class BilibiliParser:
                 except Exception:
                     return False
             
-            # 收藏夹接口不接受dm_img
+            # 收藏夹不收dm_img
             base_params = {
                 'media_id': media_id,
                 'ps': min(page_size, 20),
@@ -4986,7 +4986,7 @@ class BilibiliParser:
                         raise Exception("已取消")
                     try:
                         logger.info(f"获取第{page_num}页收藏内容（尝试 {retry + 1}/{max_page_retries}）")
-                        # 收藏夹接口无需WBI签名
+                        # 收藏夹无需WBI
                         success, data = self._api_request(url, timeout=15, use_wbi=False, params=params, with_dm_params=False)
                         
                         if not success:
@@ -5026,13 +5026,13 @@ class BilibiliParser:
                 items = []
                 for item in medias:
                     # 收藏夹含视频番剧课程
-                    # 有bvid或id即可下载
+                    # 有bvid或id即可下
                     bvid = item.get('bv_id') or item.get('bvid')
                     aid = item.get('id')
                     if not (bvid or aid):
                         continue
                     media_type = int(item.get('type', 2))
-                    # type=2视频,12番剧,21课程
+                    # 2视频12番剧21课
                     items.append({
                         'id': aid,
                         'type': 'video',
@@ -5063,12 +5063,12 @@ class BilibiliParser:
                 page_callback(collection_items, page, total_count)
             
             # 进入循环的翻页条件
-            # 限流时has_more会误报假
-            # media_count仍有总数会早停
+            # 限流时误报
+            # 有总数会早停
             need_more = bool(has_more) or (total_count and total_count > len(collection_items))
             if get_all and need_more:
                 all_items = collection_items.copy()
-                # 估总页数用于进度与上限
+                # 估页数用于进度
                 estimated_pages = max(1, (total_count + 19) // 20) if total_count > 0 else 10
                 
                 # 读并发线程数限2~8
@@ -5108,13 +5108,13 @@ class BilibiliParser:
                     page_has_more = page_result.get('has_more', False)
                     return pn, page_medias, page_has_more
 
-                # 取消时抛出，外层返回已获
+                # 取消时外层返回已获
                 _cancelled_exc = None
                 with ThreadPoolExecutor(max_workers=fav_workers) as executor:
                     next_page = page + 1
                     # 派发上限为估页数加1
-                    # total=64,est=4则派到5
-                    # 防空页计数器误触发停止
+                    # 64est4派到5
+                    # 防空页误触发停止
                     max_page_cap = page + estimated_pages
                     futures = set()
 
@@ -5131,7 +5131,7 @@ class BilibiliParser:
                         if _cancelled():
                             _stop_dispatch.set()
                             break
-                        # 手动管理future免被取消
+                        # 手动管future
                         done = set()
                         for fut in list(futures):
                             if fut.done():
@@ -5147,7 +5147,7 @@ class BilibiliParser:
                             try:
                                 pn, page_medias, page_has_more = fut.result()
                             except Exception as e:
-                                # 取消导致的失败不再派发
+                                # 取消失败不再派发
                                 if _cancelled() or "已取消" in str(e):
                                     _cancelled_exc = e
                                     _stop_dispatch.set()
@@ -5168,9 +5168,9 @@ class BilibiliParser:
                                 page_progress = min(90, int(10 + 80 * _completed_count[0] / max(estimated_pages, 1)))
                                 progress_callback(page_progress, f"已获取 {len(all_items)}/{total_count} 项（完成 {_completed_count[0]} 页）...")
 
-                            # has_more为假的停止策略
-                            # 拿够total_count即正常停
-                            # 连续2次空页即判定取尽
+                            # 假的停止策略
+                            # 够total即正常停
+                            # 连续2空页判定取尽
                             # 在途未拿够则继续等
                             # 否则继续派发下一页
                             if not page_has_more:
@@ -5194,7 +5194,7 @@ class BilibiliParser:
                                     _empty_page_count[0] = 0
                                     logger.info(f"has_more=False 但未拿够（{len(all_items)}/{total_count}），继续派发下一页")
 
-                            # 还有更多且未达上限则派
+                            # 有更多未达上限则派
                             if next_page <= max_page_cap and not _stop_dispatch.is_set():
                                 futures.add(executor.submit(_fetch_one_page, next_page))
                                 next_page += 1
@@ -5304,10 +5304,10 @@ class BilibiliParser:
                     return str(bangumi_info['episodes'][0]['cid'])
                 raise Exception("未找到番剧CID")
             elif media_type == "cheese":
-                # 课程按media_id选API
+                # 课程按media_id选
                 # 试视频API取CID
                 try:
-                    # 查media_id是否为AV号
+                    # 查是否AV号
                     if media_id.startswith('av'):
                         aid = media_id[2:]
                         url = f"https://api.bilibili.com/x/player/pagelist?aid={aid}&jsonp=jsonp"
@@ -5330,7 +5330,7 @@ class BilibiliParser:
                         return str(cid)
                 # 试视频信息API
                 try:
-                    # 查media_id是否为AV号
+                    # 查是否AV号
                     if media_id.startswith('av'):
                         aid = media_id[2:]
                         url = f"https://api.bilibili.com/x/web-interface/view?aid={aid}&jsonp=jsonp"
@@ -5400,12 +5400,12 @@ class BilibiliParser:
 
             if 'ugc_season' in video_data:
                 ugc_season = video_data['ugc_season']
-                # 从ugc_season取season_id
+                # 从ugc_season取
                 season_id = ugc_season.get('id') or ugc_season.get('season_id')
                 upper_mid = ugc_season.get('mid') or ugc_season.get('upper_mid') or video_data.get('owner', {}).get('mid')
                 season_title = ugc_season.get('title') or ugc_season.get('name')
 
-                # 有season_id取完整合集
+                # 有id取完整合集
                 full_collection = None
                 if season_id and upper_mid:
                     logger.info(f"检测到合集: {season_title} (season_id={season_id}, mid={upper_mid})，尝试获取完整合集列表")
@@ -5414,7 +5414,7 @@ class BilibiliParser:
                         logger.info(f"从合集详情API获取到 {len(full_collection)} 个视频")
                         collection = full_collection
 
-                # 否则用video_info的sections
+                # 否则用sections
                 if not collection and 'sections' in ugc_season:
                     logger.info("使用视频信息API中的ugc_season.sections数据")
                     page_idx = 1
@@ -5506,7 +5506,7 @@ class BilibiliParser:
         Returns:
             list: 合集视频列表，每个元素包含page, bvid, cid, title, duration等字段
         """
-        # 方案1用seasons_archives_list
+        # 方案1用archives
         try:
             all_archives = []
             page_size = 30
@@ -5605,7 +5605,7 @@ class BilibiliParser:
                 pages = pages_map.get(arc_bvid, [])
 
                 if not pages:
-                    # 无分P信息则视频作单项
+                    # 无分P则作单项
                     collection.append({
                         "page": page_idx,
                         "cid": arc.get('cid', 0),
@@ -5633,7 +5633,7 @@ class BilibiliParser:
                     page_idx += 1
                     logger.info(f"章节 '{arc_title}' 单分P，共1项")
                 else:
-                    # 多分P先加视频再加分P
+                    # 先加视频再加分P
                     collection.append({
                         "page": page_idx,
                         "cid": pages[0].get('cid', 0) if pages else arc.get('cid', 0),
@@ -5736,7 +5736,7 @@ class BilibiliParser:
                     logger.warning(f"无法获取UP主mid: {bvid}")
                     return []
             
-            # 该接口必须带WBI签名
+            # 该接口须WBI签名
             series_url = f"https://api.bilibili.com/x/polymer/web-space/home/seasons_series?mid={mid}&page_num=1&page_size=30"
             success, data = self._api_request(series_url, timeout=8, use_cache=False, use_wbi=True)
             if not success:
@@ -5749,14 +5749,14 @@ class BilibiliParser:
             
             items_lists = data.get('data', {}).get('items_lists', {})
             
-            # 遍历系列找含当前bvid
+            # 遍历系列找bvid
             series_list = items_lists.get('series_list', [])
             for series_item in series_list:
                 meta = series_item.get('meta', {})
                 series_id = meta.get('series_id')
                 recent_aids = series_item.get('recent_aids', [])
                 
-                # 先快速查recent_aids
+                # 先查recent_aids
                 archives = series_item.get('archives', [])
                 archive_bvids = [a.get('bvid', '') for a in archives]
                 
@@ -5765,7 +5765,7 @@ class BilibiliParser:
                 
                 logger.info(f"找到视频所属系列: {meta.get('name', '未知')} (series_id={series_id}), 系列内{meta.get('total', '?')}个视频")
                 
-                # archives不全时分页取全
+                # 不全时分页取全
                 total = meta.get('total', 0)
                 if total > len(archives):
                     archives = self._get_series_all_archives(mid, series_id, total)
@@ -6099,22 +6099,22 @@ class BilibiliParser:
             
             
             
-            # fnval=4048取最多画质
-            # Hi-Res由dash.flac提供
+            # 4048取最多画质
+            # Hi-Res由flac
             fnval = 4048
             fnver = 0
             
             # 判断是否用试看参数
             #
-            # 原先只看SESSDATA键存在
-            # 只看cookie有无SESSDATA键
-            # 过期后键仍在被误判已登录
-            # 未登录本应try_look=1
-            # 该值可给未登录720P与1080P
-            # 结果过期用户反只有360P
+            # 原先只看键存在
+            # 只看SESSDATA
+            # 过期仍被误判登录
+            # 未登录应try_look
+            # 可给720P与1080P
+            # 过期反只有360P
             #
-            # 改用nav的isLogin真实状态
-            # nav失败才退回宽松判断
+            # 改用nav真实状态
+            # nav失败才宽松
             _try_look = 0
             try:
                 _ui_probe = self.get_user_info()
@@ -6223,12 +6223,12 @@ class BilibiliParser:
                         success, play_data = self._api_request(play_url, timeout=15, use_wbi=False, params=html5_params)
 
             # 试看接口兜底（番剧）：
-            # try_look=1给未登录高清晰度
-            # 已登录开大会员专享集时
-            # 先前不带try_look取流必失败
-            # 网页正靠它给这类用户试看
-            # 仅在未带try_look失败时回退
-            # 免费集与大会员不受影响
+            # try_look给高清
+            # 已登录开专享集时
+            # 不带则取流必失败
+            # 网页正靠它给试看
+            # 仅失败时回退
+            # 免费与会员不受影响
             _is_perm_err = False
             if not success:
                 _em = str((play_data or {}).get('error', ''))
@@ -6265,15 +6265,15 @@ class BilibiliParser:
                     error_msg = "视频不存在或已被删除"
                 raise Exception(error_msg)
 
-            # 取登录态判断是否回退html5
-            # 复用已有结果，内部有缓存
+            # 取登录态定是否回退
+            # 复用结果有缓存
             user_info = self.get_user_info()
             is_login = user_info.get('success', False)
             logger.info(
                 "[画质诊断] 实际登录=%s VIP=%s try_look=%s",
                 is_login, user_info.get('is_vip', False), _try_look)
 
-            # 未登录且低于1080P则试html5
+            # 未登录试html5
             _data_src = play_data.get('data', play_data.get('result', {}))
             if not is_login and _data_src.get('dash') and _data_src.get('quality', 0) < 80:
                 _max_qn = _data_src.get('quality', 0)
@@ -6306,12 +6306,12 @@ class BilibiliParser:
             quality_map = self.config.get_quality_map()
             
             VIP_ONLY_QN = [74, 100, 112, 116, 125, 126, 127]
-            # try_look=1开放720P与1080P
-            # 64和80不再列为登录必需
-            LOGIN_REQUIRED_QN = []  # try_look=1已解决未登录问题
+            # 开放720与1080
+            # 64和80不再必需
+            LOGIN_REQUIRED_QN = []  # try_look已解决
 
             def is_quality_available(qn, is_login, is_vip):
-                # 4K不强制大会员按权限
+                # 4K按权限不强制会员
                 if qn in VIP_ONLY_QN:
                     return is_vip
                 if qn in LOGIN_REQUIRED_QN:
@@ -6321,7 +6321,7 @@ class BilibiliParser:
             data_source = play_data.get('data', play_data.get('result', {}))
             logger.debug(f"API返回数据结构：{list(data_source.keys())}")
 
-            # 画质诊断，记实际返回清晰度
+            # 画质诊断记返回值
             # 便于定位是接口没给流
             # 还是本地把流过滤掉了
             try:
@@ -6361,7 +6361,7 @@ class BilibiliParser:
 
                 # 音质名称映射表
                 # 官方音质ID对照表
-                # API额外返回的音质ID
+                # API额外音质ID
                 _AUDIO_NAME_MAP = {
                     30251: "Hi-Res无损",
                     30250: "杜比全景声",
@@ -6404,7 +6404,7 @@ class BilibiliParser:
                         return audio_id, audio_url
                     return None
 
-                # 解析普通DASH音频流
+                # 解析普通DASH音频
                 _all_audio_ids = []
                 if 'audio' in data_source['dash'] and data_source['dash']['audio']:
                     for audio_item in data_source['dash']['audio']:
@@ -6417,13 +6417,13 @@ class BilibiliParser:
                             audio_qualities.append((audio_id, quality_name))
                             logger.debug(f"获取音频链接 ID={audio_id}({quality_name}): {audio_url[:50]}...")
 
-                # 解析Hi-Res无损音频流
-                # flac.audio是单个dict
+                # 解析Hi-Res无损
+                # flac.audio是单dict
                 _flac = data_source['dash'].get('flac')
                 if isinstance(_flac, dict):
                     _flac_audio = _flac.get('audio')
                     if isinstance(_flac_audio, dict):
-                        # flac.audio为单个对象
+                        # flac.audio单对象
                         logger.info("检测到FLAC/Hi-Res无损音频流")
                         _all_audio_ids.append(_flac_audio.get('id', 0))
                         result = _parse_audio_stream(_flac_audio)
@@ -6434,7 +6434,7 @@ class BilibiliParser:
                             audio_qualities.append((audio_id, quality_name))
                             logger.info(f"获取Hi-Res音频链接 ID={audio_id}({quality_name}): {audio_url[:50]}...")
                     elif isinstance(_flac_audio, list):
-                        # flac.audio偶尔是数组
+                        # 偶尔是数组
                         logger.info("检测到FLAC/Hi-Res无损音频流(数组格式)")
                         for audio_item in _flac_audio:
                             if not isinstance(audio_item, dict):
@@ -6474,7 +6474,7 @@ class BilibiliParser:
                             audio_qualities.append((audio_id, quality_name))
                             logger.info(f"获取杜比音频链接 ID={audio_id}({quality_name}): {audio_url[:50]}...")
 
-                # 记录API返回的所有音质ID
+                # 记所有返回音质
                 logger.info(f"[音频诊断] API返回音频流: IDs={_all_audio_ids}, "
                            f"可用音质={[q[1] for q in audio_qualities]}, "
                            f"登录状态={'已登录' if is_login else '未登录'}, "
@@ -6483,7 +6483,7 @@ class BilibiliParser:
                     logger.debug(f"[音频诊断] 未检测到Hi-Res(30251)/杜比(30250)音频流。"
                                   f"如视频支持Hi-Res，请确认已登录大会员账号")
 
-                # 按音频质量返回对应URL
+                # 按音质返回URL
                 if audio_qualities:
                     # 按音质从高到低排序
                     audio_quality_priority = [30251, 30250, 100010, 30280, 100009, 30232, 100008, 30216]
@@ -6502,7 +6502,7 @@ class BilibiliParser:
 
                 if 'video' in data_source['dash']:
                     codec_id_map = {7: "AVC", 12: "HEVC", 13: "AV1"}
-                    # 去重，同qn与codecid留首个
+                    # 去重留首个
                     seen_qn_codec = set()
                     
                     for video in data_source['dash']['video']:
@@ -6530,7 +6530,7 @@ class BilibiliParser:
                             continue
 
                         
-                        # 优先稳定CDN避开mcdn
+                        # 优先稳定CDN
                         # mcdn常超时或被拒
                         _PREFERRED_HOSTS = ['bilivideo.com']  # 官方CDN最稳定
                         _AVOID_HOSTS = ['mcdn.bilivideo.cn']   # 移动镜像CDN不稳定
@@ -6539,7 +6539,7 @@ class BilibiliParser:
                             """从URL列表中选择最稳定的CDN域名"""
                             if not url_list:
                                 return ''
-                            # 官方bilivideo优先mcdn最后
+                            # 官方优先mcdn最后
                             _sorted_urls = sorted(url_list, key=lambda u: (
                                 any(m in u for m in _AVOID_HOSTS),  # 避免mcdn排最后
                                 -u.count('bilivideo.com')
@@ -6563,7 +6563,7 @@ class BilibiliParser:
                             video_url = _pick_best_url(_candidates)
                         
                         if video_url:
-                            # 按qn与codecid组合存储
+                            # 按qn与codecid存
                             video_urls[(qn, codecid)] = video_url
                             # 同时保留纯qn映射
                             if qn not in video_urls or codecid == 7:
@@ -6607,7 +6607,7 @@ class BilibiliParser:
                 current_qn = data_source.get('quality', 0)
                 accept_quality = data_source.get('accept_quality', [current_qn])
 
-                # 校验渐进式流是否被截断
+                # 校验渐进流是否截断
                 _declared_ms = data_source.get('timelength') or 0
                 _durl_total_ms = 0
                 if data_source['durl']:
@@ -6634,7 +6634,7 @@ class BilibiliParser:
                         video_url = data_source['durl'][0]['url']
                         logger.debug(f"获取视频链接：{video_url[:50]}...")
                     
-                    # 从DURL格式提取KID
+                    # 从DURL提取KID
                     if not kid:
                         cache_key = f"{bvid}_{cid}"
                         
@@ -6649,7 +6649,7 @@ class BilibiliParser:
                                     del KID_CACHE[cache_key]
                         
                         if not kid:
-                            # 取首个分段URL提取KID
+                            # 取首段URL提KID
                             first_url = video_url[0] if isinstance(video_url, list) else video_url
                             kid_match = KID_REGEX['url_param'].search(first_url)
                             if kid_match:
@@ -6701,9 +6701,9 @@ class BilibiliParser:
                 raise Exception("未获取到视频播放链接")
 
             # 去重并排序
-            # qualities有二元或三元
+            # 有二元或三元
             if qualities and len(qualities[0]) == 3:
-                # 三元按qn降序AVC优先
+                # 三元按qn降序
                 codec_priority = {7: 0, 12: 1, 13: 2}
                 seen = set()
                 unique_qualities = []
@@ -6744,7 +6744,7 @@ class BilibiliParser:
             error_msg = str(e)
             logger.error(f"获取播放信息失败：{error_msg}")
             
-            # 试把cheese当普通视频
+            # 试当普通视频
             if media_type == "cheese" and bvid and cid:
                 logger.info("尝试将cheese视频当作普通视频处理（异常处理中）")
                 try:
@@ -7750,7 +7750,7 @@ class BilibiliParser:
                 segment_response.raise_for_status()
                 break
             except requests.exceptions.RequestException as e:
-                # 关闭失败response防泄漏
+                # 关失败response
                 if segment_response is not None:
                     try:
                         segment_response.close()
@@ -7761,7 +7761,7 @@ class BilibiliParser:
                 if retry_count >= max_retries:
                     seg_session.close()
                     raise
-                # 退避2,4,8秒给CDN缓冲
+                # 退避2,4,8秒
                 wait = 2 ** retry_count
                 logger.warning(f"分段 {segment_index+1} 请求失败，{wait}秒后重试：{str(e)}")
                 time.sleep(wait)
@@ -7792,7 +7792,7 @@ class BilibiliParser:
                             if cb and total_progress % 5 == 0:
                                 cb(total_progress, progress_state['cumulative_size'])
         finally:
-            # 确保response与session都关
+            # response与session都关
             if segment_response is not None:
                 try:
                     segment_response.close()
@@ -7820,13 +7820,13 @@ class BilibiliParser:
 
         
         # 临时分片须与目标同盘
-        # 缓存目录优先于程序temp
-        # 曾硬编码为程序所在盘temp
-        # 装在C盘时大文件先写满C
+        # 缓存目录优先
+        # 曾硬编码程序所在盘
+        # 装C盘时写满C
         # 跨盘双写损耗硬盘寿命
         work_dir = os.path.dirname(os.path.abspath(__file__))
         temp_dir = None
-        # 首选同下载盘的ASCII目录
+        # 首选同盘ASCII
         try:
             _target_dir = os.path.dirname(os.path.abspath(save_path)) if save_path else ""
             if _target_dir:
@@ -7837,10 +7837,10 @@ class BilibiliParser:
                 )
         except Exception as _e:
             logger.debug(f"按下载盘解析临时目录失败，回退 safe_temp_dir: {_e}")
-        # 回退用初始化的临时目录
+        # 回退初始临时目录
         if not temp_dir:
             temp_dir = getattr(self, "safe_temp_dir", None)
-        # 最后回退程序目录temp
+        # 最后回退程序temp
         if not temp_dir:
             temp_dir = os.path.join(work_dir, "temp")
         try:
@@ -7881,32 +7881,32 @@ class BilibiliParser:
             session = self._get_download_session(headers)
 
             # 单连接限速，多分片突破
-            # 先Range探针再决定分片
+            # 先探针再决定分片
             CHUNK_THRESHOLD = 2 * 1024 * 1024   # 2MB以上就启用分片
             use_chunked = False
             total_file_size = 0
             # 按并发任务数定分片数
-            # 并发约为线程数乘2乘分片
-            # 总连接数目标不超过16
+            # 并发约为线程乘2乘片
+            # 总连接不超16
             try:
                 _mt = int(self.config.get_app_setting('max_threads', 4)) if self.config else 4
             except Exception:
                 _mt = 4
             if _mt >= 3:
-                CHUNK_COUNT = 1   # 多任务已有并发不再分片
+                CHUNK_COUNT = 1   # 多任务并发不再分片
             elif _mt == 2:
                 CHUNK_COUNT = 2
             else:
                 CHUNK_COUNT = 4   # 单任务用4分片提速
 
             if not isinstance(url, list):
-                # Range探针取大小并验支持
+                # 探针取大小并验支持
                 try:
                     probe_headers = dict(headers)
                     probe_headers['Range'] = 'bytes=0-0'
                     probe_resp = session.get(url, headers=probe_headers, timeout=10, allow_redirects=True)
                     if probe_resp.status_code == 206:
-                        # CDN支持Range请求
+                        # CDN支持Range
                         cr = probe_resp.headers.get('Content-Range', '')
                         if '/' in cr:
                             total_file_size = int(cr.split('/')[-1])
@@ -7915,7 +7915,7 @@ class BilibiliParser:
                             use_chunked = True
                             logger.info(f"CDN支持Range请求，文件大小{total_file_size/1024/1024:.1f}MB，启用分片并发下载")
                     elif probe_resp.status_code == 200:
-                        # 不支持Range则普通下载
+                        # 不支持则普通下载
                         total_file_size = int(probe_resp.headers.get('Content-Length', 0))
                         probe_resp.close()
                         logger.info(f"CDN不支持Range请求(status=200)，使用普通下载，文件大小{total_file_size/1024/1024:.1f}MB")
@@ -7927,7 +7927,7 @@ class BilibiliParser:
 
                 if use_chunked and total_file_size > 0:
                     # 文件过小则分片无收益
-                    # 分片已动态调整，小文件再降
+                    # 小文件再降
                     if total_file_size < 5 * 1024 * 1024:
                         CHUNK_COUNT = 1   # 小于5MB不分行
                     logger.info(f"文件大小{total_file_size/1024/1024:.1f}MB，启用{CHUNK_COUNT}分片并发下载（max_threads={_mt}）")
@@ -8012,7 +8012,7 @@ class BilibiliParser:
                             resp.close()
                             # 分片完整性校验
                             # 提前断连可能不抛异常
-                            # 不核对长度会合并出截断
+                            # 不核对会合并出截断
                             if chunk_downloaded < chunk_total:
                                 raise requests.exceptions.ChunkedEncodingError(
                                     f"分片{chunk_index}不完整：已下载{chunk_downloaded}字节，"
@@ -8042,7 +8042,7 @@ class BilibiliParser:
                             # 退避2,4,8,16秒
                             wait = 2 ** (retry + 1)
                             logger.warning(f"分片{chunk_index}下载失败(已下载{chunk_downloaded/1024/1024:.1f}MB)，{wait}秒后重试({retry+1}/{max_retries}): {e}")
-                            # 可取消sleep每0.5秒查
+                            # 可取消每0.5秒查
                             slept = 0
                             while slept < wait:
                                 if is_running is not None and not is_running():
@@ -8070,7 +8070,7 @@ class BilibiliParser:
                             try:
                                 chunk_results[idx] = future.result()
                             except Exception as e:
-                                # 取消属正常流程用INFO
+                                # 取消属正常用INFO
                                 if str(e) == "下载已取消":
                                     logger.info(f"分片{idx}下载已取消")
                                 else:
@@ -8079,7 +8079,7 @@ class BilibiliParser:
                                 raise
 
                     logger.info(f"合并{CHUNK_COUNT}个分片...")
-                    _MERGE_BUF = 4 * 1024 * 1024  # 4MB缓冲减少系统调用
+                    _MERGE_BUF = 4 * 1024 * 1024  # 4MB缓冲减系统调用
                     with open(temp_path, 'wb') as outfile:
                         for chunk_path, _ in chunk_results:
                             with open(chunk_path, 'rb') as infile:
@@ -8115,7 +8115,7 @@ class BilibiliParser:
                                 os.remove(cp)
                         except Exception:
                             pass
-                    # 等3秒让CDN缓冲防限流
+                    # 等3秒防限流
                     time.sleep(3)
                     # 继续走普通下载逻辑
 
@@ -8181,7 +8181,7 @@ class BilibiliParser:
                 
                 # 合并所有分段（按顺序）
                 logger.info(f"开始合并{total_segments}个分段")
-                _MERGE_BUF = 4 * 1024 * 1024  # 4MB缓冲减少系统调用
+                _MERGE_BUF = 4 * 1024 * 1024  # 4MB缓冲减系统调用
                 with open(temp_path, 'wb') as outfile:
                     for seg_path, _ in segment_results:
                         with open(seg_path, 'rb') as infile:
@@ -8199,7 +8199,7 @@ class BilibiliParser:
                 downloaded_size = cumulative_size
                 logger.info(f"分段合并完成，总大小：{downloaded_size/1024/1024:.2f}MB")
             elif not use_chunked:
-                # 单URL下载或分片失败回退
+                # 失败回退单URL
                 if os.path.exists(temp_path):
                     downloaded_size = os.path.getsize(temp_path)
                     logger.info(f"续传：已下载{downloaded_size}字节")
@@ -8236,7 +8236,7 @@ class BilibiliParser:
                         response.raise_for_status()
                         break
                     except requests.exceptions.RequestException as e:
-                        # 关闭失败response防泄漏
+                        # 关失败response
                         if response is not None:
                             try:
                                 response.close()
@@ -8246,16 +8246,16 @@ class BilibiliParser:
                         retry_count += 1
                         if retry_count >= max_retries:
                             raise
-                        # 退避2,4秒给CDN缓冲
+                        # 退避2,4秒
                         wait = 2 ** retry_count
                         logger.warning(f"请求失败，{wait}秒后重试：{str(e)}")
                         time.sleep(wait)
 
             
-            # 长度优先用Range探针值
-            # 截断型CDN连长度也报短
-            # 用响应头覆盖会放行短文件
-            # 这是只下到1分44秒的根因
+            # 长度优先用探针值
+            # 截断型CDN报短
+            # 用响应头会放行短文件
+            # 只下1分44秒根因
             _hdr_total = int(response.headers.get('content-length', 0))
             if 'content-range' in response.headers:
                 try:
@@ -8264,7 +8264,7 @@ class BilibiliParser:
                 except (ValueError, TypeError):
                     pass
             total_size = _hdr_total
-            # 探针已知完整则以它为准
+            # 探针已知则以它为准
             if total_file_size and total_file_size > total_size:
                 total_size = total_file_size
             logger.info(f"文件大小：{total_size}字节")
@@ -8281,7 +8281,7 @@ class BilibiliParser:
                 try:
                     with open(temp_path, mode) as f:
                         logger.debug("开始读取数据...")
-                        # 按文件大小调chunk_size
+                        # 按大小调chunk
                         if total_size > 100 * 1024 * 1024:  # 大于100MB
                             chunk_size = 262144  # 256KB
                         elif total_size > 10 * 1024 * 1024:  # 大于10MB
@@ -8294,7 +8294,7 @@ class BilibiliParser:
                         last_progress_update = time.time()
                         last_progress_value = -1
                         bytes_processed = 0
-                        speed_check_interval = 50  # 每50个chunk查一次速度
+                        speed_check_interval = 50  # 每50chunk查速度
                         
                         for chunk in response.iter_content(chunk_size=chunk_size):
                             if is_running is not None and not is_running():
@@ -8332,11 +8332,11 @@ class BilibiliParser:
                                         bytes_processed = 0
                     
                     # 关键完整性校验
-                    # 提前关连接可能不抛异常
-                    # 否则截断会被当完整合并
-                    # 61分钟只下到1分44秒即此因
+                    # 提前关可能不抛异常
+                    # 否则截断被当完整
+                    # 只下1分44秒即此因
                     # 按声明总长度核对
-                    # 不足则抛异常交给续传补
+                    # 不足则抛异常续传
                     if total_size > 0 and downloaded_size < total_size:
                         raise requests.exceptions.ChunkedEncodingError(
                             f"下载不完整：已下载{downloaded_size}字节，应为{total_size}字节"
@@ -8360,7 +8360,7 @@ class BilibiliParser:
                         logger.error(f"下载失败，已重试{max_download_retries}次：{str(e)}")
                         raise Exception(f"网络连接中断，下载失败：{str(e)}")
 
-                    # 关闭异常response防泄漏
+                    # 关异常response
                     if response is not None:
                         try:
                             response.close()
@@ -8371,7 +8371,7 @@ class BilibiliParser:
                     # 退避2,4秒防再次限流
                     wait = 2 ** download_retry_count
                     logger.warning(f"下载中断，{wait}秒后重试：{str(e)}")
-                    # 可取消sleep每0.5秒查
+                    # 可取消每0.5秒查
                     slept = 0
                     while slept < wait:
                         if is_running is not None and not is_running():
@@ -8383,7 +8383,7 @@ class BilibiliParser:
                         downloaded_size = os.path.getsize(temp_path)
                         logger.info(f"已下载{downloaded_size}字节，尝试断点续传")
                     
-                    # 用Range头断点续传
+                    # Range头断点续传
                     headers['Range'] = f'bytes={downloaded_size}-'
                     mode = 'ab'
                     
@@ -8391,10 +8391,10 @@ class BilibiliParser:
                         response = session.get(url, stream=True, headers=headers, timeout=(15, 30))
                         logger.info(f"断点续传响应状态码：{response.status_code}")
 
-                        # 206响应带Content-Range
-                        # 其中total才是权威长度
-                        # 保证续传后仍能校验补齐
-                        # 不更新会误判成功产出截断
+                        # 206带Content-Range
+                        # total是权威长度
+                        # 续传后仍能校验补齐
+                        # 不更新会误判成功
                         if response.status_code == 206:
                             _cr = response.headers.get('content-range', '')
                             if '/' in _cr:
@@ -8405,7 +8405,7 @@ class BilibiliParser:
                                     pass
 
                         if response.status_code == 416:
-                            # 416仅本地已完整才算完
+                            # 416仅本地完整才算
                             # 否则交由外层重试
                             _local = os.path.getsize(temp_path) if os.path.exists(temp_path) else 0
                             response.close()
@@ -8425,7 +8425,7 @@ class BilibiliParser:
                         logger.error(f"断点续传请求失败：{str(retry_e)}")
                         if download_retry_count >= max_download_retries:
                             raise Exception(f"断点续传失败：{str(retry_e)}")
-            # 完成后关闭response释放
+            # 完成后关response
             if response is not None:
                 try:
                     response.close()
@@ -8433,10 +8433,10 @@ class BilibiliParser:
                     pass
                 response = None
 
-            # 出口前的最终完整性兜底
-            # 声明总长度则落盘须达到
-            # 截断进合并会输出残缺成品
-            # 日志仍显示完成，难以排查
+            # 出口前完整性兜底
+            # 落盘须达声明长度
+            # 截断会输出残缺成品
+            # 日志显完成难排查
             if not download_success or downloaded_size <= 0:
                 raise Exception("下载未完成：未获取到有效数据")
             if total_size > 0 and downloaded_size < total_size:
@@ -8524,7 +8524,7 @@ class BilibiliParser:
                                 logger.warning(f"清理临时文件失败：{clean_e}")
                         raise Exception(f"流媒体已加密，解密失败：{str(decrypt_e)}")
             
-            # 把临时文件移到最终路径
+            # 临时文件移到最终路径
             import shutil
             try:
                 if os.path.isdir(save_path):
@@ -8544,7 +8544,7 @@ class BilibiliParser:
                             else:
                                 raise
                 # 要求只存一次，用移动
-                # 同盘优先rename零拷贝
+                # 同盘rename零拷贝
                 move_file_no_copy(temp_path, actual_save_path, logger=logger)
                 logger.info(f"文件已保存到（同盘零拷贝移动）：{actual_save_path}")
 
@@ -8597,7 +8597,7 @@ class BilibiliParser:
         import base64 as _b64
         kid = None
 
-        # 解析项1：bilidrm_uri
+        # 项1:bilidrm_uri
         if not kid and video.get('bilidrm_uri'):
             uri = video['bilidrm_uri']
             m = re.search(r'uri:bili://([0-9a-f]{32})', uri, re.IGNORECASE)
@@ -8627,7 +8627,7 @@ class BilibiliParser:
                 kid = m.group(1)
                 logger.info(f"{log_prefix}从base_url参数中提取到KID：{kid}")
 
-        # 解析项5：widevine_pssh
+        # 项5:widevine_pssh
         if not kid and video.get('widevine_pssh'):
             try:
                 pssh_data = _b64.b64decode(video['widevine_pssh'])
@@ -8674,7 +8674,7 @@ class BilibiliParser:
         KID是box的最后一部分，可直接通过box size定位。
         """
         try:
-            # 读前2MB，moov在头部
+            # 读前2MB
             _READ_SIZE = 2 * 1024 * 1024
             with open(m4s_path, 'rb') as f:
                 data = f.read(_READ_SIZE)
@@ -8690,12 +8690,12 @@ class BilibiliParser:
                 pos = data.find(tenc_marker, pos)
                 if pos < 0:
                     break
-                # tenc前4字节是box大小
+                # 前4字节是box大小
                 if pos >= 4:
                     box_size = int.from_bytes(data[pos - 4:pos], 'big')
-                    # tenc约32或33字节
+                    # 约32或33字节
                     if 28 <= box_size <= 64:
-                        # KID是box最后16字节
+                        # KID是末16字节
                         box_start = pos - 4
                         kid_start = box_start + box_size - 16
                         kid_end = kid_start + 16
@@ -8708,8 +8708,8 @@ class BilibiliParser:
                                 return kid
                 pos += 4
 
-            # 查pssh box作降级方案
-            # Widevine PSSH为v0结构
+            # 查pssh作降级方案
+            # PSSH为v0结构
             widevine_sid = bytes.fromhex('edef8ba979d64acea3c827dcd51d21ed')
             pssh_marker = b'pssh'
             pos = 0
@@ -8719,19 +8719,19 @@ class BilibiliParser:
                     break
                 if pos >= 4:
                     box_size = int.from_bytes(data[pos - 4:pos], 'big')
-                    # pssh box至少32字节
+                    # pssh至少32字节
                     if box_size >= 32 and pos + box_size - 4 <= len(data):
-                        # SystemID在version与flags后
+                        # SystemID在version后
                         sys_id_start = pos + 8
                         sys_id_end = sys_id_start + 16
                         if sys_id_end <= len(data) and data[sys_id_start:sys_id_end] == widevine_sid:
-                            # DataSize占4字节后接Data
+                            # DataSize占4字节
                             if sys_id_end + 4 <= len(data):
                                 data_size = int.from_bytes(data[sys_id_end:sys_id_end + 4], 'big')
                                 pssh_payload_start = sys_id_end + 4
                                 pssh_payload_end = min(pssh_payload_start + data_size, len(data))
                                 pssh_payload = data[pssh_payload_start:pssh_payload_end]
-                                # 查protobuf的KID特征串
+                                # 查protobuf的KID
                                 idx = pssh_payload.find(b'\x12\x10')
                                 if idx >= 0 and idx + 2 + 16 <= len(pssh_payload):
                                     kid_bytes = pssh_payload[idx + 2:idx + 18]
@@ -8752,10 +8752,10 @@ class BilibiliParser:
     def _extract_kid_from_m4s(self, m4s_path):
         import re
 
-        # 中文路径优先8.3短路径
-        # mp4dump只需文件头取KID
-        # 整文件复制会因空间不足失败
-        # 优先短路径，失败复制前1MB
+        # 中文优先8.3短路径
+        # mp4dump只需文件头
+        # 整文件复制会失败
+        # 优先短路径否则复制头
         original_m4s_path = m4s_path
         _temp_m4s_copied = False
         if has_non_ascii(m4s_path):
@@ -8765,14 +8765,14 @@ class BilibiliParser:
                 m4s_path = short_path
                 logger.info(f"[KID提取] 中文路径，使用8.3短路径：{short_path}")
             else:
-                # 短路径失败则复制文件头
+                # 短路径失败则复制头
                 try:
                     _tmp_dir = self.safe_temp_dir
                     _unique_name = f"m4s_extract_{os.getpid()}_{int(time.time() * 1000) % 1000000}_{os.path.basename(m4s_path)}"
                     _tmp_path = os.path.join(_tmp_dir, _unique_name)
                     
-                    # 只复制前1MB，元数据在头部
-                    # m4s的moov在开头1MB够
+                    # 只复制前1MB
+                    # moov在头1MB
                     _HEAD_BYTES = 1024 * 1024  # 1MB
                     with open(m4s_path, 'rb') as src_f:
                         head_data = src_f.read(_HEAD_BYTES)
@@ -8814,7 +8814,7 @@ class BilibiliParser:
                         logger.error(f"文件仍然被占用，尝试{max_attempts}次后失败")
                         return None
             
-            # 优先二进制解析取KID
+            # 二进制解析取KID
             logger.info("尝试通过二进制解析提取KID...")
             kid = self._extract_kid_from_binary(m4s_path)
             if kid:
@@ -8935,16 +8935,16 @@ class BilibiliParser:
         返回: 解密后的文件路径
         异常: 解密失败时抛出异常（不再静默复制加密文件）
         """
-        # 提前初始化防异常未定义
+        # 提前初始化防未定义
         need_temp_copy = False
         temp_input = None
         temp_output = None
-        # 用ASCII临时目录避中文路径
+        # ASCII目录避中文
         temp_dir = self.safe_temp_dir
         
         try:
             if not kid:
-                # 没提供kid则尝试提取
+                # 无kid则尝试提取
                 try:
                     kid = self._extract_kid_from_m4s(input_file)
                     logger.info(f"提取到KID：{kid}")
@@ -8991,20 +8991,20 @@ class BilibiliParser:
             logger.info(f"输入文件绝对路径：{input_file}")
             logger.info(f"输出文件绝对路径：{output_file}")
             
-            # temp_dir已设为ASCII目录
-            # 标记是否用了临时输出路径
-            # 标记temp_input是否为副本
+            # temp_dir是ASCII
+            # 标记用了临时路径
+            # 标记是副本
             need_temp_copy = False
             temp_input_is_copy = False
             temp_input = input_file
             temp_output = output_file
             
-            # 查输入输出是否含非ASCII
+            # 查含非ASCII
             input_has_non_ascii = has_non_ascii(input_file)
             output_has_non_ascii = has_non_ascii(output_file)
             
             if input_has_non_ascii or output_has_non_ascii:
-                # 输入路径优先8.3短路径
+                # 输入优先8.3短路径
                 if input_has_non_ascii:
                     short_input = to_short_path(input_file)
                     if short_input != input_file:
@@ -9013,20 +9013,20 @@ class BilibiliParser:
                         logger.info(f"输入文件使用8.3短路径：{short_input}")
                     else:
                         # 短路径失败则回退副本
-                        # 优先硬链接，同卷零额外空间
+                        # 硬链接同卷零空间
                         temp_input = os.path.join(temp_dir, f"decrypt_input_{os.getpid()}_{int(time.time() * 1000) % 100000000}_{os.path.basename(input_file)}")
                         link_or_copy(input_file, temp_input, logger=logger)
                         temp_input_is_copy = True  # 标记为副本，异常时清理
                         logger.info(f"输入文件短路径转换失败，已准备同盘副本：{temp_input}")
                 
-                # 有中文则输出都用ASCII
-                # ffmpeg混合斜杠仍可能崩
+                # 有中文用ASCII
+                # 混合斜杠仍可能崩
                 temp_output = os.path.join(temp_dir, f"decrypt_output_{os.getpid()}_{int(time.time() * 1000) % 100000000}.mp4")
-                need_temp_copy = True  # 标记需后续复制回原位置
+                need_temp_copy = True  # 标记需复制回原位
                 logger.info(f"输出文件使用ASCII临时路径：{temp_output}")
             
             try:
-                # 优先自带ffmpeg防PATH冲突
+                # 优先自带ffmpeg
                 ffmpeg_exec = self.ffmpeg_local
                 if not ffmpeg_exec or not os.path.exists(ffmpeg_exec):
                     ffmpeg_exec = shutil.which('ffmpeg')
@@ -9065,7 +9065,7 @@ class BilibiliParser:
                             pass
                     raise Exception(f"ffmpeg解密失败：{error_msg}")
 
-                # 返回0也须验证输出文件
+                # 返回0也须验证输出
                 actual_output = temp_output if need_temp_copy else output_file
                 
                 # 等文件系统刷新落盘
@@ -9087,7 +9087,7 @@ class BilibiliParser:
                 logger.info(f"ffmpeg解密输出文件验证通过: {actual_output} ({output_size}字节)")
                 
                 if need_temp_copy and temp_output != output_file:
-                    # 同盘优先原子移动只存一次
+                    # 同盘原子移动只存一次
                     move_file_no_copy(temp_output, output_file, logger=logger)
                     logger.info(f"解密结果已移动到目标路径（同盘零拷贝）：{output_file}")
                 
@@ -9101,21 +9101,21 @@ class BilibiliParser:
                     raise Exception(f"Bento4 mp4decrypt工具不存在：{bento4_path}")
                 
                 if temp_input_is_copy and os.path.exists(temp_input):
-                    # temp_input是副本可直接用
+                    # 是副本可直接用
                     simple_input = temp_input
                 else:
-                    # temp_input指原文件需复制
-                    # 避免Bento4清理误删原文件
+                    # 指原文件需复制
+                    # 免误删原文件
                     # 唯一后缀防并发名冲突
                     _unique_suffix = f"{os.getpid()}_{int(time.time() * 1000) % 1000000}_{os.urandom(4).hex()}"
                     simple_input = os.path.join(temp_dir, f"bento4_input_{_unique_suffix}.m4s")
-                    # 优先硬链接得只读ASCII副本
+                    # 硬链接得只读副本
                     link_or_copy(temp_input, simple_input, logger=logger)
                     logger.info(f"已准备ASCII安全同盘副本：{simple_input}")
-                # 基于simple_input名保唯一
+                # 基于simple名保唯一
                 simple_output = os.path.splitext(simple_input)[0] + ".decrypted.mp4"
                 
-                # 异步执行Bento4命令
+                # 异步执行Bento4
                 cmd = [bento4_path, '--key', f'{kid}:{key}', simple_input, simple_output]
                 logger.info(f"使用Bento4执行解密命令：{' '.join(cmd)}")
                 
@@ -9147,7 +9147,7 @@ class BilibiliParser:
                 await asyncio.sleep(1.0)  # 增加等待时间
 
                 if os.path.exists(simple_output) and os.path.getsize(simple_output) > 1024:
-                    # 同盘优先原子移动只存一次
+                    # 同盘原子移动只存一次
                     move_file_no_copy(simple_output, output_file, logger=logger)
                     logger.info(f"解密后的文件已移动到目标位置（同盘零拷贝）：{output_file}")
                 else:
@@ -9200,7 +9200,7 @@ class BilibiliParser:
                 logger.error(f"加密检测：文件不存在：{video_path}")
                 return False, ""
 
-            # 中文路径优先8.3短路径
+            # 中文优先8.3短路径
             if has_non_ascii(video_path):
                 short_path = to_short_path(video_path)
                 if short_path != video_path:
@@ -9215,7 +9215,7 @@ class BilibiliParser:
                 return True, "加密文件"
 
             try:
-                # 优先自带ffprobe防PATH冲突
+                # 优先自带ffprobe
                 ffprobe_exec = None
                 if self.ffmpeg_local and os.path.exists(self.ffmpeg_local):
                     ffprobe_path = os.path.join(os.path.dirname(self.ffmpeg_local), exe('ffprobe'))
@@ -9242,8 +9242,8 @@ class BilibiliParser:
 
                     has_encryption_error = 'Decrypt' in stderr or 'encrypted' in stderr.lower()
 
-                    # 文件头是合法ftyp但已加密
-                    # 报Invalid data是加密特征
+                    # 头合法但已加密
+                    # 报Invalid即加密
                     has_invalid_data = 'Invalid data found' in stderr or 'error reading header' in stderr
 
                     if result.returncode == 0 and not has_decode_error:
@@ -9256,7 +9256,7 @@ class BilibiliParser:
                         logger.warning("加密检测：ffprobe解码错误，可能是加密文件")
                         return True, "加密文件"
                     elif result.returncode != 0 and has_invalid_data:
-                        # 能读头却读不了说明已加密
+                        # 能读头读不了即加密
                         logger.warning(f"加密检测：ffprobe返回码={result.returncode}且数据无效，疑似加密文件")
                         return True, "加密文件"
                     else:
@@ -9354,7 +9354,7 @@ class BilibiliParser:
                         'Accept-Encoding': 'gzip, deflate'
                     }
                     
-                    # 首选API易超时用短超时回退
+                    # 首选API超时则回退
                     xml_timeout = 3 if idx == 0 else 8
                     response = self.session.get(xml_url, headers=headers, timeout=xml_timeout, proxies={})
                     logger.info(f"XML API响应状态码：{response.status_code}")
@@ -9831,7 +9831,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     def _get_video_codec(self, video_path, ffmpeg_exec):
         try:
             import subprocess
-            # 中文路径优先8.3短路径
+            # 中文优先8.3短路径
             if has_non_ascii(video_path):
                 short_path = to_short_path(video_path)
                 if short_path != video_path:
@@ -9880,7 +9880,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         """使用ffprobe检测视频码率，返回码率(bps)，失败返回0"""
         try:
             import subprocess
-            # 中文路径优先8.3短路径
+            # 中文优先8.3短路径
             if has_non_ascii(video_path):
                 short_path = to_short_path(video_path)
                 if short_path != video_path:
@@ -9967,7 +9967,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if not ffmpeg_exec or not os.path.exists(ffmpeg_exec):
             return "no_gpu", "ffmpeg 不可用"
 
-        # 中文路径优先8.3短路径
+        # 中文优先8.3短路径
         if has_non_ascii(video_path):
             short_path = to_short_path(video_path)
             if short_path != video_path:
@@ -9984,7 +9984,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if gpu_type not in hwaccel_map:
             return "no_gpu", f"未知 gpu_type={gpu_type}"
 
-        # 先测GPU是否支持该编码
+        # 先测GPU是否支持
         if video_codec in ('av1', 'hevc', 'h265', 'unknown'):
             logger.info(f"[GPU预检] 视频编码为 {video_codec}，正在验证 {gpu_type} 硬件解码能力...")
             test_cmd = [ffmpeg_exec] + hwaccel_map[gpu_type] + [
@@ -10020,7 +10020,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 logger.warning(f"[GPU预检] 检测异常: {ex}，跳过 GPU 解码，使用 CPU 解码 + GPU 编码")
                 return "encode_only", f"异常: {ex}"
 
-        # H.264多数GPU解码器都支持
+        # 多数GPU都支持
         return "full_gpu", "默认支持"
 
     def merge_media(self, video_path, audio_path, output_path, kid=None, target_codecid=0, actual_codecid=0, audio_quality=None, video_process_mode='copy'):
@@ -10030,37 +10030,37 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             _aq_label = {0: "自动", 30251: "Hi-Res无损", 30250: "杜比全景声", 100010: "320K高音质", 30280: "192K高音质", 100009: "192K标准音质", 30232: "132K标准音质", 100008: "128K标准音质", 30216: "64K低音质"}.get(audio_quality or 0, f"音质({audio_quality})")
             logger.debug(f"开始合并音视频：视频={video_path}, 音频={audio_path}, 输出={output_path}, 音频质量设置={_aq_label}")
 
-            # 音质到ffmpeg比特率映射
-            # 官方音质ID与码率对照
-            # API额外返回的音质ID
-            # 含义为比特率参数与标签
+            # 音质到比特率映射
+            # 官方音质ID与码率
+            # API额外音质ID
+            # 含义为码率与标签
             AUDIO_QUALITY_BITRATE = {
-                30251: None,                  # Hi-Res无损不能转码只copy
-                30250: None,                  # 杜比全景声不能转码只copy
-                100010: None,                 # 320K已是高码率，copy
-                30280: None,                  # 192K为默认高质量copy
-                100009: None,                 # 与30280同质量，copy
-                30232: ('132k', '132K'),     # 132K标准音质转132kbps
-                100008: ('128k', '128K'),     # 128K低音质转128kbps
-                30216: ('64k', '64K'),        # 64K低音质转64kbps
+                30251: None,                  # Hi-Res只copy
+                30250: None,                  # 杜比只copy
+                100010: None,                 # 320K高码copy
+                30280: None,                  # 192K默认copy
+                100009: None,                 # 同30280copy
+                30232: ('132k', '132K'),     # 132K转132k
+                100008: ('128k', '128K'),     # 128K转128k
+                30216: ('64k', '64K'),        # 64K转64kbps
             }
 
             def _get_audio_encode_args():
                 """根据用户设置的音频质量返回ffmpeg音频编码参数，None表示使用copy
                 audio_quality=0 表示自动模式（使用最高可用音质）→ copy保持原始质量"""
                 if audio_quality is None or audio_quality == 0:
-                    return None  # 未设置或自动则copy原质
+                    return None  # 自动则copy原质
                 bitrate_info = AUDIO_QUALITY_BITRATE.get(audio_quality)
                 if bitrate_info is None:
-                    return None  # 高音质与无损与自动copy
+                    return None  # 高质无损自动copy
                 bitrate_k, label = bitrate_info
                 logger.info(f"音频转码：用户设置了{label}音频质量，目标码率={bitrate_k}")
                 return ['-c:a', 'aac', '-b:a', bitrate_k, '-ar', '44100', '-ac', '2']
 
             import time
-            # 用ASCII临时目录避中文路径
+            # ASCII目录避中文
             # 只存一次，合并目录同盘
-            # 合并后rename原子移动
+            # rename原子移动
             try:
                 merge_temp_dir = get_safe_temp_dir(
                     os.path.dirname(os.path.abspath(__file__)), "temp",
@@ -10071,12 +10071,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 merge_temp_dir = self.safe_temp_dir
             if not merge_temp_dir:
                 merge_temp_dir = self.safe_temp_dir
-            # 查输出路径是否含非ASCII
+            # 查非ASCII
             # 改名避免遮蔽导入函数
             output_has_non_ascii = has_non_ascii(output_path)
             merge_temp_output = None
 
-            # 生成纯ASCII临时合并名
+            # 生成ASCII合并名
             _safe_name = f"bili_merge_{int(time.time() * 1000) % 100000000}.mp4"
             if output_has_non_ascii:
                 merge_temp_output = os.path.join(merge_temp_dir, _safe_name)
@@ -10116,7 +10116,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         decrypted_video_path = actual_decrypted
                 except Exception as decrypt_err:
                     logger.error(f"视频解密失败: {decrypt_err}")
-                    # 清理可能产生的无效文件
+                    # 清理无效文件
                     if os.path.exists(decrypted_video_path):
                         try:
                             os.remove(decrypted_video_path)
@@ -10125,9 +10125,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     return False, f"视频DRM解密失败（{encryption_type}）: {decrypt_err}"
                 if not os.path.exists(decrypted_video_path):
                     return False, "视频解密后文件不存在"
-                # 对解密后路径用8.3短路径
-                # 避免ffprobe与ffmpeg崩中文
-                # 短路径指向同文件仍能清理
+                # 解密后用8.3短路径
+                # 避免崩中文
+                # 短路径指向同文件
                 if has_non_ascii(decrypted_video_path):
                     _short_v = to_short_path(decrypted_video_path)
                     if _short_v != decrypted_video_path:
@@ -10137,8 +10137,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 if decrypted_size < 1024:
                     _cleanup_decrypted_files()
                     return False, f"视频解密后文件过小（{decrypted_size}字节），可能是密钥错误或文件损坏"
-                # 验证解密文件能否被读取
-                # 优先用自带的ffmpeg
+                # 验证解密能否读取
+                # 优先自带ffmpeg
                 ffmpeg_exec = self.ffmpeg_local
                 if not ffmpeg_exec or not os.path.exists(ffmpeg_exec):
                     ffmpeg_exec = shutil.which('ffmpeg')
@@ -10196,7 +10196,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         _cleanup_decrypted_files()
                         return False, f"音频解密后文件过小：{decrypted_size}字节"
             
-            # 优先自带ffmpeg防PATH冲突
+            # 优先自带ffmpeg
             ffmpeg_exec = self.ffmpeg_local
             logger.debug(f"本地ffmpeg路径：{ffmpeg_exec}")
             
@@ -10211,7 +10211,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             logger.debug(f"使用的ffmpeg路径：{ffmpeg_exec}")
             
             if output_has_non_ascii:
-                # 已设为安全的ASCII文件名
+                # 已设为ASCII名
                 pass
             else:
                 merge_temp_output = output_path
@@ -10219,7 +10219,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             video_codec = self._get_video_codec(decrypted_video_path, ffmpeg_exec)
             logger.info(f"视频编码：{video_codec}")
 
-            # 测源码率用于自适应CRF
+            # 测源码率用CRF
             video_bitrate = self._get_video_bitrate(decrypted_video_path, ffmpeg_exec)
             adaptive_crf = self._get_adaptive_crf(video_bitrate)
 
@@ -10228,36 +10228,36 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             is_amv = output_ext == '.amv'
 
             # 需转换编码的判断逻辑
-            # DRM解密后可能需重新封装
+            # 解密后可能需重封装
             # 输出格式不支持该编码
-            # 编码未知无法安全copy
-            # MP4原生支持常见编码
-            # 按输出容器判断是否转码
+            # 编码未知无法copy
+            # MP4支持常见编码
+            # 按容器判断是否转码
             need_drm_repack = encryption_type is not None  # 经过了DRM解密
             need_format_convert = is_amv
-            # AVI不支持HEVC/AV1需转码
+            # AVI不支持HEVC
             if output_ext == '.avi' and video_codec in ('hevc', 'av1', 'h265', 'vp9'):
                 need_format_convert = True
                 logger.info(f"输出格式AVI不支持{video_codec}编码，将转码为H.264")
-            # FLV不支持HEVC/AV1/VP9
+            # FLV不支持HEVC
             if output_ext == '.flv' and video_codec in ('hevc', 'av1', 'h265', 'vp9'):
                 need_format_convert = True
                 logger.info(f"输出格式FLV不支持{video_codec}编码，将转码为H.264")
-            # WMV/ASF需要WMV编码
+            # WMV需要WMV编码
             if output_ext in ('.wmv', '.asf') and video_codec not in ('wmv1', 'wmv2', 'wmv3', 'msmpeg4', 'mpeg4'):
                 need_format_convert = True
                 logger.info(f"输出格式{output_ext}需要WMV兼容编码，将转码为H.264")
-            # VOB/DVD需要MPEG2
+            # VOB需要MPEG2
             if output_ext in ('.vob', '.dat') and video_codec not in ('mpeg1video', 'mpeg2video'):
                 need_format_convert = True
                 logger.info(f"输出格式{output_ext}需要MPEG2编码，将转码")
-            # SVCD/VCD需要MPEG1/2
+            # 需MPEG1/2
             if output_ext == '.svcd' and video_codec not in ('mpeg1video', 'mpeg2video'):
                 need_format_convert = True
-            # MPG可能不支持HEVC/AV1
+            # 可能不支持HEVC
             if output_ext in ('.mpg', '.mpeg') and video_codec in ('hevc', 'av1', 'h265', 'vp9'):
                 need_format_convert = True
-            # M2TS支持H.264/HEVC
+            # M2TS支持H.264
             if output_ext == '.m2ts' and video_codec in ('av1', 'vp9'):
                 need_format_convert = True
             need_conversion = (video_codec == 'unknown') or need_format_convert
@@ -10279,7 +10279,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     logger.error(f"[GPU诊断] detect_gpu()异常: {ex}")
                     gpu_type = None
 
-            # 构建GPU转码参数用目标码率
+            # GPU参数用目标码率
             def _gpu_encode_args(video_bitrate=0):
                 """返回GPU加速的完整转码参数
 
@@ -10294,7 +10294,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 logger.info(f"[GPU编码] ABR目标码率模式，源={src_kbps}kbps, 目标={target_kbps}kbps, gpu_type={gpu_type}")
 
                 if gpu_type == 'nvidia':
-                    # NVENC用VBR目标码率
+                    # NVENC用VBR
                     return {
                         'hwaccel': ['-hwaccel', 'cuda',
                                     '-hwaccel_device', '0',
@@ -10310,7 +10310,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         ]
                     }
                 elif gpu_type == 'amd':
-                    # AMF用目标码率VBR
+                    # AMF用VBR
                     return {
                         'hwaccel': ['-hwaccel', 'd3d11va',
                                     '-hwaccel_output_format', 'd3d11'],
@@ -10324,7 +10324,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         ]
                     }
                 elif gpu_type == 'intel':
-                    # QSV用目标码率VBR
+                    # QSV用VBR
                     return {
                         'hwaccel': ['-hwaccel', 'qsv',
                                     '-hwaccel_output_format', 'qsv',
@@ -10342,8 +10342,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             # 判断 GPU 加速模式：
             #   "off"        : 不使用 GPU
-            # full_gpu为GPU解码加编码
-            # encode_only为CPU解GPU编
+            # full_gpu解加编
+            # encode_only为CPU解
             gpu_mode = "off"
             if gpu_acceleration and gpu_type and _gpu_encode_args(0) is not None:
                 gpu_result, _gpu_diag = self._check_gpu_codec_support(
@@ -10353,7 +10353,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     gpu_mode = gpu_result
             logger.info(f"[GPU诊断] 最终决策: gpu_acceleration={gpu_acceleration}, gpu_type={gpu_type}, gpu_mode={gpu_mode}, _gpu_encode_args()={_gpu_encode_args()}")
 
-            # 对音频路径用8.3短路径
+            # 音频用8.3短路径
             if decrypted_audio_path and has_non_ascii(decrypted_audio_path):
                 _short_a = to_short_path(decrypted_audio_path)
                 if _short_a != decrypted_audio_path:
@@ -10368,8 +10368,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             # 预计算视频编码参数
             # 优先直接下载目标编码
-            # API不提供该编码才转码
-            # 7=AVC,12=HEVC,13=AV1
+            # API无该编码才转
+            # AVC HEVC AV1
             _CODEC_ENCODER_MAP = {
                 7: ['-c:v', 'libx264', '-preset', 'fast', '-crf', '20'],
                 12: ['-c:v', 'libx265', '-preset', 'medium', '-crf', '23'],
@@ -10380,34 +10380,34 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             need_video_transcode = (target_codecid and target_codecid > 0 and
                                     actual_codecid and actual_codecid > 0 and
                                     target_codecid != actual_codecid)
-            # 按处理模式决定编码策略
-            # copy直接复制流速度快
-            # re-encode恒定帧率利剪辑
+            # 按模式定编码策略
+            # copy速度快
+            # 恒定帧率利剪辑
             _force_copy = (video_process_mode == 'copy')
             if _force_copy:
-                # 复制流仍保留GPU加速解码
+                # 复制流仍留GPU解码
                 need_video_transcode = False
                 need_conversion = False
                 need_format_convert = False
                 _audio_args = ['-c:a', 'copy']
                 logger.info("复制数据流模式：音视频直接copy封装，GPU加速解码（如可用）")
 
-            # B站流已压缩，低CRF只膨胀
-            # 以原始码率为基准按比例升
-            # 体积仅增约25%一致性更好
+            # 低CRF只膨胀
+            # 按原始码率比例升
+            # 体积增25%
             src_kbps = (video_bitrate // 1000) if video_bitrate else 0
             _reencode_target_kbps = max(int(src_kbps * 1.25), 800) if src_kbps > 0 else 1000
             _reencode_maxrate_kbps = int(_reencode_target_kbps * 1.1)
             _reencode_bufsize_kbps = _reencode_target_kbps * 2
 
             if need_video_transcode and not _force_copy:
-                # 无目标编码则用ABR转码
+                # 无目标编码用ABR
                 _video_args = _CODEC_ENCODER_MAP.get(target_codecid, ['-c:v', 'libx264', '-preset', 'fast'])
-                # 编码器参数后追加码率控制
+                # 参数后追加码率控制
                 _br_args = ['-b:v', f'{_reencode_target_kbps}k',
                             '-maxrate', f'{_reencode_maxrate_kbps}k',
                             '-bufsize', f'{_reencode_bufsize_kbps}k']
-                # 插到crf前或追加到末尾
+                # 插到crf前或末尾
                 _crf_idx = next((i for i, x in enumerate(_video_args) if x == '-crf'), -1)
                 if _crf_idx >= 0:
                     _video_args = _video_args[:_crf_idx] + _br_args + _video_args[_crf_idx+2:]
@@ -10417,7 +10417,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 dst_codec = _CODEC_NAME_MAP.get(target_codecid, str(target_codecid))
                 logger.info(f"视频转码：B站API未提供{dst_codec}流，从{src_codec}转码→{dst_codec}，目标码率={_reencode_target_kbps}kbps(源={src_kbps}kbps)")
             elif actual_codecid and actual_codecid > 0 and not _force_copy:
-                # 有编码流但选重编码则自适应
+                # 选重编码则自适应
                 codec_label = _CODEC_NAME_MAP.get(actual_codecid, f'codecid={actual_codecid}')
                 encoder_base = _CODEC_ENCODER_MAP.get(actual_codecid,
                     ['-c:v', 'libx264', '-preset', 'fast'])
@@ -10433,7 +10433,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 logger.info(f"视频重编码：B站API提供{codec_label}流，ffmpeg重编码提升画质，"
                            f"目标码率={_reencode_target_kbps}kbps(源={src_kbps}kbps, +{_reencode_target_kbps - src_kbps if src_kbps else '?'}kbps)")
             else:
-                # copy或无编码信息则直接复制
+                # 无编码信息则复制
                 _video_args = ['-c:v', 'copy']
                 if _force_copy:
                     logger.info(f"视频复制模式（用户选择）：保持B站原始数据流({src_kbps}kbps)，速度最快")
@@ -10446,7 +10446,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     _is_copy = (_video_args == ['-c:v', 'copy'])
                     _v_mode = "copy(原始编码)" if _is_copy else ("转码" if need_video_transcode else "重编码")
 
-                    # copy加GPU只加速解码读取
+                    # GPU只加速解码
                     _hwaccel_args = []
                     if _is_copy and gpu_mode in ("full_gpu", "encode_only") and gpu_type:
                         gpu_params = _gpu_encode_args(video_bitrate)
@@ -10473,7 +10473,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     ])
                     logger.info(f"[合并] 智能合并命令(视频{_v_mode})")
                 elif is_amv:
-                    # AMV固定编码特殊处理
+                    # AMV固定编码
                     cmd = [
                         ffmpeg_exec,
                         '-i', decrypted_video_path,
@@ -10490,7 +10490,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         merge_temp_output
                     ]
                 elif gpu_mode in ("full_gpu", "encode_only") and not need_video_transcode:
-                    # 不需转码时才用GPU加速
+                    # 不转码才用GPU
                     if gpu_mode == "full_gpu":
                         logger.info(f"GPU加速已启用({gpu_type})，全GPU硬件编解码")
                         gpu_params = _gpu_encode_args(video_bitrate)
@@ -10519,7 +10519,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                             merge_temp_output
                         ]
                 elif need_conversion or need_video_transcode:
-                    # 不兼容或指定编码则CPU转
+                    # 不兼容则CPU转
                     if need_video_transcode:
                         logger.info(f"用户指定编码转换(目标={_CODEC_NAME_MAP.get(target_codecid,str(target_codecid))})，使用CPU转码")
                     else:
@@ -10535,7 +10535,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         merge_temp_output
                     ]
                 else:
-                    # CPU模式加普通copy
+                    # CPU模式加copy
                     cmd = [
                         ffmpeg_exec,
                         '-i', decrypted_video_path,
@@ -10560,7 +10560,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     # 无音频轨用预计算参数
                     _is_copy = (_video_args == ['-c:v', 'copy'])
 
-                    # copy加GPU，无音频轨
+                    # copy加GPU无音轨
                     _hwaccel_args_noaudio = []
                     if _is_copy and gpu_mode in ("full_gpu", "encode_only") and gpu_type:
                         gpu_params = _gpu_encode_args(video_bitrate)
@@ -10580,7 +10580,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         merge_temp_output
                     ]
                 elif gpu_mode in ("full_gpu", "encode_only") and not need_video_transcode and not need_conversion:
-                    # 仅不需转码时用GPU加速
+                    # 不转码才用GPU
                     if gpu_mode == "full_gpu":
                         logger.info(f"GPU加速已启用({gpu_type})，全GPU编解码(无音频轨)")
                         gpu_params = _gpu_encode_args(video_bitrate)
@@ -10605,7 +10605,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                             merge_temp_output
                         ]
                 elif need_conversion or need_video_transcode:
-                    # 不兼容或指定编码则CPU转
+                    # 不兼容则CPU转
                     if need_video_transcode:
                         logger.info(f"用户指定编码转换(无音频轨, 目标={_CODEC_NAME_MAP.get(target_codecid,str(target_codecid))})")
                     else:
@@ -10632,7 +10632,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             logger.debug(f"执行ffmpeg命令：{' '.join(cmd)}")
             
             try:
-                # 低优先级跑ffmpeg降噪音
+                # 低优先级降噪音
                 result = subprocess.run(
                     cmd,
                     check=True,
@@ -10666,7 +10666,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     logger.info("尝试使用shell=True执行ffmpeg命令")
                     cmd_str = ' '.join(cmd)
                     logger.debug(f"执行命令：{cmd_str}")
-                    # 用bytes模式避免编码错误
+                    # bytes免编码错
                     result = subprocess.run(
                         cmd_str,
                         check=True,
@@ -10695,7 +10695,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if merge_temp_output and merge_temp_output != output_path and os.path.exists(merge_temp_output):
                 try:
                     # 要求只存一次，用移动
-                    # 同盘优先rename零拷贝
+                    # 同盘rename零拷贝
                     move_file_no_copy(merge_temp_output, output_path, logger=logger)
                     logger.info(f"合并结果已移动到目标路径（同盘零拷贝）：{output_path}")
                 except Exception as move_e:
@@ -10738,7 +10738,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             return True, ""
         except subprocess.CalledProcessError as e:
-            # GPU失败自动回退CPU
+            # GPU失败回退CPU
             if gpu_mode != "off":
                 try:
                     _gpu_err = (e.stderr or b'').decode('utf-8', errors='ignore')
@@ -10749,7 +10749,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     f"  ffmpeg stderr（前1000字符）: {_gpu_err[:1000]}"
                 )
                 try:
-                    # 回退CPU用指定目标编码器
+                    # 回退用指定编码器
                     if decrypted_audio_path:
                         fallback_cmd = [
                             ffmpeg_exec,
