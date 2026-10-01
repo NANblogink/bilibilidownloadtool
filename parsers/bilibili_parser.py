@@ -6110,7 +6110,7 @@ class BilibiliParser:
             # 只看SESSDATA
             # 过期仍被误判登录
             # 未登录应try_look
-            # 可给720P与1080P
+            # 给720P/1080P
             # 过期反只有360P
             #
             # 改用nav真实状态
@@ -10020,7 +10020,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 logger.warning(f"[GPU预检] 检测异常: {ex}，跳过 GPU 解码，使用 CPU 解码 + GPU 编码")
                 return "encode_only", f"异常: {ex}"
 
-        # 多数GPU都支持
+        # GPU支持H.264
         return "full_gpu", "默认支持"
 
     def merge_media(self, video_path, audio_path, output_path, kid=None, target_codecid=0, actual_codecid=0, audio_quality=None, video_process_mode='copy'):

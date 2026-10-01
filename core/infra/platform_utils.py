@@ -41,9 +41,9 @@ def tool_names(name):
     return [base, f"{name}.exe"] if not base.endswith('.exe') else [base]
 
 
-# 某些 Windows 下 CreateProcess 带
-# CREATE_NO_WINDOW 会报 WinError 50，
-# 故一旦命中本次运行就弃用该标志。
+# 某些Win下CreateProcess带
+# 该标志会报WinError50
+# 故命中后本次弃用
 _NO_WINDOW_USABLE = True
 
 
@@ -71,7 +71,7 @@ def subprocess_no_window_kwargs():
 def subprocess_low_priority_kwargs():
     """返回低优先级子进程的创建参数，用于ffmpeg等CPU密集型任务，降低CPU噪音但不降速"""
     if IS_WINDOWS and _NO_WINDOW_USABLE:
-        # BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+        # BELOW_NORMAL优先级
         return {'creationflags': subprocess.CREATE_NO_WINDOW | 0x00004000}
     if IS_WINDOWS:
         return {'creationflags': 0x00004000}
@@ -93,7 +93,7 @@ def run_no_window(cmd, timeout=30, text=False, **kwargs):
     except OSError as e:
         if not note_no_window_failure(e):
             raise
-        # 去掉 CREATE_NO_WINDOW 重试，此时
+        # 去掉该标志重试
         # 但总好过功能直接失效。
         return subprocess.run(cmd, capture_output=True, text=text,
                               timeout=timeout, **kwargs)
@@ -325,7 +325,7 @@ def get_system_proxy():
             try:
                 proxy_server = winreg.QueryValueEx(internet_settings, 'ProxyServer')[0]
             except (UnicodeDecodeError, Exception):
-                # ProxyServer 含非UTF-8字符，按原始字节读
+                # 按原始字节读ProxyServer
                 try:
                     proxy_server_raw = winreg.QueryValueEx(internet_settings, 'ProxyServer')
                     proxy_server = str(proxy_server_raw[0]) if proxy_server_raw else ''
@@ -365,7 +365,7 @@ def detect_gpu():
     gpu_type: 'nvidia', 'amd', 'intel', 或 None
     """
     if IS_WINDOWS:
-        # 方法1: 优先 PowerShell Get-CimInstance
+        # 方法1优先Get-CimInstance
         try:
             result = run_no_window(
                 ['powershell', '-NoProfile', '-Command',
@@ -392,7 +392,7 @@ def detect_gpu():
             except Exception:
                 pass
 
-        # 方法2: wmic 作为后备
+        # 方法2用wmic后备
         try:
             result = subprocess.run(
                 ['wmic', 'path', 'win32_VideoController', 'get', 'name'],
@@ -413,7 +413,7 @@ def detect_gpu():
         except Exception:
             pass
 
-        # 方法3: nvidia-smi 检测NVIDIA（最可靠）
+        # 方法3用nvidia-smi最可靠
         try:
             result = subprocess.run(
                 ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader,nounits'],
@@ -460,7 +460,7 @@ def to_short_path(path):
     """
     if not IS_WINDOWS or not path:
         return path
-    # 路径全ASCII，无需转换
+    # 全ASCII无需转换
     if not has_non_ascii(path):
         return path
     try:
@@ -470,17 +470,17 @@ def to_short_path(path):
         GetShortPathNameW.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
         GetShortPathNameW.restype = wintypes.DWORD
 
-        # 首次调用获取所需缓冲区长度
+        # 先取所需缓冲区长度
         buf_size = GetShortPathNameW(path, None, 0)
         if buf_size == 0:
-            return path  # 转换失败（文件不存在或8.3短名被禁用）
+            return path  # 转换失败或短名禁用
 
         # 实际获取短路径
         buf = ctypes.create_unicode_buffer(buf_size)
         result = GetShortPathNameW(path, buf, buf_size)
         if result > 0:
             short_path = buf.value
-            # 确认转换后确实为纯ASCII
+            # 确认确为纯ASCII
             if not has_non_ascii(short_path):
                 return short_path
         return path
@@ -525,10 +525,10 @@ def _resolve_ascii_candidate(path):
 # --------------------------------------------------------------------------
 # 统一平台行为 API
 #
-# 把散落在 ui.py / parsers 的 Windows
-# 专有调用（explorer /select、taskkill、
-# cmd /c 等）收敛到一处，各平台等价实现。
-# 所有函数保证失败不抛异常，返回 bool。
+# 收敛散落的Win专有调用
+# 如explorer与taskkill
+# 各平台等价实现
+# 失败不抛异常返回bool
 # --------------------------------------------------------------------------
 
 
@@ -543,7 +543,7 @@ def open_path(path):
         elif IS_MACOS:
             subprocess.Popen(['open', path], **subprocess_no_window_kwargs())
         elif IS_ANDROID:
-            # Termux/Kivy 无 xdg-open，交调用方降级
+            # 无xdg-open交调用方降级
             return False
         else:
             opener = shutil.which('xdg-open')
@@ -580,7 +580,7 @@ def reveal_in_file_manager(path, select=False):
                 subprocess.Popen(['open', path if os.path.isdir(path) else os.path.dirname(path)],
                                  **subprocess_no_window_kwargs())
             return True
-        # Linux 无统一选中语义，打开所在目录
+        # Linux无选中语义开目录
         target = path if os.path.isdir(path) else os.path.dirname(path)
         return open_path(target)
     except Exception:
@@ -592,7 +592,7 @@ def open_terminal(command=None, path=None):
     try:
         if IS_WINDOWS:
             if command:
-                # 用 cmd /k 保持窗口不关闭
+                # cmd /k保持窗口不关
                 subprocess.Popen(['cmd', '/k', command],
                                  cwd=path, **subprocess_no_window_kwargs())
             else:
@@ -606,7 +606,7 @@ def open_terminal(command=None, path=None):
             return True
         if IS_ANDROID:
             return False
-        # Linux：按可用性依次尝试常见终端
+        # 按可用性试常见终端
         for term in ('x-terminal-emulator', 'gnome-terminal', 'konsole',
                      'xfce4-terminal', 'xterm'):
             exe_path = shutil.which(term)
@@ -637,7 +637,7 @@ def kill_process_tree(pid, timeout=5):
             subprocess.call(['taskkill', '/F', '/T', '/PID', str(pid)],
                             **subprocess_no_window_kwargs())
             return True
-        # POSIX：先温和终止进程组，超时强杀
+        # 先温和终止超时强杀
         import signal
         try:
             pgid = os.getpgid(pid)
@@ -693,14 +693,14 @@ def shutdown_system(delay_seconds=60, reason=""):
             subprocess.Popen(args, **subprocess_no_window_kwargs())
             return True, '已安排关机'
         if IS_MACOS:
-            # macOS shutdown 只接受分钟粒度
+            # shutdown只收分钟
             minutes = max(1, int(round(delay_seconds / 60.0)))
             subprocess.Popen(['sudo', '-n', 'shutdown', '-h', '+%d' % minutes],
                              **subprocess_no_window_kwargs())
             return True, '已安排关机（如有提示请输入密码）'
         if IS_ANDROID:
             return False, '当前平台不支持自动关机'
-        # Linux：优先 systemd，回退 shutdown
+        # 优先systemd回退shutdown
         if shutil.which('systemctl'):
             subprocess.Popen(['systemctl', 'poweroff'],
                              **subprocess_no_window_kwargs())
@@ -799,8 +799,8 @@ def recommended_concurrency(explicit=None, cap=8, floor=1):
 # --------------------------------------------------------------------------
 # 跨平台桌面通知
 #
-# Windows 走 WinRT；macOS 走 osascript；
-# Linux 走 notify-send。三者失败静默返回 False。
+# Win走WinRT Mac走osascript
+# Linux走notify-send
 # 绝不影响主流程。
 # --------------------------------------------------------------------------
 
@@ -822,7 +822,7 @@ def _notify_linux(title, message, urgency='normal'):
     sender = shutil.which('notify-send')
     if not sender:
         return False
-    # -a 应用名，-u 紧急度(low/normal/critical)
+    # a为应用名u为紧急度
     args = [sender, '-a', 'B站视频下载工具']
     if urgency in ('low', 'normal', 'critical'):
         args += ['-u', urgency]
@@ -839,11 +839,11 @@ def native_notify(title, message, urgency='normal', subtitle=''):
     """
     try:
         if IS_WINDOWS:
-            return False  # 由 ui._winrt_toast 接管
+            return False  # 由_winrt_toast接管
         if IS_MACOS:
             return _notify_macos(title, message, subtitle)
         if IS_ANDROID:
-            return False  # 由 Android 端 Kivy 层接管
+            return False  # 由Android层接管
         return _notify_linux(title, message, urgency)
     except Exception:
         return False
@@ -873,14 +873,14 @@ def beep(kind='info'):
             winsound.MessageBeep(tone)
             return True
         if IS_MACOS:
-            # afplay 是 macOS 自带，音效在 /System/Library/Sounds
+            # afplay是macOS自带
             for name in (('Basso.aiff',) if kind == 'warn' else ('Glass.aiff', 'Ping.aiff')):
                 p = '/System/Library/Sounds/' + name
                 if os.path.exists(p):
                     subprocess.Popen(['afplay', p], **subprocess_no_window_kwargs())
                     return True
             return False
-        # Linux：优先 paplay/canberra，回退响铃
+        # 优先paplay回退响铃
         for cmd in (['canberra-gtk-play', '-i', 'complete'],
                     ['paplay', '/usr/share/sounds/freedesktop/stereo/complete.oga']):
             if shutil.which(cmd[0]):
@@ -927,7 +927,7 @@ def get_safe_temp_dir(base_dir, sub_dir="temp", cache_dir=None, prefer_dir=None)
     if cache_dir:
         candidates.append(cache_dir)
 
-    # 2. 与下载目标同盘的 ASCII 目录（免占C盘）
+    # 同盘ASCII目录免占C盘
     if prefer_dir:
         try:
             drive = os.path.splitdrive(os.path.abspath(prefer_dir))[0]
@@ -936,7 +936,7 @@ def get_safe_temp_dir(base_dir, sub_dir="temp", cache_dir=None, prefer_dir=None)
         except Exception:
             pass
 
-    # 3. 程序目录下的 temp
+    # 程序目录下的temp
     if base_dir:
         candidates.append(os.path.join(base_dir, sub_dir))
 
@@ -1002,7 +1002,7 @@ def move_file_no_copy(src, dst, overwrite=True, logger=None):
         else:
             raise FileExistsError(f"目标文件已存在：{dst}")
 
-    # 1) 同盘：原子重命名（零拷贝）
+    # 同盘原子重命名零拷贝
     try:
         os.replace(src, dst)
         if logger:
@@ -1019,7 +1019,7 @@ def move_file_no_copy(src, dst, overwrite=True, logger=None):
     except OSError as e:
         _rename_err = e
 
-    # 2) 跨卷回退 shutil.move（跨盘才真复制）
+    # 跨卷才复制
     same_volume = False
     try:
         same_volume = os.path.splitdrive(src)[0].lower() == os.path.splitdrive(dst)[0].lower()
@@ -1065,7 +1065,7 @@ def link_or_copy(src, dst, overwrite=True, logger=None):
         else:
             return dst
 
-    # 1) 硬链接：同卷零额外空间，只存一份
+    # 硬链接同卷零空间
     try:
         os.link(src, dst)
         if logger:

@@ -102,15 +102,15 @@ class ConfigLoader:
             "app_settings": {
                 "default_save_path": _default_download_dir(),
                 "last_save_path": "",
-                # 缓存目录：留空自动选（优先同盘，
+                # 留空自动选优先同盘
                 # 免写满系统盘 C:）
                 "cache_dir": "",
                 "max_threads": 2,
                 "auto_convert_incompatible": False,
                 "hevc_not_supported_ask": True,
                 "add_episode_to_filename": True,
-                # 序号位数：0=不加，2=01，3=001
-                # 形如 "01. 标题.mp4"，便于排序
+                # 0不加2为01三位001
+                # 便于排序
                 "filename_sequence_digits": 2,
                 "batch_download_first": False,
                 "filename_add_author": False,
@@ -164,15 +164,15 @@ class ConfigLoader:
             if not cur:
                 s["default_save_path"] = _default_download_dir()
                 return
-            # 仅路径恰为 "某 core/B站下载" 才纠正
+            # 仅路径恰为该值才纠正
             norm = os.path.normpath(cur).replace("/", "\\").lower()
             if norm.endswith("\\core\\b站下载"):
                 s["default_save_path"] = _default_download_dir()
                 return
 
-            # 历史配置可能存了已删目录
-            # 父目录缺失会让下载无处可存，
-            # 故回落到项目根下 B站下载。
+            # 历史配置可能存已删目录
+            # 父目录缺失无法存
+            # 回落到项目根下
             parent = os.path.dirname(cur)
             if parent and not os.path.isdir(parent):
                 fallback = _default_download_dir()

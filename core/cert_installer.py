@@ -78,8 +78,8 @@ def is_cert_installed(cer_path):
     if sys.platform != "win32":
         return False, False
     try:
-        # -verify 太复杂，改用 -store
-        # 先从证书文件读 SHA1 指纹
+        # 改用-store
+        # 先从证书读SHA1
         import subprocess
         result = subprocess.run(
             ["certutil", "-dump", cer_path],
@@ -91,7 +91,7 @@ def is_cert_installed(cer_path):
         for line in result.stdout.split("\n"):
             line = line.strip()
             if "Cert Hash(sha1):" in line:
-                # 形如 Cert Hash(sha1): ab cd
+                # 形如Cert Hash(sha1)
                 thumbprint = line.split(":", 1)[1].strip().replace(" ", "")
                 break
         if not thumbprint:
@@ -133,7 +133,7 @@ def auto_install_cert(silent=True):
     if not cer_path:
         return False, "未找到证书文件 BilibiliDownloader_dev.cer"
 
-    # 先查是否已装，避免重复安装
+    # 先查是否已装
     try:
         root_ok, publisher_ok = is_cert_installed(cer_path)
         if root_ok and publisher_ok:
@@ -160,15 +160,15 @@ def auto_install_cert(silent=True):
 
 def install_cert(cer_path, store_name, store_location="LocalMachine"):
     """用 certutil 安装证书到指定存储区"""
-    # -addstore -f <位置>\<存储名> <cer>
-    # 加 -user 装到 CurrentUser
+    # addstore语法
+    # 加-user装到当前用户
     if store_location == "LocalMachine":
         args = ["certutil", "-addstore", "-f", store_name, cer_path]
     else:
         args = ["certutil", "-user", "-addstore", "-f", store_name, cer_path]
 
     try:
-        # CREATE_NO_WINDOW 免黑窗
+        # 免黑窗
         result = subprocess.run(
             args,
             capture_output=True,
@@ -211,7 +211,7 @@ def main():
     print(f"证书文件: {cer_path}")
     print()
 
-    # 装到受信任根证书颁发机构
+    # 装到受信任根机构
     print("[1/2] 安装到受信任根证书颁发机构...")
     ok1, msg1 = install_cert(cer_path, "Root", "LocalMachine")
     if ok1:

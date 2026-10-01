@@ -140,7 +140,7 @@ def get_log_files():
     files = []
     if os.path.exists(LOG_DIR):
         for f in os.listdir(LOG_DIR):
-            # 排除已打包 zip，防无限膨胀
+            # 排除已打包zip防膨胀
             if f.lower().endswith('.zip'):
                 continue
             fp = os.path.join(LOG_DIR, f)
@@ -177,7 +177,7 @@ def clear_old_logs(days=KEEP_DAYS):
                 freed += size
             except Exception:
                 pass
-    # 清理过期日志压缩包（zip 另处理）
+    # 清理过期zip
     if os.path.exists(LOG_DIR):
         for f in os.listdir(LOG_DIR):
             if not f.lower().endswith('.zip'):
@@ -205,7 +205,7 @@ def package_logs(output_path=None):
         logger.warning("没有可打包的日志文件")
         return None
     
-    # 限制打包总量，防压缩过慢/占盘
+    # 限制总量防占盘
     max_pack_size = 50 * 1024 * 1024
     files_to_pack = []
     total_size = 0
@@ -319,7 +319,7 @@ def _copy_path_to_clipboard(file_path):
     abs_path = os.path.abspath(file_path)
     logger = logging.getLogger(__name__)
 
-    # 方式1：Qt 文件URL方式
+    # 方式1 Qt文件URL
     try:
         from PyQt5.QtWidgets import QApplication
         from PyQt5.QtCore import QMimeData, QUrl
@@ -345,7 +345,7 @@ def _copy_path_to_clipboard(file_path):
     except Exception as e:
         logger.warning("PyQt5剪贴板操作失败: %s", str(e))
 
-    # 方式3：Windows PowerShell
+    # 方式3 PowerShell
     if IS_WINDOWS:
         try:
             import subprocess

@@ -24,19 +24,19 @@ PYQT5_VER = "5.15.11"  # 5.15 末版，兼容 3.8+
 
 # ---------------------------------------------------------------- 平台标签
 #
-# wheel 名里的平台标签必须与 平台族+架构+ABI
-# 三者须同时匹配，否则导入失败("装不全")。
+# 平台族架构ABI须同匹配
+# 否则导入失败
 #
 # 历史缺陷（本次全部修复）：
-# 1. 只看架构不看平台族——Linux 会选中
-#    macosx_x86_64，因都含 "x86_64"。
-# 2. 不分 32/64 位——'win32' 也含 'win'，
-#    64 位会下到 32 位 wheel。
-# 3. Windows on ARM 恒返回 win32。
-# 4. Linux ARM 归一化错——恒返回 x86_64。
+# 只看架构会选错平台族
+# macosx含x86_64会被误选
+# 不分32与64位
+# 64位会下32位wheel
+# WinOnARM恒返回win32
+# LinuxARM归一化错
 #
-# 现策略：解释器解析成 (family,arch,bits)，
-# wheel 标签同样解析后逐字段比对。
+# 解析成家族架构位数
+# 标签同样解析后逐字段比
 
 _WIN_FAMILY = 'windows'
 _MAC_FAMILY = 'macos'
@@ -68,7 +68,7 @@ def _normalize_arch(m):
     # ARM 32 位（树莓派等）
     if m.startswith('armv') or m in ('arm', 'armhf', 'armel'):
         return 'armv7'
-    # 其它架构（riscv64/ppc64le...）原样返回
+    # 其它架构原样返回
     if m in ('riscv64', 'ppc64le', 'ppc64', 's390x', 'loongarch64', 'mips64'):
         return m
     return m or 'x86_64'
@@ -81,7 +81,7 @@ def _host_family():
         return _WIN_FAMILY
     if p.startswith('darwin'):
         return _MAC_FAMILY
-    # linux/freebsd/openbsd/android
+    # linux/freebsd/openbsd
     return _LINUX_FAMILY
 
 
@@ -100,9 +100,9 @@ def platform_tag():
     if fam == _WIN_FAMILY:
         return _win_arch_tag()
     if fam == _MAC_FAMILY:
-        # macOS wheel 形如 macosx_11_0_arm64
+        # macOS形如macosx_11_arm64
         return _interp_arch()
-    # Linux：manylinux 用 aarch64/i686
+    # manylinux用aarch64
     return _linux_arch_tag(_interp_arch())
 
 
@@ -134,18 +134,18 @@ def _interp_arch():
     bits = _interp_bits()
     cpu = _machine()
     if bits == 32:
-        # 32 位：架构取决于 CPU 家族
-        #   * x86/x86_64（WoW64 或原生）-> x86
-        #   * ARM64 上的 32 位 Python -> x86
-        #   * ARMv7 上的 32 位 Python -> armv7！
+        # 32位架构随CPU家族
+        # x86与WoW64均为x86
+        # ARM64上的32位Py为x86
+        # ARMv7上的32位为armv7
         if cpu in ('armv7', 'arm'):
             return 'armv7'
         return 'x86'
-    # 64 位：区分 x64 与 ARM64
+    # 64位区分x64与ARM64
     if cpu == 'arm64':
         return 'arm64'
     if cpu in ('armv7', 'arm'):
-        # 64 位跑在 32 位 ARM 上：按 CPU 走
+        # 64位跑32位ARM按CPU走
         return 'armv7'
     return cpu if cpu not in ('x86',) else 'x86_64'
 
@@ -168,7 +168,7 @@ def platform_tag_aliases():
     """平台标签的候选集合，仅用于粗筛（真正判定走 _platform_arch_ok）。"""
     fam = _host_family()
     if fam == _WIN_FAMILY:
-        # 只留 win* 家族，免混入其它平台
+        # 只留win家族
         return {'win', 'win32', 'win_amd64', 'win_arm64', platform_tag()}
     if fam == _MAC_FAMILY:
         return {'macosx', 'universal2', 'intel', 'fat', 'arm64', 'x86_64'}
@@ -200,14 +200,14 @@ def _parse_platform_field(pf):
     # ---- macOS ----
     if pf.startswith('macosx') or 'macosx' in pf:
         if 'universal2' in pf:
-            # 兼容 Intel 与 Apple Silicon
+            # 兼容Intel与Apple芯
             return (_MAC_FAMILY, 'universal2', 64)
         if 'arm64' in pf:
             return (_MAC_FAMILY, 'arm64', 64)
         if 'x86_64' in pf:
             return (_MAC_FAMILY, 'x86_64', 64)
         if 'intel' in pf or 'i386' in pf or 'fat' in pf:
-            # fat/intel wheel：仅 x86 可用
+            # fat与intel仅x86可用
             return (_MAC_FAMILY, 'x86_64', 64)
         return (_MAC_FAMILY, 'unknown', 64)
 
@@ -254,7 +254,7 @@ def _arch_rank(platform_field):
     fam_w, arch_w, bits_w = _parse_platform_field(platform_field)
 
     if fam_w == 'any':
-        return 50  # 纯 python，永远可用
+        return 50  # 纯python永远可用
     if fam_w != fam_h:
         return -1  # 平台族不符，绝不可用
 
@@ -265,10 +265,10 @@ def _arch_rank(platform_field):
             return 100                  # 完全匹配
         if arch_w == want:
             return 100
-        # 32 位 wheel：64 位经 WoW64 运行
+        # 32位wheel经WoW64运行
         if ia == 'x86_64' and arch_w == 'x86' and bits_w == 32:
             return 40
-        # ARM64 上的 64 位：可跑 x64 模拟
+        # ARM64可跑x64模拟
         if ia == 'arm64' and arch_w == 'x86_64' and bits_w == 64:
             return 60
         if ia == 'arm64' and arch_w == 'x86' and bits_w == 32:
@@ -278,12 +278,12 @@ def _arch_rank(platform_field):
     # ---- macOS ----
     if fam_h == _MAC_FAMILY:
         if arch_w == 'universal2' and bits_h == 64:
-            return 95                  # Intel + Apple Silicon 通吃
+            return 95                  # Intel与Apple芯通吃
         if arch_w == ia and (bits_w is None or bits_w == bits_h):
             return 100
         if ia == 'x86_64' and arch_w == 'x86_64':
             return 90
-        # Apple Silicon 经 Rosetta 2 跑
+        # Apple芯经Rosetta2
         if ia == 'arm64' and arch_w == 'x86_64' and bits_h == 64:
             return 70
         return -1
@@ -291,7 +291,7 @@ def _arch_rank(platform_field):
     # ---- Linux ----
     if arch_w == ia and (bits_w is None or bits_w == bits_h):
         return 100
-    # 64 位 x86 Linux 需 32 位运行库
+    # 64位x86需32位运行库
     if ia == 'x86_64' and bits_h == 64 and arch_w == 'x86' and bits_w == 32:
         return 30
     return -1
@@ -308,10 +308,10 @@ def _platform_arch_ok(platform_field):
 
 _PLATFORM_TAG = platform_tag()
 
-# 解释器标签，用于日志与调试
+# 解释器标签供调试
 _PY_TAG = "cp%d%d" % (sys.version_info.major, sys.version_info.minor)
 
-# simple 镜像逐个重试，国内源优先，
+# 国内源优先逐个重试
 MIRROR_SIMPLE = [
     "https://mirrors.cloud.tencent.com/pypi/simple",
     "https://pypi.tuna.tsinghua.edu.cn/simple",
@@ -338,8 +338,8 @@ def local_wheel_dirs():
     except Exception:
         here = os.getcwd()
 
-    # 候选根：本模块目录与上级（core/ -> 根），
-    # 冻结时还含 exe 目录，wheels/ 放哪都行。
+    # 候选根为本模目录与上级
+    # 冻结时含exe目录
     # 模块同级都能找到。
     roots = []
     try:
@@ -501,7 +501,7 @@ def _compat_ok(pyver, abi, cur):
     pyver = (pyver or '').strip().lower()
     abi = (abi or '').strip().lower()
 
-    # 纯 python，任何解释器可用
+    # 纯python任何解释器可用
     if pyver in ("py3", "py2.py3", "py2.py3-none", "any"):
         return True
 
@@ -510,15 +510,15 @@ def _compat_ok(pyver, abi, cur):
     if want_ver is None:
         return False
 
-    # abi3：自 CPython 3.2 起向前兼容，
-    # wheel 目标版本不高于解释器即可用。
+    # abi3自3.2起向前兼容
+    # 目标版本不高于解释器
     if abi == "abi3":
         if cur_ver is None:
             return False
         return want_ver <= cur_ver
 
-    # 非 abi3：须与解释器版本完全一致
-    # （如 PyQt5_sip cp310 只给 3.10）
+    # 非abi3须版本完全一致
+    # 如sip310只给3.10
     return cur_ver is not None and want_ver == cur_ver
 
 
@@ -535,8 +535,8 @@ def _load_simple_entries(mirror, package):
         href = m.group(1).split("#")[0]
         fn = href.split("/")[-1]
         low = fn.lower()
-        # 先按文件名粗筛：必须是 wheel 且
-        # 提到本平台族，真判定交给 arch_ok。
+        # 先按文件名粗筛
+        # 真判定交给arch_ok
         if not _looks_like_candidate(low):
             continue
         try:
@@ -563,7 +563,7 @@ def _looks_like_candidate(low):
         return 'win' in low
     if fam == _MAC_FAMILY:
         return 'macosx' in low or 'darwin' in low
-    # Linux：接受 manylinux/musllinux，排 win/mac
+    # 接受manylinux排win与mac
     if 'win' in low or 'macosx' in low or 'darwin' in low:
         return False
     return ('manylinux' in low or 'musllinux' in low
@@ -592,7 +592,7 @@ def _best_wheel(entries, name_prefix=None, want_version=None, wants_cp310_first=
         pyver_cp = ""
         if p["pyver"].startswith("cp"):
             pyver_cp = p["pyver"]
-        # 契合度：完全匹配100，降级30-60，不可用-1
+        # 匹配100降级30至60不可用-1
         ar = _arch_rank(p.get("platform"))
         if ar < 0:
             score -= 10000
@@ -605,10 +605,10 @@ def _best_wheel(entries, name_prefix=None, want_version=None, wants_cp310_first=
                 score += 90
         score += (10 if p["abi"] == "abi3" else 0)
         if pyver_cp == cur_tag:
-            score += 50  # 精确 abi 最优先（pyqt5_sip 要求精确）
+            score += 50  # 精确abi最优先
         if p["abi"] == "none":
-            score += 5  # py3-none 纯 python（PyQt5_Qt5）
-        # 版本越新越靠前（常数列作 tiebreaker）
+            score += 5  # py3-none为纯python
+        # 版本越新越靠前
         try:
             vparts = p["version"].split(".")
             score += sum(int(x) for x in vparts) * 0.01
@@ -679,7 +679,7 @@ def _download(url, dest, title="", retries=3):
                                 _log("%s %d%% (%d/%d MB)" % (title, pct, done // 1048576, total // 1048576))
                         elif not done % (8 * 1048576):
                             _log("%s %d MB" % (title, done // 1048576))
-            # 声明了长度却没收够即视为失败
+            # 声明长度未收够即失败
             if total and done < total:
                 last_err = "下载不完整 %s: %d/%d 字节" % (title, done, total)
                 _log("    " + last_err)
@@ -715,10 +715,10 @@ def _extract_wheel(whl, rt):
     """
     os.makedirs(rt, exist_ok=True)
     rt_plain = os.path.normpath(rt)
-    # Windows 超长路径(>260)会失败，安装目录
-    # 较深时（如 C:\Users\<长名>\AppData）易触发。
-    # 注意：只在解压时用扩展前缀，校验仍用
-    # 原始路径，免 normcase 被 \\?\ 干扰。
+    # Win超260路径会失败
+    # 安装目录深时易触发
+    # 解压才用扩展前缀
+    # 校验仍用原始路径
     rt_long = _win_long_path(rt_plain)
     with zipfile.ZipFile(whl) as zf:
         bad = zf.testzip()
@@ -726,7 +726,7 @@ def _extract_wheel(whl, rt):
             raise IOError("wheel 内文件损坏: %s" % bad)
         for info in zf.infolist():
             name = info.filename
-            # 防目录穿越（按原始路径判定）
+            # 防目录穿越
             target = os.path.normpath(os.path.join(rt_plain, name))
             base = os.path.normcase(rt_plain) + os.sep
             if not os.path.normcase(target).startswith(base):
@@ -735,10 +735,10 @@ def _extract_wheel(whl, rt):
             try:
                 zf.extract(info, rt_long)
             except Exception as e:
-                # 杀毒/索引器短暂占用很常见，重试几次
+                # 杀软占用常见需重试
                 if not _extract_with_retry(zf, info, rt_long):
                     raise IOError("解压失败 %s: %s" % (name, e))
-            # 普通文件需确认落盘且大小一致
+            # 须确认落盘且大小一致
             if not name.endswith('/') and info.file_size > 0:
                 if not os.path.exists(target) or os.path.getsize(target) != info.file_size:
                     raise IOError("解压后文件不完整: %s" % name)
@@ -754,7 +754,7 @@ def _extract_with_retry(zf, info, rt, attempts=4):
             return True
         except Exception:
             _t.sleep(0.3 * (i + 1))
-            # 可能被占住，先删掉再重试
+            # 被占住先删再重试
             try:
                 tgt = os.path.normpath(os.path.join(rt, info.filename))
                 if os.path.isfile(tgt):
@@ -775,7 +775,7 @@ def _win_long_path(p):
         if not p or p.startswith('\\\\?\\'):
             return p
         ap = os.path.abspath(p)
-        if ap.startswith('\\\\'):        # UNC: \\server\share -> \\?\UNC\...
+        if ap.startswith('\\\\'):        # UNC转\?\UNC\
             return '\\\\?\\UNC\\' + ap[2:]
         return '\\\\?\\' + ap
     except Exception:
@@ -809,7 +809,7 @@ def _jqpath_plugins(runtime):
             except Exception:
                 present = []
             if any(n in present for n in names):
-                # 返回的是 plugins 目录本身
+                # 返回plugins目录本身
                 if os.path.basename(root) == "plugins":
                     return root
                 for n in names:
@@ -833,7 +833,7 @@ def _wheels_installed(runtime):
         entries = os.listdir(pydir)
     except Exception:
         return False
-    # QtCore 扩展模块：.pyd / .so / cpython
+    # QtCore扩展模块
     has_qtcore = any(
         e == "QtCore.pyd" or
         e.startswith("QtCore.") and e.endswith(".so") or
@@ -842,11 +842,11 @@ def _wheels_installed(runtime):
     )
     if not has_qtcore:
         return False
-    # 有 Qt 库或插件其一，说明 Qt5 进来了
+    # 有Qt库或插件即已到位
     qt_ok = (os.path.isdir(os.path.join(pydir, "Qt5"))
              or os.path.isdir(os.path.join(runtime, "Qt5")))
-    # sip 绑定：可能是 PyQt5_sip/ 目录，
-    # 也可能只有 dist-info/（老版本），都算。
+    # sip可能是目录
+    # 也可能只有dist-info
     try:
         rt_entries = os.listdir(runtime)
     except Exception:
@@ -873,7 +873,7 @@ def _webengine_installed(runtime):
     hit = _find_in_runtime(runtime, *names)
     if hit:
         return True
-    # macOS framework：Versions/5/QtWebEngineCore
+    # macOS的Versions/5结构
     for root, dirs, files in os.walk(runtime):
         for d in dirs:
             if d.startswith("QtWebEngineCore.framework"):
@@ -890,7 +890,7 @@ def _setup_webengine_env(runtime):
     if pak:
         os.environ["QTWEBENGINE_RESOURCES_PATH"] = os.path.dirname(pak)
     else:
-        # 部分发布把资源放在 Qt5/resources
+        # 资源放在Qt5/resources
         for cand in (os.path.join(runtime, "PyQt5", "Qt5", "resources"),
                      os.path.join(runtime, "Qt5", "resources")):
             if os.path.isdir(cand):
@@ -960,20 +960,20 @@ def register_qt_plugin_path(rt):
     if not pd:
         return None
 
-    # 环境变量：给"还没导入 PyQt5"的兜底
+    # 给未导入PyQt5的兜底
     try:
         os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = pd
-        # Qt5/plugins 也要给，WebEngine 依赖它
+        # Qt5/plugins也须给
         qt_plugins_root = os.path.dirname(os.path.abspath(pd))
         if os.path.isdir(qt_plugins_root):
             os.environ["QT_PLUGIN_PATH"] = qt_plugins_root
-        # 让 Qt 倾向用我们的插件而非系统 Qt
+        # 倾向用我们的插件
         os.environ.setdefault("QT_QPA_FONTDIR", os.path.join(
             os.environ.get("WINDIR", r"C:\Windows"), "Fonts"))
     except Exception:
         pass
 
-    # 直接向 Qt 注册插件搜索路径
+    # 向Qt注册搜索路径
     try:
         from PyQt5.QtCore import QCoreApplication
         for p in (pd, os.path.dirname(os.path.abspath(pd))):
@@ -983,7 +983,7 @@ def register_qt_plugin_path(rt):
                 except Exception:
                     pass
     except Exception:
-        # PyQt5 未就绪不算失败：变量已设，导入后生效
+        # 未就绪不算失败
         pass
 
     return pd
@@ -1001,7 +1001,7 @@ def ensure_qt_plugins(log=None):
         except Exception:
             pass
 
-    # 先定位 PyQt5 实际目录（runtime/ 等）
+    # 先定位PyQt5目录
     cands = []
     try:
         import PyQt5  # noqa: F401
@@ -1041,7 +1041,7 @@ def ensure_pyqt5(log=None, console=True, runtime=None):
     if log:
         _log = log
 
-    # 安装程序已部署运行时：直接复用，不再装
+    # 已部署则直接复用
     dep = deployed_runtime_dir()
     if dep and not runtime:
         if dep not in sys.path:
@@ -1054,7 +1054,7 @@ def ensure_pyqt5(log=None, console=True, runtime=None):
     need_base = not _wheels_installed(rt)
     need_webengine = not _webengine_installed(rt)
 
-    # 已全部就位：注入路径后直接返回
+    # 已就位则注入后返回
     if rt not in sys.path:
         sys.path.insert(0, rt)
     if not need_base and not need_webengine and is_ready(rt):
@@ -1074,11 +1074,11 @@ def ensure_pyqt5(log=None, console=True, runtime=None):
         ]
     if need_webengine:
         _log("  - 需要下载人机验证(WebEngine)组件")
-        # 绑定层 .pyd 与 Qt 运行层 .dll 都要齐全
+        # pyd与dll都要齐全
         packages.append(("PyQtWebEngine", None, False))
         packages.append(("PyQtWebEngine_Qt5", None, False))
 
-    # simple 索引包名一律小写（镜像区分大小写）
+    # 索引包名一律小写
     pkg_names = {
         "PyQt5": "pyqt5",
         "PyQt5_Qt5": "pyqt5-qt5",
@@ -1089,13 +1089,13 @@ def ensure_pyqt5(log=None, console=True, runtime=None):
 
     ok = False
     tmp = None
-    # 记录每包是否已解压成功，跨镜像复用，
-    # 免得某包反复失败时从头重下已装好的。
+    # 记录解压成功跨镜像复用
+    # 免得失败时从头重下
     done_pkgs = set()
     last_err = ""
 
-    # 来源：本地内置目录优先（离线可用），
-    # 然后才是各镜像，无网环境也能装上。
+    # 本地内置目录优先
+    # 无网也能装上
     local_dirs = local_wheel_dirs()
     if local_dirs:
         _log("  发现本地组件目录: %s" % "; ".join(local_dirs))
@@ -1120,7 +1120,7 @@ def ensure_pyqt5(log=None, console=True, runtime=None):
                 if wheelname in done_pkgs:
                     continue
                 if is_local:
-                    # 在本地目录里挑最合适的 wheel
+                    # 在本地挑最合适的wheel
                     entries = []
                     for d in local_dirs:
                         entries += _scan_local_wheels(d, name_prefix=wheelname)
@@ -1138,9 +1138,9 @@ def ensure_pyqt5(log=None, console=True, runtime=None):
                     _log("    下载 {0}...".format(chosen["filename"]))
                 whl = os.path.join(tmp, chosen["filename"])
                 _download(chosen["url"], whl, "%s-%s" % (wheelname, chosen["version"]))
-                # 截断的 wheel 解压会中途失败，
-                # 表现为"库装不全"。先按字节核对再解压。
-                # 本地来源已在 _download 核对，只校验远端。
+                # 截断的wheel解压会失败
+                # 表现为库装不全
+                # 远端才需校验
                 if not chosen.get("local"):
                     _expected = _remote_size(chosen["url"])
                     _actual = os.path.getsize(whl) if os.path.exists(whl) else 0
@@ -1150,7 +1150,7 @@ def ensure_pyqt5(log=None, console=True, runtime=None):
                             % (chosen["filename"], _actual, _expected))
                 if not zipfile.is_zipfile(whl):
                     raise IOError("wheel 不是有效的 zip: %s" % chosen["filename"])
-                # wheel 即 zip，解压到 runtime（多包合并）
+                # wheel即zip解压到runtime
                 _extract_wheel(whl, rt)
                 done_pkgs.add(wheelname)
                 _log("    已就位: {0}".format(wheelname))
@@ -1175,9 +1175,9 @@ def ensure_pyqt5(log=None, console=True, runtime=None):
     if ok:
         _setup_webengine_env(rt)
 
-    # 以"真能 import 且组件齐全"为准。
-    # 历史实现只要 wheel 走完解压就返回 True，
-    # 即使 Qt 插件缺失也报成功（"装不全"）。
+    # 以能import且齐全为准
+    # 历史实现只看解压完
+    # 缺插件也报成功
     if ok:
         try:
             import importlib
@@ -1187,25 +1187,25 @@ def ensure_pyqt5(log=None, console=True, runtime=None):
             _log("已解压但无法导入 %s: %s" % (_m, _ie))
             return False
 
-        # 基础组件必须齐全；缺失说明解压不完整
+        # 基础组件须齐全
         if not _wheels_installed(rt):
             _log("基础组件不完整（PyQt5/Qt5/sip 缺失），本次安装未完成")
             return False
 
-        # 平台插件是能弹出窗口的前提
+        # 平台插件是弹窗前提
         if _jqpath_plugins(rt) is None:
             _log("警告：未找到 Qt 平台插件目录，界面可能无法显示")
 
-        # WebEngine 是可选增强（仅人机验证用）：
-        # 缺失只提示，不阻断主程序启动。
+        # WebEngine为可选增强
+        # 缺失只提示不阻断
         if need_webengine and not _webengine_installed(rt):
             _log("提示：人机验证组件(WebEngine)未就位，相关功能将不可用")
 
         return True
 
-    # 所有镜像都失败。可能是网络问题，或
-    # 上游根本没有本机架构的 wheel。
-    # 后者是"自适应"分支：改用系统包管理器。
+    # 所有镜像都失败
+    # 或上游无本机架构wheel
+    # 改用系统包管理器
     _log("未能通过 wheel 安装 PyQt5（最后错误：%s）" % (last_err or "未知"))
     if _try_system_pyqt5():
         if is_ready(rt):
@@ -1252,7 +1252,7 @@ def _try_system_pyqt5():
         return True
     except Exception:
         pass
-    # 把常见的系统 site-packages 补进 sys.path
+    # 补系统site-packages进path
     import glob
     cands = []
     for pat in (
@@ -1307,7 +1307,7 @@ def free_console():
 
 
 if __name__ == "__main__":
-    # 自检：打印解析出的 wheel 地址（不下载）
+    # 自检打印wheel地址
     for mirror in MIRROR_SIMPLE[:1]:
         for wheelname, pkg, want_ver in (("PyQt5", "pyqt5", PYQT5_VER),
                                          ("PyQt5_Qt5", "PyQt5-Qt5", PYQT5_VER),

@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 在 build/ 下，根在上一级
+# 根在build上一级
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
@@ -106,19 +106,19 @@ def _logo_to_ascii(width=90):
         # 不反转！原图深字浅底
         aspect = img.height / img.width
         new_width = width
-        new_height = int(new_width * aspect * 0.45)  # 0.45: 字符高宽比约2:1
+        new_height = int(new_width * aspect * 0.45)  # 0.45为字符高宽比
         img = img.resize((new_width, new_height), Image.LANCZOS)
 
         pixels = list(img.getdata())
         # 8级灰度字符表（暗到亮）
-        # 密字符=深色区，空字符=浅色区
+        # 密字符为深色区
         shade_chars = ["@", "%", "#", "*", "+", "=", "-", " "]
         result = []
         for y in range(new_height):
             row = ""
             for x in range(new_width):
                 px = pixels[y * new_width + x]
-                # 0黑=@最密 ~ 255白=空格最疏
+                # 0黑255白
                 level = min(int(px / 32), 7)  # 256/8=32 每级
                 row += shade_chars[level]
             result.append(row)
@@ -361,7 +361,7 @@ def do_download_video():
             video_urls = play_info.get("video_urls", {})
             quality_desc = play_info.get("quality_desc", "")
             audio_url = play_info.get("audio_url", "")
-            # 取KID（付费/番剧DRM解密）
+            # 取KID（DRM解密用）
             ep_kid = play_info.get("kid")
 
             video_url = ""
@@ -464,7 +464,7 @@ def merge_video_audio(video_tmp, audio_tmp, output):
 
 def _find_ffmpeg():
     """查找ffmpeg路径"""
-    # 1. _internal目录
+    # _internal目录
     if getattr(sys, 'frozen', False):
         base = os.path.dirname(sys.executable)
         for candidate in [
@@ -682,7 +682,7 @@ def do_download_cover():
             print("  [错误] 未获取到封面链接")
             return
 
-        # B站封面需加referer
+        # 封面需加referer
         print(f"  封面链接: {cover_url[:80]}...")
 
         save_path = get_save_path()

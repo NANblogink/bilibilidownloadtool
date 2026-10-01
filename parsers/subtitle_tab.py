@@ -174,7 +174,7 @@ class SubtitleTimeline(QWidget):
                 if x2 - x1 < 2:
                     x2 = x1 + 2
                 p.fillRect(QRect(x1, top + 2, x2 - x1, plot_h - 4), QColor(0, 161, 214, 150))
-            # 当前位置指示线（红色）与顶部手柄
+            # 当前位置指示线
             if self._current_pos >= 0:
                 x = self._time_to_x(self._current_pos)
                 p.setPen(QPen(QColor("#ff4d4f"), 2))
@@ -493,7 +493,7 @@ class SubtitleTab(QWidget):
         main_layout.setSpacing(scale(8))
         main_layout.setContentsMargins(scale(8), scale(8), scale(8), scale(8))
 
-        # 分P字幕列表（时间轴在上，表格在下）
+        # 分P字幕列表
         list_group = QGroupBox("分P字幕列表")
         list_group.setStyleSheet(scale_style(self._GB))
         list_layout = QVBoxLayout(list_group)
@@ -516,7 +516,7 @@ class SubtitleTab(QWidget):
         self.sub_table.cellClicked.connect(self._on_cell_clicked)
         list_layout.addWidget(self.sub_table)
 
-        # 操作行（一行：全选/全不选/下载/保存路径/浏览/取消）
+        # 操作行按钮
         op_row = QHBoxLayout()
         op_row.setSpacing(scale(8))
 
@@ -757,7 +757,7 @@ class SubtitleTab(QWidget):
         segments = [(float(i.get('from', 0)), float(i.get('to', 0))) for i in body]
         duration = pg.get("duration", 0) or (segments[-1][1] if segments else 0)
 
-        # 同集已存在则只展开并定位，不重复追加
+        # 已存在则只展开定位
         for gi, g in enumerate(self._preview_groups):
             if g['title'] == title_text:
                 if not g['expanded']:
@@ -817,7 +817,7 @@ class SubtitleTab(QWidget):
             if row == g['header_row']:
                 self._toggle_group(gi)
                 return
-        # 点击字幕行：同步时间轴位置
+        # 点行同步时间轴
         for g in self._preview_groups:
             if g['expanded'] and g['start_row'] <= row < g['start_row'] + len(g['body']):
                 entry = g['body'][row - g['start_row']]
@@ -867,7 +867,7 @@ class SubtitleTab(QWidget):
         if not g['expanded']:
             self._toggle_group(self._preview_groups.index(g))
         self.preview_table.scrollToItem(self.preview_table.item(row, 0))
-        # 不调用 setCurrentCell，避免选中态的蓝色遮挡黄色高亮闪烁
+        # 避免蓝色遮挡高亮
         cells = []
         for c in range(3):
             it = self.preview_table.item(row, c)
@@ -923,7 +923,7 @@ class SubtitleTab(QWidget):
                 entry = g['body'][top_row - start]
                 self.timeline.set_current_position(float(entry.get('from', 0)))
                 return
-        # 顶部是标题行或折叠组：向下找第一条可见字幕
+        # 向下找首条可见字幕
         for g in self._preview_groups:
             if not g['expanded']:
                 continue

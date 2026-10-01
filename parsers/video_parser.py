@@ -69,7 +69,7 @@ class VideoParser:
             return {"type": "audio", "id": audio_id, "error": ""}
 
         # 优先用正则在原始 URL 上匹配 BV/av/ep，避免对已是标准格式的链接发起同步重定向请求
-        # （批量解析时每个 BV 链接都会触发 requests.get(timeout=3) 超时，导致严重卡顿）
+        # 批量会超时卡顿
         av_match_orig = re.search(r'av(\d+)', url, re.IGNORECASE)
         if av_match_orig:
             av_id = av_match_orig.group(1)

@@ -45,7 +45,7 @@ def get_runtime_search_dirs():
     roots = []
     if hasattr(sys, "_MEIPASS"):
         roots.append(sys._MEIPASS)
-    # core/ 的上级即仓库根
+    # 上级即仓库根
     roots.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     if getattr(sys, "frozen", False):
         exe_dir = os.path.dirname(sys.executable)
@@ -65,7 +65,7 @@ def get_runtime_search_dirs():
 def get_writable_app_dir():
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
-    # core/ 的上级即仓库根
+    # 上级即仓库根
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -86,15 +86,15 @@ def resolve_builtin_icon_path(icon_key="default"):
     for base_dir in get_runtime_search_dirs():
         candidate = os.path.join(base_dir, file_name)
         if os.path.exists(candidate):
-            # 历史 logo.ico 实为 PNG 改名，
-            # 按 ICO 解析会得空白图标。故校验
-            # 魔数，假 ICO 跳过，免任务栏空白。
+            # logo.ico实为PNG改名
+            # 按ICO解析得空白
+            # 校验魔数跳过假ICO
             if file_name.lower().endswith(".ico") and not _is_real_ico(candidate):
                 continue
             return candidate
-    # 无真 ICO 时返回空串，让调用方
-    # 继续试其它源（如 logo_alt_kaisui），
-    # 而非退回渲染成空白的假 ICO。
+    # 无真ICO返回空串
+    # 继续试其它源
+    # 不退回假ICO
     return ""
 
 
