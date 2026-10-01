@@ -5681,7 +5681,7 @@ class VideoToolWindow(BaseWindow):
         except Exception:
             pass
 
-        #tool_manager
+        #tool_mgr
         try:
             tm = getattr(self.task_manager, "tool_manager", None) if self.task_manager else None
             if tm is not None:
@@ -16695,7 +16695,7 @@ class BilibiliDownloader(BaseWindow):
             super().showEvent(event)
             # 首显后重收敛
             # 延迟到状态稳定再收敛
-            #isMaximized
+            #isMax
             # 故只排期不同步执行
             if (not getattr(self, '_min_size_reenforced', False)
                     and not getattr(self, '_init_enforce_scheduled', False)):
@@ -23118,7 +23118,7 @@ class BilibiliDownloader(BaseWindow):
             logger.info(f"批量下载窗口任务ID：{batch_task_id}")
             logger.info(f"共有 {len(all_download_tasks)} 个任务要添加")
             
-            #download_mgr
+            #dl_mgr
             if not self.download_manager:
                 logger.error("self.download_manager不存在，无法创建批量下载窗口")
                 self.show_notification("下载管理器不存在", "error")
@@ -23762,7 +23762,7 @@ class BilibiliDownloader(BaseWindow):
             print("获取弹幕信息")
             if hasattr(self, 'danmaku_count_label'):
                 cid = video_info.get("cid", "")
-                #episodes取cid
+                #eps取cid
                 if not cid:
                     # 检查番剧
                     if video_info.get("is_bangumi") and video_info.get("bangumi_info"):
@@ -26358,7 +26358,7 @@ class BilibiliDownloader(BaseWindow):
         """录播工具托盘：停止录制 → 转发给 LiveTab 和 StreamPlayer"""
         if hasattr(self, 'live_tab') and self.live_tab:
             self.live_tab.handle_tray_stop(session_id)
-        #StreamPlayer
+        #StreamPlyr
         if hasattr(self, 'stream_player_dialog') and self.stream_player_dialog:
             self.stream_player_dialog.handle_tray_stop(session_id)
 
@@ -30680,7 +30680,7 @@ class BilibiliDownloader(BaseWindow):
             current_custom_icon_path
         )
 
-        #icon_manager
+        #icon_mgr
         # 原先只用__file__拼名
         # 致卡片显示空白图标
         def _resolve_builtin_preview(icon_key):

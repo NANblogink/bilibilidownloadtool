@@ -26,7 +26,7 @@ def _app_tool_dirs():
     for d in (app_data_dir(), program_files_dir()):
         if d and d not in dirs:
             dirs.append(d)
-    #Win留LocalApp
+    #LocalApp
     if IS_WINDOWS:
         local = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~\\AppData\\Local')
         cand = os.path.join(local, 'BilibiliDownloadTool')
@@ -417,7 +417,7 @@ class ToolManager:
                     os.path.join(_ad, 'ffmpeg', 'bin', exe('ffmpeg')),
                     os.path.join(_ad, 'ffmpeg', 'bin'),
                 ])
-            #也搜PATH的ffmpeg
+            #PATH:ffmpeg
             sys_ffmpeg = shutil.which(exe('ffmpeg'))
             if sys_ffmpeg:
                 ffmpeg_candidates.append(sys_ffmpeg)
