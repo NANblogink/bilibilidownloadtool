@@ -851,7 +851,7 @@ class StreamPlayerDialog(QDialog):
             if os.path.exists(p): return p
         if getattr(sys, 'frozen', False):
             base = os.path.dirname(sys.executable)
-            # mpv放_internal
+            #mpv放_internal
             # 旧实现只查三处
             # 不中回退ffplay
             for d in [base,
@@ -1168,7 +1168,7 @@ end)
 
         # 常规日志解析作补充
 
-        # AO: wasapi 48k
+        #AO:wasapi 48k
         m = re.match(r'AO:\s+\[(\w+)\]\s+(\d+)Hz\s+(\w+)\s+(\d+)ch', line)
         if m:
             self._stream_info['ao_driver'] = m.group(1)
@@ -1190,7 +1190,7 @@ end)
         if m and 'stream_host' not in self._stream_info:
             self._stream_info['stream_host'] = m.group(1).strip()
 
-        # content-type
+        #content-type
         m = re.match(r'.*[Cc]ontent-[Tt]ype:\s+(.*)', line)
         if m and 'mime_type' not in self._stream_info:
             self._stream_info['mime_type'] = m.group(1).strip()
@@ -1200,7 +1200,7 @@ end)
         if m and 'server' not in self._stream_info:
             self._stream_info['server'] = m.group(1).strip()
 
-        # cache与buffer
+        #cache与buffer
         m = re.match(r'.*[Cc]ache:\s+(.*)', line)
         if m:
             self._stream_info['cache'] = m.group(1).strip()

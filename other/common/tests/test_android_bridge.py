@@ -127,7 +127,7 @@ except Exception as exc:
 check("DownloadManager.start_download exists",
       hasattr(dl.DownloadManager, "start_download"))
 
-# start_download读键
+#start_download读
 try:
     dsrc = inspect.getsource(dl.DownloadManager.start_download)
     read_keys = set(re.findall(r"download_params\.get\(\s*['\"]([^'\"]+)['\"]", dsrc))

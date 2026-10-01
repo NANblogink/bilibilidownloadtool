@@ -234,7 +234,7 @@ class LiveParser:
         params = {
             "room_id": room_id,
             "protocol": "0,1",       # 0=flv 1=hls
-            "format": "0,1,2",       # 0flv 1ts 2fmp4
+            "format": "0,1,2",       #0flv 1ts 2fmp4
             "codec": "0,1",          # 0avc 1hevc
             "platform": "web",
             "ptype": "16",

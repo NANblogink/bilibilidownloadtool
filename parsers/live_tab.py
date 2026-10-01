@@ -2075,7 +2075,7 @@ class LiveTab(QWidget):
             self.replay_cancel_btn.setEnabled(False)
             return
 
-        # m3u8用ffmpeg
+        #m3u8用ffmpeg
         use_ffmpeg = '.m3u8' in download_url or 'm3u8' in download_url.lower()
 
         self.replay_dl_status.setText("开始下载...")

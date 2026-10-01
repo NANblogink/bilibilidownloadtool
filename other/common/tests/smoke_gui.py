@@ -17,7 +17,7 @@ from _harness import install_paths  # noqa: E402
 
 PROJECT_ROOT = install_paths()
 
-# 须在import QApp
+#须在import QApp
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 

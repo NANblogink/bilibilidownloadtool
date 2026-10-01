@@ -617,7 +617,7 @@ def init_dpi_scale():
         pass
     
     # 统一取物理DPI
-    #logicalDPI小
+    #DPI偏小
     # 不一致会致界面变小
     try:
         from PyQt5.QtWidgets import QApplication
@@ -4078,7 +4078,7 @@ class BaseWindow(QMainWindow):
         super().__init__(parent)
 
         #Frameless无Max
-        #三ButtonHint
+        #加三ButtonHint
         self.setWindowFlags(
             Qt.FramelessWindowHint | Qt.Window |
             Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint | Qt.WindowCloseButtonHint
@@ -16217,7 +16217,7 @@ class BilibiliDownloader(BaseWindow):
             if os.path.exists(bento4_dir):
                 results.append(f"✅ Bento4目录存在: {bento4_dir}")
                 
-                #查mp4decrypt
+                #mp4decrypt
                 mp4decrypt_path = os.path.join(bento4_dir, exe('mp4decrypt'))
                 if os.path.exists(mp4decrypt_path):
                     results.append(f"✅ {exe('mp4decrypt')}存在: {mp4decrypt_path}")
@@ -24685,7 +24685,7 @@ class BilibiliDownloader(BaseWindow):
         elif is_cheese:
             episodes = self.current_video_info["cheese_info"].get("episodes", [])
         else:
-            #查collection
+            #collection
             if self.current_video_info.get("collection"):
                 episodes = self.current_video_info.get("collection", [])
             elif self.current_video_info.get("episodes"):
@@ -25278,7 +25278,7 @@ class BilibiliDownloader(BaseWindow):
                             }
                             response = requests.get(url, headers=headers, timeout=5, proxies={}, verify=False)
                             if response.status_code == 200:
-                                #查signal_emit
+                                #signal_emit
                                 se = getattr(self, 'signal_emitter', None)
                                 if se is not None:
                                     try:
@@ -25522,7 +25522,7 @@ class BilibiliDownloader(BaseWindow):
                             }
                             response = requests.get(url, headers=headers, timeout=5, proxies={}, verify=False)
                             if response.status_code == 200:
-                                #查signal_emit
+                                #signal_emit
                                 se = getattr(self, 'signal_emitter', None)
                                 if se is not None:
                                     try:
@@ -25611,7 +25611,7 @@ class BilibiliDownloader(BaseWindow):
                 }
                 response = requests.get(url, headers=headers, timeout=5, proxies={}, verify=False)
                 if response.status_code == 200:
-                    #查signal_emit
+                    #signal_emit
                     se = getattr(self, 'signal_emitter', None)
                     if se is not None:
                         try:

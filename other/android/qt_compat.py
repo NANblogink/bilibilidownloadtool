@@ -222,7 +222,7 @@ class QThread(QObject):
         if msecs is None:
             t.join()
             return True
-        # threading无join
+        #threading无join
         t.join(timeout=max(0.0, msecs / 1000.0))
         return not t.is_alive()
 

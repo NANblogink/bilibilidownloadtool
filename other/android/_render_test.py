@@ -10,8 +10,8 @@ import traceback
 
 os.environ.setdefault("KIVY_NO_ARGS", "1")
 os.environ["KIVY_LOG_LEVEL"] = "error"
-# 不用KIVY_WINDOW
-# mock会sys.exit
+#不用KIVY_WINDOW
+#mock会sys.exit
 # 改用真实但隐藏的窗口
 os.environ.pop("KIVY_WINDOW", None)
 os.environ["KIVY_NO_CONSOLELOG"] = "1"

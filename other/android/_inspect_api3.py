@@ -39,11 +39,11 @@ for q in qs[:15]:
     w(f"    - {q}")
 w()
 
-# 3) parse_media
+#3) parse_media
 w("=== parser: parse_media 返回字典的键 ===")
 i = par.find("def parse_media(")
 seg = par[i:i + 40000]
-# 找result与return
+#找result与return
 for m in re.finditer(r"(['\"])(success|title|episodes|qualities|audio_qualities|owner|pic|bvid|is_bangumi|is_cheese|collection|bangumi_info|cheese_info|duration)\1\s*:", seg):
     ln = par[:i + m.start()].count("\n") + 1
     w(f"    L{ln}: {m.group(0)}")

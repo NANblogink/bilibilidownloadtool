@@ -54,7 +54,7 @@ for dirpath, dirnames, filenames in os.walk(src_dir):
             full = os.path.join(dirpath, fn)
             collected.add(os.path.relpath(full, src_dir).replace("\\", "/"))
 
-# 2) include_patterns
+#2) include_patterns
 for pat in pats:
     base = os.path.normpath(os.path.join(src_dir, os.path.dirname(pat)))
     name = os.path.basename(pat)

@@ -254,7 +254,7 @@ class AudioParser:
         result = self._get(url, {"sid": sid})
         if not result["success"]:
             return result
-        # data可str或null
+        #data可str或null
         lyric = result["data"] or ""
         return {"success": True, "data": lyric}
 

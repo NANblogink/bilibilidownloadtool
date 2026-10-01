@@ -84,7 +84,7 @@ def sanitize_error_path(path):
         lambda: __import__("_pathsetup").project_root(),
         # exe目录即程序根
         lambda: os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False) else "",
-        # PyInstaller解包
+        #PyI解包目录
         lambda: getattr(sys, "_MEIPASS", ""),
         lambda: os.getcwd(),
     ):
@@ -865,7 +865,7 @@ class CloudService:
                         f.write(chunk)
                         downloaded += len(chunk)
                         chunk_count += 1
-                        # 每10chunk查dbg
+                        #每10chunk查
                         if chunk_count % 10 == 0:
                             print(f"[DEBUG下载] 已读取 {chunk_count} 个chunk, 共 {downloaded} bytes")
                         if progress_callback and (downloaded - last_report >= report_interval):

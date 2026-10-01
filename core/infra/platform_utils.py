@@ -800,7 +800,7 @@ def recommended_concurrency(explicit=None, cap=8, floor=1):
 # 跨平台桌面通知
 #
 # Win走WinRT
-# Linux走notify
+#Linux走notify
 # 绝不影响主流程。
 # --------------------------------------------------------------------------
 
@@ -873,7 +873,7 @@ def beep(kind='info'):
             winsound.MessageBeep(tone)
             return True
         if IS_MACOS:
-            # afplay为macOS
+            #afplay为macOS
             for name in (('Basso.aiff',) if kind == 'warn' else ('Glass.aiff', 'Ping.aiff')):
                 p = '/System/Library/Sounds/' + name
                 if os.path.exists(p):

@@ -4322,7 +4322,7 @@ class BilibiliParser:
             
             total_duration = 0
             
-            #collection全
+            #collection
             if collection:
                 for i, ep in enumerate(collection):
                     

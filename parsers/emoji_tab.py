@@ -59,7 +59,7 @@ def safe_load_pixmap(data):
     """
     if not data:
         return QPixmap()
-    # Pillow剥profile
+    #Pillow剥profile
     if HAS_PIL:
         try:
             im = PILImage.open(io.BytesIO(data))
@@ -204,9 +204,9 @@ class SkeletonWidget(QWidget):
 
 class EmojiDownloadThread(QThread):
     """表情包图片批量下载线程（顺序下载）"""
-    progress_updated = pyqtSignal(int, int, str)   # done,total,name
+    progress_updated = pyqtSignal(int, int, str)   #done,total,name
     one_finished = pyqtSignal(str, bool, str)      # name,ok,path
-    all_finished = pyqtSignal(int, int)            # success,fail
+    all_finished = pyqtSignal(int, int)            #success,fail
     error_occurred = pyqtSignal(str)
 
     def __init__(self, emotes, save_dir, package_name="", overwrite=False):
@@ -314,7 +314,7 @@ class EmojiTab(QWidget):
 
     # 线程安全信号
     _list_loaded_signal = pyqtSignal(str, bool, object, str)   # key,ok,data
-    _detail_loaded_signal = pyqtSignal(str, int, bool, object, str)  # key,pkg,emote
+    _detail_loaded_signal = pyqtSignal(str, int, bool, object, str)  #key,pkg,emote
     _error_signal = pyqtSignal(str)
 
     def __init__(self, config=None, parent=None):
@@ -846,7 +846,7 @@ class EmojiTab(QWidget):
                 for skel in (sub.get("skeleton_left"), sub.get("skeleton_right")):
                     if skel is None or sip.isdeleted(skel):
                         continue
-                    # parent即host
+                    #parent即host
                     if skel.parent() is obj:
                         try:
                             skel.setGeometry(obj.rect())

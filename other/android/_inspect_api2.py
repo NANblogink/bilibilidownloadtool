@@ -12,7 +12,7 @@ def w(s=""):
     L.append(str(s))
 
 
-# 1) 调parse_media
+#1) 调parse_media
 ui = io.open(os.path.join(ROOT, "ui.py"), encoding="utf-8").read()
 w("=== ui.py 中 parse_media 的调用方式 ===")
 for m in re.finditer(r"parse_media\(", ui):
@@ -25,7 +25,7 @@ for m in re.finditer(r"parse_media\(", ui):
     if len([x for x in L if x.startswith("--- L")]) >= 4:
         break
 
-# 2) current_vid
+#2) current_vid
 w("=== ui.py 中 current_video_info 的字段访问 ===")
 fields = sorted(set(re.findall(r"current_video_info(?:\.get\(\s*['\"]([a-z_0-9]+)['\"]|\[\s*['\"]([a-z_0-9]+)['\"]\s*\])", ui)))
 flat = sorted({a or b for a, b in fields})
@@ -68,7 +68,7 @@ if os.path.isfile(p):
         w(f"    {m.group(1)}({m.group(2).strip()[:80]})")
     w()
 
-# 6) task_manager
+#6) task_manager
 p = os.path.join(ROOT, "core", "task_manager.py")
 if os.path.isfile(p):
     s = io.open(p, encoding="utf-8").read()

@@ -73,8 +73,8 @@ args = [
     "--workpath=" + BUILD_LEAN,
     "--specpath=" + BUILD_LEAN,
     # 须加core分析路径
-    # 否则hidden-import
-    # 致ModuleNotFound
+    #否则hidden-import
+    #致ModuleNotFound
     "--paths", ROOT,
     "--paths", os.path.join(ROOT, "core"),
     "--paths", os.path.join(ROOT, "core", "infra"),
@@ -120,7 +120,7 @@ for extra in ("logo_alt_kaisui.ico", "myqrcode.png", "qunqrcode.png"):
 # ---------------------------------------------------------------- 内置 wheel
 # 默认不再打进精简包
 #
-# Inno自己放wheels
+#Inno放wheels
 # 再内置会重复占体积
 # 安装包里就会出现两份
 #

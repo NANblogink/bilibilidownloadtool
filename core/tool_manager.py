@@ -26,7 +26,7 @@ def _app_tool_dirs():
     for d in (app_data_dir(), program_files_dir()):
         if d and d not in dirs:
             dirs.append(d)
-    # Win留LocalApp
+    #Win留LocalApp
     if IS_WINDOWS:
         local = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~\\AppData\\Local')
         cand = os.path.join(local, 'BilibiliDownloadTool')
@@ -143,7 +143,7 @@ def install_tools_from_cdn(dest_dir, need_ffmpeg=True, need_bento4=True, progres
         if need_ffmpeg:
             update(30, "正在从网络下载 FFmpeg...")
             ffmpeg_url = get_cdn_url('ffmpeg')
-            # Linux静态tar.xz
+            #Linux静态tar.xz
             # 扩展名不匹配会失败
             _ff_ext = '.tar.xz' if ffmpeg_url.lower().endswith(('.tar.xz', '.txz')) else '.zip'
             ffmpeg_archive = os.path.join(temp_dir, 'ffmpeg' + _ff_ext)
@@ -248,7 +248,7 @@ class ToolManager:
         if getattr(sys, 'frozen', False):
             self.install_dir = os.path.dirname(sys.executable)
             _parent_dir = os.path.dirname(self.install_dir)
-            # PyI6.x在_internal
+            #PyI6.x在_internal
             _internal_dir = os.path.join(self.install_dir, '_internal')
             if os.path.isdir(_internal_dir):
                 self.install_dir = _internal_dir
@@ -417,7 +417,7 @@ class ToolManager:
                     os.path.join(_ad, 'ffmpeg', 'bin', exe('ffmpeg')),
                     os.path.join(_ad, 'ffmpeg', 'bin'),
                 ])
-            # 也搜PATH的ffmpeg
+            #也搜PATH的ffmpeg
             sys_ffmpeg = shutil.which(exe('ffmpeg'))
             if sys_ffmpeg:
                 ffmpeg_candidates.append(sys_ffmpeg)

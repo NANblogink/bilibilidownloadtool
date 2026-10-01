@@ -56,7 +56,7 @@ check("tar.xz extraction succeeds", ok, err)
 found = os.path.join(out_dir, "ffmpeg-7.0-amd64-static", "ffmpeg")
 check("extracted binary exists", os.path.isfile(found), found)
 
-# zip still works
+#zip still works
 import zipfile
 zip_path = os.path.join(td, "b.zip")
 with zipfile.ZipFile(zip_path, "w") as z:

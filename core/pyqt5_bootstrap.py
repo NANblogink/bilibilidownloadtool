@@ -32,7 +32,7 @@ PYQT5_VER = "5.15.11"  # 5.15 末版，兼容 3.8+
 #macosx会误选
 # 不分32与64位
 #64位下32whe
-#WinOnARM为win32
+#WinOnARM给win32
 #LinuxARM归一
 #
 # 解析成家族架构位数
