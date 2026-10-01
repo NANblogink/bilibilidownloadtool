@@ -65,7 +65,7 @@ os.environ["NO_PROXY"] = "*"
 os.environ["no_proxy"] = "*"
 
 # ==========================================================================
-# 1. 装 Qt 兼容层（须最早）
+# 1. 装 Qt 兼容层（最早）
 # ==========================================================================
 try:
     import qt_compat
@@ -118,7 +118,7 @@ def _register_fonts():
         LabelBase.register(name="CN", fn_regular=_FONT_BOLD)
         reg = "CN"
     if reg:
-        # 覆盖默认字体，免逐个指定
+        # 覆盖默认字体免逐个指定
         try:
             from kivy.config import Config
             Config.set("kivy", "default_font", "CN")
@@ -343,7 +343,7 @@ def confirm(title, message, on_yes, on_no=None):
 # 6. 解析 Tab（同桌面）
 # ==========================================================================
 
-# 桌面版 qn 映射保持一致
+# 桌面版 qn 映射一致
 QN_MAP = {"360P": 16, "480P": 32, "720P": 64,
           "1080P": 80, "1080P+": 112, "4K": 126, "8K": 127}
 QN_LIST = ["自动（最高）", "8K", "4K", "1080P+", "1080P", "720P", "480P", "360P"]
@@ -473,7 +473,7 @@ class ParseTab(BoxLayout):
         a_row.add_widget(self.audio_spinner)
         info.add_widget(a_row)
 
-        # 集数：手填范围或勾选
+        # 集数：手填或勾选
         e_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(8))
         e_row.add_widget(themed_label(text="集数", font_size=sp(13),
                                       size_hint_x=0.2, halign="left",
@@ -488,7 +488,7 @@ class ParseTab(BoxLayout):
             cursor_color=(0.0, 0.63, 0.84, 1))
         e_row.add_widget(self.ep_input)
 
-        # 同桌面版「选择集数」按钮
+        # 同桌面版「选择集数」
         self.ep_pick_btn = Button(
             text="选择集数", background_normal="",
             background_color=(0.0, 0.63, 0.84, 1), color=(1, 1, 1, 1),
@@ -681,7 +681,7 @@ class ParseTab(BoxLayout):
         self.meta_lbl.text = ""
         self.stat_lbl.text = ""
         self.parse_btn.disabled = True
-        # 解析中按钮变「停止解析」
+        # 解析中变「停止解析」
         self._set_parsing_ui(True)
 
         # 结果里的集数选择
@@ -1820,7 +1820,7 @@ class LoginPopup(Popup):
         code = res.get("code")
         if status:
             self._set_status(status)
-        # 86038 = 二维码已失效
+        # 86038：二维码已失效
         if code == 86038:
             self._stop_poll()
             self._set_status("二维码已失效，正在刷新…")
