@@ -46,7 +46,7 @@ class WbiSign:
             self.wbi_img_key = "img_key"
             self.wbi_sub_key = "sub_key"
         
-        #dm_img:web_loc
+        #dm_img:web
         # 收藏夹不吃dm_img
         if with_dm_params:
             params = self._generate_dm_params(params)

@@ -1,5 +1,5 @@
 # 类Android复现
-#无qrcode/PyQt
+#无qrcode/PyQ
 # 屏蔽import跑
 import builtins
 import io
@@ -89,7 +89,7 @@ def step(name, fn):
         return False
 
 
-#3a. LoginPopup
+#3a.LoginPop
 pop_holder = {}
 
 

@@ -76,7 +76,7 @@ class FakeDM:
 
 app._download_manager = FakeDM()
 app.start_download = app.start_download  # 保持原方法
-#调start_download
+#start_downl
 app.start_download(fake, qn=80, content_type=0)
 
 w()

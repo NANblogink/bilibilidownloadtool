@@ -1668,7 +1668,7 @@ end)
         fmt = "hls" if is_hls else "direct"
         self._set_download_buttons_enabled(False); self.dl_bar.show(); self.dl_bar.setValue(0)
 
-        # LiveRecordThread
+        #LiveRecThr
         self.download_thread = LiveRecordThread(
             stream_url=url,
             output_path=save_path,
