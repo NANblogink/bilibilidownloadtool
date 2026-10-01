@@ -112,6 +112,8 @@ class ConfigLoader:
                 # 0不加2为01三00
                 # 便于排序
                 "filename_sequence_digits": 2,
+                # 空则用内置默认命名
+                "filename_template": "",
                 "batch_download_first": False,
                 "filename_add_author": False,
                 "use_author_folder": False,

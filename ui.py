@@ -30970,7 +30970,90 @@ class BilibiliDownloader(BaseWindow):
         _seq_h.addWidget(sequence_digits_combo, 1)
         _seq_h.addStretch(1)
         download_layout.addWidget(_seq_widget)
-        
+
+        # 自定义文件名模板
+        try:
+            import filename_template as _ft_mod
+        except Exception:
+            from core import filename_template as _ft_mod
+
+        _tpl_row = QWidget()
+        _tpl_h = QHBoxLayout(_tpl_row)
+        _tpl_h.setContentsMargins(0, 0, 0, 0)
+        _tpl_h.setSpacing(scale(8))
+        _tpl_h.addWidget(QLabel("文件名模板:"))
+
+        filename_template_edit = QLineEdit()
+        filename_template_edit.setMinimumHeight(scale(26))
+        filename_template_edit.setPlaceholderText("留空 = 使用默认命名；例如 {seq} {title}")
+        filename_template_edit.setText(
+            str(self.config.get_app_setting("filename_template", "") or ""))
+        filename_template_edit.setToolTip(
+            "自定义下载文件名。可用变量见右侧「变量说明」按钮。\n"
+            "留空时使用内置默认命名（保持原有行为）。")
+        _tpl_h.addWidget(filename_template_edit, 1)
+
+        filename_template_preset = QComboBox()
+        filename_template_preset.setMinimumHeight(scale(26))
+        filename_template_preset.addItem("预设模板…", "")
+        for _pn, _pt in _ft_mod.PRESET_TEMPLATES:
+            filename_template_preset.addItem(_pn, _pt)
+        filename_template_preset.setToolTip("选择预设会填入左侧模板框，可再手动修改")
+        _tpl_h.addWidget(filename_template_preset)
+
+        filename_template_help = QPushButton("变量说明")
+        filename_template_help.setMinimumHeight(scale(26))
+        filename_template_help.setToolTip("查看可用变量与示例")
+        _tpl_h.addWidget(filename_template_help)
+        download_layout.addWidget(_tpl_row)
+
+        filename_template_preview = QLabel()
+        filename_template_preview.setStyleSheet(
+            scale_style("color: #909399; font-size: 13px;"))
+        filename_template_preview.setWordWrap(True)
+        download_layout.addWidget(filename_template_preview)
+
+        def _refresh_template_preview(*_a):
+            _t = filename_template_edit.text().strip()
+            if not _t:
+                filename_template_preview.setText("预览：（留空，使用默认命名）")
+                return
+            _ok, _msg = _ft_mod.validate_template(_t)
+            if not _ok:
+                filename_template_preview.setText(f"⚠ {_msg}")
+                return
+            filename_template_preview.setText("预览：%s" % _ft_mod.preview(_t))
+
+        def _on_template_preset(_idx):
+            _v = filename_template_preset.currentData()
+            if _v:
+                filename_template_edit.setText(_v)
+                _refresh_template_preview()
+
+        def _show_template_help():
+            _lines = ["可用变量（直接写在模板里）：", ""]
+            for _v, _d in _ft_mod.TEMPLATE_VARS:
+                _lines.append(f"  {_v:<10} {_d}")
+            _lines += [
+                "",
+                "示例：",
+                "  {seq} {title}              -> 01 视频标题.mp4",
+                "  [{author}] {title}         -> [某UP主] 视频标题.mp4",
+                "  {season}_{ep2}_{title}     -> 某合集_01_视频标题.mp4",
+                "  {date}_{title}             -> 2026-10-01_视频标题.mp4",
+                "",
+                "说明：",
+                "  · 留空表示沿用内置默认命名",
+                "  · 变量为空时自动清理多余的下划线与括号",
+                "  · 文件名非法字符会自动替换为下划线",
+            ]
+            QMessageBox.information(_dlg_ref, "文件名模板变量说明", "\n".join(_lines))
+
+        filename_template_edit.textChanged.connect(_refresh_template_preview)
+        filename_template_preset.currentIndexChanged.connect(_on_template_preset)
+        filename_template_help.clicked.connect(_show_template_help)
+        _refresh_template_preview()
+
         # 视频输出格式
         video_format_layout = QHBoxLayout()
         video_format_label = QLabel("视频输出格式：")
@@ -32680,6 +32763,15 @@ class BilibiliDownloader(BaseWindow):
             self.config.set_app_setting("filename_sequence_digits", _seq_digits_new)
             # 同步模块级使编号一致
             set_sequence_digits(_seq_digits_new)
+            # 文件名模板：保存前校验，非法则拦下
+            _tpl_new = filename_template_edit.text().strip()
+            if _tpl_new:
+                _tpl_ok, _tpl_msg = _ft_mod.validate_template(_tpl_new)
+                if not _tpl_ok:
+                    QMessageBox.warning(dialog, "文件名模板有误",
+                                        f"{_tpl_msg}\n\n请修正后再保存，或留空使用默认命名。")
+                    return
+            self.config.set_app_setting("filename_template", _tpl_new)
             self.config.set_app_setting("batch_download_first", batch_download_first_checkbox.isChecked())
             self.config.set_app_setting("filename_add_author", filename_add_author_checkbox.isChecked())
             self.config.set_app_setting("use_author_folder", use_author_folder_checkbox.isChecked())

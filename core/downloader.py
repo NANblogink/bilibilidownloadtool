@@ -750,6 +750,81 @@ class EpisodeDownloadThread(QThread):
         digits = max(1, min(digits, 6))
         return f"{self._sequence_number():0{digits}d}. "
 
+    def _template_context(self, base_title):
+        """按当前集的信息构造文件名模板变量。"""
+        try:
+            import filename_template as _ft
+        except Exception:
+            try:
+                from core import filename_template as _ft
+            except Exception:
+                return None
+        vi = self.video_info or {}
+        try:
+            if vi.get("is_bangumi"):
+                media_type = "bangumi"
+            elif vi.get("is_cheese"):
+                media_type = "cheese"
+            elif vi.get("is_interact"):
+                media_type = "interact"
+            else:
+                media_type = "video"
+        except Exception:
+            media_type = "video"
+        # 合集/季度标题
+        season = ""
+        try:
+            if vi.get("is_bangumi") and vi.get("bangumi_info"):
+                season = vi["bangumi_info"].get("season_title", "") or ""
+            elif vi.get("is_cheese") and vi.get("cheese_info"):
+                season = vi["cheese_info"].get("season_title", "") or ""
+            if not season:
+                season = vi.get("season_title", "") or ""
+        except Exception:
+            season = ""
+        author = ""
+        try:
+            owner = vi.get("owner") or {}
+            author = owner.get("name", "") or vi.get("author", "") or ""
+        except Exception:
+            author = ""
+        try:
+            seq_digits = int(self.config.get_app_setting("filename_sequence_digits", 2)) if self.config else 2
+        except Exception:
+            seq_digits = 2
+        return _ft, _ft.build_context(
+            title=base_title,
+            ep=self._sequence_number(),
+            seq=self._sequence_number(),
+            seq_digits=seq_digits,
+            author=author,
+            season=season,
+            bvid=self.ep_info.get("bvid", "") or "",
+            cid=self.ep_info.get("cid", "") or "",
+            media_type=media_type,
+        )
+
+    def _render_via_template(self, base_title):
+        """按用户自定义模板渲染文件名；未配置模板时返回 None（走旧逻辑）。"""
+        if not self.config:
+            return None
+        try:
+            template = self.config.get_app_setting("filename_template", "")
+        except Exception:
+            template = ""
+        if not template or not str(template).strip():
+            return None
+        built = self._template_context(base_title)
+        if not built:
+            return None
+        _ft, ctx = built
+        try:
+            name = _ft.render_template(template, ctx)
+        except Exception as e:
+            logger.warning(f"文件名模板渲染失败，回退默认命名：{e}")
+            return None
+        return name or None
+
     def _merge_media(self, video_path, audio_path, kid=None):
 
         if not video_path or not os.path.exists(video_path):
@@ -772,7 +847,11 @@ class EpisodeDownloadThread(QThread):
             # 去掉第X集与序号前缀
             base_title = re.sub(r'^第\d+集[ _\-]*', '', self.ep_title or '').strip() or (self.ep_title or '')
             base_title = re.sub(r'^\d+[.、][ _\-]*', '', base_title).strip() or base_title
-        if seq_prefix:
+        # 自定义模板优先
+        _tpl_name = self._render_via_template(base_title or self.ep_title or '')
+        if _tpl_name:
+            output_path = os.path.join(self.save_path, f"{_tpl_name}.mp4")
+        elif seq_prefix:
             # 启用序号不再叠加
             output_path = os.path.join(self.save_path, f"{seq_prefix}{base_title}.mp4" if base_title
                                        else f"{seq_prefix.rstrip()}.mp4")
