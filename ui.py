@@ -16598,6 +16598,25 @@ class BilibiliDownloader(BaseWindow):
             self.selected_qn = qn
     
     def eventFilter(self, obj, event):
+        # 变量按钮条：滚轮转横向滚动
+        try:
+            if event.type() == QEvent.Wheel:
+                _sa = None
+                try:
+                    if obj is not None and obj.property("_hscroll"):
+                        # obj 本身是 QScrollArea 或其 viewport
+                        _sa = obj if isinstance(obj, QScrollArea) else obj.parent()
+                except Exception:
+                    _sa = None
+                if _sa is not None and isinstance(_sa, QScrollArea):
+                    _sb = _sa.horizontalScrollBar()
+                    if _sb is not None and _sb.maximum() > _sb.minimum():
+                        _d = event.angleDelta().y() or event.angleDelta().x()
+                        if _d:
+                            _sb.setValue(_sb.value() - _d)
+                        return True
+        except Exception:
+            pass
         try:
             return bool(super().eventFilter(obj, event))
         except Exception:
@@ -30986,12 +31005,11 @@ class BilibiliDownloader(BaseWindow):
 
         filename_template_edit = QLineEdit()
         filename_template_edit.setMinimumHeight(scale(26))
-        filename_template_edit.setPlaceholderText("留空 = 使用默认命名；例如 {seq} {title}")
+        filename_template_edit.setPlaceholderText("留空 = 使用默认命名；点下方变量即可插入")
         filename_template_edit.setText(
             str(self.config.get_app_setting("filename_template", "") or ""))
         filename_template_edit.setToolTip(
-            "自定义下载文件名。可用变量见右侧「变量说明」按钮。\n"
-            "留空时使用内置默认命名（保持原有行为）。")
+            "自定义下载文件名。点下方变量按钮插入，留空时使用内置默认命名。")
         _tpl_h.addWidget(filename_template_edit, 1)
 
         filename_template_preset = QComboBox()
@@ -30999,14 +31017,64 @@ class BilibiliDownloader(BaseWindow):
         filename_template_preset.addItem("预设模板…", "")
         for _pn, _pt in _ft_mod.PRESET_TEMPLATES:
             filename_template_preset.addItem(_pn, _pt)
-        filename_template_preset.setToolTip("选择预设会填入左侧模板框，可再手动修改")
+        filename_template_preset.setToolTip("选择预设会填入模板框，可再手动修改")
         _tpl_h.addWidget(filename_template_preset)
-
-        filename_template_help = QPushButton("变量说明")
-        filename_template_help.setMinimumHeight(scale(26))
-        filename_template_help.setToolTip("查看可用变量与示例")
-        _tpl_h.addWidget(filename_template_help)
         download_layout.addWidget(_tpl_row)
+
+        # 可左右滑动的变量按钮条
+        _chip_hint = QLabel("点选插入变量（可左右滑动）：")
+        _chip_hint.setStyleSheet(scale_style("color: #909399; font-size: 13px;"))
+        download_layout.addWidget(_chip_hint)
+
+        filename_var_scroll = QScrollArea()
+        filename_var_scroll.setWidgetResizable(True)
+        filename_var_scroll.setFrameShape(QFrame.NoFrame)
+        filename_var_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        filename_var_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        filename_var_scroll.setFixedHeight(scale(40))
+        # 支持鼠标滚轮横向滚动：在滚动区与视口上都装事件过滤器
+        filename_var_scroll.setProperty("_hscroll", True)
+        filename_var_scroll.viewport().setProperty("_hscroll", True)
+        filename_var_scroll.installEventFilter(self)
+        filename_var_scroll.viewport().installEventFilter(self)
+
+        _chip_host = QWidget()
+        _chip_h = QHBoxLayout(_chip_host)
+        _chip_h.setContentsMargins(0, 0, 0, 0)
+        _chip_h.setSpacing(scale(6))
+
+        def _insert_var(_var_text):
+            """在当前光标处插入变量"""
+            _cur = filename_template_edit.text()
+            _pos = filename_template_edit.cursorPosition()
+            if _pos < 0 or _pos > len(_cur):
+                _pos = len(_cur)
+            # 智能补空格：前一个字符是字母/数字/} 时补一个空格
+            _ins = _var_text
+            if _pos > 0 and _cur[_pos - 1] not in " _-([" and not _cur[_pos - 1].isspace():
+                _ins = " " + _ins
+            _new = _cur[:_pos] + _ins + _cur[_pos:]
+            filename_template_edit.setText(_new)
+            filename_template_edit.setCursorPosition(_pos + len(_ins))
+            filename_template_edit.setFocus()
+
+        for _vname, _vdesc in _ft_mod.TEMPLATE_VARS:
+            _chip = QPushButton(_vname)
+            _chip.setMinimumHeight(scale(26))
+            _chip.setToolTip(_vdesc)
+            _chip.setCursor(Qt.PointingHandCursor)
+            _chip.setStyleSheet(scale_style(
+                "QPushButton { background-color: #f0f4fa; color: #3a4a63;"
+                " border: 1px solid #dde3ed; border-radius: 0;"
+                " padding: 3px 10px; font-size: 13px; }"
+                "QPushButton:hover { background-color: #e3ecfa;"
+                " border-color: #409eff; color: #409eff; }"
+                "QPushButton:pressed { background-color: #d2e2fb; }"))
+            _chip.clicked.connect(lambda _c=False, _v=_vname: _insert_var(_v))
+            _chip_h.addWidget(_chip)
+        _chip_h.addStretch(1)
+        filename_var_scroll.setWidget(_chip_host)
+        download_layout.addWidget(filename_var_scroll)
 
         filename_template_preview = QLabel()
         filename_template_preview.setStyleSheet(
@@ -31031,66 +31099,55 @@ class BilibiliDownloader(BaseWindow):
                 filename_template_edit.setText(_v)
                 _refresh_template_preview()
 
-        def _show_template_help():
-            _lines = ["可用变量（直接写在模板里）：", ""]
-            for _v, _d in _ft_mod.TEMPLATE_VARS:
-                _lines.append(f"  {_v:<10} {_d}")
-            _lines += [
-                "",
-                "示例：",
-                "  {seq} {title}              -> 01 视频标题.mp4",
-                "  [{author}] {title}         -> [某UP主] 视频标题.mp4",
-                "  {season}_{ep2}_{title}     -> 某合集_01_视频标题.mp4",
-                "  {date}_{title}             -> 2026-10-01_视频标题.mp4",
-                "",
-                "说明：",
-                "  · 留空表示沿用内置默认命名",
-                "  · 变量为空时自动清理多余的下划线与括号",
-                "  · 文件名非法字符会自动替换为下划线",
-            ]
-            QMessageBox.information(_dlg_ref, "文件名模板变量说明", "\n".join(_lines))
-
         filename_template_edit.textChanged.connect(_refresh_template_preview)
         filename_template_preset.currentIndexChanged.connect(_on_template_preset)
-        filename_template_help.clicked.connect(_show_template_help)
         _refresh_template_preview()
 
-        # 各资源独立模板（留空则沿用视频模板）
-        asset_template_edits = {}
-        _asset_tip = "留空则沿用上面的视频模板；视频模板也留空时使用内置默认命名"
-        for _ak, _alabel in [("audio", "音频"), ("danmaku", "弹幕"),
-                             ("subtitle", "字幕"), ("cover", "封面")]:
-            _arow = QWidget()
-            _ah = QHBoxLayout(_arow)
-            _ah.setContentsMargins(0, 0, 0, 0)
-            _ah.setSpacing(scale(8))
-            _ah.addWidget(QLabel("%s文件名:" % _alabel))
-            _aedit = QLineEdit()
-            _aedit.setMinimumHeight(scale(26))
-            _aedit.setPlaceholderText("留空 = 沿用视频模板")
-            _aedit.setToolTip(_asset_tip)
-            try:
-                _akey = _ft_mod.ASSET_SETTING_KEYS.get(_ak, "filename_template_%s" % _ak)
-                _aedit.setText(str(self.config.get_app_setting(_akey, "") or ""))
-            except Exception:
-                pass
-            _ah.addWidget(_aedit, 1)
-            _apreset = QComboBox()
-            _apreset.setMinimumHeight(scale(26))
-            _apreset.addItem("预设…", "")
-            for _pn2, _pt2 in _ft_mod.PRESET_TEMPLATES:
-                _apreset.addItem(_pn2, _pt2)
-            _ah.addWidget(_apreset)
-            download_layout.addWidget(_arow)
-            asset_template_edits[_ak] = _aedit
+        # 各资源独立模板：单个输入框 + 资源下拉切换
+        _asset_tip = "选择资源类型后单独设置其模板；留空则沿用视频模板"
+        _asset_row = QWidget()
+        _asset_h = QHBoxLayout(_asset_row)
+        _asset_h.setContentsMargins(0, 0, 0, 0)
+        _asset_h.setSpacing(scale(8))
+        _asset_h.addWidget(QLabel("单独设置:"))
 
-            def _mk_asset_preset(combo, edit):
-                def _on(_idx):
-                    _v = combo.currentData()
-                    if _v:
-                        edit.setText(_v)
-                return _on
-            _apreset.currentIndexChanged.connect(_mk_asset_preset(_apreset, _aedit))
+        asset_type_combo = QComboBox()
+        asset_type_combo.setMinimumHeight(scale(26))
+        asset_type_combo.setToolTip("选择要给哪个资源单独设置文件名模板")
+        asset_type_combo.addItem("音频", "audio")
+        asset_type_combo.addItem("弹幕", "danmaku")
+        asset_type_combo.addItem("字幕", "subtitle")
+        asset_type_combo.addItem("封面", "cover")
+        _asset_h.addWidget(asset_type_combo)
+
+        asset_template_edit = QLineEdit()
+        asset_template_edit.setMinimumHeight(scale(26))
+        asset_template_edit.setPlaceholderText("留空 = 沿用上面的视频模板")
+        asset_template_edit.setToolTip(_asset_tip)
+        _asset_h.addWidget(asset_template_edit, 1)
+        download_layout.addWidget(_asset_row)
+
+        # 各资源的模板值在内存中暂存，切换时保存/载入
+        asset_template_edits = {}
+        for _ak0 in ("audio", "danmaku", "subtitle", "cover"):
+            try:
+                _akey0 = _ft_mod.ASSET_SETTING_KEYS.get(_ak0, "filename_template_%s" % _ak0)
+                asset_template_edits[_ak0] = str(self.config.get_app_setting(_akey0, "") or "")
+            except Exception:
+                asset_template_edits[_ak0] = ""
+
+        def _switch_asset_type(_idx):
+            _cur = asset_type_combo.currentData()
+            # 先保存当前显示的值到上一个资源
+            _prev = getattr(asset_type_combo, "_last_asset", None)
+            if _prev:
+                asset_template_edits[_prev] = asset_template_edit.text()
+            asset_type_combo._last_asset = _cur
+            asset_template_edit.setText(asset_template_edits.get(_cur, ""))
+
+        asset_type_combo.currentIndexChanged.connect(_switch_asset_type)
+        asset_type_combo._last_asset = "audio"
+        asset_template_edit.setText(asset_template_edits.get("audio", ""))
 
         # 视频输出格式
         video_format_layout = QHBoxLayout()
@@ -32810,10 +32867,13 @@ class BilibiliDownloader(BaseWindow):
                                         f"{_tpl_msg}\n\n请修正后再保存，或留空使用默认命名。")
                     return
             self.config.set_app_setting("filename_template", _tpl_new)
-            # 各资源独立模板
+            # 各资源独立模板（先收回当前正在编辑的那个）
             try:
-                for _ak2, _aedit2 in asset_template_edits.items():
-                    _av = _aedit2.text().strip()
+                _cur_asset = asset_type_combo.currentData()
+                if _cur_asset:
+                    asset_template_edits[_cur_asset] = asset_template_edit.text()
+                for _ak2, _aval2 in asset_template_edits.items():
+                    _av = (_aval2 or "").strip()
                     if _av:
                         _aok, _amsg = _ft_mod.validate_template(_av)
                         if not _aok:
