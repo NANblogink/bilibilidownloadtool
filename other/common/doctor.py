@@ -30,7 +30,7 @@ def _looks_like_project(path):
 
 
 if not _looks_like_project(PROJECT_ROOT):
-    # 从 stdin 运行（如 CI）时 __file__ 不可靠，向上探测
+    # stdin下__file__不可靠须探测
     starts = [os.getcwd(), HERE]
     for start in starts:
         cur = os.path.abspath(start)
@@ -94,7 +94,7 @@ except Exception as exc:  # pragma: no cover
 
 if pu is not None:
     record(OK, "PLATFORM_NAME = %s" % pu.PLATFORM_NAME)
-    # 三个 IS_* 必须恰好一个为真（Android 归 linux 系）
+    # 三个IS须恰好一个为真
     flags = [pu.IS_WINDOWS, pu.IS_MACOS, pu.IS_LINUX]
     record(OK if sum(bool(f) for f in flags) == 1 else FAIL,
            "平台标志互斥",
@@ -132,7 +132,7 @@ for mod, desc in DEPS:
         missing.append(mod)
         record(FAIL, "%s (%s)" % (mod, desc), str(exc))
 
-# WebEngine 是可选增强（人机验证内嵌浏览器）
+# WebEngine为可选增强
 try:
     __import__("PyQt5.QtWebEngineWidgets")
     record(OK, "PyQt5.QtWebEngineWidgets (人机验证)")
@@ -203,14 +203,14 @@ if pu:
         except Exception as exc:
             record(FAIL, label, "不应抛异常: %s" % exc)
 
-    # 提示音与通知：只验证后端存在，不真的发声弹窗
+    # 只验证后端不真的发声
     backend = pu.notification_backend()
     record(OK if backend != "none" or pu.IS_WINDOWS else WARN,
            "通知后端: %s" % backend)
     record(OK, "beep() 可用（未实际发声）")
 
-    # 关机能力：只查底层命令是否存在，绝不真的调用
-    # 否则运行自检会把用户的机器关掉
+    # 只查命令存在绝不真调用
+    # 否则自检会关掉用户机器
     import shutil as _sh
     can_shutdown = bool(_sh.which("systemctl") or _sh.which("shutdown"))
     if pu.IS_WINDOWS:
@@ -240,12 +240,12 @@ try:
 except Exception as exc:
     record(FAIL, "界面模块导入失败", str(exc))
 
-# 残留 Windows 专有调用扫描（仅非 Windows 有意义）
+# 扫描残留Win专有调用
 if pu and not pu.IS_WINDOWS:
     import re
 
-    # 这些文件本身就是平台适配层，出现 Windows 调用正常
-    # （它们都被 IS_WINDOWS 守卫）
+    # 这些本就是平台适配层
+    # 都被IS_WINDOWS守卫
     PLATFORM_LAYER = {"platform_utils.py", "toast_winrt.py", "cert_installer.py",
                       "pyqt5_bootstrap.py", "cli.py"}
     BAD = [

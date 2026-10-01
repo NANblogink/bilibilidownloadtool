@@ -216,7 +216,7 @@ class LiveParser:
         :param qn: 画质代码，None=自动最高
         :return: 直播流URL列表
         """
-        # 优先使用V2接口（能正确根据Cookie返回不同画质）
+        # V2按返画质
         v2_result = self._get_live_stream_url_v2(room_id, qn=qn)
         if v2_result["success"]:
             return v2_result

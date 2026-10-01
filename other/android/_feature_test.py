@@ -76,13 +76,13 @@ class FakeDM:
 
 app._download_manager = FakeDM()
 app.start_download = app.start_download  # 保持原方法
-# 直接调用 start_download，用它构造 params
+# 直接调start_download构造参数
 app.start_download(fake, qn=80, content_type=0)
 
 w()
 w("=== 2b. 通过 parse_tab.on_download 走完整路径 ===")
 captured.clear()
-# 让 get_download_manager 返回假对象
+# 让get_download_manager返回假对象
 app.get_download_manager = lambda: FakeDM()
 pt.selected_ep_indexes = {2, 4, 6}
 pt.on_download(0)
@@ -143,11 +143,11 @@ try:
     check("单勾第4集", picker.checked == {3}, picker.checked)
     picker._apply_filter("第1集")
     visible = [r for r in picker.rows if not r.disabled]
-    # 「第1集」只精确命中第 1 集
+    # 第1集只精确命中第1集
     check("过滤「第1集」只命中第 1 集",
           [r.index + 1 for r in visible] == [1],
           [r.index + 1 for r in visible])
-    # 用纯数字过滤应能命中 1 与 10~19
+    # 纯数字过滤能命中1与10至19
     picker._apply_filter("1")
     visible = [r for r in picker.rows if not r.disabled]
     check("过滤「1」命中 1,10-19 共 11 行",

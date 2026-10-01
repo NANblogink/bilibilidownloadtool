@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.join(ROOT, "core", "infra"))
 
 import pyqt5_bootstrap as pb  # noqa: E402
 
-# 需要内置的包（PyPI 名 -> wheel 名前缀）
+# 需内置的包名到前缀
 PACKAGES = [
     ("pyqt5", "PyQt5", pb.PYQT5_VER),
     ("pyqt5-qt5", "PyQt5_Qt5", pb.PYQT5_VER),
@@ -38,7 +38,7 @@ PACKAGES = [
     ("pyqtwebengine-qt5", "PyQtWebEngine_Qt5", None),
 ]
 
-# 目标架构对应的 wheel 平台标签
+# 目标架构的wheel平台标签
 ARCH_TAGS = {
     "win_amd64": "win_amd64",
     "win32": "win32",
@@ -70,7 +70,7 @@ def _pick(entries, prefix, want_ver, arch_tag, py_tag):
                 continue
         if p["name"].lower() != prefix.lower():
             continue
-        # 解释器/ABI 必须能用于目标 py_tag
+        # ABI须能用于目标py_tag
         if not pb._compat_ok(p["pyver"], p["abi"], py_tag):
             continue
         score = 0
@@ -110,9 +110,9 @@ def fetch_for_arch(arch_tag, outdir, py_tag):
                 except Exception as e:
                     last = e
                     continue
-                # 这些 wheel 要装到目标机器上，不能按本机架构过滤，
-                # 因此这里重建候选：只看文件名里的目标架构标签，
-                # 并把解析结果一并带上（_pick 需要 pyver/abi/version）
+                # 要装到目标机不能按本机过滤
+                # 只按文件名里的目标架构
+                # _pick需要pyver与abi
                 cand = []
                 for e in entries:
                     if arch_tag not in e["filename"].lower():

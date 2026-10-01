@@ -285,7 +285,7 @@ def step_assemble_lean(bm):
     os.makedirs(lean_internal, exist_ok=True)
     t = bm.copy_mpv_to(lean_internal)
 
-    # 确认精简包无 PyQt5
+    # 确认精简包无PyQt5
     for bad in ("PyQt5", "ffmpeg", "bento4"):
         p = os.path.join(lean_internal, bad)
         if os.path.exists(p):
@@ -332,7 +332,7 @@ def step_installer_embedded():
     if not os.path.isfile(full_zip):
         raise RuntimeError("内嵌安装器需要先产出 full.zip: %s" % full_zip)
 
-    # spec 路径是双反斜杠转义
+    # spec路径是双反斜杠
     # 所以搜索串也必须转义
     # 单反斜杠匹配不上该串
     old_esc = ROOT.replace("\\", "\\\\") + "\\\\output\\\\"
@@ -340,7 +340,7 @@ def step_installer_embedded():
     patched = content.replace(old_esc, new_esc)
 
     if patched == content:
-        # 退路：spec 可能单反斜杠
+        # 退路spec可能单反斜杠
         for old_f, new_f in ((ROOT + "\\output\\", OUTPUT_BETA + "\\"),
                              (ROOT.replace("\\", "/") + "/output/",
                               OUTPUT_BETA.replace("\\", "/") + "/")):
@@ -351,9 +351,9 @@ def step_installer_embedded():
     if patched == content:
         raise RuntimeError("未能改写内嵌 spec 的 datas 路径，请检查 spec 内容")
 
-    # 临时 spec 须放项目根目录
-    # icon 相对路径按 SPECPATH
-    # 解析，放工作目录找不到图标
+    # 临时spec须放项目根
+    # icon按SPECPATH解析
+    # 放工作目录找不到图标
     tmp_spec = os.path.join(ROOT, "%s_installer_embedded_beta.spec" % VERSION_NUM)
     with open(tmp_spec, "w", encoding="utf-8") as f:
         f.write(patched)

@@ -23,7 +23,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 
-# Pillow：用于剥离 PNG 的 iCCP/sRGB profile，避免 Qt 加载时崩溃
+# 剥离PNG profile防崩溃
 try:
     from PIL import Image as PILImage
     HAS_PIL = True
@@ -37,7 +37,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# 尝试导入 scale/scale_style
+# 尝试导入scale
 try:
     from ui import scale, scale_style
 except ImportError:
@@ -48,8 +48,8 @@ except ImportError:
 # 表情包列表项角色
 ROLE_PACKAGE = Qt.UserRole + 1     # 完整表情包对象
 ROLE_EMOTE = Qt.UserRole + 1       # 表情对象（网格项）
-ROLE_THUMB_URL = Qt.UserRole + 2   # 封面图 URL（按需加载用）
-ROLE_THUMB_LOADED = Qt.UserRole + 3  # 封面图是否已加载（按需加载去重）
+ROLE_THUMB_URL = Qt.UserRole + 2   # 封面URL按需加载
+ROLE_THUMB_LOADED = Qt.UserRole + 3  # 是否已加载去重
 
 
 def safe_load_pixmap(data):
@@ -59,13 +59,13 @@ def safe_load_pixmap(data):
     """
     if not data:
         return QPixmap()
-    # 优先用 Pillow 重存，剥离 iCCP/sRGB profile
+    # 用Pillow重存剥离profile
     if HAS_PIL:
         try:
             im = PILImage.open(io.BytesIO(data))
             im.load()
             buf = io.BytesIO()
-            # 统一转 RGBA 避免模式问题，保留透明通道
+            # 统一转RGBA保透明
             if im.mode not in ("RGBA", "RGB"):
                 im = im.convert("RGBA")
             im.save(buf, format="PNG", optimize=False)
@@ -74,7 +74,7 @@ def safe_load_pixmap(data):
                 return QPixmap.fromImage(img)
         except Exception as e:
             logger.warning(f"Pillow 处理图片失败，回退直接加载: {e}")
-    # 回退：直接用 Qt 加载（可能崩溃，仅作为无 Pillow 时的最后手段）
+    # 无Pillow时最后手段
     img = QImage.fromData(data)
     if img.isNull():
         return QPixmap()
@@ -97,7 +97,7 @@ class SkeletonWidget(QWidget):
         self._cols = cols
         self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
         self.setAutoFillBackground(False)
-        # shimmer 循环动画
+        # shimmer循环动画
         self._shimmer = QPropertyAnimation(self, b"progress", self)
         self._shimmer.setDuration(1400)
         self._shimmer.setStartValue(0.0)
@@ -145,13 +145,13 @@ class SkeletonWidget(QWidget):
         h = self.height()
         if w <= 0 or h <= 0:
             return
-        # 背景半透明白，盖住底层内容
+        # 半透明白盖住底层
         painter.fillRect(0, 0, w, h, QColor(255, 255, 255, 235))
 
         gap = scale(8)
 
         if self._kind == "list":
-            # 列表行骨架：图标 + 两行文字条，铺满自身宽度
+            # 列表行骨架图标加文字
             row_h = scale(52)
             row_gap = scale(6)
             y = gap
@@ -164,7 +164,7 @@ class SkeletonWidget(QWidget):
                 self._rounded(painter, tx, y + scale(26), scale(60), scale(8), scale(4))
                 y += row_h + row_gap
         else:
-            # 网格卡片骨架，铺满自身宽度
+            # 网格卡片骨架
             card = scale(88)
             card_gap = scale(10)
             cy = gap
@@ -204,9 +204,9 @@ class SkeletonWidget(QWidget):
 
 class EmojiDownloadThread(QThread):
     """表情包图片批量下载线程（顺序下载）"""
-    progress_updated = pyqtSignal(int, int, str)   # done, total, current_name
-    one_finished = pyqtSignal(str, bool, str)      # name, ok, path_or_error
-    all_finished = pyqtSignal(int, int)            # success_count, fail_count
+    progress_updated = pyqtSignal(int, int, str)   # done,total,current_name
+    one_finished = pyqtSignal(str, bool, str)      # name,ok,path_or_error
+    all_finished = pyqtSignal(int, int)            # success_count,fail_count
     error_occurred = pyqtSignal(str)
 
     def __init__(self, emotes, save_dir, package_name="", overwrite=False):
@@ -224,7 +224,7 @@ class EmojiDownloadThread(QThread):
         self._stop_flag = False
 
     def run(self):
-        # 创建表情包子目录（按表情包名称）
+        # 按表情包名建子目录
         safe_name = self._sanitize_filename(self.package_name)
         target_dir = os.path.join(self.save_dir, safe_name)
         try:
@@ -246,7 +246,7 @@ class EmojiDownloadThread(QThread):
                 self.one_finished.emit(text, False, "URL为空")
                 fail += 1
                 continue
-            # 文件名：转义符 + 原始扩展名
+            # 转义符加原始扩展名
             ext = self._get_ext_from_url(url)
             filename = self._sanitize_filename(text) + ext
             filepath = os.path.join(target_dir, filename)
@@ -298,7 +298,7 @@ class EmojiDownloadThread(QThread):
         """清理文件名中的非法字符"""
         if not name:
             return "未命名"
-        # Windows 文件名非法字符: \ / : * ? " < > |
+        # Win非法字符
         illegal = '\\/:*?"<>|'
         for ch in illegal:
             name = name.replace(ch, "_")
@@ -313,8 +313,8 @@ class EmojiTab(QWidget):
     """表情包功能 Tab 页"""
 
     # 线程安全信号
-    _list_loaded_signal = pyqtSignal(str, bool, object, str)   # subtab_key, success, data, error
-    _detail_loaded_signal = pyqtSignal(str, int, bool, object, str)  # subtab_key, pkg_id, success, emote_list, error
+    _list_loaded_signal = pyqtSignal(str, bool, object, str)   # key,success,data,error
+    _detail_loaded_signal = pyqtSignal(str, int, bool, object, str)  # key,pkg_id,emote_list,error
     _error_signal = pyqtSignal(str)
 
     def __init__(self, config=None, parent=None):
@@ -323,11 +323,11 @@ class EmojiTab(QWidget):
         self.parent_window = parent
         self.emoji_parser = None
         self.download_thread = None
-        # 每个子tab的控件与数据：key -> dict
+        # 各子tab控件与数据
         self._subtabs = {}
-        # 当前各子tab选中的表情包对象（用于下载）
-        self._current_packages = {}  # subtab_key -> 当前选中的package对象
-        # 正在按需加载明细的 pkg_id 集合（防止重复请求）
+        # 各子tab选中的表情包
+        self._current_packages = {}  # key到选中package
+        # 加载中的pkg_id防重复
         self._loading_detail_ids = set()
 
         self._init_parser()
@@ -339,8 +339,8 @@ class EmojiTab(QWidget):
         self._detail_loaded_signal.connect(self._on_detail_loaded)
         self._error_signal.connect(self._on_error_msg)
 
-        # 自动刷新：首次显示时自动加载各子tab（my、all；byid 需用户输入不自动加载）
-        self._auto_loaded_keys = set()  # 已自动加载过的子tab key
+        # 首显自动加载my与all
+        self._auto_loaded_keys = set()  # 已自动加载过的key
         self._first_show_pending = True
 
     def showEvent(self, event):
@@ -348,7 +348,7 @@ class EmojiTab(QWidget):
         super().showEvent(event)
         if self._first_show_pending:
             self._first_show_pending = False
-            # 延迟一点，避免与主窗口初始化抢资源
+            # 延迟避免抢资源
             QTimer.singleShot(100, self._auto_load_all_tabs)
 
     def _auto_load_all_tabs(self):
@@ -357,7 +357,7 @@ class EmojiTab(QWidget):
         串行触发：先 my，my 加载完成后再触发 all（避免并发请求争抢）。
         """
         if "my" in self._subtabs and self.emoji_parser and "my" not in self._auto_loaded_keys:
-            # 切换到"我的表情包"子tab并触发加载
+            # 切到我的表情包并加载
             idx = self.sub_tabs.indexOf(self._subtabs["my"]["page"])
             if idx >= 0:
                 self.sub_tabs.setCurrentIndex(idx)
@@ -453,7 +453,7 @@ class EmojiTab(QWidget):
     def _init_network(self):
         """初始化网络管理器（用于异步加载表情缩略图）"""
         self.network_manager = QNetworkAccessManager()
-        self._pending_thumbs = {}  # reply -> (item, url)
+        self._pending_thumbs = {}  # reply到item与url
 
     def _abort_pending_thumbs(self, only_for_lists=None):
         """中止未完成的缩略图请求，防止 QNetworkAccessManager 被海量请求堵死。
@@ -487,7 +487,7 @@ class EmojiTab(QWidget):
                     reply.deleteLater()
             except Exception:
                 pass
-            # 重置加载标记，使 item 后续可重新发起缩略图请求
+            # 重置标记可重新请求
             if item is not None and not sip.isdeleted(item):
                 try:
                     item.setData(ROLE_THUMB_LOADED, False)
@@ -601,11 +601,11 @@ class EmojiTab(QWidget):
         toolbar.addStretch()
         layout.addLayout(toolbar)
 
-        # 左右分栏：左侧表情包列表 + 右侧表情网格
+        # 左列表右网格
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
 
-        # 左侧容器：搜索栏 + 表情包列表
+        # 左侧搜索栏加列表
         left_container = QWidget()
         left_layout = QVBoxLayout(left_container)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -633,7 +633,7 @@ class EmojiTab(QWidget):
         splitter.addWidget(left_container)
         self._subtabs.setdefault(key, {})["pkg_list"] = pkg_list
 
-        # 右侧容器：搜索栏 + 表情网格
+        # 右侧搜索栏加网格
         right_container = QWidget()
         right_layout = QVBoxLayout(right_container)
         right_layout.setContentsMargins(0, 0, 0, 0)
@@ -756,7 +756,7 @@ class EmojiTab(QWidget):
         self._subtabs[key]["mode"] = mode
         self._subtabs[key]["needs_login"] = needs_login
         self._subtabs[key]["page"] = page
-        self._subtabs[key]["packages"] = []  # 当前列表中的所有表情包
+        self._subtabs[key]["packages"] = []  # 当前列表所有表情包
         self._subtabs[key]["current_pkg"] = None  # 当前选中的表情包
 
         self.sub_tabs.addTab(page, title)
@@ -846,7 +846,7 @@ class EmojiTab(QWidget):
                 for skel in (sub.get("skeleton_left"), sub.get("skeleton_right")):
                     if skel is None or sip.isdeleted(skel):
                         continue
-                    # 骨架屏的 parent 就是它覆盖的 host
+                    # 骨架parent即覆盖的host
                     if skel.parent() is obj:
                         try:
                             skel.setGeometry(obj.rect())
@@ -875,7 +875,7 @@ class EmojiTab(QWidget):
                 sub[sk] = None
                 try:
                     if not sip.isdeleted(skel):
-                        # 先立即隐藏，再播放淡出动画后删除，确保不会挡住内容
+                        # 先隐藏再淡出后删
                         skel.hide()
                         skel.fade_out_and_delete()
                 except Exception:
@@ -894,10 +894,10 @@ class EmojiTab(QWidget):
         mode = sub.get("mode")
         biz = self._get_business(key)
         self._refresh_cookies()
-        # 标记该子tab已加载过（用于自动加载去重）
+        # 标记已加载去重
         self._auto_loaded_keys.add(key)
-        # 中止本子tab上一轮未完成的缩略图请求，避免网络管理器拥塞
-        # （仅限本子tab，不影响其它子tab进行中的缩略图请求）
+        # 中止本子tab未完成请求
+        # 不影响其它子tab
         self._abort_pending_thumbs(only_for_lists=[sub.get("pkg_list"), sub.get("emote_grid")])
         self._set_status(f"正在加载{sub_tabs_title(key)}...")
         self._show_skeleton(key, count=8)
@@ -950,7 +950,7 @@ class EmojiTab(QWidget):
             return
         biz = self._get_business(key)
         self._refresh_cookies()
-        # 中止本子tab上一轮未完成的缩略图请求（不影响其它子tab）
+        # 中止本轮未完成请求
         self._abort_pending_thumbs(only_for_lists=[sub.get("pkg_list"), sub.get("emote_grid")])
         self._set_status("正在查询表情包...")
         self._show_skeleton(key, count=min(len(ids), 6) or 4)
@@ -993,11 +993,11 @@ class EmojiTab(QWidget):
                 info_label.setText(f"加载失败: {error}")
             return
 
-        # 规范化数据为表情包列表
+        # 规范化为表情包列表
         packages = []
         mode = sub.get("mode")
         if mode == "all" and isinstance(data, dict):
-            # all模式返回 {user_packages, all_packages}，合并展示，用户拥有的标记added
+            # all模式合并展示
             seen_ids = set()
             for p in data.get("user_packages", []):
                 p = dict(p)
@@ -1019,12 +1019,12 @@ class EmojiTab(QWidget):
                     p["_source"] = ""
                 packages.append(p)
 
-        # 过滤特殊包："收藏"(id=99999999) 是虚拟收藏夹，API 不返回明细，直接剔除
+        # 剔除虚拟收藏包
         packages = [p for p in packages
                     if p.get("id") != 99999999 and p.get("text") != "收藏"]
 
         sub["packages"] = packages
-        # 重置搜索框（不触发过滤，避免在填充前误过滤）
+        # 重置搜索框不触发过滤
         search_input = sub.get("pkg_search_input")
         if search_input is not None:
             search_input.blockSignals(True)
@@ -1032,26 +1032,26 @@ class EmojiTab(QWidget):
             search_input.blockSignals(False)
         self._populate_pkg_list(key, packages)
 
-        # 连接滚动信号触发按需加载（只连一次）
+        # 连滚动信号按需加载
         sb = pkg_list.verticalScrollBar()
         if not getattr(sb, "_thumb_loader_connected", False):
             sb.valueChanged.connect(lambda _: self._load_visible_pkg_thumbs(key))
             sb._thumb_loader_connected = True
-        # 首次填充后立即加载当前可视区域的缩略图
+        # 首填后加载可视区缩略图
         QTimer.singleShot(50, lambda: self._load_visible_pkg_thumbs(key))
 
         self._set_status(f"共加载 {len(packages)} 个表情包")
         if info_label is not None:
             info_label.setText(f"共 {len(packages)} 个表情包，请选择查看详情")
 
-        # 自动选中第一个表情包并加载表情
+        # 自动选中首个并加载
         if packages and pkg_list.count() > 0:
             first_item = pkg_list.item(0)
             if first_item is not None:
                 pkg_list.setCurrentItem(first_item)
                 self._on_package_selected(key, first_item)
 
-        # 自动加载串联：my 完成后，若 all 尚未自动加载过，触发 all 加载
+        # my完成后触发all
         if key == "my" and "all" in self._subtabs and "all" not in self._auto_loaded_keys:
             QTimer.singleShot(150, lambda: self._auto_load_tab("all"))
 
@@ -1068,7 +1068,7 @@ class EmojiTab(QWidget):
         pkg_list = sub.get("pkg_list")
         if pkg_list is None:
             return
-        # 仅中止本子tab左栏列表的缩略图请求并重置标记
+        # 中止本tab左栏请求
         self._abort_pending_thumbs(only_for_lists=[pkg_list])
         pkg_list.clear()
         for pkg in packages:
@@ -1083,7 +1083,7 @@ class EmojiTab(QWidget):
             item.setData(ROLE_THUMB_URL, pkg.get("url", ""))
             item.setData(ROLE_THUMB_LOADED, False)
             pkg_list.addItem(item)
-        # 填充后立即加载可视区域缩略图
+        # 填充后载可视缩略图
         QTimer.singleShot(50, lambda: self._load_visible_pkg_thumbs(key))
 
     def _filter_pkg_list(self, key):
@@ -1240,20 +1240,20 @@ class EmojiTab(QWidget):
         viewport_ready = vp_h > 0
 
         if viewport_ready:
-            # viewport 已有尺寸，用 visualItemRect 精确判断可见性
+            # 用visualItemRect判可见
             for i in range(total):
                 item = pkg_list.item(i)
                 if item is None:
                     continue
                 try:
                     rect = pkg_list.visualItemRect(item)
-                    # item 矩形与 viewport(0..vp_h) 有交集即为可见
+                    # 矩形有交集即可见
                     if rect.top() < vp_h and rect.bottom() > 0:
                         visible_items.append(item)
                 except Exception:
                     continue
 
-        # 兜底：viewport 未就绪或扫不到可见 item，加载前 N 个
+        # 兜底加载前N个
         fallback_used = False
         if not visible_items and total > 0:
             fallback_used = True
@@ -1263,9 +1263,9 @@ class EmojiTab(QWidget):
                 if item is not None:
                     visible_items.append(item)
 
-        # QListWidgetItem 不可哈希，用 id() 作为集合键
+        # 不可哈希用id作键
         visible_set = set(id(i) for i in visible_items)
-        # 对可视区域内未加载的 item 发起请求
+        # 对未加载的发起请求
         for item in visible_items:
             try:
                 if sip.isdeleted(item):
@@ -1281,15 +1281,15 @@ class EmojiTab(QWidget):
             except Exception:
                 continue
 
-        # 仅在 viewport 真正就绪（非兜底）时，才中止离开可视区域的请求，
-        # 避免 viewport 未就绪时把兜底加载的请求误中止掉。
+        # 仅就绪时中止离开请求
+        # 避免误中止兜底请求
         if not fallback_used:
             to_abort = []
             for reply, (item, url) in self._pending_thumbs.items():
-                # 只处理 pkg_list 的请求（emote_grid 的 item 不在 pkg_list）
+                # 只处理pkg_list的请求
                 try:
                     if sip.isdeleted(item) or id(item) not in visible_set:
-                        # 判断 item 是否属于这个 pkg_list
+                        # 判断是否属于该列表
                         if item.listWidget() is pkg_list:
                             to_abort.append((reply, item))
                 except Exception:
@@ -1302,15 +1302,15 @@ class EmojiTab(QWidget):
                 except Exception:
                     pass
                 self._pending_thumbs.pop(reply, None)
-                # 重置加载标记，滚回可视区域时可重新发起
+                # 重置标记可重新发起
                 if item is not None and not sip.isdeleted(item):
                     try:
                         item.setData(ROLE_THUMB_LOADED, False)
                     except Exception:
                         pass
 
-        # 首次填充后 viewport 可能尚未布局完，安排一次延迟重试，
-        # 确保 viewport 就绪后能正确加载完整可视区域（含中止离开的请求）。
+        # 布局未完，延迟重试
+        # 就绪后载完整可视区
         if fallback_used and _retry_count < 3:
             QTimer.singleShot(150, lambda: self._load_visible_pkg_thumbs(key, _retry_count + 1))
 
@@ -1321,7 +1321,7 @@ class EmojiTab(QWidget):
         try:
             reply = self.network_manager.get(QNetworkRequest(QUrl(url)))
             self._pending_thumbs[reply] = (item, url)
-            # 使用 weakref 避免闭包持有 reply 导致对象已被删除时仍触发访问
+            # weakref免持有已删对象
             import weakref
             reply_ref = weakref.ref(reply)
             reply.finished.connect(lambda: self._on_thumb_loaded(reply_ref()))
@@ -1330,7 +1330,7 @@ class EmojiTab(QWidget):
 
     def _on_thumb_loaded(self, reply):
         """缩略图加载完成"""
-        # reply 可能在信号传递过程中已被 Qt 删除
+        # reply可能已被Qt删除
         if reply is None or sip.isdeleted(reply):
             return
         info = self._pending_thumbs.pop(reply, None)
@@ -1342,7 +1342,7 @@ class EmojiTab(QWidget):
             return
         item, url = info
         try:
-            # 列表项可能已被销毁（用户切换表情包/刷新列表导致 clear()）
+            # 列表项可能已销毁
             if sip.isdeleted(item):
                 return
             if reply.error() == QNetworkReply.NoError:
@@ -1373,14 +1373,14 @@ class EmojiTab(QWidget):
         grid = sub.get("emote_grid")
         if grid is None:
             return
-        # 仅中止本子tab右侧表情网格的缩略图请求，保留左栏列表封面缩略图
+        # 中止右网格留左栏
         self._abort_pending_thumbs(only_for_lists=[grid])
         grid.clear()
 
         emotes = pkg.get("emote", []) or []
-        # emote_loaded 标记表示已按需拉取过明细（即使结果为空也不再重复请求）
+        # 已拉取过则不再重复
         if emotes or pkg.get("emote_loaded"):
-            # 已有明细（或已确认无明细），直接渲染
+            # 已有明细直接渲染
             self._render_emote_grid(key, pkg, emotes)
             return
 
@@ -1397,7 +1397,7 @@ class EmojiTab(QWidget):
             if info_label is not None:
                 info_label.setText("正在加载明细...")
             return
-        # 右侧网格显示骨架屏（只覆盖右栏，左栏列表保持可见）
+        # 右网格显示骨架屏
         self._show_skeleton(key, count=0, cover="right")
         self._load_package_detail(key, pkg_id)
 
@@ -1413,7 +1413,7 @@ class EmojiTab(QWidget):
             try:
                 result = self.emoji_parser.get_package_detail(pkg_id, business=biz)
                 if result["success"]:
-                    # result["data"] 是 package 列表，取第一个
+                    # data是包列表取首个
                     pkgs = result["data"]
                     emote_list = pkgs[0].get("emote", []) if pkgs else []
                     self._detail_loaded_signal.emit(key, pkg_id, True, emote_list, "")
@@ -1432,9 +1432,9 @@ class EmojiTab(QWidget):
         sub = self._subtabs.get(key, {})
         if not sub:
             return
-        # 隐藏右栏网格骨架（明细加载完成）
+        # 隐藏右栏网格骨架
         self._hide_skeleton(key, cover="right")
-        # 只有当前选中的包仍是这个 pkg_id 才渲染（用户可能已切换到别的包）
+        # 仍是当前包才渲染
         pkg = sub.get("current_pkg")
         if not pkg or pkg.get("id") != pkg_id:
             return
@@ -1444,7 +1444,7 @@ class EmojiTab(QWidget):
             if info_label is not None:
                 info_label.setText(f"加载明细失败: {error}")
             return
-        # 把明细回填到 pkg 对象，并标记已加载（避免重复请求，即使结果为空）
+        # 明细回填pkg并标记
         pkg["emote"] = emote_list or []
         pkg["emote_count"] = len(emote_list or [])
         pkg["emote_loaded"] = True
@@ -1456,9 +1456,9 @@ class EmojiTab(QWidget):
         grid = sub.get("emote_grid")
         if grid is None:
             return
-        # 保存全量数据用于搜索过滤
+        # 存全量数据供搜索
         sub["current_emotes"] = list(emotes or [])
-        # 重置搜索框（不触发过滤循环）
+        # 重置搜索免过滤循环
         search_input = sub.get("emote_search_input")
         if search_input is not None:
             search_input.blockSignals(True)
@@ -1473,9 +1473,9 @@ class EmojiTab(QWidget):
         if grid is None:
             return
         info_label = sub.get("info_label")
-        # 确保右侧骨架屏已隐藏（双保险）
+        # 确保骨架屏已隐藏
         self._hide_skeleton(key, cover="right")
-        # 仅中止右栏网格的缩略图请求
+        # 仅中止右栏网格请求
         self._abort_pending_thumbs(only_for_lists=[grid])
         grid.clear()
         title = pkg.get("text", "未命名") if pkg else ""
@@ -1483,7 +1483,7 @@ class EmojiTab(QWidget):
         source_tag = pkg.get("_source", "") if pkg else ""
         suffix = f" [{source_tag}]" if source_tag else ""
         if not emotes:
-            # 特殊包（如"收藏"id=99999999）API 不返回明细
+            # 特殊包API无明细
             hint = QListWidgetItem("该表情包暂无可用表情（可能为特殊收藏夹）")
             hint.setFlags(Qt.NoItemFlags)
             hint.setTextAlignment(Qt.AlignCenter)
@@ -1548,7 +1548,7 @@ class EmojiTab(QWidget):
             return
         item, url = info
         try:
-            # 列表项可能已被销毁（用户切换表情包导致网格 clear()）
+            # 列表项可能已销毁
             if sip.isdeleted(item):
                 return
             if reply.error() == QNetworkReply.NoError:
@@ -1622,7 +1622,7 @@ class EmojiTab(QWidget):
         sub.get("dl_all_btn").setEnabled(False)
         self._set_status(f"开始下载 {package_name} 的 {len(emotes)} 个表情...")
 
-        # 绑定 key 以便信号回调更新对应子tab
+        # 绑定key供回调更新
         self.download_thread = EmojiDownloadThread(emotes, save_dir, package_name, overwrite=False)
         self._dl_active_key = key
         self.download_thread.progress_updated.connect(self._on_dl_progress)

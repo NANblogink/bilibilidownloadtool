@@ -4,8 +4,8 @@ import tempfile
 import subprocess
 import threading
 
-# 应用标识（AUMID）：必须与 ui.py 中发送通知所用 _WINRT_TOAST_APP_ID 一致。
-# Windows 通知中心只有在该 AUMID 关联到开始菜单快捷方式时才会显示 Toast 按钮。
+# AUMID同ui.py
+# 须关联开始菜单
 APP_AUMID = "B站视频下载工具"
 _APP_NAME = "B站视频下载工具"
 
@@ -112,7 +112,7 @@ def _shortcut_path():
 
 
 def _launch_target():
-    # 打包后指向 exe；源码运行指向 python 解释器
+    # 打包exe源码py
     return sys.executable
 
 
@@ -135,7 +135,7 @@ def _app_icon_path():
         tries = [os.path.join(_exe, "logo.ico"),
                  os.path.join(_exe, "_internal", "logo.ico")]
     else:
-        # 本文件位于 parsers/，项目根在其上一级；图标可能位于根或 assets/icons
+        # 根在上级目录
         _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         tries = [os.path.join(_root, "logo.ico"),
                  os.path.join(_root, "assets", "icons", "logo.ico")]
@@ -241,7 +241,7 @@ def register_aumid_shortcut():
     每次启动都重新写入，避免旧快捷方式缺少 AUMID 导致按钮不显示。"""
     if not sys.platform.startswith("win"):
         return False
-    # 进程 AUMID 优先设置：任务栏图标与分组依赖它
+    # AUMID定栏分组
     set_process_app_user_model_id()
     register_app_identity()
     lnk_path = _shortcut_path()

@@ -34,9 +34,9 @@ src = Image.open(SRC).convert("RGBA")
 print(f"  {SRC}: {src.size} {src.mode}")
 
 # 源图白底 + 蓝色电视图标
-# 1) 裁掉留白，图形占满画布
-# 2) 透明或白底皆可，留边距
-# 保留原比例居中，留 8% 边距
+# 1) 裁掉留白占满画布
+# 2) 透明或白底皆可
+# 保留比例居中留8%边距
 W, H = src.size
 side = max(W, H)
 canvas = Image.new("RGBA", (side, side), (255, 255, 255, 0))
@@ -67,13 +67,13 @@ for name, px in DENSITIES.items():
     tile.save(fp)
     print(f"  {name:8s} {px:3d}x{px:<3d} -> {os.path.relpath(fp, HERE)}")
 
-# p4a 主图标：512 方形图
+# p4a主图标512方形
 main = canvas.resize((512, 512), Image.LANCZOS)
 main.save(OUT_ICON)
 print(f"\n=== 主图标 ===")
 print(f"  {os.path.relpath(OUT_ICON, HERE)}  {os.path.getsize(OUT_ICON)/1024:.0f} KB  {main.size}")
 
-# 另生成界面小图标（标题栏）
+# 另生成标题栏小图标
 ui_icon = canvas.resize((128, 128), Image.LANCZOS)
 ui_path = os.path.join(HERE, "logo_ui.png")
 ui_icon.save(ui_path)

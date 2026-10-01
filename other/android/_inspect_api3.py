@@ -16,7 +16,7 @@ ui = io.open(os.path.join(ROOT, "ui.py"), encoding="utf-8").read()
 par = io.open(os.path.join(ROOT, "parsers", "bilibili_parser.py"),
               encoding="utf-8").read()
 
-# 1) 桌面版下载按钮怎么组装 download_params
+# 1) 下载按钮如何组装参数
 w("=== ui.py: start_download / download_params 组装处 ===")
 for m in re.finditer(r"download_params\s*=\s*\{", ui):
     s = m.start()
@@ -39,17 +39,17 @@ for q in qs[:15]:
     w(f"    - {q}")
 w()
 
-# 3) parser.parse_media 返回结构的实际构建
+# 3) parse_media返回结构
 w("=== parser: parse_media 返回字典的键 ===")
 i = par.find("def parse_media(")
 seg = par[i:i + 40000]
-# 找 result 变量与 return
+# 找result变量与return
 for m in re.finditer(r"(['\"])(success|title|episodes|qualities|audio_qualities|owner|pic|bvid|is_bangumi|is_cheese|collection|bangumi_info|cheese_info|duration)\1\s*:", seg):
     ln = par[:i + m.start()].count("\n") + 1
     w(f"    L{ln}: {m.group(0)}")
 w()
 
-# 4) episodes 每项的字段
+# 4) episodes每项字段
 w("=== parser: episodes 每项字段 ===")
 keys = sorted(set(re.findall(r"episode(?:s)?\[[^\]]*\]\[\s*['\"]([a-z_0-9]+)['\"]\s*\]", par)))
 for k in keys:
@@ -59,7 +59,7 @@ keys2 = sorted(set(re.findall(r"\{\s*['\"]index['\"]", par)))
 w(f"  episode dict 出现 {len(keys2)} 次（含 index 字段）")
 w()
 
-# 5) 登录相关：get_qrcode / poll_login_status
+# 5) 登录二维码与轮询
 w("=== parser: get_qrcode 返回字段 ===")
 i = par.find("def get_qrcode")
 seg = par[i:i + 3000]

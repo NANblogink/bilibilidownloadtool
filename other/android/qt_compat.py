@@ -63,7 +63,7 @@ class pyqtSignal:
     def __init__(self, *types_, **kwargs):
         self._types = types_
         self._name = kwargs.get("name", None)
-        # 每个实例各自持有回调表：{instance_id: [callbacks]}
+        # 每实例各持回调表
         self._store = {}
         self._lock = threading.RLock()
 
@@ -78,7 +78,7 @@ class pyqtSignal:
             return self
         return _BoundSignal(self, obj)
 
-    # 允许直接对类属性 emit（极小概率用到）
+    # 可对类属性emit
     def emit(self, *args, **kwargs):
         pass
 
@@ -111,15 +111,15 @@ class _BoundSignal:
                 cbs.remove(slot)
 
     def emit(self, *args, **kwargs):
-        # 取快照后再调用，避免回调里 connect 造成遍历异常
+        # 取快照再调免遍历异常
         with self._sig._lock:
             cbs = list(self._sig._store.get(self._sig._key(self._obj), []))
         for cb in cbs:
             try:
                 cb(*args, **kwargs)
             except Exception:
-                # 信号回调不能影响主流程（Qt 里槽抛错不应中断
-                # emit 方），这里吞掉并记录
+                # 槽抛错不应中断主流程
+                # 这里吞掉并记录
                 try:
                     import traceback
                     traceback.print_exc()
@@ -222,7 +222,7 @@ class QThread(QObject):
         if msecs is None:
             t.join()
             return True
-        # 注意：threading 没有毫秒级 join，用秒
+        # threading无毫秒join
         t.join(timeout=max(0.0, msecs / 1000.0))
         return not t.is_alive()
 
@@ -230,8 +230,8 @@ class QThread(QObject):
         self._stop_flag.set()
 
     def terminate(self):
-        # Python 无法安全强杀线程；置标志让 run() 自行退出
-        # （桌面版内部也是靠停止标志协作退出的）
+        # 置标志让run自行退出
+        # 桌面版也靠标志协作
         self._stop_flag.set()
 
     def msleep(self, msecs):
@@ -268,7 +268,7 @@ class QMutex:
         try:
             self._lock.release()
         except RuntimeError:
-            # 未持有时 unlock：Qt 是未定义行为，这里容忍掉
+            # 未持有却unlock予以容忍
             pass
 
     def tryLock(self, timeout=0):
@@ -276,7 +276,7 @@ class QMutex:
             return self._lock.acquire(timeout=timeout / 1000.0)
         return self._lock.acquire(blocking=False)
 
-    # 让它可以当上下文管理器使用
+    # 可当上下文管理器
     def __enter__(self):
         self.lock()
         return self
@@ -297,7 +297,7 @@ class QWaitCondition:
 
     def wait(self, mutex, msecs=None):
         """等待。mutex 是 QMutex；返回 True 表示被唤醒，False 表示超时。"""
-        # 先释放调用方持有的 QMutex（Qt 语义）
+        # 先释放调用方持有的锁
         try:
             mutex.unlock()
         except Exception:
@@ -311,7 +311,7 @@ class QWaitCondition:
                 else:
                     got = self._cond.wait(timeout=max(0.0, msecs / 1000.0))
         finally:
-            # 重新拿回 mutex（Qt 语义）
+            # 重新拿回mutex
             try:
                 mutex.lock()
             except Exception:
@@ -408,7 +408,7 @@ def install(verbose=False):
     if _installed:
         return True
 
-    # 真实 PyQt5 可用就不要插手
+    # 真PyQt5可用则不插手
     try:
         import PyQt5  # noqa: F401
         if verbose:

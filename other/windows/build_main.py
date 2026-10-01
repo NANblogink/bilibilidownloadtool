@@ -174,7 +174,7 @@ QT_UNUSED_DLLS = [
     "Qt5Script.dll", "Qt5ScriptTools.dll", "Qt5Xml.dll",
 ]
 QT_UNUSED_DIRS = [
-    os.path.join("PyQt5", "Qt5", "qml"),          # QML 运行时（不用 Quick）
+    os.path.join("PyQt5", "Qt5", "qml"),          # QML运行时不用Quick
 ]
 QT_UNUSED_PYD = [
     "QtQuick.pyd", "QtQml.pyd", "QtMultimedia.pyd", "QtMultimediaWidgets.pyd",

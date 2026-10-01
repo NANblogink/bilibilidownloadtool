@@ -54,7 +54,7 @@ check("KV non-trivial", len(kv) > 200, "%d chars" % len(kv))
 rules = re.findall(r"<([A-Za-z_]\w*)(?:@([A-Za-z_]\w*))?>:", kv)
 check("KV defines widget rules", len(rules) >= 3,
       ["%s@%s" % (a, b) if b else a for a, b in rules])
-# 大括号必须配平（KV 用 {} 做属性绑定）
+# 大括号须配平
 check("KV braces balanced", kv.count("{") == kv.count("}"),
       "%d vs %d" % (kv.count("{"), kv.count("}")))
 check("KV has canvas rules", "canvas.before" in kv)
@@ -78,8 +78,8 @@ def _spec_value(key):
     return None
 
 
-# 关键：buildozer 读的是 orientation，不是 android 前缀
-# 写成后者会被静默忽略，manifest 里仍是 landscape
+# buildozer读orientation
+# 写成android前缀会被忽略
 check("orientation = portrait", _spec_value("orientation") == "portrait",
       "实际=%r" % _spec_value("orientation"))
 check("no bogus android.orientation key",
@@ -105,7 +105,7 @@ check("config.ConfigLoader exists", hasattr(cfg, "ConfigLoader"))
 check("task_manager.TaskManager exists", hasattr(tm, "TaskManager"))
 check("download_history.DownloadHistory exists", hasattr(dh, "DownloadHistory"))
 
-# BilibiliParser 接受 config=
+# BilibiliParser接受config
 try:
     sig = inspect.signature(bp.BilibiliParser.__init__)
     check("BilibiliParser(config=...) accepted", "config" in sig.parameters, str(sig))
@@ -127,7 +127,7 @@ except Exception as exc:
 check("DownloadManager.start_download exists",
       hasattr(dl.DownloadManager, "start_download"))
 
-# Which keys does start_download actually read?
+# start_download读哪些键
 try:
     dsrc = inspect.getsource(dl.DownloadManager.start_download)
     read_keys = set(re.findall(r"download_params\.get\(\s*['\"]([^'\"]+)['\"]", dsrc))
@@ -135,7 +135,7 @@ except Exception:
     read_keys = set()
 print("      start_download reads:", sorted(read_keys))
 
-# The Android bridge must supply every key start_download reads
+# 桥须供给它读的每个键
 android_keys = set(re.findall(r"['\"]([a-z_]+)['\"]\s*:", src))
 required = {"video_info", "qn", "save_path", "episodes", "task_id",
             "download_content_type", "resume_download", "audio_quality"}
@@ -145,13 +145,13 @@ check("Android bridge supplies required keys", not missing, "missing=%s" % missi
 # ---------------------------------------------------------------- no PyQt leak
 print()
 print("== 6. no PyQt5 leakage into Android entry ==")
-# 只看真实 import，文档里提到 PyQt5 是允许的
+# 只看真实import
 import re as _re
 _imports = _re.findall(r"^\s*(?:from|import)\s+PyQt5\S*", src, _re.M)
 check("no PyQt5 import statement", not _imports, _imports)
 check("no QtWidgets import", not _re.search(r"^\s*(?:from|import)\s+PyQt5\.QtWidgets", src, _re.M))
 check("kivy is imported", "from kivy" in src or "import kivy" in src)
-# 影子包必须在任何 core 导入之前安装
+# 影子包须先于core安装
 check("qt_compat installed before core imports", "qt_compat.install()" in src)
 
 # ---------------------------------------------------------------- 影子包
@@ -164,7 +164,7 @@ for sym, cls in (("QObject", "QObject"), ("pyqtSignal", "pyqtSignal"),
 check("qt_compat exposes Qt namespace", "Qt = _QtNamespace()" in qsrc)
 check("qt_compat does not import real PyQt5 at top level",
       not _re.search(r"^\s*(?:from|import)\s+PyQt5\s*$", qsrc, _re.M))
-# 影子包必须只在真实 PyQt5 缺失时生效
+# 影子包仅在缺PyQt5时生效
 check("qt_compat defers to real PyQt5", "import PyQt5" in qsrc)
 
 # ---------------------------------------------------------------- 返回值形状
@@ -174,12 +174,12 @@ try:
     gsrc = inspect.getsource(dh.DownloadHistory.get_records)
     returns_tuple = re.search(r"return\s+records\s*,\s*total", gsrc) is not None
     check("get_records returns (records, total)", returns_tuple)
-    # 调用方必须解包元组，否则 history 页会崩
+    # 须解包元组否则history崩
     check("Android unpacks get_records tuple", "isinstance(result, tuple)" in src)
 except Exception as exc:
     check("get_records source readable", False, exc)
 
-# ---------------------------------------------------------------- device profile
+# ------------ 设备档案 ------------
 print()
 print("== 9. device profile is conservative ==")
 check("concurrency cap <= 4", "cap=4" in src)

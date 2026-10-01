@@ -75,17 +75,17 @@ check("包含 mipmap 图标", len(icons) >= 1,
 
 print()
 print("=== 6. 清单：竖屏 + 图标 ===")
-# 注意：AndroidManifest.xml 是二进制 AXML，
-# 直接 decode utf-8/utf-16 找字符串会误判
-# 这里复用 _verify_apk.py 里已验证过的解析器
+# Manifest是二进制AXML
+# 直接decode会误判
+# 复用已验证的解析器
 sys.path.insert(0, AND)
 import _verify_apk as va
 
 raw = zf.read("AndroidManifest.xml")
 
-# screenOrientation 属性的数值：
-# 1 = SCREEN_ORIENTATION_PORTRAIT（竖屏锁定）
-# 0 = LANDSCAPE, -1 = UNSPECIFIED
+# screenOrientation数值
+# 1为竖屏锁定
+# 0横屏-1未指定
 SCREEN_ORIENTATION = {0: "landscape", 1: "portrait", -1: "unspecified"}
 orient_val = va._axml_orientation(raw)
 orient = SCREEN_ORIENTATION.get(orient_val, "unknown(%r)" % orient_val)
@@ -97,9 +97,9 @@ check("清单含包名", "cn.bilidown.bilidownload" in strings)
 check("清单含 PythonActivity",
       "org.kivy.android.PythonActivity" in strings)
 
-# 图标：aapt2 读到的是 icon='res/mipmap/icon.png'，
-# 而 AXML 字符串池里只有资源名（如 'icon'）
-# 两者都查一下，避免因解析层级不同误判
+# aapt2读到icon.png
+# AXML只有资源名
+# 两者都查免误判
 has_icon_name = "icon" in strings
 icon_res = [n for n in zf.namelist() if "mipmap" in n and n.endswith(".png")]
 check("清单引用 icon 资源", has_icon_name)
@@ -111,7 +111,7 @@ abi = sorted(set(n.split("/")[1] for n in libs if len(n.split("/")) > 2))
 check("包含 arm64-v8a", "arm64-v8a" in abi, str(abi))
 check("包含 armeabi-v7a", "armeabi-v7a" in abi)
 
-# 有没有 SDL2_ttf 相关
+# 有无SDL2_ttf相关
 ttf_lib = [n for n in libs if "SDL2_ttf" in n]
 check("SDL2_ttf native 库存在", len(ttf_lib) > 0, str(ttf_lib[:2]))
 

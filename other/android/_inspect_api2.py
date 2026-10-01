@@ -12,7 +12,7 @@ def w(s=""):
     L.append(str(s))
 
 
-# 1) 桌面版如何调用 parse_media 并取结果
+# 1) 桌面版如何调parse_media
 ui = io.open(os.path.join(ROOT, "ui.py"), encoding="utf-8").read()
 w("=== ui.py 中 parse_media 的调用方式 ===")
 for m in re.finditer(r"parse_media\(", ui):
@@ -25,7 +25,7 @@ for m in re.finditer(r"parse_media\(", ui):
     if len([x for x in L if x.startswith("--- L")]) >= 4:
         break
 
-# 2) current_video_info 的字段
+# 2) current_video_info字段
 w("=== ui.py 中 current_video_info 的字段访问 ===")
 fields = sorted(set(re.findall(r"current_video_info(?:\.get\(\s*['\"]([a-z_0-9]+)['\"]|\[\s*['\"]([a-z_0-9]+)['\"]\s*\])", ui)))
 flat = sorted({a or b for a, b in fields})
@@ -33,14 +33,14 @@ for f in flat:
     w(f"    - {f}")
 w()
 
-# 3) video_info 中的字段（下载参数）
+# 3) video_info字段
 w("=== ui.py 中 video_info 的字段 ===")
 f2 = sorted(set(re.findall(r"video_info\.get\(\s*['\"]([a-z_0-9]+)['\"]", ui)))
 for f in f2:
     w(f"    - {f}")
 w()
 
-# 4) 核心模块对 PyQt5 的依赖
+# 4) 核心模块对PyQt5依赖
 w("=== 核心模块的 PyQt5 依赖 ===")
 for rel in ["core/downloader.py", "core/task_manager.py", "core/tool_manager.py",
             "core/config.py", "parsers/bilibili_parser.py",
@@ -59,7 +59,7 @@ for rel in ["core/downloader.py", "core/task_manager.py", "core/tool_manager.py"
         w("      (无 PyQt5 依赖)")
 w()
 
-# 5) download_history 接口
+# 5) download_history接口
 p = os.path.join(ROOT, "core", "download_history.py")
 if os.path.isfile(p):
     s = io.open(p, encoding="utf-8").read()
@@ -68,7 +68,7 @@ if os.path.isfile(p):
         w(f"    {m.group(1)}({m.group(2).strip()[:80]})")
     w()
 
-# 6) task_manager 接口
+# 6) task_manager接口
 p = os.path.join(ROOT, "core", "task_manager.py")
 if os.path.isfile(p):
     s = io.open(p, encoding="utf-8").read()

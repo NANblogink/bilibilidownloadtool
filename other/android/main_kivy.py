@@ -100,7 +100,7 @@ from kivy.uix.textinput import TextInput      # noqa: E402
 from kivy.utils import platform               # noqa: E402
 
 # ------------------------------------------------------------------ 字体
-# Kivy 默认字体无汉字
+# Kivy默认字体无汉字
 _FONT_DIR = _HERE
 _FONT_REG = os.path.join(_FONT_DIR, "NotoSansSC-Regular.ttf")
 _FONT_BOLD = os.path.join(_FONT_DIR, "NotoSansSC-Bold.ttf")
@@ -360,7 +360,7 @@ class ParseTab(BoxLayout):
         self.orientation = "vertical"
         self.spacing = dp(6)
         self.padding = dp(10)
-        # 勾选集下标；None 全选
+        # 勾选集下标None为全选
         self.selected_ep_indexes = None
         self._build()
 
@@ -774,7 +774,7 @@ class ParseTab(BoxLayout):
             m = _re.search(r"/(\d+)", u)
             if m:
                 return ("live", m.group(1))
-        # 兜底：交给 parser 判断
+        # 兜底交parser判断
         return ("video", u)
 
     def _parse_failed(self, msg):
@@ -1196,7 +1196,7 @@ class HistoryTab(BoxLayout):
         try:
             kw = (self.search_input.text or "").strip()
             status = "" if self.filter == "全部" else self.filter
-            # get_records() 返回元组
+            # get_records返回元组
             # 不是列表 —— 这里必须解包
             result = self.app.history.get_records(
                 keyword=kw, status_filter=status, limit=200)
@@ -1820,7 +1820,7 @@ class LoginPopup(Popup):
         code = res.get("code")
         if status:
             self._set_status(status)
-        # 86038：二维码已失效
+        # 86038二维码已失效
         if code == 86038:
             self._stop_poll()
             self._set_status("二维码已失效，正在刷新…")

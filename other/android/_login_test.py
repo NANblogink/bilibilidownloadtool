@@ -1,6 +1,6 @@
-# 在类 Android 环境下复现扫码登录崩溃
-# Android 无 qrcode 模块也无 PyQt5，本测试
-# 屏蔽这些 import，再端到端跑一遍登录弹窗
+# 类Android环境复现登录崩溃
+# Android无qrcode无PyQt5
+# 屏蔽import再端到端跑登录
 import builtins
 import io
 import os
@@ -22,7 +22,7 @@ def w(s=""):
     L.append(str(s))
 
 
-# --- 屏蔽 Android 上不存在的模块 ---
+# --- 屏蔽Android不存在的模块 ---
 BLOCKED = {"qrcode", "PIL", "PyQt5", "android", "jnius"}
 _real_import = builtins.__import__
 
@@ -89,7 +89,7 @@ def step(name, fn):
         return False
 
 
-# 3a. 直接构造 LoginPopup（open_login 的第一句）
+# 3a. 直接构造LoginPopup
 pop_holder = {}
 
 
@@ -103,16 +103,16 @@ pop = pop_holder.get("pop")
 if pop is not None:
     step("pop.open()", pop.open)
 
-    # 3b. start() 会起后台线程取码；Android 无 qrcode
+    # 3b. start()起线程取码
     step("pop.start()", pop.start)
     import time
     time.sleep(2.5)
 
-    # 3c. _render_qr 在缺少 qrcode 时的行为
+    # 3c. _render_qr缺qrcode时
     step("_render_qr（无 qrcode 模块）",
          lambda: w("       -> 返回 %r" % pop._render_qr("https://example.com")))
 
-    # 3d. _show_qr 收到数据后（模拟服务端返回）
+    # 3d. _show_qr收到数据后
     step("_show_qr（模拟服务端返回）",
          lambda: pop._show_qr({"qrcode_key": "abc123",
                                "url": "https://www.bilibili.com/h5/login"}))

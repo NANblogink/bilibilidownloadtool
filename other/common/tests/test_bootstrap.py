@@ -56,9 +56,9 @@ if sys.platform.startswith("linux"):
           not any("win_amd64" in p for p in picked), picked)
 
 print("== 架构筛选：64 位机器优先选 win_amd64 ==")
-# 「精简版库装不全」根因回归
-# 旧实现子串匹配平台别名
-# 64 位机误下 32 位 wheel
+# 精简版装不全根因回归
+# 旧实现子串匹配别名
+# 64位机误下32位wheel
 check("win_amd64 accepted", pb._platform_arch_ok("win_amd64") is True)
 check("win_amd64 ranks above win32",
       pb._arch_rank("win_amd64") > pb._arch_rank("win32"))
@@ -80,13 +80,13 @@ print("== 解释器/ABI 兼容判断 ==")
 _cur = "cp%d%d" % (sys.version_info.major, sys.version_info.minor)
 # abi3 向后兼容
 check("abi3 for older cp is usable", pb._compat_ok("cp38", "abi3", _cur) is True)
-# 非 abi3 必须精确匹配
+# 非abi3须精确匹配
 check("non-abi3 exact match usable",
       pb._compat_ok(_cur, _cur, _cur) is True)
 check("non-abi3 wrong minor rejected",
       pb._compat_ok("cp39" if _cur != "cp39" else "cp38", "cp39", _cur) is False)
 check("py3 pure-python usable", pb._compat_ok("py3", "none", _cur) is True)
-# 别把 cp310 cp38 比数字
+# 别把cp310比数字
 check("cp310 vs cp38 handled by tuple compare",
       pb._compat_ok("cp38", "abi3", "cp310") is True)
 
@@ -136,7 +136,7 @@ def _win(cpu, bits, platform_field):
 
 
 try:
-    # 1) x64 + 64 位 Python
+    # 1) x64加64位Py
     check("x64/64bit -> win_amd64 exact",
           _win("AMD64", 64, "win_amd64") == 100)
     check("x64/64bit -> win32 WoW64 fallback",
@@ -146,7 +146,7 @@ try:
     check("x64/64bit interpreter arch is x86_64",
           (pb._host_family(), pb._interp_arch()) == ('windows', 'x86_64'))
 
-    # 2) x64 + 32 位 Python
+    # 2) x64加32位Py
     check("x64/32bit -> win32 exact (NOT win_amd64)",
           _win("AMD64", 32, "win32") == 100)
     check("x64/32bit -> win_amd64 rejected",
@@ -154,7 +154,7 @@ try:
     check("x64/32bit interpreter arch is x86",
           pb._interp_arch() == 'x86')
 
-    # 3) ARM64 + 原生 64 位
+    # 3) ARM64原生64位
     check("arm64/64bit -> win_arm64 exact",
           _win("ARM64", 64, "win_arm64") == 100)
     check("arm64/64bit -> win_amd64 emulation fallback",
@@ -163,7 +163,7 @@ try:
           0 < _win("ARM64", 64, "win32")
           < _win("ARM64", 64, "win_amd64"))
 
-    # 4) ARM64 + 32 位 Python
+    # 4) ARM64加32位Py
     check("arm64/32bit -> win32 exact",
           _win("ARM64", 32, "win32") == 100)
     check("arm64/32bit -> win_amd64 rejected",
@@ -171,7 +171,7 @@ try:
     check("arm64/32bit -> win_arm64 rejected",
           _win("ARM64", 32, "win_arm64") < 0)
 
-    # 5) 纯 32 位 Windows
+    # 5) 纯32位Windows
     check("x86/32bit -> win32 exact",
           _win("x86", 32, "win32") == 100)
     check("x86/32bit -> win_amd64 rejected",
@@ -188,7 +188,7 @@ finally:
     pb._host_family, pb._machine, pb._interp_bits = _o_fam, _o_arch, _o_bits
 
 print("== 跨平台自适应：各系统/架构下应选中的 wheel ==")
-# 替换归一化边界模拟平台
+# 替换归一化模拟平台
 
 
 def _sim(fam, arch, bits, platform_field):
@@ -210,7 +210,7 @@ try:
           _sim("windows", "x86", 32, "win32") == 100)
     check("win 32bit -> win_amd64 rejected",
           _sim("windows", "x86", 32, "win_amd64") < 0)
-    # 无 win_arm64 降级 x64
+    # 无win_arm64降级x64
     check("win arm64 -> win_amd64 via emulation",
           0 <= _sim("windows", "arm64", 64, "win_amd64") < 100)
     check("win arm64 -> win_arm64 exact",
@@ -221,12 +221,12 @@ try:
           _sim("macos", "arm64", 64, "macosx_11_0_arm64") == 100)
     check("mac arm64 -> universal2 usable",
           _sim("macos", "arm64", 64, "macosx_11_0_universal2") > 0)
-    # Rosetta 降级须低于原生
+    # Rosetta降级须低于原生
     check("mac arm64 -> x86_64 demoted via Rosetta",
           0 < _sim("macos", "arm64", 64, "macosx_11_0_x86_64") < 100)
     check("mac x86_64 -> x86_64 exact",
           _sim("macos", "x86_64", 64, "macosx_10_13_x86_64") == 100)
-    # Intel 不能跑 arm64 包
+    # Intel不能跑arm64
     check("mac x86_64 -> arm64 rejected",
           _sim("macos", "x86_64", 64, "macosx_11_0_arm64") < 0)
     check("mac x86_64 -> legacy intel usable",

@@ -10,9 +10,9 @@ import traceback
 
 os.environ.setdefault("KIVY_NO_ARGS", "1")
 os.environ["KIVY_LOG_LEVEL"] = "error"
-# 注意：不能用 KIVY_WINDOW=mock —— 其 mock provider
-# 在 ensure_window() 里直接 sys.exit(1)，无法构建控件
-# 这里改用真实但隐藏的窗口做无头构建测试
+# 不能用KIVY_WINDOW=mock
+# 其mock会直接sys.exit(1)
+# 改用真实但隐藏的窗口
 os.environ.pop("KIVY_WINDOW", None)
 os.environ["KIVY_NO_CONSOLELOG"] = "1"
 
@@ -44,7 +44,7 @@ def w(s=""):
         pass
 
 
-# 让 main_kivy 能被导入
+# 让main_kivy能被导入
 sys.path.insert(0, AND)
 for sub in ("core", os.path.join("core", "infra"), "parsers", ""):
     p = os.path.join(ROOT, sub)
@@ -109,7 +109,7 @@ try:
     app = main_mod.BilibiliAndroidApp()
     w("  App 实例 OK")
 
-    # 分步执行 build() 的关键动作以便定位
+    # 分步执行build便于定位
     w("  加载设置…")
     app.load_settings()
     w("  设置加载完成, save_dir=%s" % app.save_dir)
@@ -159,7 +159,7 @@ try:
         except Exception as exc:
             w(f"  字体 {fname}: 渲染报错 {type(exc).__name__}: {str(exc)[:120]}")
 
-    # 逐个字符检查是否有缺字
+    # 逐字符检查缺字
     from fontTools.ttLib import TTFont
     cm = TTFont(main_mod._FONT_REG).getBestCmap()
     miss = [c for c in sample if ord(c) > 127 and ord(c) not in cm]
