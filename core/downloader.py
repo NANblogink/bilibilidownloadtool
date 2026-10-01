@@ -668,7 +668,7 @@ class EpisodeDownloadThread(QThread):
         """
         codec_name_map = {"h264": 7, "hevc": 12, "av1": 13, "vp9": 14, "auto": None}
         # codecid优先
-        codec_priority = {12: 0, 13: 1, 7: 2, 14: 3}  # HEVC>AV1>H264
+        codec_priority = {12: 0, 13: 1, 7: 2, 14: 3}  #HEVC>AV1>H26
 
         target_codecid = selected_codecid
         if not target_codecid and video_output_codec:

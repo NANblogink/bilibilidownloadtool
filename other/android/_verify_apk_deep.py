@@ -83,7 +83,7 @@ import _verify_apk as va
 
 raw = zf.read("AndroidManifest.xml")
 
-# screenOrient
+#screenOri
 # 1为竖屏锁定
 # 0横屏 -1未指定
 SCREEN_ORIENTATION = {0: "landscape", 1: "portrait", -1: "unspecified"}

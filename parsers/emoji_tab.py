@@ -204,9 +204,9 @@ class SkeletonWidget(QWidget):
 
 class EmojiDownloadThread(QThread):
     """表情包图片批量下载线程（顺序下载）"""
-    progress_updated = pyqtSignal(int, int, str)   #done,total,name
+    progress_updated = pyqtSignal(int, int, str)   #total,name
     one_finished = pyqtSignal(str, bool, str)      # name,ok,path
-    all_finished = pyqtSignal(int, int)            #success,fail
+    all_finished = pyqtSignal(int, int)            #ok/fail
     error_occurred = pyqtSignal(str)
 
     def __init__(self, emotes, save_dir, package_name="", overwrite=False):
@@ -314,7 +314,7 @@ class EmojiTab(QWidget):
 
     # 线程安全信号
     _list_loaded_signal = pyqtSignal(str, bool, object, str)   # key,ok,data
-    _detail_loaded_signal = pyqtSignal(str, int, bool, object, str)  #key,pkg,emote
+    _detail_loaded_signal = pyqtSignal(str, int, bool, object, str)  #pkg,emote
     _error_signal = pyqtSignal(str)
 
     def __init__(self, config=None, parent=None):

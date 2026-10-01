@@ -975,7 +975,7 @@ class BilibiliParser:
             return {k: v for k, v in (d or {}).items()
                     if k in self.LOGIN_COOKIE_KEYS and v}
 
-        #src1:resp.cookie
+        #src1:cookie
         try:
             got = _pick({c.name: c.value for c in resp.cookies})
             if got:
@@ -4493,7 +4493,7 @@ class BilibiliParser:
                 return got
 
             #正片episodes
-            #main_section
+            #main_sec
             # 须与额外合集一起收集
             # 否则部分缺失
             top_eps = result.get('episodes')

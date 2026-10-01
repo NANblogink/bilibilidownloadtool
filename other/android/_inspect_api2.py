@@ -68,7 +68,7 @@ if os.path.isfile(p):
         w(f"    {m.group(1)}({m.group(2).strip()[:80]})")
     w()
 
-#6) task_manager
+#6)task_mgr
 p = os.path.join(ROOT, "core", "task_manager.py")
 if os.path.isfile(p):
     s = io.open(p, encoding="utf-8").read()

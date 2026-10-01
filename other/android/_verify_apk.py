@@ -172,7 +172,7 @@ check("manifest 可解析出字符串池", len(strs) > 10, f"{len(strs)} 项")
 
 # 竖屏锁定。
 #
-#screenOrient
+#screenOri
 # 池无portrait
 #ActivityInfo
 # 0横屏 1竖屏 2未指定

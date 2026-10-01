@@ -1168,7 +1168,7 @@ end)
 
         # 常规日志解析作补充
 
-        #AO:wasapi 48k
+        #wasapi 48k
         m = re.match(r'AO:\s+\[(\w+)\]\s+(\d+)Hz\s+(\w+)\s+(\d+)ch', line)
         if m:
             self._stream_info['ao_driver'] = m.group(1)
@@ -1200,7 +1200,7 @@ end)
         if m and 'server' not in self._stream_info:
             self._stream_info['server'] = m.group(1).strip()
 
-        #cache与buffer
+        #cache+buf
         m = re.match(r'.*[Cc]ache:\s+(.*)', line)
         if m:
             self._stream_info['cache'] = m.group(1).strip()
