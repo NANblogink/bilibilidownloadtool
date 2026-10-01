@@ -4493,7 +4493,7 @@ class BilibiliParser:
                 return got
 
             #正片episodes
-            #无main_section
+            #main_section
             # 须与额外合集一起收集
             # 否则部分缺失
             top_eps = result.get('episodes')

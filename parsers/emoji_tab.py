@@ -59,7 +59,7 @@ def safe_load_pixmap(data):
     """
     if not data:
         return QPixmap()
-    #Pillow剥profile
+    #剥profile
     if HAS_PIL:
         try:
             im = PILImage.open(io.BytesIO(data))

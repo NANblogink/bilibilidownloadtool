@@ -265,7 +265,7 @@ def _arch_rank(platform_field):
             return 100                  # 完全匹配
         if arch_w == want:
             return 100
-        #32位wheel经WoW64
+        #wheel经WoW64
         if ia == 'x86_64' and arch_w == 'x86' and bits_w == 32:
             return 40
         #ARM64可跑x64
@@ -873,7 +873,7 @@ def _webengine_installed(runtime):
     hit = _find_in_runtime(runtime, *names)
     if hit:
         return True
-    #macOS的Versions
+    #Versions/5
     for root, dirs, files in os.walk(runtime):
         for d in dirs:
             if d.startswith("QtWebEngineCore.framework"):

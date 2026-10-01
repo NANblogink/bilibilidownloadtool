@@ -28,7 +28,7 @@ class VideoParser:
             return {"type": "live", "id": room_id, "error": ""}
 
         # 合集页须先于主页判断
-        #形如space/lists
+        #space/lists
         list_match = re.search(r'space\.bilibili\.com/(\d+)/lists/(\d+)', url, re.IGNORECASE)
         if list_match:
             list_mid, list_id = list_match.group(1), list_match.group(2)

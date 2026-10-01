@@ -181,7 +181,7 @@ def generate_qrcode(url):
     """
     errors = []
     
-    #方案1 qrcode+PIL
+    #qrcode+PIL
     try:
         import qrcode
         from PIL import Image
@@ -203,7 +203,7 @@ def generate_qrcode(url):
     except Exception as e:
         errors.append(f"Pillow方案失败: {e}")
     
-    #方案2 qrcode+QImg
+    #qrcode+QImg
     try:
         import qrcode
         from PyQt5.QtGui import QImage, QPainter, QColor

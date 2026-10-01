@@ -4077,7 +4077,7 @@ class BaseWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        #Frameless无Max
+        #Frameless
         #加三ButtonHint
         self.setWindowFlags(
             Qt.FramelessWindowHint | Qt.Window |
@@ -25454,7 +25454,7 @@ class BilibiliDownloader(BaseWindow):
             except Exception:
                 pass
 
-            #allCookies空
+            #allCookies
             def _poll_guard():
                 if not _finished[0]:
                     _timer.start(800)

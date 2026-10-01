@@ -25,7 +25,7 @@ def _fatal_error_dialog(title, message):
         from PyQt5.QtCore import Qt
         from PyQt5 import QtCore
     except Exception:
-        return False  #无PyQt退MsgBox
+        return False  #无PyQt
 
     app = QApplication.instance()
     if app is None:

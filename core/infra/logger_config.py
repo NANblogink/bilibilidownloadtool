@@ -345,7 +345,7 @@ def _copy_path_to_clipboard(file_path):
     except Exception as e:
         logger.warning("PyQt5剪贴板操作失败: %s", str(e))
 
-    #方式3 PowerShell
+    #PowerShell
     if IS_WINDOWS:
         try:
             import subprocess

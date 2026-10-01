@@ -677,7 +677,7 @@ class EpisodeDownloadThread(QThread):
         logger.info(f"[编码选择] selected_qn={selected_qn}, video_output_codec={video_output_codec}, "
                      f"target_codecid={target_codecid}, video_urls keys={list(video_urls.keys())[:10]}")
 
-        #尝试1 qn加codecid
+        #qn加codecid
         if target_codecid:
             tuple_key = (int(selected_qn) if str(selected_qn).isdigit() else selected_qn, target_codecid)
             if tuple_key in video_urls:

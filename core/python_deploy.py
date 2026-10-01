@@ -32,7 +32,7 @@ PY_VER = "3.10.11"
 PY_TAG = "cp310"          # 校验wheel标签
 PY_SHORT = "310"          # _pth里的XY
 
-#官方embeddable
+#embeddable
 PY_URLS = {
     "win_amd64": "https://www.python.org/ftp/python/{v}/python-{v}-embed-amd64.zip",
     "win32":     "https://www.python.org/ftp/python/{v}/python-{v}-embed-win32.zip",
