@@ -114,7 +114,7 @@ print("== _wheels_installed detects a fake linux runtime ==")
 import tempfile
 rt = tempfile.mkdtemp(prefix="pyqt5_rt_")
 os.makedirs(os.path.join(rt, "PyQt5", "Qt5"), exist_ok=True)
-#linux风格QtCore
+#造linux模块
 open(os.path.join(rt, "PyQt5", "QtCore.cpython-314-x86_64-linux-gnu.so"), "w").close()
 os.makedirs(os.path.join(rt, "PyQt5_sip-12.19.0.dist-info"), exist_ok=True)
 check("detects linux-style runtime", pb._wheels_installed(rt) is True)
@@ -210,7 +210,7 @@ try:
           _sim("windows", "x86", 32, "win32") == 100)
     check("win 32bit -> win_amd64 rejected",
           _sim("windows", "x86", 32, "win_amd64") < 0)
-    #无win_arm64降x64
+    #无arm64降级
     check("win arm64 -> win_amd64 via emulation",
           0 <= _sim("windows", "arm64", 64, "win_amd64") < 100)
     check("win arm64 -> win_arm64 exact",

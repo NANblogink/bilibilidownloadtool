@@ -25,7 +25,7 @@ for m in re.finditer(r"parse_media\(", ui):
     if len([x for x in L if x.startswith("--- L")]) >= 4:
         break
 
-#2) current_vid
+#2)视频字段
 w("=== ui.py 中 current_video_info 的字段访问 ===")
 fields = sorted(set(re.findall(r"current_video_info(?:\.get\(\s*['\"]([a-z_0-9]+)['\"]|\[\s*['\"]([a-z_0-9]+)['\"]\s*\])", ui)))
 flat = sorted({a or b for a, b in fields})

@@ -30357,7 +30357,7 @@ class BilibiliDownloader(BaseWindow):
         body_layout.setSpacing(scale(0))
 
         sidebar = QListWidget()
-        sidebar.setObjectName("settingsSidebar")   #SETTINGS_QSS
+        sidebar.setObjectName("settingsSidebar")   #侧栏样式名
         sidebar.setFixedWidth(scale(150))
         sidebar_items = ["下载设置", "网络设置", "窗口设置", "其他设置", "数据与隐私", "关于我们"]
         for item_text in sidebar_items:

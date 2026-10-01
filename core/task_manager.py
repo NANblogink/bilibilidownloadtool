@@ -123,7 +123,7 @@ class TaskManager:
         if error_message and status == "failed":
             updates["error_message"] = error_message
         elif status == "completed":
-            #存completion_msg
+            #记完成语
             updates["completion_message"] = error_message if error_message else ""
             updates["error_message"] = ""
         elif status in ("downloading", "pending", "cancelled"):

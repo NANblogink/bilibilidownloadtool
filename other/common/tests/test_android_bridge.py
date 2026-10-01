@@ -78,7 +78,7 @@ def _spec_value(key):
     return None
 
 
-# buildozer读orient
+#读清单项
 # android前缀忽
 check("orientation = portrait", _spec_value("orientation") == "portrait",
       "实际=%r" % _spec_value("orientation"))

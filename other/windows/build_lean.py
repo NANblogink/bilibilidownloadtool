@@ -74,7 +74,7 @@ args = [
     "--specpath=" + BUILD_LEAN,
     # 须加core分析路径
     #hidden-imp
-    #ModuleNotFound
+    #缺模块致崩
     "--paths", ROOT,
     "--paths", os.path.join(ROOT, "core"),
     "--paths", os.path.join(ROOT, "core", "infra"),

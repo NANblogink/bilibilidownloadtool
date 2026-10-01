@@ -1240,7 +1240,7 @@ class EmojiTab(QWidget):
         viewport_ready = vp_h > 0
 
         if viewport_ready:
-            # visualItemRect
+            #判可见项
             for i in range(total):
                 item = pkg_list.item(i)
                 if item is None:

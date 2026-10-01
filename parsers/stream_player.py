@@ -1190,7 +1190,7 @@ end)
         if m and 'stream_host' not in self._stream_info:
             self._stream_info['stream_host'] = m.group(1).strip()
 
-        #content-type
+        #取mime类型
         m = re.match(r'.*[Cc]ontent-[Tt]ype:\s+(.*)', line)
         if m and 'mime_type' not in self._stream_info:
             self._stream_info['mime_type'] = m.group(1).strip()

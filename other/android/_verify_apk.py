@@ -174,9 +174,9 @@ check("manifest 可解析出字符串池", len(strs) > 10, f"{len(strs)} 项")
 #
 #screenOri
 # 池无portrait
-#ActivityInfo
+#活动信息位
 # 0横屏 1竖屏 2未指定
-#3behind 4sensor
+#3后4传感
 # 6横屏7竖屏8反向横
 # 9反竖10全11用
 # 判据是存在且值为1
