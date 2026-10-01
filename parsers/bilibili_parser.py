@@ -4657,9 +4657,12 @@ class BilibiliParser:
         try:
             logger.info(f"开始获取课程信息，media_id: {media_id}")
             
-            # 处理ep开头的ID
+            # 处理ep与ss前缀
+            media_id = str(media_id).strip()
             is_ep_id = media_id.startswith('ep')
             id_value = media_id[2:] if is_ep_id else media_id
+            if not is_ep_id and id_value.startswith('ss'):
+                id_value = id_value[2:]
             
             original_headers = self.session.headers.copy()
             
@@ -10821,14 +10824,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     @staticmethod
     def _bangumi_duration_sec(duration):
-        """番剧API返回的duration单位为毫秒，转成秒"""
+        """时长归一化为秒。
+        番剧API给毫秒，课程(pugv/cheese)API给秒，按量级自动判别：
+        超过 24 小时的毫秒数才可能是真毫秒，故 <86400 一律按秒处理。
+        """
         try:
-            ms = int(duration)
+            val = int(duration)
         except (TypeError, ValueError):
             return 0
-        if ms <= 0:
+        if val <= 0:
             return 0
-        return ms // 1000
+        if val >= 86400:
+            return val // 1000
+        return val
 
     @staticmethod
     def _format_duration(duration):
