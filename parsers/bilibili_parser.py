@@ -3820,7 +3820,9 @@ class BilibiliParser:
                             media_type = "cheese"
                             season_title = cheese_info['season_title']
                             first_ep = cheese_info['episodes'][0]
-                            bvid = first_ep['bvid']
+                            # 课程无bvid，用aid
+                            bvid = first_ep.get('bvid', '') or ''
+                            aid = first_ep.get('aid', '') or ''
                             cid = first_ep['cid']
                             first_ep_title = first_ep.get('ep_title', f"第1集")
                             title = self._sanitize_filename(f"{season_title}_{first_ep_title}")
@@ -4719,7 +4721,10 @@ class BilibiliParser:
                     cheese_episodes.append({
                         "ep_id": ep.get('id', ''),
                         "season_id": season_id,
-                        "bvid": str(ep.get('aid', '')),  
+                        # 课程接口只给 aid
+                        # 勿塞进bvid致接口报错
+                        "aid": str(ep.get('aid', '')),
+                        "bvid": str(ep.get('bvid', '') or ''),
                         "cid": ep.get('cid', ''),
                         "ep_index": ep_index,
                         "ep_title": self._sanitize_filename(title),
@@ -4801,7 +4806,10 @@ class BilibiliParser:
                                     cheese_episodes.append({
                                         "ep_id": ep.get('id', ''),
                                         "season_id": season_id,
-                                        "bvid": str(ep.get('aid', '')),  
+                                        # 课程接口只给 aid
+                                        # 勿塞进bvid致接口报错
+                                        "aid": str(ep.get('aid', '')),
+                                        "bvid": str(ep.get('bvid', '') or ''),
                                         "cid": ep.get('cid', ''),
                                         "ep_index": ep_index,
                                         "ep_title": self._sanitize_filename(title),
@@ -4869,7 +4877,10 @@ class BilibiliParser:
                 cheese_episodes.append({
                 "ep_id": ep.get('id', ''),
                 "season_id": season_id,
-                "bvid": str(ep.get('aid', '')),  
+                # 课程接口只给 aid
+                # 勿塞进bvid致接口报错
+                "aid": str(ep.get('aid', '')),
+                "bvid": str(ep.get('bvid', '') or ''),
                 "cid": ep.get('cid', ''),
                 "ep_index": ep_index,
                 "ep_title": self._sanitize_filename(title),
