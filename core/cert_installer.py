@@ -91,7 +91,7 @@ def is_cert_installed(cer_path):
         for line in result.stdout.split("\n"):
             line = line.strip()
             if "Cert Hash(sha1):" in line:
-                # 形如Cert Hash(sha1)
+                # 形如Cert Hash
                 thumbprint = line.split(":", 1)[1].strip().replace(" ", "")
                 break
         if not thumbprint:

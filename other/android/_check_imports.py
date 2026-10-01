@@ -40,7 +40,7 @@ for sub in ("core", os.path.join("core", "infra"), "parsers", ""):
     if os.path.isdir(p) and p not in sys.path:
         sys.path.insert(0, p)
 
-# 先引入_pathsetup
+# 先引_pathsetu
 os.environ.setdefault("BILIDOWN_NO_QT", "1")
 
 # 屏蔽 PyQt5

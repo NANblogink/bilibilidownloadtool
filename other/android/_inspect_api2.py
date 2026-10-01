@@ -25,7 +25,7 @@ for m in re.finditer(r"parse_media\(", ui):
     if len([x for x in L if x.startswith("--- L")]) >= 4:
         break
 
-# 2) current_video
+# 2) current_vid
 w("=== ui.py 中 current_video_info 的字段访问 ===")
 fields = sorted(set(re.findall(r"current_video_info(?:\.get\(\s*['\"]([a-z_0-9]+)['\"]|\[\s*['\"]([a-z_0-9]+)['\"]\s*\])", ui)))
 flat = sorted({a or b for a, b in fields})
@@ -59,7 +59,7 @@ for rel in ["core/downloader.py", "core/task_manager.py", "core/tool_manager.py"
         w("      (无 PyQt5 依赖)")
 w()
 
-# 5) download_hist
+# 5) download_h
 p = os.path.join(ROOT, "core", "download_history.py")
 if os.path.isfile(p):
     s = io.open(p, encoding="utf-8").read()

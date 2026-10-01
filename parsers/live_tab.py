@@ -35,7 +35,7 @@ except ImportError:
 try:
     from platform_utils import IS_WINDOWS, exe, subprocess_no_window_kwargs, subprocess_low_priority_kwargs
 except ImportError:
-    # 不能硬设IS_WINDOWS
+    # 不能硬设IS_WIN
     import sys as _sys
     IS_WINDOWS = _sys.platform == 'win32'
 
@@ -641,7 +641,7 @@ class LiveTab(QWidget):
         csrf_token = ""
         sources = []
 
-        # 以cookie.txt为准
+        # 以cookie.txt
         file_cookies, file_csrf = self._load_cookie_txt()
         if file_cookies:
             cookies.update(file_cookies)

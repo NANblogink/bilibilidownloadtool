@@ -667,7 +667,7 @@ class EpisodeDownloadThread(QThread):
             (video_url, actual_codecid): 视频URL和实际使用的编码ID
         """
         codec_name_map = {"h264": 7, "hevc": 12, "av1": 13, "vp9": 14, "auto": None}
-        # codecid用户优先
+        # codecid优先
         codec_priority = {12: 0, 13: 1, 7: 2, 14: 3}  # HEVC>AV1>H264
 
         target_codecid = selected_codecid
@@ -766,7 +766,7 @@ class EpisodeDownloadThread(QThread):
         add_episode_prefix = self.config.get_app_setting("add_episode_to_filename", True) if self.config else True
         seq_prefix = self._seq_prefix()
         if raw_title:
-            # ep_title不加前缀
+            # ep_title不加
             base_title = self.ep_title or ''
         else:
             # 去掉第X集与序号前缀
@@ -1685,7 +1685,7 @@ class DownloadManager(QObject):
 
             output_path = None
             clean_title = ep_title.replace("正片_", "")
-            # 单视频无ep_title
+            # 单视频无ep_titl
             # "第1集"这种无信息名。
             # 空且无实质标题
             # 带真实标题则保留
@@ -3148,7 +3148,7 @@ class DownloadManager(QObject):
                 del self.active_tasks[task_id]
                 logger.info(f"任务{task_id}已从活动任务列表中移除")
 
-                # 标为cancelled
+                # 标cancelled
                 if self.task_manager:
                     self.task_manager.update_task_status(task_id, "cancelled", "下载已取消")
                     try:
@@ -3215,7 +3215,7 @@ class DownloadManager(QObject):
             except Exception as e:
                 logger.error(f"任务{task_id}：关闭线程池失败：{str(e)}")
 
-        # 任务标cancelled
+        # 任务标cancel
         if self.task_manager:
             for task_id in task_ids:
                 self.task_manager.update_task_status(task_id, "cancelled", "下载已取消")

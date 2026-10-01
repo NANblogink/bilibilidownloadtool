@@ -360,7 +360,7 @@ class ParseTab(BoxLayout):
         self.orientation = "vertical"
         self.spacing = dp(6)
         self.padding = dp(10)
-        # 勾选集下标None全选
+        # 勾选集下标None
         self.selected_ep_indexes = None
         self._build()
 
@@ -1196,7 +1196,7 @@ class HistoryTab(BoxLayout):
         try:
             kw = (self.search_input.text or "").strip()
             status = "" if self.filter == "全部" else self.filter
-            # get_records返元组
+            # get_records
             # 不是列表 —— 这里必须解包
             result = self.app.history.get_records(
                 keyword=kw, status_filter=status, limit=200)

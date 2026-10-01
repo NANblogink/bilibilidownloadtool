@@ -471,7 +471,7 @@ class BilibiliParser:
         self.session.proxies = {}  # 强制禁用代理
         self.session.trust_env = False  # 不读代理直连
 
-        #注入WebEngine
+        #注WebEngine
         # 与环境一致防风控
         self.load_browser_env()
 
@@ -3901,7 +3901,7 @@ class BilibiliParser:
 
                     # 按字段识别类型
                     #API参考见文档
-                    #有redirect即番
+                    #有redirect即
                     # upower为充电
                     redirect_url = video_info.get('redirect_url', '') if video_info else ''
                     is_upower_exclusive = bool(video_info.get('is_upower_exclusive', False)) if video_info else False
@@ -4005,7 +4005,7 @@ class BilibiliParser:
                         logger.info(f"从API获取合集信息，共{len(collection)}集")
                         
                         # 合集仅1集时查系列
-                        #video_only禁退
+                        #video_only禁
                         if parse_mode != "video_only" and len(collection) <= 1:
                             logger.info("合集信息只有1集，尝试查找视频所属系列...")
                             # 复用mid免重请求
@@ -5400,7 +5400,7 @@ class BilibiliParser:
 
             if 'ugc_season' in video_data:
                 ugc_season = video_data['ugc_season']
-                #从ugc_season取
+                #ugc_season取
                 season_id = ugc_season.get('id') or ugc_season.get('season_id')
                 upper_mid = ugc_season.get('mid') or ugc_season.get('upper_mid') or video_data.get('owner', {}).get('mid')
                 season_title = ugc_season.get('title') or ugc_season.get('name')
@@ -5506,7 +5506,7 @@ class BilibiliParser:
         Returns:
             list: 合集视频列表，每个元素包含page, bvid, cid, title, duration等字段
         """
-        #方案1archives
+        #方案1archive
         try:
             all_archives = []
             page_size = 30
@@ -5756,7 +5756,7 @@ class BilibiliParser:
                 series_id = meta.get('series_id')
                 recent_aids = series_item.get('recent_aids', [])
                 
-                #查recent_aids
+                #recent_aids
                 archives = series_item.get('archives', [])
                 archive_bvids = [a.get('bvid', '') for a in archives]
                 
@@ -6563,7 +6563,7 @@ class BilibiliParser:
                             video_url = _pick_best_url(_candidates)
                         
                         if video_url:
-                            #按qn与codecid
+                            #qn与codecid
                             video_urls[(qn, codecid)] = video_url
                             # 同时保留纯qn映射
                             if qn not in video_urls or codecid == 7:
@@ -7750,7 +7750,7 @@ class BilibiliParser:
                 segment_response.raise_for_status()
                 break
             except requests.exceptions.RequestException as e:
-                #关失败response
+                #失败关resp
                 if segment_response is not None:
                     try:
                         segment_response.close()
@@ -8236,7 +8236,7 @@ class BilibiliParser:
                         response.raise_for_status()
                         break
                     except requests.exceptions.RequestException as e:
-                        #关失败response
+                        #失败关resp
                         if response is not None:
                             try:
                                 response.close()
@@ -8360,7 +8360,7 @@ class BilibiliParser:
                         logger.error(f"下载失败，已重试{max_download_retries}次：{str(e)}")
                         raise Exception(f"网络连接中断，下载失败：{str(e)}")
 
-                    #关异常response
+                    #异常关resp
                     if response is not None:
                         try:
                             response.close()
@@ -8425,7 +8425,7 @@ class BilibiliParser:
                         logger.error(f"断点续传请求失败：{str(retry_e)}")
                         if download_retry_count >= max_download_retries:
                             raise Exception(f"断点续传失败：{str(retry_e)}")
-            #完成后关response
+            #完成关resp
             if response is not None:
                 try:
                     response.close()
@@ -8725,7 +8725,7 @@ class BilibiliParser:
                         sys_id_start = pos + 8
                         sys_id_end = sys_id_start + 16
                         if sys_id_end <= len(data) and data[sys_id_start:sys_id_end] == widevine_sid:
-                            #DataSize4字节
+                            #DataSize4B
                             if sys_id_end + 4 <= len(data):
                                 data_size = int.from_bytes(data[sys_id_end:sys_id_end + 4], 'big')
                                 pssh_payload_start = sys_id_end + 4

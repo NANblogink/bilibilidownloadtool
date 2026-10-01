@@ -500,7 +500,7 @@ class CloudService:
             logger.debug(f"统计上报已跳过（用户未同意）: {event_type}")
             return
 
-        # extra可str或dict
+        # extra可str
         # 只报匿名不含URL
         if isinstance(extra, dict):
             try:
@@ -865,7 +865,7 @@ class CloudService:
                         f.write(chunk)
                         downloaded += len(chunk)
                         chunk_count += 1
-                        # 每10chunk查debug
+                        # 每10chunk查dbg
                         if chunk_count % 10 == 0:
                             print(f"[DEBUG下载] 已读取 {chunk_count} 个chunk, 共 {downloaded} bytes")
                         if progress_callback and (downloaded - last_report >= report_interval):
@@ -885,7 +885,7 @@ class CloudService:
             print(f"[DEBUG下载] 总计: {downloaded} bytes, chunk数: {chunk_count}")
             logger.info(f"[下载] 下载完成, 总计: {downloaded} bytes")
 
-            # 实收等content-len
+            # 实收等content
             if total > 0 and downloaded < total:
                 pct = downloaded * 100.0 / total
                 print(f"[DEBUG下载] 文件下载不完整: 已下载 {downloaded}/{total} bytes ({pct:.1f}%)")

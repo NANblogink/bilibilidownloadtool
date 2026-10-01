@@ -93,8 +93,8 @@ for n in icons[:12]:
 check("存在启动图标", len(icons) > 0)
 
 # APK含p4a图标
-# 只manifest引用算
-# badging写icon=
+# manifest引用
+# badging写icon
 _mm = [n for n in icons if n.endswith("mipmap/icon.png")]
 check("存在 mipmap/icon.png（用户 logo）", bool(_mm))
 if _mm:
@@ -172,7 +172,7 @@ check("manifest 可解析出字符串池", len(strs) > 10, f"{len(strs)} 项")
 
 # 竖屏锁定。
 #
-# screenOrient整数
+# screenOrient
 # 池无portrait
 # ActivityInfo
 # 0横屏 1竖屏 2未指定

@@ -54,8 +54,8 @@ MAIN_DIR = os.path.join(DIST_DIR, APP_NAME)
 INTERNAL_DIR = os.path.join(MAIN_DIR, "_internal")
 UPX_EXE = os.path.join(ROOT, "upx_tool", "upx.exe")
 
-sys.path.insert(0, ROOT)                                  # _pathsetup.py在此
-sys.path.insert(0, os.path.join(ROOT, "core"))            # app_config.py在此
+sys.path.insert(0, ROOT)                                  # _pathsetup.py
+sys.path.insert(0, os.path.join(ROOT, "core"))            # app_config.py
 import _pathsetup  # noqa: E402,F401
 from app_config import VERSION_NUM  # noqa: E402
 
@@ -174,7 +174,7 @@ QT_UNUSED_DLLS = [
     "Qt5Script.dll", "Qt5ScriptTools.dll", "Qt5Xml.dll",
 ]
 QT_UNUSED_DIRS = [
-    os.path.join("PyQt5", "Qt5", "qml"),          # QML运行时不用Quick
+    os.path.join("PyQt5", "Qt5", "qml"),          # QML不用Quick
 ]
 QT_UNUSED_PYD = [
     "QtQuick.pyd", "QtQml.pyd", "QtMultimedia.pyd", "QtMultimediaWidgets.pyd",

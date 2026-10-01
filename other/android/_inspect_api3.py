@@ -39,7 +39,7 @@ for q in qs[:15]:
     w(f"    - {q}")
 w()
 
-# 3) parse_media结构
+# 3) parse_media
 w("=== parser: parse_media 返回字典的键 ===")
 i = par.find("def parse_media(")
 seg = par[i:i + 40000]
@@ -49,7 +49,7 @@ for m in re.finditer(r"(['\"])(success|title|episodes|qualities|audio_qualities|
     w(f"    L{ln}: {m.group(0)}")
 w()
 
-# 4) episodes字段
+# 4) episodes字
 w("=== parser: episodes 每项字段 ===")
 keys = sorted(set(re.findall(r"episode(?:s)?\[[^\]]*\]\[\s*['\"]([a-z_0-9]+)['\"]\s*\]", par)))
 for k in keys:

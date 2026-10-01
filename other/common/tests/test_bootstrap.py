@@ -58,7 +58,7 @@ if sys.platform.startswith("linux"):
 print("== 架构筛选：64 位机器优先选 win_amd64 ==")
 # 精简版装不全根因回归
 # 旧实现子串匹配别名
-# 64位误下32位wheel
+# 64位误下32wh
 check("win_amd64 accepted", pb._platform_arch_ok("win_amd64") is True)
 check("win_amd64 ranks above win32",
       pb._arch_rank("win_amd64") > pb._arch_rank("win32"))

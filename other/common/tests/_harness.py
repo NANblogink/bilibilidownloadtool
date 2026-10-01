@@ -13,7 +13,7 @@ def _looks_like_project(path):
 
 
 def find_project_root():
-    # 1) 本文件在tests下
+    # 1) 本文件tests下
     here = os.path.dirname(os.path.abspath(__file__))
     cand = os.path.abspath(os.path.join(here, "..", "..", ".."))
     if _looks_like_project(cand):

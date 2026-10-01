@@ -26,7 +26,7 @@ def _app_tool_dirs():
     for d in (app_data_dir(), program_files_dir()):
         if d and d not in dirs:
             dirs.append(d)
-    # Win留LocalAppData
+    # Win留LocalApp
     if IS_WINDOWS:
         local = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~\\AppData\\Local')
         cand = os.path.join(local, 'BilibiliDownloadTool')
@@ -468,7 +468,7 @@ class ToolManager:
                     os.path.join(_ad, 'bento4', get_bento4_sdk_dirname(), 'bin', exe('mp4decrypt')),
                     os.path.join(_ad, 'bento4', 'bin', exe('mp4decrypt')),
                 ])
-            # 也搜PATH的mp4dec
+            # 也搜PATH的mp4
             sys_mp4decrypt = shutil.which(exe('mp4decrypt'))
             if sys_mp4decrypt:
                 bento4_candidates.append(sys_mp4decrypt)

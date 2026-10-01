@@ -23,7 +23,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 
-# 剥profile防崩溃
+# 剥profile
 try:
     from PIL import Image as PILImage
     HAS_PIL = True
@@ -205,7 +205,7 @@ class SkeletonWidget(QWidget):
 class EmojiDownloadThread(QThread):
     """表情包图片批量下载线程（顺序下载）"""
     progress_updated = pyqtSignal(int, int, str)   # done,total,name
-    one_finished = pyqtSignal(str, bool, str)      # name,ok,path,err
+    one_finished = pyqtSignal(str, bool, str)      # name,ok,path
     all_finished = pyqtSignal(int, int)            # success,fail
     error_occurred = pyqtSignal(str)
 
@@ -313,8 +313,8 @@ class EmojiTab(QWidget):
     """表情包功能 Tab 页"""
 
     # 线程安全信号
-    _list_loaded_signal = pyqtSignal(str, bool, object, str)   # key,ok,data,err
-    _detail_loaded_signal = pyqtSignal(str, int, bool, object, str)  # key,pkg,emote,err
+    _list_loaded_signal = pyqtSignal(str, bool, object, str)   # key,ok,data
+    _detail_loaded_signal = pyqtSignal(str, int, bool, object, str)  # key,pkg,emote
     _error_signal = pyqtSignal(str)
 
     def __init__(self, config=None, parent=None):
@@ -1321,7 +1321,7 @@ class EmojiTab(QWidget):
         try:
             reply = self.network_manager.get(QNetworkRequest(QUrl(url)))
             self._pending_thumbs[reply] = (item, url)
-            # weakref免持已删
+            # weakref免持
             import weakref
             reply_ref = weakref.ref(reply)
             reply.finished.connect(lambda: self._on_thumb_loaded(reply_ref()))

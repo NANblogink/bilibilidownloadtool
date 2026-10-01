@@ -109,7 +109,7 @@ class ConfigLoader:
                 "auto_convert_incompatible": False,
                 "hevc_not_supported_ask": True,
                 "add_episode_to_filename": True,
-                # 0不加2为01三001
+                # 0不加2为01三00
                 # 便于排序
                 "filename_sequence_digits": 2,
                 "batch_download_first": False,

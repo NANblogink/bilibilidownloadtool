@@ -10,8 +10,8 @@ import traceback
 
 os.environ.setdefault("KIVY_NO_ARGS", "1")
 os.environ["KIVY_LOG_LEVEL"] = "error"
-# 不能用KIVY_WINDOW
-# mock会sys.exit(1)
+# 不用KIVY_WINDOW
+# mock会sys.exit
 # 改用真实但隐藏的窗口
 os.environ.pop("KIVY_WINDOW", None)
 os.environ["KIVY_NO_CONSOLELOG"] = "1"
@@ -44,7 +44,7 @@ def w(s=""):
         pass
 
 
-# 让main_kivy可导入
+# 让main_kivy
 sys.path.insert(0, AND)
 for sub in ("core", os.path.join("core", "infra"), "parsers", ""):
     p = os.path.join(ROOT, sub)
@@ -109,7 +109,7 @@ try:
     app = main_mod.BilibiliAndroidApp()
     w("  App 实例 OK")
 
-    # 分步build便于定位
+    # 分步build定位
     w("  加载设置…")
     app.load_settings()
     w("  设置加载完成, save_dir=%s" % app.save_dir)

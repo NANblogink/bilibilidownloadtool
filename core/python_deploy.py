@@ -27,7 +27,7 @@ import tempfile
 
 # ---------------------------------------------------------------- 常量
 
-# 与wheel cpXY一致
+# 与wheel cpXY
 PY_VER = "3.10.11"
 PY_TAG = "cp310"          # 校验wheel标签
 PY_SHORT = "310"          # _pth里的XY
@@ -316,7 +316,7 @@ def deploy_python(root=None, local_zip=None):
         except Exception:
             pass
 
-    # ---- 启用site-packages ----
+    # ---- 启用site-pkgs ----
     _fix_pth(stage)
 
     # ---- 原子替换 ----
@@ -402,7 +402,7 @@ def _arch_ok(platform_field):
     tgt = target_arch_tag()
     if pf == tgt:
         return True
-    # win_amd64也接受
+    # win_amd64也
     return pf == tgt
 
 

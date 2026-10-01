@@ -490,7 +490,7 @@ class AudioParser:
             resp.raise_for_status()
 
             total = int(resp.headers.get('content-length', 0))
-            # 分块从Content-Range
+            # 分块从Content
             if total == 0 and resp.headers.get('content-range'):
                 try:
                     total = int(resp.headers['content-range'].split('/')[-1])

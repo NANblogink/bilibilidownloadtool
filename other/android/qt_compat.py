@@ -222,7 +222,7 @@ class QThread(QObject):
         if msecs is None:
             t.join()
             return True
-        # threading无毫秒join
+        # threading无join
         t.join(timeout=max(0.0, msecs / 1000.0))
         return not t.is_alive()
 
@@ -268,7 +268,7 @@ class QMutex:
         try:
             self._lock.release()
         except RuntimeError:
-            # 未持有unlock容忍
+            # 未持有unlock
             pass
 
     def tryLock(self, timeout=0):

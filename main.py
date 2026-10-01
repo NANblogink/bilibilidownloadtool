@@ -426,7 +426,7 @@ if __name__ == "__main__":
                     params = f'-u "{script_path}" --elevated'
                     if _extra:
                         params += " " + _extra
-                # 返回HINSTANCE
+                # 返回HINSTANC
                 ctypes.windll.shell32.ShellExecuteW.restype = ctypes.c_void_p
                 # 用环境变量传标记
                 os.environ['BILIDOWN_ELEVATING'] = '1'
@@ -668,7 +668,7 @@ if __name__ == "__main__":
         QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
         # 须在建App前注册
         # 精简包路径非标准
-        # 找不到qwindows
+        # 无qwindows
         # 否则报错直接退出
         try:
             import pyqt5_bootstrap

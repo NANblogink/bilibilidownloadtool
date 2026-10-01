@@ -682,7 +682,7 @@ def do_download_cover():
             print("  [错误] 未获取到封面链接")
             return
 
-        # 封面需加referer
+        # 封面加referer
         print(f"  封面链接: {cover_url[:80]}...")
 
         save_path = get_save_path()

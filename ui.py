@@ -2184,7 +2184,7 @@ class FloatingBall(QWidget):
     
     def show(self):
         super().show()
-        #设flags清mask
+        #设flags清
         self._update_ball_mask()
     
     def paintEvent(self, event):
@@ -10205,7 +10205,7 @@ border-radius: 0;
         avail = max(int(win_w) - self._card_margin * 2, self._min_card_w)
         self._card_gap = scale(8)
 
-        #每格容min_card_w
+        #每格容min_card
         per_cell_min = self._min_card_w + self._card_gap * 2
         self._cols = max(1, avail // per_cell_min)
 
@@ -16695,7 +16695,7 @@ class BilibiliDownloader(BaseWindow):
             super().showEvent(event)
             # 首显后重收敛
             # 延迟到状态稳定再收敛
-            #isMaximized假
+            #isMaximized
             # 故只排期不同步执行
             if (not getattr(self, '_min_size_reenforced', False)
                     and not getattr(self, '_init_enforce_scheduled', False)):
@@ -20170,7 +20170,7 @@ class BilibiliDownloader(BaseWindow):
                 current = self.all_qn_combo.currentText()
                 self.all_qn_combo.clear()
                 for q in qualities:
-                    #qualities三式
+                    #qualities三
                     if isinstance(q, (tuple, list)) and len(q) == 3:
                         # 新格式每qn只显一次
                         qn_val, codecid, qn_name = q
@@ -20458,7 +20458,7 @@ class BilibiliDownloader(BaseWindow):
             pass
 
         # 0解析1弹幕2收藏
-        #封4史5直6表7音8字
+        #4史5直6表7音8字
         if index == 2:
             # 仅自动时切页拉取
             if self.config.get_app_setting("favorites_refresh_mode", "manual") == "auto":
@@ -21590,7 +21590,7 @@ class BilibiliDownloader(BaseWindow):
             self.current_video_info = video_info
             
             # 判断是否为部分结果
-            #停止cancelled
+            #停止cancel
             # 识别partial
             is_partial = bool(video_info.get("_partial")
                               or video_info.get("partial")
@@ -23118,7 +23118,7 @@ class BilibiliDownloader(BaseWindow):
             logger.info(f"批量下载窗口任务ID：{batch_task_id}")
             logger.info(f"共有 {len(all_download_tasks)} 个任务要添加")
             
-            #查download_mgr
+            #download_mgr
             if not self.download_manager:
                 logger.error("self.download_manager不存在，无法创建批量下载窗口")
                 self.show_notification("下载管理器不存在", "error")
@@ -23329,7 +23329,7 @@ class BilibiliDownloader(BaseWindow):
                             quality_options = media_info.get('qualities', [])
                             if quality_options:
                                 selected_qn = self.default_qn
-                                #qualities新旧
+                                #qualities新
                                 try:
                                     qn_available = [q[0] for q in quality_options]
                                 except (IndexError, TypeError):
@@ -26358,7 +26358,7 @@ class BilibiliDownloader(BaseWindow):
         """录播工具托盘：停止录制 → 转发给 LiveTab 和 StreamPlayer"""
         if hasattr(self, 'live_tab') and self.live_tab:
             self.live_tab.handle_tray_stop(session_id)
-        #转发StreamPlayer
+        #StreamPlayer
         if hasattr(self, 'stream_player_dialog') and self.stream_player_dialog:
             self.stream_player_dialog.handle_tray_stop(session_id)
 
@@ -27246,7 +27246,7 @@ class BilibiliDownloader(BaseWindow):
                 try:
                     quality_options = ld['video_info'].get('qualities', [])
                     if quality_options:
-                        #qualities首尾
+                        #qualities首
                         # 跳过解包失败的元素
                         qn_available = []
                         for q in quality_options:
@@ -30766,7 +30766,7 @@ class BilibiliDownloader(BaseWindow):
         browse_custom_icon_btn.clicked.connect(browse_custom_icon)
         clear_custom_icon_btn.clicked.connect(clear_custom_icon)
         custom_icon_path_edit.textChanged.connect(lambda _: refresh_custom_icon_card())
-        #icon_group放上
+        #icon_group
         #456超440px
         # 会重叠故改为整行
 

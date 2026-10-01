@@ -89,7 +89,7 @@ def step(name, fn):
         return False
 
 
-# 3a. 构造LoginPopup
+# 3a. LoginPopup
 pop_holder = {}
 
 
@@ -108,7 +108,7 @@ if pop is not None:
     import time
     time.sleep(2.5)
 
-    # 3c. _render_qr无码
+    # 3c. _render_qr
     step("_render_qr（无 qrcode 模块）",
          lambda: w("       -> 返回 %r" % pop._render_qr("https://example.com")))
 

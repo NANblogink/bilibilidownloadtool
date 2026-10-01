@@ -41,8 +41,8 @@ def tool_names(name):
     return [base, f"{name}.exe"] if not base.endswith('.exe') else [base]
 
 
-# 某些Win下CreateProc
-# 该标志报WinError50
+# 某些Win下Crea
+# 该标志报WinErr
 # 故命中后本次弃用
 _NO_WINDOW_USABLE = True
 
@@ -325,7 +325,7 @@ def get_system_proxy():
             try:
                 proxy_server = winreg.QueryValueEx(internet_settings, 'ProxyServer')[0]
             except (UnicodeDecodeError, Exception):
-                # 按字节读ProxySrv
+                # 按字节读Proxy
                 try:
                     proxy_server_raw = winreg.QueryValueEx(internet_settings, 'ProxyServer')
                     proxy_server = str(proxy_server_raw[0]) if proxy_server_raw else ''
@@ -365,7 +365,7 @@ def detect_gpu():
     gpu_type: 'nvidia', 'amd', 'intel', 或 None
     """
     if IS_WINDOWS:
-        # 方法1 Get-CimInstance
+        # 方法1 Get-Cim
         try:
             result = run_no_window(
                 ['powershell', '-NoProfile', '-Command',
@@ -413,7 +413,7 @@ def detect_gpu():
         except Exception:
             pass
 
-        # 方法3 nvidia-smi
+        # 方法3 nvidia
         try:
             result = subprocess.run(
                 ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader,nounits'],
@@ -693,7 +693,7 @@ def shutdown_system(delay_seconds=60, reason=""):
             subprocess.Popen(args, **subprocess_no_window_kwargs())
             return True, '已安排关机'
         if IS_MACOS:
-            # shutdown只收分钟
+            # shutdown收
             minutes = max(1, int(round(delay_seconds / 60.0)))
             subprocess.Popen(['sudo', '-n', 'shutdown', '-h', '+%d' % minutes],
                              **subprocess_no_window_kwargs())
@@ -800,7 +800,7 @@ def recommended_concurrency(explicit=None, cap=8, floor=1):
 # 跨平台桌面通知
 #
 # Win走WinRT
-# Linux走notify-send
+# Linux走notify
 # 绝不影响主流程。
 # --------------------------------------------------------------------------
 
@@ -927,7 +927,7 @@ def get_safe_temp_dir(base_dir, sub_dir="temp", cache_dir=None, prefer_dir=None)
     if cache_dir:
         candidates.append(cache_dir)
 
-    # 同盘ASCII免占C盘
+    # 同盘ASCII免占C
     if prefer_dir:
         try:
             drive = os.path.splitdrive(os.path.abspath(prefer_dir))[0]

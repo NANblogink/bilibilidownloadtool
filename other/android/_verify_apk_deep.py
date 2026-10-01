@@ -1,8 +1,8 @@
 # 深度校验APK
-# 1. tar有qrgen.pyc
-# 2. 无qrcode与PIL
+# 1. tar有qrgen
+# 2. 无qrcode
 # 3. 竖屏且用自备图标
-# 4. main与qt_compat
+# 4. main与qt
 import io
 import os
 import re
@@ -97,7 +97,7 @@ check("清单含包名", "cn.bilidown.bilidownload" in strings)
 check("清单含 PythonActivity",
       "org.kivy.android.PythonActivity" in strings)
 
-# aapt2读icon.png
+# aapt2读icon
 # AXML只有资源名
 # 两者都查免误判
 has_icon_name = "icon" in strings

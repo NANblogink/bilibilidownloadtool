@@ -62,7 +62,7 @@ class ThreadVisitor(ast.NodeVisitor):
     def visit_Call(self, node):
         if is_thread_call(node) and not has_daemon_kwarg(node):
             end = getattr(node, 'end_lineno', node.lineno)
-            # 检查xxx.daemon
+            # 检查xxx.daemo
             tail = '\n'.join(self.lines[end:end + 6])
             if '.daemon' not in tail:
                 self.issues.append(

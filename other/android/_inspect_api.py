@@ -32,7 +32,7 @@ for k in keys:
     w(f"    - {k}")
 w()
 
-# save_path与episode
+# save_path与ep
 for pat in [r"save_path", r"episodes", r"video_info"]:
     n = len(re.findall(pat, seg))
     w(f"  '{pat}' 出现 {n} 次")
@@ -49,7 +49,7 @@ for m in re.finditer(r"^    def ([a-z]\w+)\(self([^)]*)\)", src2, re.M):
     w(f"    {name}({args[:90]})")
 w()
 
-# parse_media返回结构
+# parse_media结构
 i2 = src2.find("def parse_media(")
 seg2 = src2[i2:i2 + 30000]
 keys2 = sorted(set(re.findall(r"result\[\s*['\"]([a-z_0-9]+)['\"]\s*\]\s*=", seg2)))

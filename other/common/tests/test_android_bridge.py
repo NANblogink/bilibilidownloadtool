@@ -78,8 +78,8 @@ def _spec_value(key):
     return None
 
 
-# buildozer读orientation
-# android前缀被忽略
+# buildozer读orient
+# android前缀忽
 check("orientation = portrait", _spec_value("orientation") == "portrait",
       "实际=%r" % _spec_value("orientation"))
 check("no bogus android.orientation key",

@@ -82,7 +82,7 @@ app.start_download(fake, qn=80, content_type=0)
 w()
 w("=== 2b. 通过 parse_tab.on_download 走完整路径 ===")
 captured.clear()
-# get_download_mgr假对象
+# get_download假对象
 app.get_download_manager = lambda: FakeDM()
 pt.selected_ep_indexes = {2, 4, 6}
 pt.on_download(0)
@@ -147,7 +147,7 @@ try:
     check("过滤「第1集」只命中第 1 集",
           [r.index + 1 for r in visible] == [1],
           [r.index + 1 for r in visible])
-    # 纯数字命中1与10-19
+    # 纯数字命中1与10
     picker._apply_filter("1")
     visible = [r for r in picker.rows if not r.disabled]
     check("过滤「1」命中 1,10-19 共 11 行",

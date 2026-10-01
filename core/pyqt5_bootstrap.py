@@ -31,7 +31,7 @@ PYQT5_VER = "5.15.11"  # 5.15 末版，兼容 3.8+
 # 只看架构会选错平台族
 #macosx会误选
 # 不分32与64位
-#64位下32位wheel
+#64位下32whe
 #WinOnARM为win32
 #LinuxARM归一
 #
@@ -81,7 +81,7 @@ def _host_family():
         return _WIN_FAMILY
     if p.startswith('darwin'):
         return _MAC_FAMILY
-    #freebsd/openbsd
+    #freebsd
     return _LINUX_FAMILY
 
 
@@ -100,9 +100,9 @@ def platform_tag():
     if fam == _WIN_FAMILY:
         return _win_arch_tag()
     if fam == _MAC_FAMILY:
-        #macOS形如macosx_arm
+        #macosx_arm
         return _interp_arch()
-    #manylinux用aarch
+    #manylinux_aarch
     return _linux_arch_tag(_interp_arch())
 
 
@@ -135,13 +135,13 @@ def _interp_arch():
     cpu = _machine()
     if bits == 32:
         #32位随CPU家族
-        #x86与WoW64均x86
+        #x86与WoW64
         #ARM64的32位x86
         #ARMv7的32位armv7
         if cpu in ('armv7', 'arm'):
             return 'armv7'
         return 'x86'
-    #64位分x64与ARM
+    #64位分x64
     if cpu == 'arm64':
         return 'arm64'
     if cpu in ('armv7', 'arm'):
@@ -207,7 +207,7 @@ def _parse_platform_field(pf):
         if 'x86_64' in pf:
             return (_MAC_FAMILY, 'x86_64', 64)
         if 'intel' in pf or 'i386' in pf or 'fat' in pf:
-            #fat与intel仅x86
+            #fat仅x86可用
             return (_MAC_FAMILY, 'x86_64', 64)
         return (_MAC_FAMILY, 'unknown', 64)
 
@@ -278,7 +278,7 @@ def _arch_rank(platform_field):
     # ---- macOS ----
     if fam_h == _MAC_FAMILY:
         if arch_w == 'universal2' and bits_h == 64:
-            return 95                  #Intel与Apple都行
+            return 95                  #Intel与Apple
         if arch_w == ia and (bits_w is None or bits_w == bits_h):
             return 100
         if ia == 'x86_64' and arch_w == 'x86_64':
@@ -291,7 +291,7 @@ def _arch_rank(platform_field):
     # ---- Linux ----
     if arch_w == ia and (bits_w is None or bits_w == bits_h):
         return 100
-    #64位x86需32位库
+    #64位x86需32位
     if ia == 'x86_64' and bits_h == 64 and arch_w == 'x86' and bits_w == 32:
         return 30
     return -1
@@ -518,7 +518,7 @@ def _compat_ok(pyver, abi, cur):
         return want_ver <= cur_ver
 
     #非abi3须一致
-    #sip310只给3.10
+    #sip310给3.10
     return cur_ver is not None and want_ver == cur_ver
 
 
@@ -563,7 +563,7 @@ def _looks_like_candidate(low):
         return 'win' in low
     if fam == _MAC_FAMILY:
         return 'macosx' in low or 'darwin' in low
-    #接受manylinux
+    #接受manylin
     if 'win' in low or 'macosx' in low or 'darwin' in low:
         return False
     return ('manylinux' in low or 'musllinux' in low
@@ -846,7 +846,7 @@ def _wheels_installed(runtime):
     qt_ok = (os.path.isdir(os.path.join(pydir, "Qt5"))
              or os.path.isdir(os.path.join(runtime, "Qt5")))
     # sip可能是目录
-    #或只有dist-info
+    #或只有dist
     try:
         rt_entries = os.listdir(runtime)
     except Exception:
@@ -1196,7 +1196,7 @@ def ensure_pyqt5(log=None, console=True, runtime=None):
         if _jqpath_plugins(rt) is None:
             _log("警告：未找到 Qt 平台插件目录，界面可能无法显示")
 
-        #WebEngine可选
+        #WebEngine
         # 缺失只提示不阻断
         if need_webengine and not _webengine_installed(rt):
             _log("提示：人机验证组件(WebEngine)未就位，相关功能将不可用")

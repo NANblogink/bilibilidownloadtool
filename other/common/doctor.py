@@ -30,7 +30,7 @@ def _looks_like_project(path):
 
 
 if not _looks_like_project(PROJECT_ROOT):
-    # stdin下__file__不可靠
+    # stdin下__file__
     starts = [os.getcwd(), HERE]
     for start in starts:
         cur = os.path.abspath(start)
@@ -132,7 +132,7 @@ for mod, desc in DEPS:
         missing.append(mod)
         record(FAIL, "%s (%s)" % (mod, desc), str(exc))
 
-# WebEngine可选
+# WebEngine
 try:
     __import__("PyQt5.QtWebEngineWidgets")
     record(OK, "PyQt5.QtWebEngineWidgets (人机验证)")
@@ -245,7 +245,7 @@ if pu and not pu.IS_WINDOWS:
     import re
 
     # 这些本就是平台适配层
-    # 都被IS_WINDOWS守卫
+    # 都被IS_WINDOW
     PLATFORM_LAYER = {"platform_utils.py", "toast_winrt.py", "cert_installer.py",
                       "pyqt5_bootstrap.py", "cli.py"}
     BAD = [

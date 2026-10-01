@@ -362,7 +362,7 @@ class AudioTab(QWidget):
             dede = cookies.get('DedeUserID', '')
             if dede and str(dede).isdigit():
                 return int(dede)
-        # 兜底从cookie.txt
+        # 兜底从cookie
         cookies, _ = self._load_cookie_txt()
         dede = cookies.get('DedeUserID', '')
         if dede and str(dede).isdigit():
@@ -525,7 +525,7 @@ class AudioTab(QWidget):
         self.quality_combo.setMinimumWidth(scale(160))
         self.quality_combo.setMinimumHeight(scale(30))
         self.quality_combo.setStyleSheet(scale_style("padding: 2px 6px;"))
-        # 默认填web端192K
+        # 默认填web端192
         self._fill_quality_combo(full=False)
         q_layout.addWidget(self.quality_combo)
 

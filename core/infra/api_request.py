@@ -12,7 +12,7 @@ from wbi_sign import WbiSign
 
 logger = logging.getLogger(__name__)
 
-# 优先orjson退json
+# 优先orjson退
 import json as _std_json
 try:
     import orjson

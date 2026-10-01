@@ -35,7 +35,7 @@ except Exception as e:
 try:
     from platform_utils import IS_WINDOWS, exe, subprocess_no_window_kwargs, subprocess_low_priority_kwargs
 except ImportError:
-    # 不能硬设IS_WINDOWS
+    # 不能硬设IS_WIN
     IS_WINDOWS = sys.platform == 'win32'
 
     def exe(name):
@@ -853,7 +853,7 @@ class StreamPlayerDialog(QDialog):
             base = os.path.dirname(sys.executable)
             # mpv放_internal
             # 旧实现只查三处
-            # 不中致回退ffplay
+            # 不中回退ffplay
             for d in [base,
                       os.path.join(base, '_internal'),
                       os.path.join(base, 'mpv'),
@@ -1168,7 +1168,7 @@ end)
 
         # 常规日志解析作补充
 
-        # AO: wasapi 48kHz
+        # AO: wasapi 48k
         m = re.match(r'AO:\s+\[(\w+)\]\s+(\d+)Hz\s+(\w+)\s+(\d+)ch', line)
         if m:
             self._stream_info['ao_driver'] = m.group(1)
@@ -1668,7 +1668,7 @@ end)
         fmt = "hls" if is_hls else "direct"
         self._set_download_buttons_enabled(False); self.dl_bar.show(); self.dl_bar.setValue(0)
 
-        # 用LiveRecordThread
+        # LiveRecordThread
         self.download_thread = LiveRecordThread(
             stream_url=url,
             output_path=save_path,

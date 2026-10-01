@@ -185,7 +185,7 @@ def main():
     log("内置 wheel : %s" % ("是" if ew else "否"))
     log("内置 Python: %s" % ("是" if ep else "否"))
 
-    # 从spec构建时不能再传
+    # 从spec构建时不能
     # 已在spec里表达
     args = [sys.executable, "-m", "PyInstaller", SPEC,
             "--noconfirm", "--clean",
