@@ -88,7 +88,7 @@ def build(src_path, out_name, label):
         print(f"  跳过（不存在）：{src_path}")
         return None
 
-    # .ttc 字体集合，取第一个
+    # .ttc取第一个
     try:
         coll = TTCollection(src_path, lazy=False)
         font = coll.fonts[0]
@@ -101,7 +101,7 @@ def build(src_path, out_name, label):
                     nm = "?"
                 names.append(nm)
             print(f"  ttc 内含 {len(coll.fonts)} 个字体：{names}")
-            # 优先选带 Regular 的
+            # 优先带Regular
             for f in coll.fonts:
                 try:
                     nm = (f["name"].getDebugName(4) or "")

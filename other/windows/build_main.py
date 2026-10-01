@@ -54,8 +54,8 @@ MAIN_DIR = os.path.join(DIST_DIR, APP_NAME)
 INTERNAL_DIR = os.path.join(MAIN_DIR, "_internal")
 UPX_EXE = os.path.join(ROOT, "upx_tool", "upx.exe")
 
-sys.path.insert(0, ROOT)                                  # _pathsetup.py 在这里
-sys.path.insert(0, os.path.join(ROOT, "core"))            # app_config.py 在这里
+sys.path.insert(0, ROOT)                                  # _pathsetup.py在此
+sys.path.insert(0, os.path.join(ROOT, "core"))            # app_config.py在此
 import _pathsetup  # noqa: E402,F401
 from app_config import VERSION_NUM  # noqa: E402
 

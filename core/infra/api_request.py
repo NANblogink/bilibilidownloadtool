@@ -12,7 +12,7 @@ from wbi_sign import WbiSign
 
 logger = logging.getLogger(__name__)
 
-# 优先orjson失败退json
+# 优先orjson退json
 import json as _std_json
 try:
     import orjson
@@ -30,7 +30,7 @@ class ApiRequest:
     def __init__(self, session=None):
         if session is None:
             self.session = requests.Session()
-            # 扩大连接池防pool满
+            # 扩大连接池防满
             _adapter = HTTPAdapter(pool_connections=20, pool_maxsize=32, max_retries=0)
             self.session.mount('https://', _adapter)
             self.session.mount('http://', _adapter)

@@ -140,7 +140,7 @@ def get_log_files():
     files = []
     if os.path.exists(LOG_DIR):
         for f in os.listdir(LOG_DIR):
-            # 排除已打包zip防膨胀
+            # 排除zip防膨胀
             if f.lower().endswith('.zip'):
                 continue
             fp = os.path.join(LOG_DIR, f)

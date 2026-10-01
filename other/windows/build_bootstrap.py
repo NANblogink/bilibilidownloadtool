@@ -82,7 +82,7 @@ for m in ("PyQt5", "PyQt5.sip", "PyQt5.QtCore", "PyQt5.QtGui",
 if os.path.isfile(os.path.join(ROOT, "logo.ico")):
     args.append("--icon=" + os.path.join(ROOT, "logo.ico"))
 
-# ---- 附带的 Python 运行时 zip ----
+# ---- 运行时zip ----
 if _args.embed_python:
     found = None
     for d in (os.path.join(ROOT, "runtime"), ROOT):

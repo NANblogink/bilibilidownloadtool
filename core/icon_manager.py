@@ -86,7 +86,7 @@ def resolve_builtin_icon_path(icon_key="default"):
     for base_dir in get_runtime_search_dirs():
         candidate = os.path.join(base_dir, file_name)
         if os.path.exists(candidate):
-            # logo.ico实为PNG改名
+            # logo.ico实为PNG
             # 按ICO解析得空白
             # 校验魔数跳过假ICO
             if file_name.lower().endswith(".ico") and not _is_real_ico(candidate):

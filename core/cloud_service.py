@@ -84,7 +84,7 @@ def sanitize_error_path(path):
         lambda: __import__("_pathsetup").project_root(),
         # exe目录即程序根
         lambda: os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False) else "",
-        # PyInstaller解包目录
+        # PyInstaller解包
         lambda: getattr(sys, "_MEIPASS", ""),
         lambda: os.getcwd(),
     ):
@@ -382,11 +382,11 @@ class CloudService:
         try:
             paths = self._get_client_id_file_paths()
 
-            # 1) 依次读已知位置取首个有效
+            # 1) 依次读首个有效
             for p in paths:
                 cid = self._read_client_id_from(p)
                 if cid:
-                    # 回写其它位置重装仍同码
+                    # 回写其它位置同码
                     for other in paths:
                         if other != p and not self._read_client_id_from(other):
                             self._write_client_id_to(other, cid)
@@ -501,7 +501,7 @@ class CloudService:
             return
 
         # extra可str或dict
-        # 只报匿名不含标题URL
+        # 只报匿名不含URL
         if isinstance(extra, dict):
             try:
                 _extra = json.dumps(extra, ensure_ascii=False)[:2000]
@@ -581,7 +581,7 @@ class CloudService:
             logger.info(f"当前版本 {self.current_version}({current_parsed}) >= 最新版本 {latest_version_str}({latest_parsed})，无需更新")
             return False
 
-        # 忽略此版本或今日不再提示
+        # 忽略此版本或今日
         try:
             config_file = "app_config.json"
             if os.path.exists(config_file):
@@ -865,7 +865,7 @@ class CloudService:
                         f.write(chunk)
                         downloaded += len(chunk)
                         chunk_count += 1
-                        # 每10chunk输出debug
+                        # 每10chunk查debug
                         if chunk_count % 10 == 0:
                             print(f"[DEBUG下载] 已读取 {chunk_count} 个chunk, 共 {downloaded} bytes")
                         if progress_callback and (downloaded - last_report >= report_interval):
@@ -885,7 +885,7 @@ class CloudService:
             print(f"[DEBUG下载] 总计: {downloaded} bytes, chunk数: {chunk_count}")
             logger.info(f"[下载] 下载完成, 总计: {downloaded} bytes")
 
-            # 实收须等于content-length
+            # 实收等content-len
             if total > 0 and downloaded < total:
                 pct = downloaded * 100.0 / total
                 print(f"[DEBUG下载] 文件下载不完整: 已下载 {downloaded}/{total} bytes ({pct:.1f}%)")

@@ -92,9 +92,9 @@ for n in icons[:12]:
     w("    %-46s %8d B" % (n, len(z.read(n))))
 check("存在启动图标", len(icons) > 0)
 
-# APK里同时有p4a自带图标
-# 只有manifest引用的才算
-# badging会写出icon=...
+# APK含p4a图标
+# 只manifest引用算
+# badging写icon=
 _mm = [n for n in icons if n.endswith("mipmap/icon.png")]
 check("存在 mipmap/icon.png（用户 logo）", bool(_mm))
 if _mm:
@@ -131,7 +131,7 @@ def _axml_strings(data):
         ctype, hsize, csize = struct.unpack_from("<HHI", data, off)
         if csize == 0:
             break
-        if ctype == 0x0001:            # RES_STRING_POOL_TYPE
+        if ctype == 0x0001:            # 资源字符串池
             count, _style, flags, sstart, _st = struct.unpack_from(
                 "<IIIII", data, off + 8)
             is_utf8 = bool(flags & (1 << 8))
@@ -172,14 +172,14 @@ check("manifest 可解析出字符串池", len(strs) > 10, f"{len(strs)} 项")
 
 # 竖屏锁定。
 #
-# screenOrientation存整数
-# 字符串池查不到portrait
-# ActivityInfo定义为
+# screenOrient整数
+# 池无portrait
+# ActivityInfo
 # 0横屏 1竖屏 2未指定
-# 3behind 4sensor 5nosensor
-# 6横屏传感 7竖屏传感 8反向横
-# 9反向竖 10全传感 11用户
-# 判据是属性存在且值为1
+# 3behind 4sensor
+# 6横屏7竖屏8反向横
+# 9反竖10全11用
+# 判据是存在且值为1
 def _axml_orientation(data):
     import struct
     off = 8
@@ -217,8 +217,8 @@ def _axml_orientation(data):
                     slen = struct.unpack_from("<H", data, p)[0]
                     pool.append(data[p + 2:p + 2 + slen * 2]
                                 .decode("utf-16-le", errors="replace"))
-        elif ctype == 0x0102:            # START_ELEMENT
-            # 属性从+0x24起每项20字节
+        elif ctype == 0x0102:            # 起始元素
+            # 属性+0x24起20
             nattr = struct.unpack_from("<H", data, off + 0x1C)[0]
             for i in range(nattr):
                 ao = off + 0x24 + i * 20

@@ -38,7 +38,7 @@ PACKAGES = [
     ("pyqtwebengine-qt5", "PyQtWebEngine_Qt5", None),
 ]
 
-# 目标架构的wheel平台标签
+# 目标架构wheel标签
 ARCH_TAGS = {
     "win_amd64": "win_amd64",
     "win32": "win32",
@@ -70,7 +70,7 @@ def _pick(entries, prefix, want_ver, arch_tag, py_tag):
                 continue
         if p["name"].lower() != prefix.lower():
             continue
-        # ABI须能用于目标py_tag
+        # ABI须用于py_tag
         if not pb._compat_ok(p["pyver"], p["abi"], py_tag):
             continue
         score = 0
@@ -110,9 +110,9 @@ def fetch_for_arch(arch_tag, outdir, py_tag):
                 except Exception as e:
                     last = e
                     continue
-                # 要装到目标机不能按本机过滤
-                # 只按文件名里的目标架构
-                # _pick需要pyver与abi
+                # 不能按本机过滤
+                # 只按文件名架构
+                # _pick需要pyver
                 cand = []
                 for e in entries:
                     if arch_tag not in e["filename"].lower():

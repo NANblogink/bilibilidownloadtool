@@ -1,6 +1,6 @@
-# Verify qrgen.py produces valid QR codes.
-# 1) structural checks (finder patterns, timing, size)
-# 2) cross-check against the reference qrcode library
+# 校验qrgen产出码
+# 1) 结构检查定位与时序
+# 2) 与参考库交叉验证
 import io
 import os
 import sys
@@ -28,7 +28,7 @@ def check(name, cond, extra=""):
 import qrgen  # noqa: E402
 
 w("=== 1. 生成一个真实 B 站登录链接的二维码 ===")
-# B站登录二维码URL形状
+# B站登录二维码形状
 URL = ("https://passport.bilibili.com/h5-app/passport/login/scan"
        "?qrcode_key=abcd1234abcd1234abcd1234abcd1234")
 w("  文本长度: %d 字符" % len(URL))
@@ -70,8 +70,8 @@ w("=== 2. 与参考库逐格对比 ===")
 try:
     import qrcode
 
-    # 必须用同一掩码去比
-    # 都合法时可能选不同掩码
+    # 须用同一掩码比
+    # 都合法可选不同掩码
     # 评分相同时顺序不同
     # 那不是bug
     # 会误报。
@@ -100,7 +100,7 @@ try:
           "ours=%d ref=%d" % (n_ours, rn))
     check("全部 8 个掩码逐格一致", all_match)
 
-    # 评分函数也要与参考库一致
+    # 评分也须与参考库一致
     from qrcode import util as _qu
     score_match = True
     for mk in range(8):
@@ -120,7 +120,7 @@ try:
 except ImportError:
     w("  未安装 qrcode，跳过对比")
 
-# 能被扫出来才算对
+# 能被扫出才算对
 try:
     import cv2
 
@@ -129,7 +129,7 @@ try:
     _dec_path = os.path.join(tempfile.gettempdir(), "dsh_qr_dec.png")
     qrgen.make_png(URL, _dec_path, scale=8, border=4)
     _det = cv2.QRCodeDetector()
-    # cv2读不了中文路径改用imdecode
+    # cv2读不了中文路径
     with open(_dec_path, "rb") as _fh:
         _buf = numpy.frombuffer(_fh.read(), dtype=numpy.uint8)
     _data, _, _ = _det.detectAndDecode(

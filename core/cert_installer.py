@@ -161,7 +161,7 @@ def auto_install_cert(silent=True):
 def install_cert(cer_path, store_name, store_location="LocalMachine"):
     """用 certutil 安装证书到指定存储区"""
     # addstore语法
-    # 加-user装到当前用户
+    # 装到当前用户
     if store_location == "LocalMachine":
         args = ["certutil", "-addstore", "-f", store_name, cer_path]
     else:

@@ -1,8 +1,8 @@
-# Deep-verify the freshly built APK:
-# 1. qrgen.pyc is present inside assets/private.tar
-# 2. no qrcode/PIL references (they must be absent)
-# 3. orientation=portrait and our own icon
-# 4. main.pyc / qt_compat.pyc present
+# 深度校验APK
+# 1. tar有qrgen.pyc
+# 2. 无qrcode与PIL
+# 3. 竖屏且用自备图标
+# 4. main与qt_compat
 import io
 import os
 import re
@@ -75,17 +75,17 @@ check("包含 mipmap 图标", len(icons) >= 1,
 
 print()
 print("=== 6. 清单：竖屏 + 图标 ===")
-# Manifest是二进制AXML
-# 直接decode会误判
+# Manifest是AXML
+# decode会误判
 # 复用已验证的解析器
 sys.path.insert(0, AND)
 import _verify_apk as va
 
 raw = zf.read("AndroidManifest.xml")
 
-# screenOrientation数值
+# screenOrient
 # 1为竖屏锁定
-# 0横屏-1未指定
+# 0横屏 -1未指定
 SCREEN_ORIENTATION = {0: "landscape", 1: "portrait", -1: "unspecified"}
 orient_val = va._axml_orientation(raw)
 orient = SCREEN_ORIENTATION.get(orient_val, "unknown(%r)" % orient_val)
@@ -97,7 +97,7 @@ check("清单含包名", "cn.bilidown.bilidownload" in strings)
 check("清单含 PythonActivity",
       "org.kivy.android.PythonActivity" in strings)
 
-# aapt2读到icon.png
+# aapt2读icon.png
 # AXML只有资源名
 # 两者都查免误判
 has_icon_name = "icon" in strings
@@ -111,7 +111,7 @@ abi = sorted(set(n.split("/")[1] for n in libs if len(n.split("/")) > 2))
 check("包含 arm64-v8a", "arm64-v8a" in abi, str(abi))
 check("包含 armeabi-v7a", "armeabi-v7a" in abi)
 
-# 有无SDL2_ttf相关
+# 有无SDL2_ttf
 ttf_lib = [n for n in libs if "SDL2_ttf" in n]
 check("SDL2_ttf native 库存在", len(ttf_lib) > 0, str(ttf_lib[:2]))
 

@@ -185,8 +185,8 @@ def main():
     log("内置 wheel : %s" % ("是" if ew else "否"))
     log("内置 Python: %s" % ("是" if ep else "否"))
 
-    # 注意：从 spec 构建时不能再传 --noupx 等 makespec 选项，
-    # 它们已经在 spec 里表达（见 render_spec 的 EXE(...)）
+    # 从spec构建时不能再传
+    # 已在spec里表达
     args = [sys.executable, "-m", "PyInstaller", SPEC,
             "--noconfirm", "--clean",
             "--distpath", OUTPUT,

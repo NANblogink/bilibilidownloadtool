@@ -67,7 +67,7 @@ for name, px in DENSITIES.items():
     tile.save(fp)
     print(f"  {name:8s} {px:3d}x{px:<3d} -> {os.path.relpath(fp, HERE)}")
 
-# p4a主图标512方形
+# p4a主图标512
 main = canvas.resize((512, 512), Image.LANCZOS)
 main.save(OUT_ICON)
 print(f"\n=== 主图标 ===")

@@ -362,7 +362,7 @@ class AudioTab(QWidget):
             dede = cookies.get('DedeUserID', '')
             if dede and str(dede).isdigit():
                 return int(dede)
-        # 兜底从cookie.txt取
+        # 兜底从cookie.txt
         cookies, _ = self._load_cookie_txt()
         dede = cookies.get('DedeUserID', '')
         if dede and str(dede).isdigit():

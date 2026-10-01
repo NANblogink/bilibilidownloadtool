@@ -62,7 +62,7 @@ class ThreadVisitor(ast.NodeVisitor):
     def visit_Call(self, node):
         if is_thread_call(node) and not has_daemon_kwarg(node):
             end = getattr(node, 'end_lineno', node.lineno)
-            # 往后看几行，是否有 xxx.daemon = ...
+            # 检查xxx.daemon
             tail = '\n'.join(self.lines[end:end + 6])
             if '.daemon' not in tail:
                 self.issues.append(
@@ -79,7 +79,7 @@ def main():
             if not f.endswith('.py'):
                 continue
             p = os.path.join(dp, f)
-            # 跳过本脚本自身与分析脚本
+            # 跳过本脚本自身
             if f.startswith('_') or f in ('check_threads.py',):
                 continue
             try:

@@ -59,7 +59,7 @@ except ImportError:
 
 def _find_ffmpeg():
     """查找 ffmpeg 可执行文件路径"""
-    # 1. _internal/ffmpeg
+    # 1. _internal
     if getattr(sys, 'frozen', False) or hasattr(sys, '_MEIPASS'):
         base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else sys._MEIPASS
         for d in [os.path.join(base, '_internal', 'ffmpeg'),
@@ -641,7 +641,7 @@ class LiveTab(QWidget):
         csrf_token = ""
         sources = []
 
-        # 以cookie.txt为基准
+        # 以cookie.txt为准
         file_cookies, file_csrf = self._load_cookie_txt()
         if file_cookies:
             cookies.update(file_cookies)
@@ -649,7 +649,7 @@ class LiveTab(QWidget):
                 csrf_token = file_csrf
             sources.append("cookie.txt")
 
-        # 再合并parser的cookie
+        # 再合并parser
         # 保留核心登录凭据
         parent = getattr(self, 'parent_window', None)
         parent_parser = getattr(parent, 'parser', None) if parent else None
@@ -886,7 +886,7 @@ class LiveTab(QWidget):
         self.status_label.setText("正在查询...")
         logger.info(f"开始查询直播间，房间号: {room_id}")
 
-        # 刷新Cookie用最新态
+        # 刷新Cookie最新
         self._refresh_cookies()
 
         def worker():
@@ -1019,7 +1019,7 @@ class LiveTab(QWidget):
         self.get_stream_btn.setEnabled(False)
         self.status_label.setText("获取直播流中...")
 
-        # 刷新Cookie取高画质
+        # 刷新Cookie高清
         self._refresh_cookies()
 
         def worker():
@@ -1330,7 +1330,7 @@ class LiveTab(QWidget):
         self.record_status_label.setText("正在获取直播流...")
         self.record_time_label.setText("00:00:00")
 
-        # 刷新Cookie取高画质
+        # 刷新Cookie高清
         self._refresh_cookies()
         self.record_progress.setValue(0)
 
@@ -1758,7 +1758,7 @@ class LiveTab(QWidget):
             QMessageBox.warning(self, "提示", "直播解析器未初始化")
             return
 
-        # 刷新Cookie用最新态
+        # 刷新Cookie最新
         self._refresh_cookies()
 
         self.refresh_replay_btn.setEnabled(False)
@@ -1948,7 +1948,7 @@ class LiveTab(QWidget):
             QMessageBox.warning(self, "提示", "无法识别输入内容，请输入数字UID或B站主页链接\n例如：https://space.bilibili.com/123456")
             return
 
-        # 刷新Cookie用最新态
+        # 刷新Cookie最新
         self._refresh_cookies()
 
         self.load_other_replay_btn.setEnabled(False)
@@ -2075,7 +2075,7 @@ class LiveTab(QWidget):
             self.replay_cancel_btn.setEnabled(False)
             return
 
-        # m3u8用ffmpeg下载
+        # m3u8用ffmpeg
         use_ffmpeg = '.m3u8' in download_url or 'm3u8' in download_url.lower()
 
         self.replay_dl_status.setText("开始下载...")

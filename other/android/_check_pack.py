@@ -42,9 +42,9 @@ w()
 
 collected = set()
 
-# 1) source.dir 下的文件，按扩展名过滤
+# 1) 按扩展名过滤
 for dirpath, dirnames, filenames in os.walk(src_dir):
-    # 跳过构建产物，p4a 同样会跳过
+    # 跳过构建产物
     dirnames[:] = [d for d in dirnames
                    if d not in (".buildozer", "bin", "__pycache__",
                                 ".build_stage", ".git")]
@@ -54,7 +54,7 @@ for dirpath, dirnames, filenames in os.walk(src_dir):
             full = os.path.join(dirpath, fn)
             collected.add(os.path.relpath(full, src_dir).replace("\\", "/"))
 
-# 2) include_patterns（相对 source.dir 的 glob）
+# 2) include_patterns
 for pat in pats:
     base = os.path.normpath(os.path.join(src_dir, os.path.dirname(pat)))
     name = os.path.basename(pat)

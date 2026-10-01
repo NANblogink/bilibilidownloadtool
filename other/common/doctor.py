@@ -30,7 +30,7 @@ def _looks_like_project(path):
 
 
 if not _looks_like_project(PROJECT_ROOT):
-    # stdin下__file__不可靠须探测
+    # stdin下__file__不可靠
     starts = [os.getcwd(), HERE]
     for start in starts:
         cur = os.path.abspath(start)
@@ -94,7 +94,7 @@ except Exception as exc:  # pragma: no cover
 
 if pu is not None:
     record(OK, "PLATFORM_NAME = %s" % pu.PLATFORM_NAME)
-    # 三个IS须恰好一个为真
+    # 三个IS恰好一真
     flags = [pu.IS_WINDOWS, pu.IS_MACOS, pu.IS_LINUX]
     record(OK if sum(bool(f) for f in flags) == 1 else FAIL,
            "平台标志互斥",
@@ -132,7 +132,7 @@ for mod, desc in DEPS:
         missing.append(mod)
         record(FAIL, "%s (%s)" % (mod, desc), str(exc))
 
-# WebEngine为可选增强
+# WebEngine可选
 try:
     __import__("PyQt5.QtWebEngineWidgets")
     record(OK, "PyQt5.QtWebEngineWidgets (人机验证)")
@@ -209,8 +209,8 @@ if pu:
            "通知后端: %s" % backend)
     record(OK, "beep() 可用（未实际发声）")
 
-    # 只查命令存在绝不真调用
-    # 否则自检会关掉用户机器
+    # 只查存在不真调用
+    # 否则会关用户机器
     import shutil as _sh
     can_shutdown = bool(_sh.which("systemctl") or _sh.which("shutdown"))
     if pu.IS_WINDOWS:
@@ -240,7 +240,7 @@ try:
 except Exception as exc:
     record(FAIL, "界面模块导入失败", str(exc))
 
-# 扫描残留Win专有调用
+# 扫描残留Win调用
 if pu and not pu.IS_WINDOWS:
     import re
 

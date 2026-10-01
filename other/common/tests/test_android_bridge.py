@@ -79,7 +79,7 @@ def _spec_value(key):
 
 
 # buildozer读orientation
-# 写成android前缀会被忽略
+# android前缀被忽略
 check("orientation = portrait", _spec_value("orientation") == "portrait",
       "实际=%r" % _spec_value("orientation"))
 check("no bogus android.orientation key",
@@ -105,7 +105,7 @@ check("config.ConfigLoader exists", hasattr(cfg, "ConfigLoader"))
 check("task_manager.TaskManager exists", hasattr(tm, "TaskManager"))
 check("download_history.DownloadHistory exists", hasattr(dh, "DownloadHistory"))
 
-# BilibiliParser接受config
+# 接受config
 try:
     sig = inspect.signature(bp.BilibiliParser.__init__)
     check("BilibiliParser(config=...) accepted", "config" in sig.parameters, str(sig))
@@ -127,7 +127,7 @@ except Exception as exc:
 check("DownloadManager.start_download exists",
       hasattr(dl.DownloadManager, "start_download"))
 
-# start_download读哪些键
+# start_download读键
 try:
     dsrc = inspect.getsource(dl.DownloadManager.start_download)
     read_keys = set(re.findall(r"download_params\.get\(\s*['\"]([^'\"]+)['\"]", dsrc))
@@ -151,7 +151,7 @@ _imports = _re.findall(r"^\s*(?:from|import)\s+PyQt5\S*", src, _re.M)
 check("no PyQt5 import statement", not _imports, _imports)
 check("no QtWidgets import", not _re.search(r"^\s*(?:from|import)\s+PyQt5\.QtWidgets", src, _re.M))
 check("kivy is imported", "from kivy" in src or "import kivy" in src)
-# 影子包须先于core安装
+# 影子包先于core
 check("qt_compat installed before core imports", "qt_compat.install()" in src)
 
 # ---------------------------------------------------------------- 影子包
@@ -164,7 +164,7 @@ for sym, cls in (("QObject", "QObject"), ("pyqtSignal", "pyqtSignal"),
 check("qt_compat exposes Qt namespace", "Qt = _QtNamespace()" in qsrc)
 check("qt_compat does not import real PyQt5 at top level",
       not _re.search(r"^\s*(?:from|import)\s+PyQt5\s*$", qsrc, _re.M))
-# 影子包仅在缺PyQt5时生效
+# 影子包仅缺PyQt5
 check("qt_compat defers to real PyQt5", "import PyQt5" in qsrc)
 
 # ---------------------------------------------------------------- 返回值形状
@@ -174,12 +174,12 @@ try:
     gsrc = inspect.getsource(dh.DownloadHistory.get_records)
     returns_tuple = re.search(r"return\s+records\s*,\s*total", gsrc) is not None
     check("get_records returns (records, total)", returns_tuple)
-    # 须解包元组否则history崩
+    # 须解包元组否则崩
     check("Android unpacks get_records tuple", "isinstance(result, tuple)" in src)
 except Exception as exc:
     check("get_records source readable", False, exc)
 
-# ------------ 设备档案 ------------
+# --------- 设备档案 ---------
 print()
 print("== 9. device profile is conservative ==")
 check("concurrency cap <= 4", "cap=4" in src)

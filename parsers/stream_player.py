@@ -35,7 +35,7 @@ except Exception as e:
 try:
     from platform_utils import IS_WINDOWS, exe, subprocess_no_window_kwargs, subprocess_low_priority_kwargs
 except ImportError:
-    # 不能硬设IS_WINDOWS为真
+    # 不能硬设IS_WINDOWS
     IS_WINDOWS = sys.platform == 'win32'
 
     def exe(name):
@@ -851,9 +851,9 @@ class StreamPlayerDialog(QDialog):
             if os.path.exists(p): return p
         if getattr(sys, 'frozen', False):
             base = os.path.dirname(sys.executable)
-            # 精简包把mpv放_internal
+            # mpv放_internal
             # 旧实现只查三处
-            # 都命不中致回退ffplay
+            # 不中致回退ffplay
             for d in [base,
                       os.path.join(base, '_internal'),
                       os.path.join(base, 'mpv'),
@@ -933,7 +933,7 @@ class StreamPlayerDialog(QDialog):
                 last = '\n'.join(lines[-15:]) if lines else '(无输出)'
                 logger.warning(f"[mpv] 已退出! code={ret} 最后输出:\n{last}")
 
-                # 404且有余次则自动重试
+                # 404余次则重试
                 if retry_count < 2 and ret != 0:
                     any_404 = any('404' in l for l in lines[-10:])
                     any_failed = any('loading failed' in l or 'Failed to open' in l for l in lines[-10:])
@@ -955,7 +955,7 @@ class StreamPlayerDialog(QDialog):
                 proc = getattr(self, '_player_proc', None)
                 if not proc: return
                 if proc.poll() is not None:
-                    # mpv快退日志线程处理重试
+                    # mpv快退日志重试
                     pass
                 else:
                     self.status_label.setText("正在播放 (mpv)")
@@ -1097,7 +1097,7 @@ end)
     def _parse_mpv_line(self, line):
         """从 mpv 日志行中解析流数据"""
 
-        # 1) TRACK数据最详细
+        # 1) TRACK最详细
         if 'STREAM_TRACK:' in line:
             try:
                 json_str = line.split('STREAM_TRACK:', 1)[1].strip()
@@ -1168,7 +1168,7 @@ end)
 
         # 常规日志解析作补充
 
-        # AO: wasapi 48000Hz
+        # AO: wasapi 48kHz
         m = re.match(r'AO:\s+\[(\w+)\]\s+(\d+)Hz\s+(\w+)\s+(\d+)ch', line)
         if m:
             self._stream_info['ao_driver'] = m.group(1)
@@ -1195,7 +1195,7 @@ end)
         if m and 'mime_type' not in self._stream_info:
             self._stream_info['mime_type'] = m.group(1).strip()
 
-        # Server头编码器信息
+        # Server编码器
         m = re.match(r'.*[Ss]erver:\s+(.*)', line)
         if m and 'server' not in self._stream_info:
             self._stream_info['server'] = m.group(1).strip()

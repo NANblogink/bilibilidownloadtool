@@ -72,9 +72,9 @@ args = [
     "--distpath=" + LEAN_DIST,
     "--workpath=" + BUILD_LEAN,
     "--specpath=" + BUILD_LEAN,
-    # 须把core等加入分析路径
-    # 否则hidden-import被静默丢弃
-    # 致启动时ModuleNotFound
+    # 须加core分析路径
+    # 否则hidden-import丢
+    # 致ModuleNotFound
     "--paths", ROOT,
     "--paths", os.path.join(ROOT, "core"),
     "--paths", os.path.join(ROOT, "core", "infra"),
@@ -120,8 +120,8 @@ for extra in ("logo_alt_kaisui.ico", "myqrcode.png", "qunqrcode.png"):
 # ---------------------------------------------------------------- 内置 wheel
 # 默认不再打进精简包
 #
-# Inno会自己放wheels
-# 精简包再内置会重复占体积
+# Inno自己放wheels
+# 再内置会重复占体积
 # 安装包里就会出现两份
 #
 # 只有绿色版才用该参数

@@ -617,7 +617,7 @@ def init_dpi_scale():
         pass
     
     # 统一取物理DPI
-    # logicalDPI偏小
+    #logicalDPI小
     # 不一致会致界面变小
     try:
         from PyQt5.QtWidgets import QApplication
@@ -2142,7 +2142,7 @@ class FloatingBall(QWidget):
         
         self.setFixedSize(self.base_size, self.base_size)
         
-        # setMask防挡鼠标
+        #setMask防挡
         self._update_ball_mask()
         
         screen = QApplication.primaryScreen()
@@ -2184,7 +2184,7 @@ class FloatingBall(QWidget):
     
     def show(self):
         super().show()
-        # 设flags清mask
+        #设flags清mask
         self._update_ball_mask()
     
     def paintEvent(self, event):
@@ -4077,8 +4077,8 @@ class BaseWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        # Frameless无MaxBox
-        # 加三ButtonHint
+        #Frameless无Max
+        #三ButtonHint
         self.setWindowFlags(
             Qt.FramelessWindowHint | Qt.Window |
             Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint | Qt.WindowCloseButtonHint
@@ -4258,7 +4258,7 @@ class BaseWindow(QMainWindow):
                 self.resize_direction = None
 
                 pos = event.pos()
-                # 仅边缘resizing
+                #仅边缘resize
                 # 兜底窄条未覆盖处
                 direction = self._get_resize_direction(pos)
                 if direction:
@@ -5681,7 +5681,7 @@ class VideoToolWindow(BaseWindow):
         except Exception:
             pass
 
-        # tool_manager权威
+        #tool_manager
         try:
             tm = getattr(self.task_manager, "tool_manager", None) if self.task_manager else None
             if tm is not None:
@@ -5722,7 +5722,7 @@ class VideoToolWindow(BaseWindow):
 
     def _build_ffmpeg_cmd(self, file_info, output_path):
         cmd = []
-        # ffmpeg作cmd0
+        #ffmpeg作cmd0
         # 曾漏掉此行导致
         # Popen抛未找到
         cmd.append(self._resolve_media_tool("ffmpeg"))
@@ -6462,7 +6462,7 @@ class AnnouncementDialog(QDialog):
         # 圆角须开透明背景
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setObjectName("annDialog")
-        # autoFill破圆角
+        #autoFill破角
 
         self.setStyleSheet(scale_style(f"""
             /* 外层窗口透明：圆角与投影由内层卡片绘制，避免四角出现黑块 */
@@ -8352,7 +8352,7 @@ class _WindowResizeFilter(QObject):
             return super().eventFilter(obj, event)
         et = event.type()
         if et == QEvent.HoverMove:
-            # 用QCursor取坐标
+            #用QCursor坐标
             self._update_cursor(QCursor.pos())
         elif et == QEvent.MouseButtonPress:
             if event.button() == Qt.LeftButton and self._start_resize(event):
@@ -8843,7 +8843,7 @@ class EpisodeSelectionDialog(ResizableDialog):
 
         self.card_view = QListWidget()
         self.card_view.setViewMode(QListWidget.IconMode)
-        # 用Fixed非Adjust
+        #用Fixed
         # Adjust会留空白
         self.card_view.setResizeMode(QListWidget.Fixed)
         self.card_view.setFlow(QListWidget.LeftToRight)
@@ -9277,7 +9277,7 @@ border-radius: 0;
             else:
                 episode_num = f"第{index+1}集"
 
-        # QLabel只收str
+        #QLabel收str
         # 传int抛错
         episode_num = str(episode_num)
         episode_label = QLabel(episode_num)
@@ -9808,7 +9808,7 @@ border-radius: 0;
         if self.current_sort == "index":
             # 按集数排序
             def get_episode_index(ep):
-                # 取page或ep_index
+                #page或ep_index
                 page = ep.get('page')
                 if page:
                     try:
@@ -10205,7 +10205,7 @@ border-radius: 0;
         avail = max(int(win_w) - self._card_margin * 2, self._min_card_w)
         self._card_gap = scale(8)
 
-        # 每格容min_card_w
+        #每格容min_card_w
         per_cell_min = self._min_card_w + self._card_gap * 2
         self._cols = max(1, avail // per_cell_min)
 
@@ -12831,7 +12831,7 @@ class BatchDownloadWindow(BaseWindow):
         status.setMinimumHeight(scale(20))
         status.setWordWrap(True)
 
-        # 用objectName
+        #objectName
         pause_btn = QPushButton("暂停")
         pause_btn.setObjectName("epPauseBtn")
         pause_btn.clicked.connect(lambda checked, tid=task_id, eidx=ep_index: self.on_pause_resume(tid, eidx))
@@ -16217,7 +16217,7 @@ class BilibiliDownloader(BaseWindow):
             if os.path.exists(bento4_dir):
                 results.append(f"✅ Bento4目录存在: {bento4_dir}")
                 
-                # 查mp4decrypt
+                #查mp4decrypt
                 mp4decrypt_path = os.path.join(bento4_dir, exe('mp4decrypt'))
                 if os.path.exists(mp4decrypt_path):
                     results.append(f"✅ {exe('mp4decrypt')}存在: {mp4decrypt_path}")
@@ -16695,7 +16695,7 @@ class BilibiliDownloader(BaseWindow):
             super().showEvent(event)
             # 首显后重收敛
             # 延迟到状态稳定再收敛
-            # isMaximized假
+            #isMaximized假
             # 故只排期不同步执行
             if (not getattr(self, '_min_size_reenforced', False)
                     and not getattr(self, '_init_enforce_scheduled', False)):
@@ -17333,7 +17333,7 @@ class BilibiliDownloader(BaseWindow):
             lb = QLabel(text)
             lb.setStyleSheet(scale_style("color: #ffffff; font-size: 15px; background: transparent;"))
             # 用Preferred
-            # Ignored压成0宽
+            #Ignored压0宽
             # 靠最小宽度上限防顶高
             lb.setMinimumWidth(scale(52))
             lb.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
@@ -17682,7 +17682,7 @@ class BilibiliDownloader(BaseWindow):
         # 「范围」组
         parse_ctrl_layout.addWidget(_field_label("范围"))
         # 主解析Tab控制区
-        # 名须与on_parse同
+        #名须与on_parse
         # 曾被加batch前缀
         # 导致范围设置不生效
         self.parse_mode_combo = QComboBox()
@@ -18036,7 +18036,7 @@ class BilibiliDownloader(BaseWindow):
         # 收进信息卡不再单占行
         _vcard.addLayout(path_layout)
         # 路径行置底余量居中
-        # 由stretch吸空白
+        #stretch吸空白
         
         # 弹幕解析标签页
         danmaku_tab = QWidget()
@@ -18794,7 +18794,7 @@ class BilibiliDownloader(BaseWindow):
         path_label = QLabel("保存路径：")
         path_label.setStyleSheet(scale_style("font-size: 15px; font-weight: 500; color: #333;"))
         self.all_path_edit = QLineEdit()
-        # 与path_edit一致
+        #与path_edit同
         last_path_all = self.config.get_app_setting("last_save_path")
         default_path_all = last_path_all if last_path_all else os.path.join(os.path.dirname(os.path.abspath(__file__)), "B站下载")
         self.all_path_edit.setText(default_path_all)
@@ -18992,7 +18992,7 @@ class BilibiliDownloader(BaseWindow):
         # 按配置折叠功能Tab
         self._apply_folded_tabs()
 
-        # 设tab_widget策略
+        #设tab_widget
         self.tab_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         content_layout.addWidget(self.tab_widget, stretch=1)
 
@@ -20043,7 +20043,7 @@ class BilibiliDownloader(BaseWindow):
                 # 默认按原始索引升序
                 items.sort(key=lambda x: x['data'] if x['data'] is not None else 0)
             elif index == 1:
-                # 升序取duration
+                #升序duration
                 items.sort(key=lambda x: get_duration(episodes[x['data']]) if x['data'] < len(episodes) else 0)
             elif index == 2:
                 # 时长降序
@@ -20129,7 +20129,7 @@ class BilibiliDownloader(BaseWindow):
                 else:
                     _total_eps = len(episodes)
                     for i, ep in enumerate(episodes):
-                        # 走format_ep_name
+                        #format_ep_name
                         # 序号显01.标题
                         title = format_ep_name(ep, i, video_info, total=_total_eps, seq_start=0)
                         duration_str = ""
@@ -20170,7 +20170,7 @@ class BilibiliDownloader(BaseWindow):
                 current = self.all_qn_combo.currentText()
                 self.all_qn_combo.clear()
                 for q in qualities:
-                    # qualities三格式
+                    #qualities三式
                     if isinstance(q, (tuple, list)) and len(q) == 3:
                         # 新格式每qn只显一次
                         qn_val, codecid, qn_name = q
@@ -20349,7 +20349,7 @@ class BilibiliDownloader(BaseWindow):
             def format_ep_name(ep, idx, vi, total=None, seq_start=None):
                 # 须收total
                 # 曾因不收关键字参数
-                # 抛unexpected错
+                #抛unexpe
                 # 致整批准备失败
                 # None则回退本次
                 if total is None:
@@ -20458,7 +20458,7 @@ class BilibiliDownloader(BaseWindow):
             pass
 
         # 0解析1弹幕2收藏
-        # 3封4史5直6表7音8字
+        #封4史5直6表7音8字
         if index == 2:
             # 仅自动时切页拉取
             if self.config.get_app_setting("favorites_refresh_mode", "manual") == "auto":
@@ -20648,7 +20648,7 @@ class BilibiliDownloader(BaseWindow):
             file_path = record.get("file_path", "")
             save_path = record.get("save_path", "")
             target = file_path if file_path and os.path.exists(file_path) else None
-            # 旧记录无file_path
+            #无file_path
             # 按标题在目录里找一次
             if not target and save_path and os.path.isdir(save_path):
                 _title = (record.get("title") or "").strip()
@@ -20849,7 +20849,7 @@ class BilibiliDownloader(BaseWindow):
     
     def show_cookie_ui(self):
         
-        # 曾写两遍showMax
+        #写两遍showMax
         # 它在show后撑满
         # 致启动最大化设置失效
         # 改为仅确保可见
@@ -21546,7 +21546,7 @@ class BilibiliDownloader(BaseWindow):
 
                 QTimer.singleShot(1000, _close_pw)
 
-            # 确保parse_btn在
+            #确保parse_btn
             if hasattr(self, 'parse_btn'):
                 self.parse_btn.setEnabled(True)
             else:
@@ -21590,7 +21590,7 @@ class BilibiliDownloader(BaseWindow):
             self.current_video_info = video_info
             
             # 判断是否为部分结果
-            # 停止返cancelled
+            #停止cancelled
             # 识别partial
             is_partial = bool(video_info.get("_partial")
                               or video_info.get("partial")
@@ -22116,7 +22116,7 @@ class BilibiliDownloader(BaseWindow):
                     if wrapper is None:
                         continue
                     rl = wrapper.layout()
-                    # 0标签1组合2目录3删除
+                    #0标签1组2目3删
                     combo = rl.itemAt(1).widget()
                     dir_combo = rl.itemAt(2).widget()
                     key = combo.currentData()
@@ -23118,7 +23118,7 @@ class BilibiliDownloader(BaseWindow):
             logger.info(f"批量下载窗口任务ID：{batch_task_id}")
             logger.info(f"共有 {len(all_download_tasks)} 个任务要添加")
             
-            # 查download_manager
+            #查download_mgr
             if not self.download_manager:
                 logger.error("self.download_manager不存在，无法创建批量下载窗口")
                 self.show_notification("下载管理器不存在", "error")
@@ -23329,7 +23329,7 @@ class BilibiliDownloader(BaseWindow):
                             quality_options = media_info.get('qualities', [])
                             if quality_options:
                                 selected_qn = self.default_qn
-                                # qualities新老格式
+                                #qualities新旧
                                 try:
                                     qn_available = [q[0] for q in quality_options]
                                 except (IndexError, TypeError):
@@ -23762,7 +23762,7 @@ class BilibiliDownloader(BaseWindow):
             print("获取弹幕信息")
             if hasattr(self, 'danmaku_count_label'):
                 cid = video_info.get("cid", "")
-                # 从episodes取cid
+                #episodes取cid
                 if not cid:
                     # 检查番剧
                     if video_info.get("is_bangumi") and video_info.get("bangumi_info"):
@@ -24685,7 +24685,7 @@ class BilibiliDownloader(BaseWindow):
         elif is_cheese:
             episodes = self.current_video_info["cheese_info"].get("episodes", [])
         else:
-            # 查collection
+            #查collection
             if self.current_video_info.get("collection"):
                 episodes = self.current_video_info.get("collection", [])
             elif self.current_video_info.get("episodes"):
@@ -25278,7 +25278,7 @@ class BilibiliDownloader(BaseWindow):
                             }
                             response = requests.get(url, headers=headers, timeout=5, proxies={}, verify=False)
                             if response.status_code == 200:
-                                # 查signal_emitter
+                                #查signal_emit
                                 se = getattr(self, 'signal_emitter', None)
                                 if se is not None:
                                     try:
@@ -25394,7 +25394,7 @@ class BilibiliDownloader(BaseWindow):
                     logger.info(f"内嵌风控验证捕获到登录 cookie: {list(_all.keys())}")
                     # 存cookie
                     self.parser.save_cookies(cookie_str)
-                    # 存WebEngine环境
+                    #存WebEngine
                     try:
                         _ua = view.page().profile().httpUserAgent()
                         _headers = {
@@ -25454,7 +25454,7 @@ class BilibiliDownloader(BaseWindow):
             except Exception:
                 pass
 
-            # allCookies返空
+            #allCookies空
             def _poll_guard():
                 if not _finished[0]:
                     _timer.start(800)
@@ -25522,7 +25522,7 @@ class BilibiliDownloader(BaseWindow):
                             }
                             response = requests.get(url, headers=headers, timeout=5, proxies={}, verify=False)
                             if response.status_code == 200:
-                                # 查signal_emitter
+                                #查signal_emit
                                 se = getattr(self, 'signal_emitter', None)
                                 if se is not None:
                                     try:
@@ -25611,7 +25611,7 @@ class BilibiliDownloader(BaseWindow):
                 }
                 response = requests.get(url, headers=headers, timeout=5, proxies={}, verify=False)
                 if response.status_code == 200:
-                    # 查signal_emitter
+                    #查signal_emit
                     se = getattr(self, 'signal_emitter', None)
                     if se is not None:
                         try:
@@ -26358,7 +26358,7 @@ class BilibiliDownloader(BaseWindow):
         """录播工具托盘：停止录制 → 转发给 LiveTab 和 StreamPlayer"""
         if hasattr(self, 'live_tab') and self.live_tab:
             self.live_tab.handle_tray_stop(session_id)
-        # 转发StreamPlayer
+        #转发StreamPlayer
         if hasattr(self, 'stream_player_dialog') and self.stream_player_dialog:
             self.stream_player_dialog.handle_tray_stop(session_id)
 
@@ -27246,7 +27246,7 @@ class BilibiliDownloader(BaseWindow):
                 try:
                     quality_options = ld['video_info'].get('qualities', [])
                     if quality_options:
-                        # qualities取首尾
+                        #qualities首尾
                         # 跳过解包失败的元素
                         qn_available = []
                         for q in quality_options:
@@ -30357,7 +30357,7 @@ class BilibiliDownloader(BaseWindow):
         body_layout.setSpacing(scale(0))
 
         sidebar = QListWidget()
-        sidebar.setObjectName("settingsSidebar")   # 由SETTINGS_QSS美化
+        sidebar.setObjectName("settingsSidebar")   #SETTINGS_QSS
         sidebar.setFixedWidth(scale(150))
         sidebar_items = ["下载设置", "网络设置", "窗口设置", "其他设置", "数据与隐私", "关于我们"]
         for item_text in sidebar_items:
@@ -30680,7 +30680,7 @@ class BilibiliDownloader(BaseWindow):
             current_custom_icon_path
         )
 
-        # 用icon_manager
+        #icon_manager
         # 原先只用__file__拼名
         # 致卡片显示空白图标
         def _resolve_builtin_preview(icon_key):
@@ -30766,8 +30766,8 @@ class BilibiliDownloader(BaseWindow):
         browse_custom_icon_btn.clicked.connect(browse_custom_icon)
         clear_custom_icon_btn.clicked.connect(clear_custom_icon)
         custom_icon_path_edit.textChanged.connect(lambda _: refresh_custom_icon_card())
-        # icon_group不放窗内
-        # 456px超440px
+        #icon_group放上
+        #456超440px
         # 会重叠故改为整行
 
         # 下载设置组
@@ -32920,7 +32920,7 @@ class BilibiliDownloader(BaseWindow):
             content_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
             content_layout.setSpacing(scale(0))
             
-            # 创建WebEngineView
+            #WebEngineView
             web_view = _get_web_engine_view_cls()()
             web_view.setStyleSheet("border: none;")
             web_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)

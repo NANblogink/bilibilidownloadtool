@@ -99,7 +99,7 @@ check("main_kivy.py 没有直接 import PyQt5", not imports, imports)
 
 w()
 w("=== 6. 跨线程更新界面必须经过 Clock ===")
-# 找出所有 def _sig_* 槽函数，确认都用了 Clock
+# 查def _sig_*槽函数
 slots = re.findall(r"def (_sig_\w+)\(self.*?\n(.*?)(?=\n    def |\nclass |\Z)",
                    src, re.S)
 for fname, body in slots:

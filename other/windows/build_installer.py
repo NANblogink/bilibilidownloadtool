@@ -208,7 +208,7 @@ def main():
 
     os.makedirs(OUTPUT, exist_ok=True)
 
-    # 在线版（未内置运行时）用独立文件名，避免覆盖离线版
+    # 在线版独立文件名
     online_only = "0" if ep else "1"
 
     args = [

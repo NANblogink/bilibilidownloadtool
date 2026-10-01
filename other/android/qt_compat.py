@@ -230,7 +230,7 @@ class QThread(QObject):
         self._stop_flag.set()
 
     def terminate(self):
-        # 置标志让run自行退出
+        # 置标志让run退出
         # 桌面版也靠标志协作
         self._stop_flag.set()
 
@@ -268,7 +268,7 @@ class QMutex:
         try:
             self._lock.release()
         except RuntimeError:
-            # 未持有却unlock予以容忍
+            # 未持有unlock容忍
             pass
 
     def tryLock(self, timeout=0):
@@ -408,7 +408,7 @@ def install(verbose=False):
     if _installed:
         return True
 
-    # 真PyQt5可用则不插手
+    # 真PyQt5则不插手
     try:
         import PyQt5  # noqa: F401
         if verbose:

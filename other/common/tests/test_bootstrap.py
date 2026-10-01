@@ -36,7 +36,7 @@ check("tag is not win_amd64 on posix",
       pb.platform_tag() != "win_amd64" or sys.platform == "win32")
 
 print("== wheel filtering accepts this platform's wheels ==")
-# Simulate PyQt5 index entries
+# 模拟PyQt5索引
 entries = [
     {"filename": "PyQt5-5.15.11-cp38-abi3-manylinux_2_17_x86_64.whl",
      "url": "https://example.invalid/a.whl"},
@@ -58,7 +58,7 @@ if sys.platform.startswith("linux"):
 print("== 架构筛选：64 位机器优先选 win_amd64 ==")
 # 精简版装不全根因回归
 # 旧实现子串匹配别名
-# 64位机误下32位wheel
+# 64位误下32位wheel
 check("win_amd64 accepted", pb._platform_arch_ok("win_amd64") is True)
 check("win_amd64 ranks above win32",
       pb._arch_rank("win_amd64") > pb._arch_rank("win32"))
@@ -69,7 +69,7 @@ check("win_arm64 rejected on x86_64 host",
 check("pure-python 'any' accepted", pb._platform_arch_ok("any") is True)
 check("empty platform rejected", pb._platform_arch_ok("") is False)
 
-# Same check via real parser.
+# 用真实解析器再验一次
 _w = pb._split_wheel("PyQt5_sip-12.17.2-cp310-cp310-win32.whl")
 check("win32 wheel parses as 32-bit x86",
       pb._parse_platform_field(_w["platform"]) == ("windows", "x86", 32), _w)
@@ -114,7 +114,7 @@ print("== _wheels_installed detects a fake linux runtime ==")
 import tempfile
 rt = tempfile.mkdtemp(prefix="pyqt5_rt_")
 os.makedirs(os.path.join(rt, "PyQt5", "Qt5"), exist_ok=True)
-# linux style QtCore module
+# linux风格QtCore
 open(os.path.join(rt, "PyQt5", "QtCore.cpython-314-x86_64-linux-gnu.so"), "w").close()
 os.makedirs(os.path.join(rt, "PyQt5_sip-12.19.0.dist-info"), exist_ok=True)
 check("detects linux-style runtime", pb._wheels_installed(rt) is True)
@@ -154,7 +154,7 @@ try:
     check("x64/32bit interpreter arch is x86",
           pb._interp_arch() == 'x86')
 
-    # 3) ARM64原生64位
+    # 3) ARM64原生64
     check("arm64/64bit -> win_arm64 exact",
           _win("ARM64", 64, "win_arm64") == 100)
     check("arm64/64bit -> win_amd64 emulation fallback",
@@ -163,7 +163,7 @@ try:
           0 < _win("ARM64", 64, "win32")
           < _win("ARM64", 64, "win_amd64"))
 
-    # 4) ARM64加32位Py
+    # 4) ARM64加32位
     check("arm64/32bit -> win32 exact",
           _win("ARM64", 32, "win32") == 100)
     check("arm64/32bit -> win_amd64 rejected",
@@ -171,7 +171,7 @@ try:
     check("arm64/32bit -> win_arm64 rejected",
           _win("ARM64", 32, "win_arm64") < 0)
 
-    # 5) 纯32位Windows
+    # 5) 纯32位Win
     check("x86/32bit -> win32 exact",
           _win("x86", 32, "win32") == 100)
     check("x86/32bit -> win_amd64 rejected",
@@ -210,7 +210,7 @@ try:
           _sim("windows", "x86", 32, "win32") == 100)
     check("win 32bit -> win_amd64 rejected",
           _sim("windows", "x86", 32, "win_amd64") < 0)
-    # 无win_arm64降级x64
+    # 无win_arm64降x64
     check("win arm64 -> win_amd64 via emulation",
           0 <= _sim("windows", "arm64", 64, "win_amd64") < 100)
     check("win arm64 -> win_arm64 exact",
@@ -221,12 +221,12 @@ try:
           _sim("macos", "arm64", 64, "macosx_11_0_arm64") == 100)
     check("mac arm64 -> universal2 usable",
           _sim("macos", "arm64", 64, "macosx_11_0_universal2") > 0)
-    # Rosetta降级须低于原生
+    # Rosetta降级低
     check("mac arm64 -> x86_64 demoted via Rosetta",
           0 < _sim("macos", "arm64", 64, "macosx_11_0_x86_64") < 100)
     check("mac x86_64 -> x86_64 exact",
           _sim("macos", "x86_64", 64, "macosx_10_13_x86_64") == 100)
-    # Intel不能跑arm64
+    # Intel不跑arm64
     check("mac x86_64 -> arm64 rejected",
           _sim("macos", "x86_64", 64, "macosx_11_0_arm64") < 0)
     check("mac x86_64 -> legacy intel usable",

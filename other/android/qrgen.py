@@ -237,10 +237,10 @@ def _place_format(m, v, mask):
         return (bits >> i) & 1
 
     # 位序由比对反推
-    # 第8行(8,0)=bit14递减
-    # (8,4)=bit10(8,5)=bit9
-    # 第8列(0,8)=bit0递增
-    # (4,8)=bit4(5,8)=bit5
+    # 第8行(8,0)减
+    # (8,4)=bit10
+    # 第8列(0,8)增
+    # (4,8)=bit4
     # 副本 2 同序，仅对角镜像
     for i in range(6):
         m[8][i] = bit(14 - i)          # (8,0)..(8,5)=bit14..9
@@ -252,15 +252,15 @@ def _place_format(m, v, mask):
         m[i][8] = bit(i)               # (0,8)..(5,8)=bit0..5
     m[7][8] = bit(6)
 
-    # 副本2a右上右向左递增
-    # 实测n=29(8,28)=bit0
-    # (8,24)=bit4(8,23)=bit5
+    # 副本2a右向左增
+    # n=29(8,28)=bit0
+    # (8,24)=bit4
     for i in range(8):
         m[8][n - 1 - i] = bit(i)
 
-    # 副本2b左下下向上递减
-    # 实测(28,8)=bit14递减
-    # (24,8)=bit10(23,8)=bit9
+    # 副本2b下向上减
+    # (28,8)=bit14减
+    # (24,8)=bit10
     for i in range(7):
         m[n - 1 - i][8] = bit(14 - i)
     m[n - 8][8] = 1                    # 固定暗模块
@@ -295,7 +295,7 @@ def _penalty(m, n):
         if run >= 5:
             score += 3 + (run - 5)
 
-    # 规则2同色2x2每块+3
+    # 规则2同色块+3
     for r in range(n - 1):
         for c in range(n - 1):
             v = m[r][c]
@@ -303,8 +303,8 @@ def _penalty(m, n):
                 score += 3
 
     # 规则 3：类定位图形 +40
-    # 规范1011101两侧4浅
-    # 匹配10111010000
+    # 规范1011101
+    # 匹配10111010
     pat1 = [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0]
     pat2 = [0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1]
     for line in list(m) + [list(col) for col in zip(*m)]:
@@ -313,7 +313,7 @@ def _penalty(m, n):
             if seg == pat1 or seg == pat2:
                 score += 40
 
-    # 规则4偏离50%每档10
+    # 规则4偏离50%
     dark = sum(sum(r) for r in m)
     total = n * n
     pct = dark * 100 / total
@@ -469,7 +469,7 @@ def make_png(text, path, scale=8, border=2):
                 + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
 
     # 8位灰度0黑255白
-    # 可被OpenCV与zbar解码
+    # 可被OpenCV解码
     # 不再附PLTE免告警
     png = b"\x89PNG\r\n\x1a\n"
     png += chunk(b"IHDR", struct.pack(">IIBBBBB", side, side, 8, 0, 0, 0, 0))

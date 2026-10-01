@@ -36,7 +36,7 @@ print()
 print("== _extract_archive dispatch ==")
 td = tempfile.mkdtemp(prefix="tooltest_")
 
-# build a tiny tar.xz to prove the Linux ffmpeg path works
+# 建tar.xz验证Linux
 import tarfile
 src_dir = os.path.join(td, "src")
 os.makedirs(os.path.join(src_dir, "ffmpeg-7.0-amd64-static"), exist_ok=True)

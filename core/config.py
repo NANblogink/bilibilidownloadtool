@@ -109,7 +109,7 @@ class ConfigLoader:
                 "auto_convert_incompatible": False,
                 "hevc_not_supported_ask": True,
                 "add_episode_to_filename": True,
-                # 0不加2为01三位001
+                # 0不加2为01三001
                 # 便于排序
                 "filename_sequence_digits": 2,
                 "batch_download_first": False,
@@ -170,7 +170,7 @@ class ConfigLoader:
                 s["default_save_path"] = _default_download_dir()
                 return
 
-            # 历史配置可能存已删目录
+            # 历史配置存已删目录
             # 父目录缺失无法存
             # 回落到项目根下
             parent = os.path.dirname(cur)

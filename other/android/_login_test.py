@@ -1,6 +1,6 @@
-# 类Android环境复现登录崩溃
-# Android无qrcode无PyQt5
-# 屏蔽import再端到端跑登录
+# 类Android复现
+# 无qrcode无PyQt5
+# 屏蔽import跑
 import builtins
 import io
 import os
@@ -22,7 +22,7 @@ def w(s=""):
     L.append(str(s))
 
 
-# --- 屏蔽Android不存在的模块 ---
+# --- 屏蔽缺失模块 ---
 BLOCKED = {"qrcode", "PIL", "PyQt5", "android", "jnius"}
 _real_import = builtins.__import__
 
@@ -89,7 +89,7 @@ def step(name, fn):
         return False
 
 
-# 3a. 直接构造LoginPopup
+# 3a. 构造LoginPopup
 pop_holder = {}
 
 
@@ -103,16 +103,16 @@ pop = pop_holder.get("pop")
 if pop is not None:
     step("pop.open()", pop.open)
 
-    # 3b. start()起线程取码
+    # 3b. start取码
     step("pop.start()", pop.start)
     import time
     time.sleep(2.5)
 
-    # 3c. _render_qr缺qrcode时
+    # 3c. _render_qr无码
     step("_render_qr（无 qrcode 模块）",
          lambda: w("       -> 返回 %r" % pop._render_qr("https://example.com")))
 
-    # 3d. _show_qr收到数据后
+    # 3d. _show_qr有数
     step("_show_qr（模拟服务端返回）",
          lambda: pop._show_qr({"qrcode_key": "abc123",
                                "url": "https://www.bilibili.com/h5/login"}))

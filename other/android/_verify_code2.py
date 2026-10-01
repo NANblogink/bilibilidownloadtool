@@ -37,7 +37,7 @@ w()
 w("  main.pyc = %d 字节" % len(raw))
 w("  magic = 0x%04x (0x0e2b = Python 3.11)" % int.from_bytes(raw[:2], "little"))
 
-# 关键：所有标识符和中文字符串都以明文存在于 pyc
+# 标识符明文在pyc
 CHECKS = {
     "EpisodePicker 类（集数选择弹窗）": "EpisodePicker",
     "EpisodeRow 类（集数行）": "EpisodeRow",

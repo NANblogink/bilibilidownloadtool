@@ -29,10 +29,10 @@ import tempfile
 
 # 与wheel cpXY一致
 PY_VER = "3.10.11"
-PY_TAG = "cp310"          # 校验wheel解释器标签
+PY_TAG = "cp310"          # 校验wheel标签
 PY_SHORT = "310"          # _pth里的XY
 
-# 官方embeddable地址
+# 官方embeddable
 PY_URLS = {
     "win_amd64": "https://www.python.org/ftp/python/{v}/python-{v}-embed-amd64.zip",
     "win32":     "https://www.python.org/ftp/python/{v}/python-{v}-embed-win32.zip",
@@ -106,7 +106,7 @@ def target_arch_tag():
     if bits == 32:
         return "win32"
     if cpu == "arm64":
-        # 无arm64用x64模拟
+        # 无arm64用x64
         return "win_amd64"
     return "win_amd64"
 
@@ -460,7 +460,7 @@ REQUIRED_PACKAGES = [
     ("PyQtWebEngine_Qt5", None),
 ]
 
-# simple索引包名小写
+# simple索引小写
 PKG_INDEX_NAMES = {
     "PyQt5": "pyqt5",
     "PyQt5_Qt5": "pyqt5-qt5",

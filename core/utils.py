@@ -12,9 +12,9 @@ class HEVCCheckThread(QThread):
     result_signal = pyqtSignal(bool)
 
     def run(self):
-        # HEVC扩展是Win特有
+        # HEVC扩展Win特有
         # macOS原生支持
-        # Linux由codec包提供
+        # Linux由codec提供
         # 这两平台直接判支持
         if IS_MACOS or IS_LINUX:
             self.result_signal.emit(True)
@@ -181,7 +181,7 @@ def generate_qrcode(url):
     """
     errors = []
     
-    # 方案1 qrcode加Pillow
+    # 方案1 qrcode+Pillow
     try:
         import qrcode
         from PIL import Image
@@ -203,7 +203,7 @@ def generate_qrcode(url):
     except Exception as e:
         errors.append(f"Pillow方案失败: {e}")
     
-    # 方案2 qrcode加QImage
+    # 方案2 qrcode+QImage
     try:
         import qrcode
         from PyQt5.QtGui import QImage, QPainter, QColor
