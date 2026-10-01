@@ -18,7 +18,7 @@ _HERE = os.path.dirname(os.path.abspath(
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-# 允许在源码方式下直接运行
+# 允许源码直跑
 for _p in (os.path.join(_HERE, "core"), _HERE):
     if os.path.isdir(_p) and _p not in sys.path:
         sys.path.insert(0, _p)
@@ -187,12 +187,12 @@ def _launch(exe, root):
     import subprocess
     app_dir = _HERE
 
-    # 把程序目录登记到部署运行时的 ._pth，使其长期可见
+    # 登记._pth长期可见
     _register_app_path(root, app_dir)
 
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
-    # 兜底：即便 ._pth 未生效，下面的 -c 代码也会显式插入
+    # 兜底显式插入
     env["PYTHONPATH"] = os.pathsep.join(
         [app_dir, os.path.join(app_dir, "core")] +
         ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else []))

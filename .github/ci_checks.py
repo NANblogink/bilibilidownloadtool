@@ -132,7 +132,7 @@ def check_beta_flag():
             "IS_BETA_BUILD 为 True —— 这是内测包开关，不应出现在仓库里。"
             "若是打包内测包后被强杀导致残留，请改回 False 再提交。")
 
-    # 顺带检查内测打包的备份标记有没有残留
+    # 查内测备份标记残留
     marker = os.path.join(ROOT, "build_win_beta", ".beta_flag_backup")
     if os.path.exists(marker):
         raise AssertionError("发现内测打包残留标记 %s，上次构建可能被中断" % marker)
@@ -150,24 +150,24 @@ def check_platform_helpers():
         assert exe("ffmpeg") == "ffmpeg.exe", f"期望 ffmpeg.exe，实际 {exe('ffmpeg')}"
         assert exe("mp4decrypt") == "mp4decrypt.exe", f"期望 mp4decrypt.exe，实际 {exe('mp4decrypt')}"
     else:
-        # 非 Windows 平台必须去掉 .exe，否则找不到工具
+        # 非Win需去掉.exe
         assert exe("ffmpeg") == "ffmpeg", f"期望 ffmpeg，实际 {exe('ffmpeg')}"
         assert exe("mp4decrypt") == "mp4decrypt", \
             f"期望 mp4decrypt，实际 {exe('mp4decrypt')}"
-        # 传入已带 .exe 的名字也要能规范化
+        # 带.exe也要规范化
         assert exe("ffmpeg.exe") == "ffmpeg", \
             f"exe('ffmpeg.exe') 应为 ffmpeg，实际 {exe('ffmpeg.exe')}"
 
-    # 平台互斥：三个标志中恰好一个为真
+    # 三标志恰一为真
     assert sum([bool(IS_WINDOWS), bool(IS_MACOS), bool(IS_LINUX)]) == 1, \
         f"平台标志异常: win={IS_WINDOWS} mac={IS_MACOS} linux={IS_LINUX}"
 
-    # 数据目录必须是当前平台的合法路径，不能含 Windows 反斜杠
+    # 路径须合法无反斜杠
     adir = app_data_dir()
     if not IS_WINDOWS:
         assert "\\" not in adir, f"非 Windows 平台数据目录不应含反斜杠: {adir}"
 
-    # 非法文件名字符必须与平台匹配
+    # 非法字符随平台变
     chars = illegal_filename_chars()
     if IS_WINDOWS:
         assert '\\' in chars and ':' in chars, f"Windows 非法字符异常: {chars}"
@@ -181,8 +181,8 @@ def check_platform_helpers():
             f" / bento4={get_bento4_sdk_dirname()} / notify={notification_backend()}")
 
 
-# 随包工具：按平台选择期望的文件名。
-# Windows 用 .exe；Linux/macOS 用无扩展名的二进制。
+# 随包工具按平台取名
+# 带exe其余裸名
 def _vendor_tool_paths():
     from platform_utils import exe as _exe
     return [

@@ -1,8 +1,8 @@
 import sys
 import os
 
-# 注入子目录搜索路径（core / parsers / build 等），必须在业务模块 import 之前
-# 确保脚本所在目录在 sys.path 中，以便正确导入本地模块
+# 注入子目录搜索路径
+# 脚本目录须在path
 if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _pathsetup  # noqa: F401  导入即完成路径注入
@@ -25,7 +25,7 @@ def _fatal_error_dialog(title, message):
         from PyQt5.QtCore import Qt
         from PyQt5 import QtCore
     except Exception:
-        return False  # PyQt 不可用时由调用方退回 MessageBoxW
+        return False  # 无PyQt退MsgBox
 
     app = QApplication.instance()
     if app is None:
@@ -162,7 +162,7 @@ def _fatal_error_exit(title, message):
             pass
     os._exit(1)
 
-# B站是国内站点：在 import requests 前清除所有代理环境变量并设 NO_PROXY=*（含注册表IE代理），用户开梯子也能直连
+# B站直连需清代理
 for _k in ('HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy'):
     os.environ.pop(_k, None)
 os.environ['NO_PROXY'] = '*'
@@ -172,7 +172,7 @@ import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*sipPyTypeDict.*")
 warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*sipPyName.*")
 import requests
-# 双重保险：让 requests 全局不读取系统代理设置
+# 不读系统代理
 requests.Session.trust_env = False
 import time
 import json
@@ -199,12 +199,12 @@ if IS_WINDOWS:
         _qt_resources_dir = os.path.join(_internal_dir, 'PyQt5', 'Qt5', 'resources')
         _qt_plugins_dir = os.path.join(_internal_dir, 'PyQt5', 'Qt5', 'plugins')
 
-        # 设置Qt平台插件路径，防止"no Qt platform plugin could be initialized"
+        # 设Qt插件路径防报错
         _platforms_dir = os.path.join(_qt_plugins_dir, 'platforms')
         if os.path.isdir(_platforms_dir):
             os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = _platforms_dir
         elif getattr(sys, 'frozen', False):
-            # PyInstaller打包时，platforms可能在其他位置
+            # 打包后路径可能变
             for _search in [
                 os.path.join(_internal_dir, 'PyQt5', 'Qt', 'plugins', 'platforms'),
                 os.path.join(_internal_dir, 'platforms'),
@@ -222,17 +222,17 @@ if IS_WINDOWS:
             os.environ['QTWEBENGINE_RESOURCES_PATH'] = _qt_resources_dir
 
         if os.path.isdir(_qt_bin_dir):
-            # 使用单进程模式运行QtWebEngine，避免创建独立子进程触发杀毒软件"远程线程注入"误报
-            # 注意：MSIX容器/Windows 11 24H2+ 环境单进程模式会导致Chromium崩，改用多进程
-            # --no-sandbox: 禁用Chromium沙箱（减少崩溃）
-            # --disable-gpu: 禁用GPU加速（减少进程数）
+            # 单进程防杀软误报
+            # Win11改用多进程
+            # 减崩溃
+            # 关GPU加速减进程
             if not _is_msix_environment():
                 os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = '--single-process --no-sandbox --disable-gpu'
             else:
                 os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = '--no-sandbox --disable-gpu'
 
         if _is_msix_environment():
-            # 微软认证测试在无GPU的虚拟机中运行，强制Qt软件渲染避免OpenGL初始化失败崩溃
+            # 虚拟机下强制软渲染
             os.environ['QT_OPENGL'] = 'software'
             os.environ['QT_QUICK_BACKEND'] = 'software'
     except Exception:
@@ -394,24 +394,24 @@ class SplashScreen(QWidget):
         fade_out()
 
 if __name__ == "__main__":
-    # Windows: 启动时自动申请管理员权限（UAC提权）
-    # MSIX 环境下跳过 UAC 提权，因为 runFullTrust 已授予完全信任权限
+    # Win申请UAC
+    # MSIX跳过UAC
     # 三重防循环保护：
-    #   1. --elevated 标记：提权启动的子进程携带此参数，检测到则不再提权
-    #   2. 环境变量 BILIDOWN_ELEVATING：防止极端情况下参数丢失
-    #   3. 单实例互斥锁：确保同一时间只有一个实例运行
+    # 防重复提权
+    # 环境变量兜底判据
+    # 单实例互斥锁
     if sys.platform == 'win32' and not _is_msix_environment():
         try:
             import ctypes
-            # 防循环标记：必须在**清理 argv 之前**判断，否则永远检测不到。
-            # 注意 UAC 提权会跨越安全边界，子进程**不继承**父进程的环境变量，
-            # 所以 BILIDOWN_ELEVATING 不可靠；真正可靠的判据是命令行参数
-            # --elevated（ShellExecuteW 的 params 会原样传给子进程）。
+            # 须在清argv前判断
+            # 提权不继承环境变量
+            # 故以命令行参数为准
+            # 参数原样传给子进程
             _already_elevated = (
                 ('--elevated' in sys.argv)
                 or (os.environ.get('BILIDOWN_ELEVATING') == '1')
             )
-            # 清理 argv 中的 --elevated 标记，避免影响后续参数解析
+            # 清提权标记
             if '--elevated' in sys.argv:
                 sys.argv = [a for a in sys.argv if a != '--elevated']
             os.environ.pop('BILIDOWN_ELEVATING', None)
@@ -426,21 +426,21 @@ if __name__ == "__main__":
                     params = f'-u "{script_path}" --elevated'
                     if _extra:
                         params += " " + _extra
-                # ShellExecuteW 返回 HINSTANCE（64位系统上是指针）
+                # 返回HINSTANCE
                 ctypes.windll.shell32.ShellExecuteW.restype = ctypes.c_void_p
-                # 通过环境变量传递标记给子进程
+                # 用环境变量传标记
                 os.environ['BILIDOWN_ELEVATING'] = '1'
                 result = ctypes.windll.shell32.ShellExecuteW(
                     None, "runas", sys.executable, params, None, 1
                 )
                 if result and int(result) > 32:
                     sys.exit(0)
-                # 提权失败（用户拒绝或出错），清理标记后继续以普通权限运行
+                # 提权失败则普通运行
                 os.environ.pop('BILIDOWN_ELEVATING', None)
         except Exception:
             pass
 
-    # 单实例锁：防止多实例同时运行（循环启动时会拦截）
+    # 单实例锁防多开
     _INSTANCE_MUTEX = None
     if sys.platform == 'win32':
         try:
@@ -568,9 +568,9 @@ if __name__ == "__main__":
             _mutex_name = "Global\\BilibiliDownloader_SingleInstance_v2"
             _INSTANCE_MUTEX = ctypes.windll.kernel32.CreateMutexW(None, False, _mutex_name)
             _last_error = ctypes.windll.kernel32.GetLastError()
-            # ERROR_ALREADY_EXISTS = 183
+            # 已存在错误码183
             if _last_error == 183:
-                # 1) 先按标题找已启动的窗口并激活
+                # 先按标题激活旧窗
                 _hwnd = _find_windows_by_title_prefixes(("B站视频解析工具", "B站视频下载工具", "BilibiliDownloader"))
                 if _hwnd:
                     _activate_window(_hwnd)
@@ -580,8 +580,8 @@ if __name__ == "__main__":
                         pass
                     sys.exit(0)
 
-                # 2) 标题没找到：按进程名定位旧实例，看它是否还有任何窗口
-                #    （可见无标题窗口=启动中的splash；有标题但隐藏=最小化到托盘；都没有=僵尸实例）
+                # 再按进程名找旧实例
+                # 可见无题=启动中
                 _old_pids = _enum_instance_pids()
                 _pid_hwnd, _kind = _find_window_of_instance_pids(_old_pids)
                 if _pid_hwnd:
@@ -592,8 +592,8 @@ if __name__ == "__main__":
                         pass
                     sys.exit(0)
 
-                # 3) 旧实例没有任何窗口：等待2秒复查（给慢速启动留余地），仍无窗口则判定为
-                #    "无窗口僵尸实例"，强制结束后由当前进程接管启动，绝不让用户/认证测试卡死
+                # 无窗口则等2秒复查
+                # 仍无则判僵尸并接管
                 time.sleep(2)
                 _old_pids = _enum_instance_pids()
                 _pid_hwnd, _kind = _find_window_of_instance_pids(_old_pids)
@@ -609,13 +609,13 @@ if __name__ == "__main__":
                     except Exception:
                         pass
                 time.sleep(0.5)
-                # 当前进程已持有互斥锁句柄，旧实例结束后本进程成为唯一持有者，直接继续启动
+                # 本进程已是唯一持有者
         except SystemExit:
             raise
         except Exception:
             pass
 
-    # 启动时清理上次遗留的临时文件（video/audio流、合并临时文件等）
+    # 清理上次残留临时文件
     try:
         from downloader import EpisodeDownloadThread
         EpisodeDownloadThread.cleanup_pending_temp_files()
@@ -625,9 +625,9 @@ if __name__ == "__main__":
         except Exception:
             pass
 
-    # 已是管理员权限，静默安装开发者证书（方便后续版本更新时不再报"未知发行者"）
-    # 异步执行避免阻塞主程序启动，失败不影响主程序
-    # MSIX 环境跳过：商店包有正式签名，且向系统证书存储写内容易引起认证测试怀疑
+    # 装证书免未知发行者
+    # 异步执行不阻塞启动
+    # MSIX跳过
     if sys.platform == 'win32' and not _is_msix_environment():
         try:
             import threading
@@ -655,7 +655,7 @@ if __name__ == "__main__":
         except ImportError as e:
             _fallback_reason = f"PyQt5导入失败: {e}"
             if getattr(sys, 'frozen', False):
-                # 打包模式下禁止CLI降级：无控制台时CLI会挂死成无窗口僵尸进程
+                # 打包禁止CLI降级
                 _fatal_error_exit("启动失败", f"{_fallback_reason}\n\n程序即将退出。")
             print(f"\n[降级模式] {_fallback_reason}")
             print("[降级模式] 已自动降级为命令行模式\n")
@@ -666,10 +666,10 @@ if __name__ == "__main__":
         QApplication.setAttribute(Qt.AA_DisableHighDpiScaling)
         QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
         QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
-        # 必须在构造 QApplication 之前注册 Qt 插件搜索路径。
-        # 精简包把 PyQt5 解压到非标准目录（runtime/ 或 pyqt5_runtime/），
-        # 不注册的话 Qt 找不到 platforms/qwindows.dll，会直接报
-        # "no Qt platform plugin could be initialized" 并退出。
+        # 须在建App前注册
+        # 精简包路径非标准
+        # 找不到qwindows
+        # 否则报错直接退出
         try:
             import pyqt5_bootstrap
             pyqt5_bootstrap.ensure_qt_plugins()
@@ -695,10 +695,10 @@ if __name__ == "__main__":
         font = QFont(font_family, font_size)
         app.setFont(font)
         app.setStyle('Fusion')
-        # 注册通知 AUMID（后台线程），确保通知中心 Toast 能显示可执行按钮
-        # 同时同步设置「进程级 AUMID」：Windows 任务栏按它决定图标与分组身份，
-        # 不设置会沿用打包器/python 的默认 AUMID，任务栏图标可能显示空白。
-        # 必须在创建任何窗口之前完成。
+        # 注册AUMID供通知
+        # AUMID决定任务栏
+        # 不设则图标可能空白
+        # 须在建窗口之前完成
         if IS_WINDOWS:
             try:
                 from toast_winrt import set_process_app_user_model_id
@@ -710,7 +710,7 @@ if __name__ == "__main__":
                 register_aumid_shortcut_async()
             except Exception:
                 pass
-        # 设置应用级图标（确保任务栏显示）
+        # 设置应用级图标
         try:
             from PyQt5.QtGui import QIcon
             _icon_path = get_effective_icon_path()
@@ -824,7 +824,7 @@ if __name__ == "__main__":
         component_thread.start()
         progress_timer_start = time.time()
         def poll_component_progress():
-            # 组件初始化超过30秒（如测试机网络受限）不再无限等待，直接带现有组件创建窗口
+            # 30秒超时不再等待
             if components_ready.is_set() or time.time() - progress_timer_start > 30:
                 if not components_ready.is_set():
                     try:
@@ -844,7 +844,7 @@ if __name__ == "__main__":
         window = None
         def create_main_window():
             global window
-            # 主窗口创建必须成功：任何异常都不允许被事件循环吞掉后留下无窗口僵尸进程
+            # 主窗口必须创建成功
             try:
                 window = BilibiliDownloader(
                     config=config,
@@ -861,7 +861,7 @@ if __name__ == "__main__":
                     pass
                 _fatal_error_exit("启动失败", f"主窗口创建失败，程序即将退出。\n\n{_err[-1500:]}")
 
-            # 设置 v_voucher 极验验证回调，遇到风控时在主线程弹出验证框
+            # 设极验风控回调
             def _setup_v_voucher_callback(win, par):
                 if not par:
                     return
@@ -890,9 +890,9 @@ if __name__ == "__main__":
                 splash.update_progress(95, "加载完成...")
                 app.processEvents()
                 splash.close_with_animation()
-                # 启动窗口模式由设置项 start_maximized 决定（默认开，保持原有行为）：
-                #   开 = 打开即铺满可用区（并启用启动守卫维持）
-                #   关 = 用上次窗口几何；没有记录时居中一个舒适尺寸
+                # 模式由设置决定
+                # 开=铺满可用区
+                # 关=用上次几何
                 try:
                     _start_max = bool(config.get_app_setting("start_maximized", True))
                 except Exception:
@@ -900,14 +900,14 @@ if __name__ == "__main__":
                 saved_geo = config.get_app_setting("window_geometry", "")
                 screen = QApplication.primaryScreen()
                 if _start_max:
-                    # 无边框窗口的 showMaximized() 在此 Qt 版本下不可靠（可能静默失效），
-                    # 因此直接物理铺满可用区；守卫会兜底维持全屏。
+                    # maximize失效
+                    # 故直接物理铺满
                     if not saved_geo and screen:
                         window.setGeometry(screen.availableGeometry())
                     window.showMaximized()
                 else:
                     if saved_geo:
-                        # init_ui 已按 window_geometry 设过几何，这里只需正常显示
+                        # 几何已设只需显示
                         window.show()
                     else:
                         sg = screen.availableGeometry() if screen else None
@@ -921,7 +921,7 @@ if __name__ == "__main__":
                 window.raise_()
                 window.activateWindow()
             except Exception:
-                # 收尾步骤失败也必须把窗口显示出来，绝不留无窗口进程
+                # 收尾失败也要显示窗口
                 import traceback as _tb
                 _err = _tb.format_exc()
                 try:
@@ -939,7 +939,7 @@ if __name__ == "__main__":
         def ensure_splash_closed():
             import time
             start_time = time.time()
-            # 只有主窗口创建成功后才隐藏splash；窗口迟迟未创建时保持splash可见（由窗口看门狗兜底）
+            # 成功后隐splash
             while time.time() - start_time < 180:
                 if window is not None:
                     break
@@ -1122,8 +1122,8 @@ if __name__ == "__main__":
                 print("=== handle_parse_media被调用 ===")
                 if parse_mode == "auto" or not parse_mode:
                     parse_mode = None
-                # 集数范围由主解析 Tab 的输入框提供（该控件不随信号传递，
-                # 直接读取可避免改动信号签名影响其它发射点）
+                # 范围来自主Tab
+                # 直读避免改信号签名
                 try:
                     _rw = getattr(window, 'episode_range_edit', None)
                     episode_range = _rw.text().strip() if _rw else ""
@@ -1289,7 +1289,7 @@ if __name__ == "__main__":
                     if _cs is None:
                         from cloud_service import CloudService
                         _cs = CloudService()
-                    # 收集最近的日志文件内容
+                    # 收集最近日志
                     log_content = ""
                     try:
                         import logging
@@ -1319,7 +1319,7 @@ if __name__ == "__main__":
                 pass
         sys.excepthook = excepthook
 
-        # 卡死检测：主线程心跳 + 独立看门狗线程，主线程长时间无响应时自动重启摆脱未响应
+        # 心跳+看门狗防卡死
         _heartbeat = [time.time()]
 
         def _update_heartbeat():
@@ -1398,8 +1398,8 @@ if __name__ == "__main__":
         _wd_thread = threading.Thread(target=_hang_watchdog, daemon=True)
         _wd_thread.start()
 
-        # 窗口看门狗：无论何种原因（异常被吞、初始化卡死），若超时后主窗口仍未显示，
-        # 记录全部线程堆栈并退出进程，绝不留下"进程活着但无窗口"的僵尸实例占用单实例锁
+        # 窗口看门狗超时退出
+        # 不留无窗口僵尸进程
         def _window_watchdog():
             import threading as _th
             _main_tid = _th.main_thread().ident
@@ -1412,7 +1412,7 @@ if __name__ == "__main__":
                 except Exception:
                     _visible = False
                 if _visible:
-                    return  # 窗口已成功显示，看门狗退役（之后用户最小化到托盘不影响）
+                    return  # 窗口已显示看门狗退役
                 if time.time() - _t0 > _deadline:
                     _dumps = []
                     try:
@@ -1442,7 +1442,7 @@ if __name__ == "__main__":
         error_msg = traceback.format_exc()
         logger.error(f"GUI启动失败: {error_msg}")
         if getattr(sys, 'frozen', False):
-            # 打包模式：弹窗报错并退出，禁止无控制台的CLI降级（会挂死成僵尸进程）
+            # 打包报错不退CLI
             _fatal_error_exit("启动失败", f"GUI启动失败，程序即将退出。\n\n{error_msg[-1500:]}")
         print(f"\n[降级模式] GUI启动失败: {e}")
         print("[降级模式] 已自动降级为命令行模式\n")

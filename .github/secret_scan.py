@@ -35,7 +35,7 @@ except Exception:
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # ---------------------------------------------------------------- 已知泄露值指纹
-# 只存指纹。任何内容一旦命中，说明该值曾泄露过，绝不能再出现在提交里。
+# 只存指纹防泄露
 KNOWN_LEAKED_FINGERPRINTS = {
     "2af836230645457224f6d6cec0237a499c818b8ebe4f89b31081685b1b494c62": "旧云端 API Token",
     "3f99a3e2e029073daa70a442c40faf8c94216b013297d0cf8a2a5f16c8bf19b2": "旧云端 AES 密钥",
@@ -44,7 +44,7 @@ KNOWN_LEAKED_FINGERPRINTS = {
 }
 
 # ---------------------------------------------------------------- 内容规则
-# (名称, 正则, 说明) —— 正则必须捕获「值」，不能只匹配键名
+# 正则须捕获值本身
 CONTENT_RULES = [
     ("PRIVATE_KEY",
      re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----"),
@@ -78,7 +78,7 @@ CONTENT_RULES = [
      re.compile(r"\bxox[abprs]-[A-Za-z0-9\-]{10,}\b"),
      "Slack Token"),
 
-    # 赋值型密钥：要求值足够长且像随机串，避免匹配 "password": "请输入密码"
+    # 赋值型须像随机串
     ("HARDCODED_SECRET",
      re.compile(
          r"""(?:password|passwd|pwd|secret|token|api_?key|access_?key|private_?key)"""
@@ -87,27 +87,27 @@ CONTENT_RULES = [
      "疑似硬编码口令/密钥（长度 ≥16）"),
 ]
 
-# 这些文件里出现 password 之类字样属于正常（表单、变量名、示例），跳过内容规则
+# 这些文件属正常跳过
 CONTENT_SKIP_SUFFIX = (".svg", ".ico", ".png", ".jpg", ".jpeg", ".gif", ".pdf",
                        ".mp4", ".mp3", ".zip", ".7z", ".exe", ".dll", ".pyd",
                        ".so", ".qm", ".ttf", ".otf", ".woff", ".woff2", ".wasm")
 CONTENT_SKIP_PATH_PARTS = ("docs/reference/", "_整理/", "other/android/.build_stage/")
 
-# 占位值白名单：这些「值」是文档/示例里的假数据，不算泄露
+# 占位值白名单
 VALUE_ALLOWLIST = {
     "test_value", "test_csrf", "your_password", "your_password_here",
     "change_me", "changeme", "placeholder", "xxxxxxxx", "example",
     "PUT_YOUR_API_TOKEN_HERE", "PUT_YOUR_BCRYPT_HASH_HERE",
     "PUT_YOUR_BASE64_KEY_HERE", "PUT_YOUR_USERNAME_HERE",
     "changeit", "password", "1234567890",
-    # 微软 Windows 清单里的标准 publicKeyToken（出现在所有 UAC manifest 中）
+    # 微软keyToken
     "6595b64144ccf1df",
-    # PyInstaller / NSIS 等构建产物中的常见固定串
+    # 构建产物固定串
     "0000000000000000", "ffffffffffffffff",
 }
 
 # ---------------------------------------------------------------- 文件名规则
-# 未忽略且将被提交时报警的敏感文件名
+# 敏感文件名告警
 SENSITIVE_NAME_PATTERNS = [
     (re.compile(r"^cookie[s]?\.(txt|json)$", re.IGNORECASE), "Cookie 凭据文件"),
     (re.compile(r"^admin_config\.php$"), "云端私有配置（含密钥）"),
@@ -255,7 +255,7 @@ def main():
         print("\n未发现疑似敏感内容 ✅")
         return 0
 
-    # 去重（同一文件同一描述只报一次）
+    # 同文件只报一次
     seen = set()
     uniq = []
     for f in findings:
