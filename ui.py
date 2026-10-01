@@ -25897,11 +25897,18 @@ class BilibiliDownloader(BaseWindow):
                 self._check_and_convert_video(None, index, message)
         
         # 查是否全部下载完成
+        # 当前任务此刻仍在 active_tasks 中
+        # 须排除自身再判空
         all_completed = True
         if hasattr(self, 'download_manager') and self.download_manager:
             if hasattr(self.download_manager, 'active_tasks'):
-                all_completed = len(self.download_manager.active_tasks) == 0
-        
+                _act = self.download_manager.active_tasks
+                _tid = args[0] if len(args) == 4 else None
+                if _tid is not None and _tid in _act:
+                    all_completed = len(_act) <= 1
+                else:
+                    all_completed = len(_act) == 0
+
         # 全部完成则启用按钮
         if all_completed and hasattr(self, 'download_btn'):
             self._set_download_buttons_enabled(True)
