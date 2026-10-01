@@ -1252,7 +1252,7 @@ def _try_system_pyqt5():
         return True
     except Exception:
         pass
-    #补site-packages
+    #site-packages
     import glob
     cands = []
     for pat in (

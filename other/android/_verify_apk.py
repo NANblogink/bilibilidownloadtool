@@ -94,7 +94,7 @@ check("存在启动图标", len(icons) > 0)
 
 # APK含p4a图标
 # manifest引用
-#badging写icon
+#badging-icon
 _mm = [n for n in icons if n.endswith("mipmap/icon.png")]
 check("存在 mipmap/icon.png（用户 logo）", bool(_mm))
 if _mm:

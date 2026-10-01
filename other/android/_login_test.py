@@ -1,5 +1,5 @@
 # 类Android复现
-#无qrcode无PyQt5
+#无qrcode/PyQt
 # 屏蔽import跑
 import builtins
 import io

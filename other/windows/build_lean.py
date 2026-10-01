@@ -73,8 +73,8 @@ args = [
     "--workpath=" + BUILD_LEAN,
     "--specpath=" + BUILD_LEAN,
     # 须加core分析路径
-    #否则hidden-import
-    #致ModuleNotFound
+    #hidden-import
+    #ModuleNotFound
     "--paths", ROOT,
     "--paths", os.path.join(ROOT, "core"),
     "--paths", os.path.join(ROOT, "core", "infra"),

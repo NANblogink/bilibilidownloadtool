@@ -873,7 +873,7 @@ def beep(kind='info'):
             winsound.MessageBeep(tone)
             return True
         if IS_MACOS:
-            #afplay为macOS
+            #afplay-macOS
             for name in (('Basso.aiff',) if kind == 'warn' else ('Glass.aiff', 'Ping.aiff')):
                 p = '/System/Library/Sounds/' + name
                 if os.path.exists(p):

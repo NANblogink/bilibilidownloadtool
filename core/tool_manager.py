@@ -248,7 +248,7 @@ class ToolManager:
         if getattr(sys, 'frozen', False):
             self.install_dir = os.path.dirname(sys.executable)
             _parent_dir = os.path.dirname(self.install_dir)
-            #PyI6.x在_internal
+            #_internal路径
             _internal_dir = os.path.join(self.install_dir, '_internal')
             if os.path.isdir(_internal_dir):
                 self.install_dir = _internal_dir
