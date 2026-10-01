@@ -984,7 +984,7 @@ class BilibiliParser:
         except Exception:
             pass
 
-        #源2crossDomain
+        #源2crossDom
         try:
             cd_url = (login_data or {}).get('url') or ''
             if cd_url:
@@ -10343,7 +10343,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # 判断 GPU 加速模式：
             #   "off"        : 不使用 GPU
             # full_gpu解加编
-            #encode_only解
+            #encode_only
             gpu_mode = "off"
             if gpu_acceleration and gpu_type and _gpu_encode_args(0) is not None:
                 gpu_result, _gpu_diag = self._check_gpu_codec_support(

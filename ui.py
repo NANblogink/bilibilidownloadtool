@@ -5722,7 +5722,7 @@ class VideoToolWindow(BaseWindow):
 
     def _build_ffmpeg_cmd(self, file_info, output_path):
         cmd = []
-        #ffmpeg作cmd0
+        #ffmpeg-cmd0
         # 曾漏掉此行导致
         # Popen抛未找到
         cmd.append(self._resolve_media_tool("ffmpeg"))
@@ -9808,7 +9808,7 @@ border-radius: 0;
         if self.current_sort == "index":
             # 按集数排序
             def get_episode_index(ep):
-                #page或ep_index
+                #page/ep_idx
                 page = ep.get('page')
                 if page:
                     try:

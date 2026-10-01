@@ -846,7 +846,7 @@ class EmojiTab(QWidget):
                 for skel in (sub.get("skeleton_left"), sub.get("skeleton_right")):
                     if skel is None or sip.isdeleted(skel):
                         continue
-                    #parent即host
+                    #parent=host
                     if skel.parent() is obj:
                         try:
                             skel.setGeometry(obj.rect())

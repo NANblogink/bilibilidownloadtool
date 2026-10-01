@@ -120,7 +120,7 @@ for extra in ("logo_alt_kaisui.ico", "myqrcode.png", "qunqrcode.png"):
 # ---------------------------------------------------------------- 内置 wheel
 # 默认不再打进精简包
 #
-#Inno放wheels
+#Inno放wheel
 # 再内置会重复占体积
 # 安装包里就会出现两份
 #

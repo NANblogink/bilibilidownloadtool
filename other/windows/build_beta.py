@@ -352,7 +352,7 @@ def step_installer_embedded():
         raise RuntimeError("未能改写内嵌 spec 的 datas 路径，请检查 spec 内容")
 
     # 临时spec放项目根
-    #icon按SPECPATH
+    #SPECPATH
     # 放工作目录找不到图标
     tmp_spec = os.path.join(ROOT, "%s_installer_embedded_beta.spec" % VERSION_NUM)
     with open(tmp_spec, "w", encoding="utf-8") as f:

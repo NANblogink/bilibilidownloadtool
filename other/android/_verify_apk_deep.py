@@ -75,7 +75,7 @@ check("包含 mipmap 图标", len(icons) >= 1,
 
 print()
 print("=== 6. 清单：竖屏 + 图标 ===")
-#Manifest是AXML
+#AXML清单
 # decode会误判
 # 复用已验证的解析器
 sys.path.insert(0, AND)

@@ -32,7 +32,7 @@ PYQT5_VER = "5.15.11"  # 5.15 末版，兼容 3.8+
 #macosx会误选
 # 不分32与64位
 #64位下32whe
-#WinOnARM给win32
+#WinOnARM->32
 #LinuxARM归一
 #
 # 解析成家族架构位数
@@ -200,7 +200,7 @@ def _parse_platform_field(pf):
     # ---- macOS ----
     if pf.startswith('macosx') or 'macosx' in pf:
         if 'universal2' in pf:
-            #兼容Intel与Apple
+            #Intel+Apple
             return (_MAC_FAMILY, 'universal2', 64)
         if 'arm64' in pf:
             return (_MAC_FAMILY, 'arm64', 64)
@@ -278,12 +278,12 @@ def _arch_rank(platform_field):
     # ---- macOS ----
     if fam_h == _MAC_FAMILY:
         if arch_w == 'universal2' and bits_h == 64:
-            return 95                  #Intel与Apple
+            return 95                  #Intel+Apple
         if arch_w == ia and (bits_w is None or bits_w == bits_h):
             return 100
         if ia == 'x86_64' and arch_w == 'x86_64':
             return 90
-        #Apple经Rosetta
+        #经Rosetta2
         if ia == 'arm64' and arch_w == 'x86_64' and bits_h == 64:
             return 70
         return -1
@@ -963,7 +963,7 @@ def register_qt_plugin_path(rt):
     #未导入PyQt5兜底
     try:
         os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = pd
-        #Qt5/plugins给
+        #Qt5/plugins
         qt_plugins_root = os.path.dirname(os.path.abspath(pd))
         if os.path.isdir(qt_plugins_root):
             os.environ["QT_PLUGIN_PATH"] = qt_plugins_root

@@ -226,7 +226,7 @@ try:
           0 < _sim("macos", "arm64", 64, "macosx_11_0_x86_64") < 100)
     check("mac x86_64 -> x86_64 exact",
           _sim("macos", "x86_64", 64, "macosx_10_13_x86_64") == 100)
-    #Intel不跑arm64
+    #Intel不跑arm
     check("mac x86_64 -> arm64 rejected",
           _sim("macos", "x86_64", 64, "macosx_11_0_arm64") < 0)
     check("mac x86_64 -> legacy intel usable",

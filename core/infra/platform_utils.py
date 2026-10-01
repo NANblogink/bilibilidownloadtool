@@ -800,7 +800,7 @@ def recommended_concurrency(explicit=None, cap=8, floor=1):
 # 跨平台桌面通知
 #
 # Win走WinRT
-#Linux走notify
+#notify-send
 # 绝不影响主流程。
 # --------------------------------------------------------------------------
 
