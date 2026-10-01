@@ -221,7 +221,7 @@ class LiveParser:
         if v2_result["success"]:
             return v2_result
 
-        # V2失败时回退到V1接口
+        # V2失败回退V1
         logger.warning(f"V2接口获取直播流失败，回退V1: {v2_result.get('error')}")
         return self._get_live_stream_url_v1(room_id, platform=platform, qn=qn)
 
@@ -233,9 +233,9 @@ class LiveParser:
         """
         params = {
             "room_id": room_id,
-            "protocol": "0,1",       # 0=http-flv, 1=hls
-            "format": "0,1,2",       # 0=flv, 1=ts(hls), 2=fmp4(hls)
-            "codec": "0,1",          # 0=avc(h264), 1=hevc(h265)
+            "protocol": "0,1",       # 0=flv 1=hls
+            "format": "0,1,2",       # 0flv 1ts 2fmp4
+            "codec": "0,1",          # 0avc 1hevc
             "platform": "web",
             "ptype": "16",
         }
@@ -255,7 +255,7 @@ class LiveParser:
         accept_qn = playurl.get("accept_qn", [])
         quality_desc = playurl.get("quality_description", [])
 
-        # 从stream中提取所有可用URL
+        # 提取所有可用URL
         stream_urls = []
         stream_list = playurl.get("stream", [])
         for stream in stream_list:
@@ -426,7 +426,7 @@ class LiveParser:
         :param live_uid: 主播UID
         :param time_range: 1=近3天, 2=近7天, 3=近14天
         """
-        # 优先尝试 app-blink 端点（对登录态要求更宽松）
+        # 优先app-blink
         result = self._get("/xlive/app-blink/v1/anchorVideo/AnchorGetReplayList", {
             "live_uid": live_uid,
             "time_range": time_range,
@@ -437,7 +437,7 @@ class LiveParser:
             logger.info(f"获取他人回放成功(app-blink): uid={live_uid}")
             return self._format_replay_list(result["data"])
 
-        # 失败时回退到 web-room 端点
+        # 回退web-room
         logger.warning(f"app-blink 获取他人回放失败，回退 web-room: {result.get('error')}")
         result = self._get("/xlive/web-room/v1/videoService/GetOtherSliceList", {
             "live_uid": live_uid,
@@ -470,7 +470,7 @@ class LiveParser:
         data = result["data"]
         record = data.get("record", {})
         status = record.get("status", 0)
-        # status: 30=合成中, 2=已完成
+        # 30合成中 2已完成
         download_url = data.get("download_url", "")
         download_url_list = data.get("download_url_list", [])
 

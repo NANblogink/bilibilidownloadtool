@@ -16,19 +16,19 @@ class VideoParser:
     def parse_media_url(self, url):
         logger.info(f"开始解析链接: {url}")
 
-        # 提取URL中的分P参数 (如 ?p=9 或 &p=9)
+        # 提取URL中的P参数
         p_match = re.search(r'[?&]p=(\d+)', url)
         page_from_url = int(p_match.group(1)) if p_match else None
 
-        # 检查直播间 URL（优先，避免不必要的重定向请求）
+        # 优先查直播间URL
         live_match = re.search(r'live\.bilibili\.com/(\d+)', url, re.IGNORECASE)
         if live_match:
             room_id = live_match.group(1)
             logger.info(f"解析成功: 类型=live, ID={room_id}")
             return {"type": "live", "id": room_id, "error": ""}
 
-        # UP主合集/系列页（必须先于 space 主页判断，否则会被当成整个主页）
-        # 形如 https://space.bilibili.com/{mid}/lists/{list_id}?type=series|season
+        # 合集页须先于主页判断
+        # 形如space/lists/{id}
         list_match = re.search(r'space\.bilibili\.com/(\d+)/lists/(\d+)', url, re.IGNORECASE)
         if list_match:
             list_mid, list_id = list_match.group(1), list_match.group(2)
@@ -56,7 +56,7 @@ class VideoParser:
                 logger.info(f"解析成功: 类型=cheese, ID=ep{ep_id}")
                 return {"type": "cheese", "id": f"ep{ep_id}", "error": ""}
 
-        # 音频（歌曲）链接：audio/auXXXX 或 ?sid=XXXX
+        # 音频链接au或sid
         audio_match = re.search(r'audio/au(\d+)', url, re.IGNORECASE)
         if audio_match:
             audio_id = audio_match.group(1)
@@ -68,7 +68,7 @@ class VideoParser:
             logger.info(f"解析成功: 类型=audio, ID={audio_id}")
             return {"type": "audio", "id": audio_id, "error": ""}
 
-        # 优先用正则在原始 URL 上匹配 BV/av/ep，避免对已是标准格式的链接发起同步重定向请求
+        # 先正则匹配BV与av
         # 批量会超时卡顿
         av_match_orig = re.search(r'av(\d+)', url, re.IGNORECASE)
         if av_match_orig:
@@ -91,7 +91,7 @@ class VideoParser:
             logger.info(f"解析成功: 类型=bangumi, ID=ep{ep_id}")
             return {"type": "bangumi", "id": f"ep{ep_id}", "error": ""}
 
-        # 仅当原始 URL 无法识别时才请求重定向（应对 b23.tv 短链等场景）
+        # 识别不了才请求重定向
         final_url = url
         try:
             import requests
@@ -101,7 +101,7 @@ class VideoParser:
         except Exception as e:
             logger.info(f"获取重定向链接失败: {str(e)}")
 
-        # 重定向后的URL可能也有p=参数，以此为准
+        # 重定向后p参数为准
         p_match_final = re.search(r'[?&]p=(\d+)', final_url)
         if p_match_final:
             page_from_url = int(p_match_final.group(1))
@@ -120,7 +120,7 @@ class VideoParser:
             logger.info(f"解析成功: 类型=space, ID={mid}")
             return {"type": "space", "id": mid, "error": ""}
 
-        # 重定向后再次检测音频链接（短链跳转场景）
+        # 重定向后再测音频
         audio_match2 = re.search(r'audio/au(\d+)', final_url, re.IGNORECASE)
         if audio_match2:
             audio_id = audio_match2.group(1)

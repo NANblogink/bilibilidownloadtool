@@ -24,7 +24,7 @@ QUALITY_MAP = {
     3: "无损 FLAC（大会员）",
 }
 
-# 音质标识映射（返回数据中的type字段）
+# 音质标识映射
 QUALITY_TYPE_MAP = {
     -1: "试听片段（192K）",
     0: "128K",
@@ -98,7 +98,7 @@ class AudioParser:
             resp = self.session.get(url, params=params, timeout=timeout)
             resp.raise_for_status()
             data = resp.json()
-            # 音频API的code字段：0为成功
+            # code为0即成功
             if data.get("code") != 0:
                 error_msg = data.get("msg") or data.get("message") or "未知错误"
                 logger.warning(f"音频API请求失败: {url} -> {error_msg}")
@@ -144,7 +144,7 @@ class AudioParser:
         m = re.search(r'au(\d+)', raw, re.IGNORECASE)
         if m:
             return m.group(1)
-        # 完整URL中的sid参数
+        # URL中的sid参数
         m = re.search(r'[?&]sid=(\d+)', raw)
         if m:
             return m.group(1)
@@ -254,7 +254,7 @@ class AudioParser:
         result = self._get(url, {"sid": sid})
         if not result["success"]:
             return result
-        # data为字符串或null
+        # data可str或null
         lyric = result["data"] or ""
         return {"success": True, "data": lyric}
 
@@ -490,7 +490,7 @@ class AudioParser:
             resp.raise_for_status()
 
             total = int(resp.headers.get('content-length', 0))
-            # 如果是分块响应，尝试从Content-Range获取总大小
+            # 分块则从Content-Range取
             if total == 0 and resp.headers.get('content-range'):
                 try:
                     total = int(resp.headers['content-range'].split('/')[-1])

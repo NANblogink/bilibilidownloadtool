@@ -38,7 +38,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# 尝试导入 scale/scale_style
+# 尝试导入scale
 try:
     from ui import scale, scale_style
 except ImportError:
@@ -63,7 +63,7 @@ class AudioInfoThread(QThread):
                 self.error_occurred.emit(info.get("error", "查询失败"))
                 return
             data = info["data"]
-            # 并发获取TAG、创作成员、收藏/投币状态
+            # 并发取TAG与投币
             tags_result = self.parser.get_song_tags(self.sid)
             members_result = self.parser.get_song_members(self.sid)
             collect_result = self.parser.get_collect_status(self.sid)
@@ -259,7 +259,7 @@ class AudioTab(QWidget):
         self.lyric_thread = None
         self.rank_periods_thread = None
         self.rank_music_thread = None
-        # 当前解析的歌曲信息缓存
+        # 当前歌曲信息缓存
         self._current_song = None
         self._current_stream = None
         # 当前榜单查询状态
@@ -362,7 +362,7 @@ class AudioTab(QWidget):
             dede = cookies.get('DedeUserID', '')
             if dede and str(dede).isdigit():
                 return int(dede)
-        # 兜底从 cookie.txt 取
+        # 兜底从cookie.txt取
         cookies, _ = self._load_cookie_txt()
         dede = cookies.get('DedeUserID', '')
         if dede and str(dede).isdigit():
@@ -417,7 +417,7 @@ class AudioTab(QWidget):
         self.sub_tabs.addTab(self._create_lyric_tab(), "歌词获取")
         self.sub_tabs.addTab(self._create_rank_tab(), "音频榜单")
 
-        # 切换到"音频榜单"子页时自动加载最新一期（仅一次）
+        # 切榜单页自动载一期
         self._rank_auto_loaded = False
         self.sub_tabs.currentChanged.connect(self._on_subtab_changed)
 
@@ -525,7 +525,7 @@ class AudioTab(QWidget):
         self.quality_combo.setMinimumWidth(scale(160))
         self.quality_combo.setMinimumHeight(scale(30))
         self.quality_combo.setStyleSheet(scale_style("padding: 2px 6px;"))
-        # 默认填充web端可用音质（192K）
+        # 默认填web端192K
         self._fill_quality_combo(full=False)
         q_layout.addWidget(self.quality_combo)
 
@@ -620,7 +620,7 @@ class AudioTab(QWidget):
         if full:
             for qn, name in QUALITY_MAP.items():
                 self.quality_combo.addItem(f"{name} (qn={qn})", qn)
-            # 默认选择高品质320K
+            # 默认选320K
             idx = self.quality_combo.findData(2)
             if idx >= 0:
                 self.quality_combo.setCurrentIndex(idx)
@@ -806,9 +806,9 @@ class AudioTab(QWidget):
         self._current_song = data
         self._display_song_info(data)
         self._set_status(f"查询成功：{data.get('title', '')}")
-        # 查询成功后启用获取音频流按钮
+        # 成功后启用取流按钮
         self.get_stream_btn.setEnabled(True)
-        # 自动解析歌词：同步填入歌词子页的au号并触发获取
+        # 自动填au并取歌词
         sid = data.get("id")
         if sid:
             try:
@@ -1115,7 +1115,7 @@ class AudioTab(QWidget):
 
     def _on_lyric_error(self, msg):
         self._set_status(f"歌词获取失败: {msg}")
-        # 自动获取时不弹错误框，避免打断主流程；仅在歌词子页状态栏提示
+        # 自动取不弹框
         if not hasattr(self, '_lyric_auto_silent') or not self._lyric_auto_silent:
             QMessageBox.warning(self, "获取失败", msg)
 
@@ -1127,7 +1127,7 @@ class AudioTab(QWidget):
         raw = self.lyric_au_input.text().strip()
         sid = AudioParser.parse_auid(raw) or str(int(time.time()))
         default_name = f"au{sid}_lyric.lrc"
-        # 默认保存到音频下载目录
+        # 默认存音频目录
         default_dir = ""
         if self.config:
             default_dir = self.config.get_app_setting("audio_last_save_path", "") or \
@@ -1154,7 +1154,7 @@ class AudioTab(QWidget):
         name = self.sub_tabs.tabText(idx)
         if name == "音频榜单" and not self._rank_auto_loaded:
             self._rank_auto_loaded = True
-            # 延迟触发，避免切换动画抢资源
+            # 延迟触发免抢资源
             QTimer.singleShot(100, self._auto_load_latest_rank)
 
     def _auto_load_latest_rank(self):
@@ -1162,11 +1162,11 @@ class AudioTab(QWidget):
         if not self.audio_parser:
             return
         if self.rank_period_combo.count() > 0:
-            # 已有期数，直接加载第0项（最新一期）
+            # 有期数直接加载第0项
             self.rank_period_combo.setCurrentIndex(0)
             self._load_rank_music()
             return
-        # 没有期数，先加载期数，完成后自动加载第0项
+        # 先加载期数再自动加载
         self._rank_auto_load_pending = True
         self._load_rank_periods()
 
@@ -1192,7 +1192,7 @@ class AudioTab(QWidget):
         if not periods:
             self.rank_status.setText("暂无榜单数据")
             return
-        # 按年份倒序，期数倒序填充
+        # 按年份与期数倒序
         for year in sorted(periods.keys(), reverse=True):
             year_items = sorted(periods[year], key=lambda x: x.get("period", 0), reverse=True)
             for item in year_items:
@@ -1209,7 +1209,7 @@ class AudioTab(QWidget):
                     label += f" ({pub_str})"
                 self.rank_period_combo.addItem(label, item.get("id"))
         self.rank_status.setText(f"已加载 {self.rank_period_combo.count()} 期榜单，请选择期数后加载内容")
-        # 自动加载衔接：期数加载完成后自动加载第0项（最新一期）
+        # 期数完后载第0项
         if getattr(self, '_rank_auto_load_pending', False):
             self._rank_auto_load_pending = False
             if self.rank_period_combo.count() > 0:
@@ -1240,9 +1240,9 @@ class AudioTab(QWidget):
 
     def _on_music_list_ready(self, items):
         self.rank_table.setRowCount(0)
-        # 保存全量数据用于搜索过滤
+        # 保存全量供搜索
         self._rank_all_items = list(items or [])
-        # 重置搜索框（不触发过滤循环）
+        # 重置搜索框防循环
         if hasattr(self, 'rank_search_input'):
             self.rank_search_input.blockSignals(True)
             self.rank_search_input.clear()
@@ -1276,7 +1276,7 @@ class AudioTab(QWidget):
                 if col == 0:
                     cell.setTextAlignment(Qt.AlignCenter)
                 self.rank_table.setItem(row, col, cell)
-            # 保存完整对象供右键菜单使用
+            # 存对象供右键菜单
             self.rank_table.item(row, 0).setData(Qt.UserRole, item)
 
     def _filter_rank_table(self):
@@ -1338,7 +1338,7 @@ class AudioTab(QWidget):
             if url:
                 webbrowser.open(url)
         elif action == act_query_audio:
-            # 切到歌曲解析子页并填入歌曲标题（用户可手动确认）
+            # 切歌曲页填入标题
             self.sub_tabs.setCurrentIndex(0)
             self.au_input.setFocus()
             self.au_input.setText(title)

@@ -35,7 +35,7 @@ except Exception as e:
 try:
     from platform_utils import IS_WINDOWS, exe, subprocess_no_window_kwargs, subprocess_low_priority_kwargs
 except ImportError:
-    # 兜底：绝不能硬设 IS_WINDOWS=True，否则 Linux/macOS 会误走 Windows 分支
+    # 不能硬设IS_WINDOWS为真
     IS_WINDOWS = sys.platform == 'win32'
 
     def exe(name):
@@ -68,7 +68,7 @@ def _find_ffmpeg():
                   os.path.join(base, '_internal')]:
             p = os.path.join(d, exe('ffmpeg'))
             if os.path.exists(p): return p
-    # 源码运行：项目根（本文件位于 parsers/，根在其上一级）
+    # 项目根在上一级
     root_dir = _pathsetup.project_root()
     for d in [os.path.join(root_dir, 'ffmpeg'), os.path.join(root_dir, 'ffmpeg', 'bin'), root_dir]:
         p = os.path.join(d, exe('ffmpeg'))
@@ -689,8 +689,8 @@ class StreamPlayerDialog(QDialog):
         self._container = None
         self._resize_timer = None
         self._embed_try = 0
-        self._stream_info = {}  # 存储从mpv日志解析的流数据
-        self._lua_script_path = None  # Lua脚本临时文件路径
+        self._stream_info = {}  # 存mpv日志解析的流
+        self._lua_script_path = None  # Lua脚本临时路径
 
         self._setup_win()
         self._init_ui()
@@ -755,7 +755,7 @@ class StreamPlayerDialog(QDialog):
         tl.addWidget(self.dl_btn)
         main_layout.addWidget(toolbar)
 
-        # 播放容器（黑色背景，mpv 嵌入到这里）
+        # 播放容器，mpv嵌入
         self._player_frame = QFrame()
         self._player_frame.setStyleSheet(scale_style("QFrame{background:#000;border-radius:4px;}"))
         pl = QVBoxLayout(self._player_frame); pl.setContentsMargins(0, 0, 0, 0)
@@ -800,11 +800,11 @@ class StreamPlayerDialog(QDialog):
         fmt = _detect_stream_format(url)
         self.format_label.setText(fmt)
 
-        # 确保容器背景为黑色（避免透明背景导致嵌入异常）
+        # 容器背景须为黑色
         if self._container:
             self._container.setStyleSheet("background:#000;")
 
-        # 强制 layout 完成，确保容器可见且有尺寸
+        # 强制布局确保可见
         from PyQt5.QtWidgets import QApplication
         for _ in range(6):
             QApplication.processEvents()
@@ -822,7 +822,7 @@ class StreamPlayerDialog(QDialog):
         logger.info("未找到 mpv，回退 ffplay")
         self._play_ffplay_fallback(url)
 
-    # 用于外部设置刷新URL的回调（live_tab 调用 set_url_refresher）
+    # 外部刷新URL的回调
     _url_refresher = None
 
     def set_url_refresher(self, callback):
@@ -843,7 +843,7 @@ class StreamPlayerDialog(QDialog):
 
     def _find_mpv(self):
         """查找 mpv 可执行文件（按当前平台的可执行名查找）"""
-        # 项目根（本文件位于 parsers/，根在其上一级）
+        # 项目根在上一级
         root_dir = _pathsetup.project_root()
         for d in [os.path.join(root_dir, 'mpv'),
                   os.path.join(root_dir, 'ffmpeg')]:
@@ -851,9 +851,9 @@ class StreamPlayerDialog(QDialog):
             if os.path.exists(p): return p
         if getattr(sys, 'frozen', False):
             base = os.path.dirname(sys.executable)
-            # 精简包/PyInstaller 把 mpv 放在 _internal/mpv/ 下，
-            # 历史实现只查 base、base/_internal、base/mpv 三处，
-            # 全都命中不到 _internal/mpv/，导致 mpv 明明在却回退到 ffplay。
+            # 精简包把mpv放_internal
+            # 旧实现只查三处
+            # 都命不中致回退ffplay
             for d in [base,
                       os.path.join(base, '_internal'),
                       os.path.join(base, 'mpv'),
@@ -881,10 +881,10 @@ class StreamPlayerDialog(QDialog):
             return
 
         wid = int(self._container.winId())
-        # 用 --wid=value 格式（Windows上更可靠）
-        # --force-window=yes 确保有窗口但不抢焦点
+        # 用--wid更可靠
+        # 确保有窗口不抢焦点
 
-        # 创建 Lua 脚本用于获取详细流数据
+        # 建Lua脚本取流数据
         if self._lua_script_path and os.path.exists(self._lua_script_path):
             try:
                 os.unlink(self._lua_script_path)
@@ -933,7 +933,7 @@ class StreamPlayerDialog(QDialog):
                 last = '\n'.join(lines[-15:]) if lines else '(无输出)'
                 logger.warning(f"[mpv] 已退出! code={ret} 最后输出:\n{last}")
 
-                # 如果是URL过期(404)且还有重试次数，自动重试
+                # 404且有余次则自动重试
                 if retry_count < 2 and ret != 0:
                     any_404 = any('404' in l for l in lines[-10:])
                     any_failed = any('loading failed' in l or 'Failed to open' in l for l in lines[-10:])
@@ -943,7 +943,7 @@ class StreamPlayerDialog(QDialog):
                         QTimer.singleShot(1000, lambda: self._play_mpv(url, mpv_exe, retry_count+1))
                         return
 
-                # 重试耗尽或非网络错误，回退 ffplay
+                # 耗尽或非网络错则回退
                 if ret != 0 and retry_count >= 2:
                     logger.error("[mpv] 多次失败，回退 ffplay")
                     self.status_label.setText("mpv 播放失败，尝试外部播放...")
@@ -955,7 +955,7 @@ class StreamPlayerDialog(QDialog):
                 proc = getattr(self, '_player_proc', None)
                 if not proc: return
                 if proc.poll() is not None:
-                    # mpv 快速退出，日志线程会处理重试逻辑
+                    # mpv快退日志线程处理重试
                     pass
                 else:
                     self.status_label.setText("正在播放 (mpv)")
@@ -1017,7 +1017,7 @@ class StreamPlayerDialog(QDialog):
                 try:
                     proc.wait(timeout=2)
                 except Exception:
-                    # 2秒后不退出再强制终止
+                    # 2秒未退则强制终止
                     if IS_WINDOWS:
                         subprocess.call(['taskkill', '/F', '/T', '/PID', str(pid)],
                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
@@ -1030,7 +1030,7 @@ class StreamPlayerDialog(QDialog):
                 except Exception:
                     pass
             self._player_proc = None
-        # 清理 Lua 脚本临时文件
+        # 清理Lua临时文件
         if self._lua_script_path and os.path.exists(self._lua_script_path):
             try:
                 os.unlink(self._lua_script_path)
@@ -1097,7 +1097,7 @@ end)
     def _parse_mpv_line(self, line):
         """从 mpv 日志行中解析流数据"""
 
-        # 1) Lua 脚本输出的 TRACK 数据（JSON格式，最详细）
+        # 1) TRACK数据最详细
         if 'STREAM_TRACK:' in line:
             try:
                 json_str = line.split('STREAM_TRACK:', 1)[1].strip()
@@ -1137,7 +1137,7 @@ end)
                 logger.debug(f"解析 STREAM_TRACK 失败: {e}")
             return
 
-        # 2) Lua 脚本输出的 EXTRA 数据
+        # 2) EXTRA数据
         if 'STREAM_EXTRA:' in line:
             try:
                 json_str = line.split('STREAM_EXTRA:', 1)[1].strip()
@@ -1150,7 +1150,7 @@ end)
                 logger.debug(f"解析 STREAM_EXTRA 失败: {e}")
             return
 
-        # 3) Lua 脚本输出的实时数据
+        # Lua的实时数据
         if 'STREAM_LIVE:' in line:
             try:
                 json_str = line.split('STREAM_LIVE:', 1)[1].strip()
@@ -1166,9 +1166,9 @@ end)
                 logger.debug(f"解析 STREAM_LIVE 失败: {e}")
             return
 
-        # 4) 常规日志解析（作为补充）
+        # 常规日志解析作补充
 
-        # AO: [wasapi] 48000Hz stereo 2ch floatp
+        # AO: wasapi 48000Hz
         m = re.match(r'AO:\s+\[(\w+)\]\s+(\d+)Hz\s+(\w+)\s+(\d+)ch', line)
         if m:
             self._stream_info['ao_driver'] = m.group(1)
@@ -1177,7 +1177,7 @@ end)
             self._stream_info['ao_channels_num'] = int(m.group(4))
             return
 
-        # VO: [gpu] 1920x1080 gpu
+        # gpu视频输出行
         m = re.match(r'VO:\s+\[(\w+)\]\s+(\d+)x(\d+)', line)
         if m:
             self._stream_info['vo_driver'] = m.group(1)
@@ -1185,7 +1185,7 @@ end)
             self._stream_info['vo_height'] = int(m.group(3))
             return
 
-        # HTTP Host header
+        # HTTP Host头
         m = re.match(r'.*Host:\s+(.*)', line, re.IGNORECASE)
         if m and 'stream_host' not in self._stream_info:
             self._stream_info['stream_host'] = m.group(1).strip()
@@ -1195,12 +1195,12 @@ end)
         if m and 'mime_type' not in self._stream_info:
             self._stream_info['mime_type'] = m.group(1).strip()
 
-        # Server header (encoder info)
+        # Server头编码器信息
         m = re.match(r'.*[Ss]erver:\s+(.*)', line)
         if m and 'server' not in self._stream_info:
             self._stream_info['server'] = m.group(1).strip()
 
-        # cache / buffer
+        # cache与buffer
         m = re.match(r'.*[Cc]ache:\s+(.*)', line)
         if m:
             self._stream_info['cache'] = m.group(1).strip()
@@ -1276,7 +1276,7 @@ end)
             """截断媒体标题，只保留文件名部分"""
             if not title:
                 return ''
-            # 如果是URL，只取路径部分（去掉查询参数）
+            # 是URL则只取路径
             if '?' in title:
                 title = title.split('?', 1)[0]
             if '/' in title:
@@ -1335,7 +1335,7 @@ end)
 
         origin_bitrate = _extract_url_param(current_url, 'origin_bitrate')
         if origin_bitrate:
-            fb = _fmt_bitrate(float(origin_bitrate) * 1000)  # URL中的单位是Kbps
+            fb = _fmt_bitrate(float(origin_bitrate) * 1000)  # URL单位是Kbps
             if fb:
                 lines.append(f"  源流码率: {fb}")
 
@@ -1668,7 +1668,7 @@ end)
         fmt = "hls" if is_hls else "direct"
         self._set_download_buttons_enabled(False); self.dl_bar.show(); self.dl_bar.setValue(0)
 
-        # 使用 LiveRecordThread（支持URL刷新、暂停、持续录制）
+        # 用LiveRecordThread
         self.download_thread = LiveRecordThread(
             stream_url=url,
             output_path=save_path,
@@ -1684,7 +1684,7 @@ end)
         self.download_thread.error_occurred.connect(self._dl_err_sig.emit)
         self.download_thread.start()
 
-        # 注册到主窗口的录播工具托盘
+        # 注册录播托盘会话
         self._register_to_recording_tray(save_path)
 
     def _register_to_recording_tray(self, save_path):
