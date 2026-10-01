@@ -136,8 +136,8 @@ def _interp_arch():
     if bits == 32:
         #32位随CPU家族
         #x86与WoW64
-        #ARM64的32位x86
-        #ARMv7的32位armv7
+        #ARM64:32位
+        #ARMv7:32位v7
         if cpu in ('armv7', 'arm'):
             return 'armv7'
         return 'x86'
@@ -265,7 +265,7 @@ def _arch_rank(platform_field):
             return 100                  # 完全匹配
         if arch_w == want:
             return 100
-        #wheel经WoW64
+        #wheel:WoW64
         if ia == 'x86_64' and arch_w == 'x86' and bits_w == 32:
             return 40
         #ARM64可跑x64

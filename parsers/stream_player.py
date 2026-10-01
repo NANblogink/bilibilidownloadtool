@@ -851,7 +851,7 @@ class StreamPlayerDialog(QDialog):
             if os.path.exists(p): return p
         if getattr(sys, 'frozen', False):
             base = os.path.dirname(sys.executable)
-            #mpv放_internal
+            #mpv放int
             # 旧实现只查三处
             # 不中回退ffplay
             for d in [base,

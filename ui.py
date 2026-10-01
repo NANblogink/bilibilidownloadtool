@@ -4078,7 +4078,7 @@ class BaseWindow(QMainWindow):
         super().__init__(parent)
 
         #Frameless
-        #加三ButtonHint
+        #ButtonHint
         self.setWindowFlags(
             Qt.FramelessWindowHint | Qt.Window |
             Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint | Qt.WindowCloseButtonHint

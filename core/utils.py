@@ -14,7 +14,7 @@ class HEVCCheckThread(QThread):
     def run(self):
         # HEVC扩展Win
         # macOS原生支持
-        #Linux由codec提供
+        #Linux:codec
         # 这两平台直接判支持
         if IS_MACOS or IS_LINUX:
             self.result_signal.emit(True)

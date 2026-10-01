@@ -143,7 +143,7 @@ def install_tools_from_cdn(dest_dir, need_ffmpeg=True, need_bento4=True, progres
         if need_ffmpeg:
             update(30, "正在从网络下载 FFmpeg...")
             ffmpeg_url = get_cdn_url('ffmpeg')
-            #Linux静态tar.xz
+            #Linux:tar.xz
             # 扩展名不匹配会失败
             _ff_ext = '.tar.xz' if ffmpeg_url.lower().endswith(('.tar.xz', '.txz')) else '.zip'
             ffmpeg_archive = os.path.join(temp_dir, 'ffmpeg' + _ff_ext)
