@@ -18227,7 +18227,10 @@ class BilibiliDownloader(BaseWindow):
         _vcard.addLayout(info_layout)
         self._video_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         video_layout.addWidget(self._video_card)
-        video_layout.addStretch(1)
+
+        # 已解析视频卡片区：占据下方空白；空间不足自动收起
+        self.parsed_card_panel = self._build_parsed_card_panel()
+        video_layout.addWidget(self.parsed_card_panel, stretch=1)
         
         quality_layout = QHBoxLayout()
         quality_layout.setSpacing(scale(12))
@@ -24096,6 +24099,30 @@ class BilibiliDownloader(BaseWindow):
             self._set_download_buttons_enabled(True)
             self.cancel_btn.setEnabled(True)
             select_episode_btn.setEnabled(True)
+
+            # 下方空白区渲染已解析视频卡片
+            try:
+                _cards_eps = []
+                if video_info.get("is_bangumi") and video_info.get("bangumi_info"):
+                    _cards_eps = video_info["bangumi_info"].get("episodes", []) or []
+                elif video_info.get("is_cheese") and video_info.get("cheese_info"):
+                    _cards_eps = video_info["cheese_info"].get("episodes", []) or []
+                if not _cards_eps:
+                    _cards_eps = (video_info.get("episodes")
+                                  or video_info.get("collection") or [])
+                if not _cards_eps:
+                    # 单视频：用主视频信息造一张卡
+                    _cards_eps = [{
+                        "title": video_info.get("title", ""),
+                        "cover": cover_url or video_info.get("pic", ""),
+                        "duration": video_info.get("duration", 0),
+                    }]
+                elif len(_cards_eps) > 60:
+                    # 太多只铺前 60 张，避免卡顿
+                    _cards_eps = list(_cards_eps)[:60]
+                self.populate_parsed_cards(_cards_eps)
+            except Exception as _ce:
+                logger.debug(f"渲染解析卡片失败：{_ce}")
             
             if hasattr(self, 'save_main_cover_btn'):
                 self.save_main_cover_btn.setEnabled(True)
@@ -26283,6 +26310,255 @@ class BilibiliDownloader(BaseWindow):
 
         # 更新状态标签
         self.status_label.setText("下载窗口已关闭，可重新开始下载")
+
+    def _build_parsed_card_panel(self):
+        """已解析视频的卡片区（主窗口版）。
+
+        放在视频信息卡下方，占据原先是空白的区域。
+        窗口高度不足时整体收起，不挤压上面的控件。
+        """
+        panel = QWidget()
+        panel.setObjectName("parsedCardPanel")
+        v = QVBoxLayout(panel)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(scale(8))
+
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
+        head.setSpacing(scale(8))
+        _icon = QLabel()
+        _icon.setFixedSize(scale(15), scale(15))
+        _icon.setScaledContents(True)
+        try:
+            _pm = _task_icon_pixmap("list_video", scale(15), "#64748b")
+            if not _pm.isNull():
+                _icon.setPixmap(_pm)
+        except Exception:
+            pass
+        head.addWidget(_icon)
+
+        _t = QLabel("已解析视频")
+        _t.setStyleSheet(scale_style(
+            "font-size: 14px; font-weight: 600; color: #334155;"))
+        head.addWidget(_t)
+
+        self.parsed_count_label = QLabel("")
+        self.parsed_count_label.setStyleSheet(scale_style(
+            "font-size: 12px; color: #94a3b8;"))
+        head.addWidget(self.parsed_count_label)
+        head.addStretch(1)
+
+        self.parsed_select_all_btn = QPushButton("全选")
+        self.parsed_select_all_btn.setCursor(Qt.PointingHandCursor)
+        self.parsed_select_all_btn.setStyleSheet(scale_style(
+            "QPushButton { background: #f1f5f9; color: #475569;"
+            " border: 1px solid #e2e8f0; padding: 3px 12px; font-size: 12px; }"
+            "QPushButton:hover { background: #e2e8f0; color: #1e293b; }"))
+        _fit_button_height(self.parsed_select_all_btn)
+        self.parsed_select_all_btn.clicked.connect(
+            lambda: self._set_all_parsed_cards(True))
+        head.addWidget(self.parsed_select_all_btn)
+
+        self.parsed_select_none_btn = QPushButton("全不选")
+        self.parsed_select_none_btn.setCursor(Qt.PointingHandCursor)
+        self.parsed_select_none_btn.setStyleSheet(
+            self.parsed_select_all_btn.styleSheet())
+        _fit_button_height(self.parsed_select_none_btn)
+        self.parsed_select_none_btn.clicked.connect(
+            lambda: self._set_all_parsed_cards(False))
+        head.addWidget(self.parsed_select_none_btn)
+        v.addLayout(head)
+
+        self.parsed_card_scroll = QScrollArea()
+        self.parsed_card_scroll.setWidgetResizable(True)
+        self.parsed_card_scroll.setFrameShape(QFrame.NoFrame)
+        self.parsed_card_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.parsed_card_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.parsed_card_scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }")
+        self.parsed_card_scroll.setMinimumHeight(scale(150))
+
+        self.parsed_card_host = QWidget()
+        self.parsed_card_layout = QHBoxLayout(self.parsed_card_host)
+        self.parsed_card_layout.setContentsMargins(scale(2), scale(2), scale(2), scale(2))
+        self.parsed_card_layout.setSpacing(scale(10))
+        self.parsed_card_layout.addStretch(1)
+        self.parsed_card_scroll.setWidget(self.parsed_card_host)
+        v.addWidget(self.parsed_card_scroll, stretch=1)
+
+        self._parsed_cards = []
+        panel.hide()
+        return panel
+
+    def _set_all_parsed_cards(self, checked):
+        for c in getattr(self, "_parsed_cards", []):
+            try:
+                c["check"].setChecked(checked)
+            except Exception:
+                pass
+
+    def _on_parsed_card_toggled(self, *_a):
+        _n = sum(1 for c in getattr(self, "_parsed_cards", [])
+                 if c["check"].isChecked())
+        try:
+            self.parsed_count_label.setText(
+                "已选 %d / %d" % (_n, len(self._parsed_cards)))
+        except Exception:
+            pass
+
+    def _clear_parsed_cards(self):
+        try:
+            while self.parsed_card_layout.count() > 1:
+                item = self.parsed_card_layout.takeAt(0)
+                w = item.widget()
+                if w is not None:
+                    w.setParent(None)
+                    w.deleteLater()
+        except Exception:
+            pass
+        self._parsed_cards = []
+        try:
+            self.parsed_count_label.setText("")
+        except Exception:
+            pass
+
+    def populate_parsed_cards(self, episodes):
+        """按解析结果生成卡片。episodes 为 [{title, cover, duration, ...}]。"""
+        try:
+            self._clear_parsed_cards()
+            if not episodes:
+                self.parsed_card_panel.hide()
+                return
+            for _i, _ep in enumerate(episodes):
+                _card = self._make_parsed_card(_ep, _i)
+                if _card is None:
+                    continue
+                self.parsed_card_layout.insertWidget(
+                    self.parsed_card_layout.count() - 1, _card)
+                self._parsed_cards.append(
+                    {"check": _card.property("_check"), "ep": _ep, "index": _i})
+            self._on_parsed_card_toggled()
+            self.parsed_card_panel.show()
+            QTimer.singleShot(0, self._update_parsed_card_visibility)
+        except Exception as e:
+            logger.debug(f"生成解析卡片失败：{e}")
+
+    def _make_parsed_card(self, ep, index):
+        """单张卡片：封面 + 标题 + 时长 + 勾选框"""
+        card = QFrame()
+        card.setObjectName("parsedCard")
+        card.setFixedWidth(scale(160))
+        card.setStyleSheet(scale_style(
+            "QFrame#parsedCard { background: #ffffff; border: 1px solid #e6eaf2; }"
+            "QFrame#parsedCard:hover { border: 1px solid #93c5fd; }"))
+        cv = QVBoxLayout(card)
+        cv.setContentsMargins(scale(7), scale(7), scale(7), scale(7))
+        cv.setSpacing(scale(5))
+
+        cover = QLabel()
+        cover.setFixedHeight(scale(78))
+        cover.setAlignment(Qt.AlignCenter)
+        cover.setStyleSheet(scale_style(
+            "background: #f1f5f9; color: #94a3b8; font-size: 12px;"))
+        _url = (ep.get("cover") or ep.get("pic") or "")
+        cover.setText("加载中" if _url else "暂无封面")
+        cv.addWidget(cover)
+        if _url:
+            try:
+                self._load_cover_async(cover, _url)
+            except Exception:
+                cover.setText("暂无封面")
+
+        _title = ep.get("title") or ep.get("ep_title") or ep.get("part") or ""
+        _title = _title or ("第%d集" % (index + 1))
+        t = QLabel(_title)
+        t.setWordWrap(True)
+        t.setFixedHeight(scale(36))
+        t.setToolTip(_title)
+        t.setStyleSheet(scale_style(
+            "font-size: 12px; color: #334155; border: none; background: transparent;"))
+        cv.addWidget(t)
+
+        foot = QHBoxLayout()
+        foot.setContentsMargins(0, 0, 0, 0)
+        foot.setSpacing(scale(4))
+        dl = QLabel(_ft_fmt_duration(ep.get("duration") or 0))
+        dl.setStyleSheet(scale_style(
+            "font-size: 11px; color: #94a3b8; border: none; background: transparent;"))
+        foot.addWidget(dl)
+        foot.addStretch(1)
+        chk = QCheckBox()
+        chk.setChecked(True)
+        chk.setCursor(Qt.PointingHandCursor)
+        chk.toggled.connect(self._on_parsed_card_toggled)
+        foot.addWidget(chk)
+        cv.addLayout(foot)
+
+        card.setProperty("_check", chk)
+        return card
+
+    def _update_parsed_card_visibility(self):
+        """窗口高度不足时自动收起卡片区，避免挤压上面的控件。"""
+        try:
+            if not getattr(self, "_parsed_cards", None):
+                try:
+                    self.parsed_card_panel.hide()
+                except Exception:
+                    pass
+                return
+            _h = int(self.height() or 0)
+            if _h <= 0:
+                try:
+                    _h = int(self.window().height() or 0)
+                except Exception:
+                    _h = 0
+            # 拿不到高度就不误伤，直接显示
+            _ok = _h <= 0 or _h >= scale(560)
+            self.parsed_card_panel.setVisible(_ok)
+        except Exception:
+            pass
+
+    def _load_cover_async(self, label, url):
+        """后台线程下载封面并贴到 QLabel 上。"""
+        def _work():
+            try:
+                import requests as _rq
+                r = _rq.get(url, timeout=10, headers={
+                    "User-Agent": "Mozilla/5.0",
+                    "Referer": "https://www.bilibili.com/"})
+                if r.status_code == 200 and r.content:
+                    pm = QPixmap()
+                    if pm.loadFromData(r.content):
+                        return pm.scaled(
+                            scale(146), scale(78),
+                            Qt.KeepAspectRatioByExpanding,
+                            Qt.SmoothTransformation)
+            except Exception:
+                pass
+            return None
+
+        def _done(pm):
+            try:
+                if pm is not None and not pm.isNull():
+                    label.setPixmap(pm)
+                    label.setText("")
+                else:
+                    label.setText("暂无封面")
+            except Exception:
+                pass
+
+        try:
+            th = _CoverFetchThread(_work, self)
+            th.done.connect(_done)
+            th.start()
+            if not hasattr(self, "_cover_threads"):
+                self._cover_threads = []
+            self._cover_threads.append(th)
+            if len(self._cover_threads) > 40:
+                self._cover_threads = self._cover_threads[-20:]
+        except Exception:
+            label.setText("暂无封面")
+
 
     def _set_download_buttons_enabled(self, enabled):
         """统一启用/禁用主窗口的三个下载按钮"""
