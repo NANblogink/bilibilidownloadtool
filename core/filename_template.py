@@ -3,24 +3,27 @@
 
 提供统一的文件名模板渲染，替代原先散落在下载器里的多分支硬编码逻辑。
 
-模板变量（不区分大小写，用 {变量} 引用）：
-    {title}      视频标题（合集/分P标题，已按 raw_title 规则清洗）
-    {ep}         集数序号，不带前导零（1、2、10）
-    {ep2}        集数序号，两位补零（01、02、10）
-    {ep3}        集数序号，三位补零（001、002、010）
-    {ep4}        集数序号，四位补零
-    {seq}        批次序号，按「文件名序号位数」设置补零（默认两位）
-    {author}     UP主名
-    {season}     合集 / 番剧 / 课程标题
-    {bvid}       视频 BV 号（课程无 BV 号时为空）
-    {cid}        视频 cid
-    {date}       当前日期 YYYY-MM-DD
-    {time}       当前时间 HH.MM.SS（用点号，避免冒号在文件名非法）
-    {type}       媒体类型：普通视频 / 番剧 / 课程 / 互动视频
+模板变量用 {变量} 引用，变量名支持中文，也兼容旧的英文名：
+
+    {标题}      视频标题（合集/分P标题，已按 raw_title 规则清洗）
+    {集数}      集数，不带前导零（1、2、10）
+    {集数2}     集数，两位补零（01、02、10）
+    {集数3}     集数，三位补零（001、002、010）
+    {序号}      批次序号，按「文件名序号位数」设置补零（默认两位）
+    {UP主}      UP主名
+    {合集}      合集 / 番剧 / 课程标题
+    {BV号}      视频 BV 号（课程无 BV 号时为空）
+    {cid}       视频 cid
+    {日期}      当前日期 2026-10-01
+    {时间}      当前时间 19.04.52（用点号，避免冒号在文件名非法）
+    {类型}      媒体类型：普通视频 / 番剧 / 课程 / 互动视频
+
+旧的英文变量名（title/ep/ep2/ep3/seq/author/season/bvid/date/time/type）
+仍然可用，效果完全相同，已有配置不会失效。
 
 空变量处理：
     {a}-{b} 这种写法在某一段为空时会留下多余分隔符，因此渲染后统一
-    清理连续分隔符、首尾分隔符。可用 {a?}{b} 形式显式控制。
+    清理连续分隔符、首尾分隔符与空括号。
 
 非法字符：
     渲染结果中的 Windows 非法字符会被替换为下划线。
@@ -33,34 +36,52 @@ import time as _time
 MAX_NAME_LEN = 200
 
 # 未渲染成功时的兜底模板
-FALLBACK_TEMPLATE = "{title}"
+FALLBACK_TEMPLATE = "{标题}"
 
-# 变量说明，供设置界面展示
+# 变量说明，供设置界面展示。第一项为中文名（按钮显示），
+# 第二项为英文别名（兼容旧配置，不显示在按钮上）。
 TEMPLATE_VARS = [
-    ("{title}", "视频标题"),
-    ("{ep}", "集数（1、2、10）"),
-    ("{ep2}", "集数两位补零（01）"),
-    ("{ep3}", "集数三位补零（001）"),
-    ("{seq}", "批次序号（按序号位数设置）"),
-    ("{author}", "UP主名"),
-    ("{season}", "合集/番剧/课程标题"),
-    ("{bvid}", "BV号"),
-    ("{cid}", "cid"),
-    ("{date}", "日期 2026-10-01"),
-    ("{time}", "时间 19.04.52"),
-    ("{type}", "类型（普通视频/番剧/课程）"),
+    ("{标题}", "视频标题"),
+    ("{集数}", "集数（1、2、10）"),
+    ("{集数2}", "集数两位补零（01）"),
+    ("{集数3}", "集数三位补零（001）"),
+    ("{序号}", "批次序号（按序号位数设置）"),
+    ("{UP主}", "UP主名"),
+    ("{合集}", "合集/番剧/课程标题"),
+    ("{BV号}", "BV号"),
+    ("{cid}", "视频 cid"),
+    ("{日期}", "日期 2026-10-01"),
+    ("{时间}", "时间 19.04.52"),
+    ("{类型}", "类型（普通视频/番剧/课程）"),
 ]
+
+# 英文别名 -> 中文主名。旧配置里的英文变量仍可正常渲染。
+VAR_ALIASES = {
+    "title": "标题",
+    "ep": "集数",
+    "ep2": "集数2",
+    "ep3": "集数3",
+    "ep4": "集数4",
+    "seq": "序号",
+    "author": "UP主",
+    "season": "合集",
+    "bvid": "BV号",
+    "cid": "cid",
+    "date": "日期",
+    "time": "时间",
+    "type": "类型",
+}
 
 # 预设模板，设置界面下拉可直接选
 PRESET_TEMPLATES = [
-    ("默认（集数前缀）", "{title}"),
-    ("序号 + 标题", "{seq} {title}"),
-    ("标题 + 序号", "{title}_{seq}"),
-    ("UP主 + 标题", "[{author}] {title}"),
-    ("合集 + 集数 + 标题", "{season}_{ep2}_{title}"),
-    ("集数 + UP主 + 标题", "{ep2}_{author}_{title}"),
-    ("日期 + 标题", "{date}_{title}"),
-    ("原样（不加工）", "{title}"),
+    ("默认（集数前缀）", "{标题}"),
+    ("序号 + 标题", "{序号} {标题}"),
+    ("标题 + 序号", "{标题}_{序号}"),
+    ("UP主 + 标题", "[{UP主}] {标题}"),
+    ("合集 + 集数 + 标题", "{合集}_{集数2}_{标题}"),
+    ("集数 + UP主 + 标题", "{集数2}_{UP主}_{标题}"),
+    ("日期 + 标题", "{日期}_{标题}"),
+    ("原样（不加工）", "{标题}"),
 ]
 
 # 各资源类型对应的设置项名。视频以外的资源可各自单独设置模板，
@@ -183,20 +204,24 @@ def build_context(title="", ep=None, seq=None, seq_digits=2, author="",
         except (TypeError, ValueError):
             ep_digits = 2
     ctx = {
-        "title": str(title or "").strip(),
-        "ep": _pad(ep, 0) if ep is not None else "",
-        "ep2": _pad(ep, 2) if ep is not None else "",
-        "ep3": _pad(ep, 3) if ep is not None else "",
-        "ep4": _pad(ep, 4) if ep is not None else "",
-        "seq": _pad(seq, ep_digits) if seq is not None else "",
-        "author": str(author or "").strip(),
-        "season": str(season or "").strip(),
-        "bvid": str(bvid or "").strip(),
+        "标题": str(title or "").strip(),
+        "集数": _pad(ep, 0) if ep is not None else "",
+        "集数2": _pad(ep, 2) if ep is not None else "",
+        "集数3": _pad(ep, 3) if ep is not None else "",
+        "集数4": _pad(ep, 4) if ep is not None else "",
+        "序号": _pad(seq, ep_digits) if seq is not None else "",
+        "UP主": str(author or "").strip(),
+        "合集": str(season or "").strip(),
+        "BV号": str(bvid or "").strip(),
         "cid": str(cid or "").strip(),
-        "date": _time.strftime("%Y-%m-%d", _now),
-        "time": _time.strftime("%H.%M.%S", _now),
-        "type": type_map.get(str(media_type or "").strip().lower(), ""),
+        "日期": _time.strftime("%Y-%m-%d", _now),
+        "时间": _time.strftime("%H.%M.%S", _now),
+        "类型": type_map.get(str(media_type or "").strip().lower(), ""),
     }
+    # 英文别名指向同一份值，兼容旧配置
+    for _en, _cn in VAR_ALIASES.items():
+        if _cn in ctx:
+            ctx[_en] = ctx[_cn]
     return ctx
 
 
@@ -261,7 +286,9 @@ def render_template(template, context, strict=False):
         rendered = rendered[:MAX_NAME_LEN].rstrip(" _-.")
     if not rendered:
         # 全部变量为空时给一个可用兜底
-        rendered = sanitize_filename(str((context or {}).get("title") or "")) or "未命名"
+        rendered = sanitize_filename(
+            str((context or {}).get("标题") or (context or {}).get("title") or "")
+        ) or "未命名"
     return rendered
 
 
@@ -273,7 +300,9 @@ def validate_template(template):
     if not template or not str(template).strip():
         return True, ""  # 空模板按默认处理
     t = str(template)
+    # 中文主名 + 英文别名都算合法
     known = {k.strip("{}") for k, _ in TEMPLATE_VARS}
+    known |= set(VAR_ALIASES.keys())
     # 检查花括号是否配对
     depth = 0
     for ch in t:

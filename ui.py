@@ -31005,7 +31005,7 @@ class BilibiliDownloader(BaseWindow):
 
         filename_template_edit = QLineEdit()
         filename_template_edit.setMinimumHeight(scale(26))
-        filename_template_edit.setPlaceholderText("留空 = 使用默认命名；点下方变量即可插入")
+        filename_template_edit.setPlaceholderText("留空 = 使用默认命名；点下方按钮插入变量")
         filename_template_edit.setText(
             str(self.config.get_app_setting("filename_template", "") or ""))
         filename_template_edit.setToolTip(
