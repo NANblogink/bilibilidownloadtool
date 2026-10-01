@@ -63,6 +63,65 @@ PRESET_TEMPLATES = [
     ("原样（不加工）", "{title}"),
 ]
 
+# 各资源类型对应的设置项名。视频以外的资源可各自单独设置模板，
+# 留空时回退到视频模板，再留空则用内置默认命名。
+ASSET_SETTING_KEYS = {
+    "video": "filename_template",
+    "audio": "filename_template_audio",
+    "danmaku": "filename_template_danmaku",
+    "subtitle": "filename_template_subtitle",
+    "cover": "filename_template_cover",
+}
+
+# 资源类型显示名，供设置界面使用
+ASSET_LABELS = {
+    "video": "视频",
+    "audio": "音频",
+    "danmaku": "弹幕",
+    "subtitle": "字幕",
+    "cover": "封面",
+}
+
+
+def get_asset_template(config, asset="video"):
+    """读取某资源类型的模板。
+
+    回退顺序：该资源专属模板 -> 视频模板 -> 空串（表示走内置默认命名）。
+    """
+    if config is None:
+        return ""
+    key = ASSET_SETTING_KEYS.get(asset, "filename_template")
+    try:
+        tpl = config.get_app_setting(key, "") or ""
+    except Exception:
+        tpl = ""
+    if str(tpl).strip():
+        return str(tpl).strip()
+    # 音频/弹幕/字幕/封面未单独设置时，沿用视频模板
+    if asset != "video":
+        try:
+            base = config.get_app_setting("filename_template", "") or ""
+        except Exception:
+            base = ""
+        if str(base).strip():
+            return str(base).strip()
+    return ""
+
+
+def render_asset_name(config, asset, context):
+    """按资源类型渲染文件名（不含扩展名）。
+
+    返回 None 表示未配置模板，调用方应回退到原有命名逻辑。
+    """
+    tpl = get_asset_template(config, asset)
+    if not tpl:
+        return None
+    try:
+        name = render_template(tpl, context)
+    except Exception:
+        return None
+    return name or None
+
 _ILLEGAL = '\\/:*?"<>|'
 
 

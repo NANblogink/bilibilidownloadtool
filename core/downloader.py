@@ -1564,6 +1564,87 @@ class DownloadManager(QObject):
             return url, 0
         return '', 0
 
+    def _asset_template_context(self, task_info, ep_index, ep_info, base_title):
+        """按资源类型构造文件名模板变量（任务级下载用）。"""
+        try:
+            import filename_template as _ft
+        except Exception:
+            try:
+                from core import filename_template as _ft
+            except Exception:
+                return None
+        vi = task_info.get('video_info') or {}
+        try:
+            if vi.get('is_bangumi'):
+                media_type = 'bangumi'
+            elif vi.get('is_cheese'):
+                media_type = 'cheese'
+            elif vi.get('is_interact'):
+                media_type = 'interact'
+            else:
+                media_type = 'video'
+        except Exception:
+            media_type = 'video'
+        season = ''
+        try:
+            if vi.get('is_bangumi') and vi.get('bangumi_info'):
+                season = vi['bangumi_info'].get('season_title', '') or ''
+            elif vi.get('is_cheese') and vi.get('cheese_info'):
+                season = vi['cheese_info'].get('season_title', '') or ''
+            if not season:
+                season = vi.get('season_title', '') or ''
+        except Exception:
+            season = ''
+        author = ''
+        try:
+            owner = vi.get('owner') or {}
+            author = owner.get('name', '') or vi.get('author', '') or ''
+        except Exception:
+            author = ''
+        try:
+            seq_digits = int(self.config.get_app_setting("filename_sequence_digits", 2)) if self.config else 2
+        except Exception:
+            seq_digits = 2
+        try:
+            _seq_base = int(task_info.get('sequence_start') or 0)
+        except Exception:
+            _seq_base = 0
+        _seq_num = (_seq_base + ep_index) if _seq_base > 0 else (ep_index + 1)
+        try:
+            _ep_num = int(ep_index) + 1
+        except Exception:
+            _ep_num = 1
+        return _ft, _ft.build_context(
+            title=base_title,
+            ep=_ep_num,
+            seq=_seq_num,
+            seq_digits=seq_digits,
+            author=author,
+            season=season,
+            bvid=ep_info.get('bvid', '') or vi.get('bvid', '') or '',
+            cid=ep_info.get('cid', '') or '',
+            media_type=media_type,
+        )
+
+    def _render_asset_name(self, asset, task_info, ep_index, ep_info, base_title):
+        """按资源类型渲染文件名；未配置模板返回 None（回退原有命名）。"""
+        try:
+            import filename_template as _ft
+        except Exception:
+            try:
+                from core import filename_template as _ft
+            except Exception:
+                return None
+        built = self._asset_template_context(task_info, ep_index, ep_info, base_title)
+        if not built:
+            return None
+        _ftmod, ctx = built
+        try:
+            return _ftmod.render_asset_name(self.config, asset, ctx)
+        except Exception as e:
+            logger.warning(f"资源文件名模板渲染失败（{asset}），回退默认命名：{e}")
+            return None
+
     def _download_episode(self, task_id, ep_index, ep_info):
         self._mutex.lock()
         task_info = self.active_tasks.get(task_id)
@@ -1812,6 +1893,14 @@ class DownloadManager(QObject):
                 clean_title = _stripped or clean_title
                 clean_title = f"{_seq_num:0{_seq_digits}d}. {clean_title}" if clean_title else f"{_seq_num:0{_seq_digits}d}"
                 logger.info(f"任务{task_id}：第{ep_index+1}集文件名序号 = {_seq_num:0{_seq_digits}d}")
+            # 自定义模板：视频/音频分别渲染
+            # 未配置模板时保持原clean_title
+            try:
+                _raw_title = re.sub(r'^\d+[.、][ _\-]*', '', clean_title or '').strip() or clean_title
+            except Exception:
+                _raw_title = clean_title
+            _video_name = self._render_asset_name('video', task_info, ep_index, ep_info, _raw_title)
+            _audio_name = self._render_asset_name('audio', task_info, ep_index, ep_info, _raw_title)
             download_content_type = task_info.get('download_content_type', 0)
             download_video = task_info.get('download_video', True)
             download_audio = task_info.get('download_audio', True)
@@ -1853,7 +1942,8 @@ class DownloadManager(QObject):
                     if _audio_quality in (30251, 30250) and audio_format.lower() in ('mp3', 'aac', 'ogg', 'm4a'):
                         audio_format = 'flac'
                         logger.info(f"任务{task_id}：仅音频模式，Hi-Res/杜比自动使用FLAC格式")
-                    output_path = os.path.join(task_info['save_path'], f"{clean_title}.{audio_format}")
+                    output_path = os.path.join(task_info['save_path'],
+                                               f"{_audio_name or clean_title}.{audio_format}")
                     output_path = get_unique_filename(output_path)
                     # 移音频为输出原子
                     move_file_no_copy(audio_path, output_path, logger=logger)
@@ -1868,7 +1958,8 @@ class DownloadManager(QObject):
                     temp_files.append(video_path)
                     # 输出视频不合并音频
                     video_format = task_info.get('video_format', 'mp4')
-                    output_path = os.path.join(task_info['save_path'], f"{clean_title}.{video_format}")
+                    output_path = os.path.join(task_info['save_path'],
+                                               f"{_video_name or clean_title}.{video_format}")
                     output_path = get_unique_filename(output_path)
                     # 移视频为输出原子
                     move_file_no_copy(video_path, output_path, logger=logger)
@@ -1947,7 +2038,8 @@ class DownloadManager(QObject):
                         temp_files.append(audio_path)
 
                     video_format = task_info.get('video_format', 'mp4')
-                    output_path = os.path.join(task_info['save_path'], f"{clean_title}.{video_format}")
+                    output_path = os.path.join(task_info['save_path'],
+                                               f"{_video_name or clean_title}.{video_format}")
                     output_path = get_unique_filename(output_path)
 
                 # 有声模式才合并
@@ -2042,7 +2134,11 @@ class DownloadManager(QObject):
                                         'SRT': '.srt',
                                         'JSON': '.json'
                                     }.get(danmaku_format, '.xml')
-                                    danmaku_path = os.path.join(task_info['save_path'], f"{clean_title}{danmaku_ext}")
+                                    # 弹幕名跟随视频名，除非单独配置了模板
+                                    _dm_base = self._render_asset_name(
+                                        'danmaku', task_info, ep_index, ep_info, clean_title)
+                                    _dm_name = _dm_base if _dm_base else clean_title
+                                    danmaku_path = os.path.join(task_info['save_path'], f"{_dm_name}{danmaku_ext}")
                                     with open(danmaku_path, 'w', encoding='utf-8') as f:
                                         f.write(danmaku_content)
                                     if not os.path.exists(danmaku_path) or os.path.getsize(danmaku_path) == 0:

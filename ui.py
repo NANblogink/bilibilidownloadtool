@@ -11919,6 +11919,7 @@ class TaskManagerWindow(BaseWindow):
                             'SRT': '.srt',
                             'JSON': '.json'
                         }.get(danmaku_format, '.xml')
+                        # 弹幕名可能跟随自定义模板，用通配匹配实际文件
                         danmaku_path = os.path.join(task.get('save_path', ''), f"{clean_title}{danmaku_ext}")
                         danmaku_exists = os.path.exists(danmaku_path)
                         if not danmaku_exists:
@@ -31054,6 +31055,43 @@ class BilibiliDownloader(BaseWindow):
         filename_template_help.clicked.connect(_show_template_help)
         _refresh_template_preview()
 
+        # 各资源独立模板（留空则沿用视频模板）
+        asset_template_edits = {}
+        _asset_tip = "留空则沿用上面的视频模板；视频模板也留空时使用内置默认命名"
+        for _ak, _alabel in [("audio", "音频"), ("danmaku", "弹幕"),
+                             ("subtitle", "字幕"), ("cover", "封面")]:
+            _arow = QWidget()
+            _ah = QHBoxLayout(_arow)
+            _ah.setContentsMargins(0, 0, 0, 0)
+            _ah.setSpacing(scale(8))
+            _ah.addWidget(QLabel("%s文件名:" % _alabel))
+            _aedit = QLineEdit()
+            _aedit.setMinimumHeight(scale(26))
+            _aedit.setPlaceholderText("留空 = 沿用视频模板")
+            _aedit.setToolTip(_asset_tip)
+            try:
+                _akey = _ft_mod.ASSET_SETTING_KEYS.get(_ak, "filename_template_%s" % _ak)
+                _aedit.setText(str(self.config.get_app_setting(_akey, "") or ""))
+            except Exception:
+                pass
+            _ah.addWidget(_aedit, 1)
+            _apreset = QComboBox()
+            _apreset.setMinimumHeight(scale(26))
+            _apreset.addItem("预设…", "")
+            for _pn2, _pt2 in _ft_mod.PRESET_TEMPLATES:
+                _apreset.addItem(_pn2, _pt2)
+            _ah.addWidget(_apreset)
+            download_layout.addWidget(_arow)
+            asset_template_edits[_ak] = _aedit
+
+            def _mk_asset_preset(combo, edit):
+                def _on(_idx):
+                    _v = combo.currentData()
+                    if _v:
+                        edit.setText(_v)
+                return _on
+            _apreset.currentIndexChanged.connect(_mk_asset_preset(_apreset, _aedit))
+
         # 视频输出格式
         video_format_layout = QHBoxLayout()
         video_format_label = QLabel("视频输出格式：")
@@ -32772,6 +32810,22 @@ class BilibiliDownloader(BaseWindow):
                                         f"{_tpl_msg}\n\n请修正后再保存，或留空使用默认命名。")
                     return
             self.config.set_app_setting("filename_template", _tpl_new)
+            # 各资源独立模板
+            try:
+                for _ak2, _aedit2 in asset_template_edits.items():
+                    _av = _aedit2.text().strip()
+                    if _av:
+                        _aok, _amsg = _ft_mod.validate_template(_av)
+                        if not _aok:
+                            QMessageBox.warning(
+                                dialog, "文件名模板有误",
+                                "%s文件名模板：%s\n\n请修正后再保存，或留空沿用视频模板。"
+                                % (_ft_mod.ASSET_LABELS.get(_ak2, _ak2), _amsg))
+                            return
+                    _akey2 = _ft_mod.ASSET_SETTING_KEYS.get(_ak2, "filename_template_%s" % _ak2)
+                    self.config.set_app_setting(_akey2, _av)
+            except Exception:
+                pass
             self.config.set_app_setting("batch_download_first", batch_download_first_checkbox.isChecked())
             self.config.set_app_setting("filename_add_author", filename_add_author_checkbox.isChecked())
             self.config.set_app_setting("use_author_folder", use_author_folder_checkbox.isChecked())

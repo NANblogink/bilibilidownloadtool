@@ -983,7 +983,7 @@ class AudioTab(QWidget):
                 self.config.set_app_setting("audio_last_save_path", path)
 
     def _build_audio_filename(self, song, stream_data):
-        """构造音频文件名"""
+        """构造音频文件名（支持自定义模板）"""
         title = ""
         if song:
             title = song.get("title", "")
@@ -991,16 +991,41 @@ class AudioTab(QWidget):
             title = stream_data.get("title", "")
         if not title:
             title = f"audio_{int(time.time())}"
-        # 清理非法字符
-        safe_title = re.sub(r'[\\/:*?"<>|]', "_", title).strip()
-        type_code = stream_data.get("type", 1) if stream_data else 1
-        # 试听片段加标记
-        suffix = "_试听" if (stream_data and stream_data.get("is_trial")) else ""
         # 根据音质选择扩展名
+        type_code = stream_data.get("type", 1) if stream_data else 1
         if type_code == 3:
             ext = ".flac"
         else:
             ext = ".m4a"
+        # 试听片段加标记
+        suffix = "_试听" if (stream_data and stream_data.get("is_trial")) else ""
+        # 优先使用自定义模板
+        try:
+            import filename_template as _ft
+        except Exception:
+            try:
+                from core import filename_template as _ft
+            except Exception:
+                _ft = None
+        if _ft is not None and self.config is not None:
+            try:
+                _author = ""
+                _up = song.get("up_name") or song.get("author") or "" if song else ""
+                _author = _up or ""
+                _ctx = _ft.build_context(
+                    title=title,
+                    author=_author,
+                    season=(song.get("album") or song.get("season") or "") if song else "",
+                    bvid=(song.get("bvid") or "") if song else "",
+                    media_type="video",
+                )
+                _name = _ft.render_asset_name(self.config, "audio", _ctx)
+                if _name:
+                    return f"{_name}{suffix}{ext}"
+            except Exception:
+                pass
+        # 回退原有命名
+        safe_title = re.sub(r'[\\/:*?"<>|]', "_", title).strip()
         return f"{safe_title}{suffix}{ext}"
 
     def _start_download(self):
