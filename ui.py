@@ -126,6 +126,12 @@ _TASK_ICONS = {
     "chevron_right": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='m9 18 6-6-6-6'/></svg>",
     "route": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='6' cy='19' r='3'/><path d='M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15'/><circle cx='18' cy='5' r='3'/></svg>",
     "folder_up": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z'/><polyline points='12 10 12 16'/><polyline points='9.5 12.5 12 10 14.5 12.5'/></svg>",
+    "alert_triangle": "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' ><path d='m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3' /><path d='M12 9v4' /><path d='M12 17h.01' /></svg>",
+    "alert_circle": "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' ><circle cx='12' cy='12' r='10' /><line x1='12' x2='12' y1='8' y2='12' /><line x1='12' x2='12.01' y1='16' y2='16' /></svg>",
+    "circle_check": "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' ><circle cx='12' cy='12' r='10' /><path d='m16 9-5.5 5.5L8 12' /></svg>",
+    "video": "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' ><path d='m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5' /><rect x='2' y='6' width='14' height='12' rx='2' /></svg>",
+    "list_video": "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' ><path d='M21 5H3' /><path d='M10 12H3' /><path d='M10 19H3' /><path d='M15 12.003a1 1 0 0 1 1.517-.859l4.997 2.997a1 1 0 0 1 0 1.718l-4.997 2.997a1 1 0 0 1-1.517-.86z' /></svg>",
+    "film": "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='#64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' ><rect width='18' height='18' x='3' y='3' rx='2' /><path d='M7 3v18' /><path d='M3 7.5h4' /><path d='M3 12h18' /><path d='M3 16.5h4' /><path d='M17 3v18' /><path d='M17 7.5h4' /><path d='M17 16.5h4' /></svg>",
 }
 
 
@@ -138,6 +144,34 @@ def _task_icon_pixmap(name, size, color="#94a3b8"):
 
 def _task_icon(name, size, color="#94a3b8"):
     return QIcon(_task_icon_pixmap(name, size, color))
+
+
+def _ft_fmt_duration(seconds):
+    """秒数转 mm:ss / h:mm:ss；无效返回空串。"""
+    try:
+        s = int(float(seconds))
+    except (TypeError, ValueError):
+        return ""
+    if s <= 0:
+        return ""
+    if s >= 3600:
+        return "%d:%02d:%02d" % (s // 3600, (s % 3600) // 60, s % 60)
+    return "%02d:%02d" % (s // 60, s % 60)
+
+
+class _CoverFetchThread(QThread):
+    """后台取封面图，避免卡住界面。"""
+    done = pyqtSignal(object)
+
+    def __init__(self, fn, parent=None):
+        super().__init__(parent)
+        self._fn = fn
+
+    def run(self):
+        try:
+            self.done.emit(self._fn())
+        except Exception:
+            self.done.emit(None)
 
 
 def _enable_window_drag(title_bar, skip=()):
@@ -1907,7 +1941,11 @@ class ExpandedCard(QDialog):
         action_layout.addWidget(download_full_btn)
         action_layout.addStretch(1)
         video_info_layout.addLayout(action_layout)
-        
+
+        # 已解析视频的卡片区。窗口够大时占据下方空白，空间不足自动收起。
+        self.parsed_card_area = self._build_parsed_card_area()
+        video_info_layout.addWidget(self.parsed_card_area, stretch=1)
+
         self.video_info_widget.hide()
         main_layout.addWidget(self.video_info_widget)
         
@@ -1950,6 +1988,278 @@ class ExpandedCard(QDialog):
         self.download_widget.hide()
         main_layout.addWidget(self.download_widget)
         
+    def _build_parsed_card_area(self):
+        """已解析视频的卡片区：封面 + 标题 + 时长 + 勾选框，可多选。
+
+        只在窗口高度足够时显示；不够则整体隐藏，不挤压上面的控件。
+        """
+        panel = QWidget()
+        panel.setObjectName("parsed_card_panel")
+        v = QVBoxLayout(panel)
+        v.setContentsMargins(scale(5), scale(6), scale(5), 0)
+        v.setSpacing(scale(6))
+
+        # 标题行：小标题 + 全选/全不选
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
+        head.setSpacing(scale(8))
+        _h_icon = QLabel()
+        _h_icon.setFixedSize(scale(14), scale(14))
+        _h_icon.setScaledContents(True)
+        try:
+            _pm = _task_icon_pixmap("list_video", scale(14), "#64748b")
+            if not _pm.isNull():
+                _h_icon.setPixmap(_pm)
+        except Exception:
+            pass
+        head.addWidget(_h_icon)
+        _h_text = QLabel("已解析视频")
+        _h_text.setStyleSheet(scale_style(
+            "font-size: 12px; font-weight: 600; color: #475569;"))
+        head.addWidget(_h_text)
+
+        self.parsed_count_label = QLabel("")
+        self.parsed_count_label.setStyleSheet(scale_style(
+            "font-size: 11px; color: #94a3b8;"))
+        head.addWidget(self.parsed_count_label)
+        head.addStretch(1)
+
+        self.parsed_select_all_btn = QPushButton("全选")
+        self.parsed_select_all_btn.setCursor(Qt.PointingHandCursor)
+        self.parsed_select_all_btn.setStyleSheet(
+            self._parsed_small_btn_style())
+        self.parsed_select_all_btn.setFixedHeight(scale(22))
+        self.parsed_select_all_btn.clicked.connect(
+            lambda: self._set_all_parsed_cards(True))
+        head.addWidget(self.parsed_select_all_btn)
+
+        self.parsed_select_none_btn = QPushButton("全不选")
+        self.parsed_select_none_btn.setCursor(Qt.PointingHandCursor)
+        self.parsed_select_none_btn.setStyleSheet(
+            self._parsed_small_btn_style())
+        self.parsed_select_none_btn.setFixedHeight(scale(22))
+        self.parsed_select_none_btn.clicked.connect(
+            lambda: self._set_all_parsed_cards(False))
+        head.addWidget(self.parsed_select_none_btn)
+        v.addLayout(head)
+
+        # 卡片滚动区
+        self.parsed_card_scroll = QScrollArea()
+        self.parsed_card_scroll.setWidgetResizable(True)
+        self.parsed_card_scroll.setFrameShape(QFrame.NoFrame)
+        self.parsed_card_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.parsed_card_scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }")
+        self.parsed_card_scroll.setMinimumHeight(scale(96))
+
+        self.parsed_card_host = QWidget()
+        self.parsed_card_layout = QHBoxLayout(self.parsed_card_host)
+        self.parsed_card_layout.setContentsMargins(scale(2), scale(2), scale(2), scale(2))
+        self.parsed_card_layout.setSpacing(scale(8))
+        self.parsed_card_layout.addStretch(1)
+        self.parsed_card_scroll.setWidget(self.parsed_card_host)
+        v.addWidget(self.parsed_card_scroll, stretch=1)
+
+        self._parsed_cards = []
+        self.parsed_card_area = panel
+        panel.hide()
+        return panel
+
+    def _parsed_small_btn_style(self):
+        return scale_style(
+            "QPushButton { background: #f1f5f9; color: #475569;"
+            " border: 1px solid #e2e8f0; border-radius: 4px;"
+            " padding: 2px 10px; font-size: 11px; }"
+            "QPushButton:hover { background: #e2e8f0; color: #1e293b; }")
+
+    def _clear_parsed_cards(self):
+        """清空卡片区"""
+        try:
+            while self.parsed_card_layout.count() > 1:
+                item = self.parsed_card_layout.takeAt(0)
+                w = item.widget()
+                if w is not None:
+                    w.setParent(None)
+                    w.deleteLater()
+        except Exception:
+            pass
+        self._parsed_cards = []
+        try:
+            self.parsed_count_label.setText("")
+        except Exception:
+            pass
+
+    def _set_all_parsed_cards(self, checked):
+        for c in self._parsed_cards:
+            try:
+                c["check"].setChecked(checked)
+            except Exception:
+                pass
+
+    def _on_parsed_card_toggled(self, *_a):
+        _n = sum(1 for c in self._parsed_cards
+                 if c["check"].isChecked())
+        try:
+            self.parsed_count_label.setText("已选 %d / %d" % (_n, len(self._parsed_cards)))
+        except Exception:
+            pass
+
+    def populate_parsed_cards(self, episodes):
+        """按解析结果生成卡片。episodes 为 [{title, cover, duration, ...}]。"""
+        self._clear_parsed_cards()
+        if not episodes:
+            self.parsed_card_area.hide()
+            return
+
+        for _i, _ep in enumerate(episodes):
+            _card = self._make_parsed_card(_ep, _i)
+            self.parsed_card_layout.insertWidget(
+                self.parsed_card_layout.count() - 1, _card)
+            self._parsed_cards.append({"check": _card.property("_check"),
+                                       "ep": _ep, "index": _i})
+        self._on_parsed_card_toggled()
+        self.parsed_card_area.show()
+        QTimer.singleShot(0, self._update_parsed_card_visibility)
+
+    def _make_parsed_card(self, ep, index):
+        """单张卡片：封面 + 集数角标 + 标题 + 时长 + 勾选框"""
+        card = QFrame()
+        card.setObjectName("parsed_card")
+        card.setFixedWidth(scale(148))
+        card.setStyleSheet(scale_style(
+            "QFrame#parsed_card { background: #ffffff; border: 1px solid #e2e8f0;"
+            " border-radius: 6px; }"
+            "QFrame#parsed_card:hover { border: 1px solid #93c5fd; }"))
+        cv = QVBoxLayout(card)
+        cv.setContentsMargins(scale(6), scale(6), scale(6), scale(6))
+        cv.setSpacing(scale(4))
+
+        # 封面
+        cover = QLabel()
+        cover.setFixedHeight(scale(70))
+        cover.setAlignment(Qt.AlignCenter)
+        cover.setStyleSheet(scale_style(
+            "background: #f1f5f9; border-radius: 4px; color: #94a3b8;"
+            " font-size: 11px;"))
+        _url = (ep.get("cover") or ep.get("pic") or "")
+        if _url:
+            try:
+                cover.setText("加载中")
+                self._load_cover_async(cover, _url)
+            except Exception:
+                cover.setText("暂无封面")
+        else:
+            cover.setText("暂无封面")
+        cv.addWidget(cover)
+
+        # 标题
+        _title = ep.get("title") or ep.get("ep_title") or ep.get("part") or ""
+        _title = _title or ("第%d集" % (index + 1))
+        t = QLabel(_title)
+        t.setWordWrap(True)
+        t.setFixedHeight(scale(32))
+        t.setToolTip(_title)
+        t.setStyleSheet(scale_style(
+            "font-size: 11px; color: #334155; border: none; background: transparent;"))
+        cv.addWidget(t)
+
+        # 底部：时长 + 勾选
+        foot = QHBoxLayout()
+        foot.setContentsMargins(0, 0, 0, 0)
+        foot.setSpacing(scale(4))
+        _dur = ep.get("duration") or 0
+        dur_txt = _ft_fmt_duration(_dur) if _ft_fmt_duration else ""
+        dl = QLabel(dur_txt)
+        dl.setStyleSheet(scale_style(
+            "font-size: 10px; color: #94a3b8; border: none; background: transparent;"))
+        foot.addWidget(dl)
+        foot.addStretch(1)
+
+        chk = QCheckBox()
+        chk.setChecked(True)
+        chk.setCursor(Qt.PointingHandCursor)
+        chk.toggled.connect(self._on_parsed_card_toggled)
+        foot.addWidget(chk)
+        cv.addLayout(foot)
+
+        card.setProperty("_check", chk)
+        return card
+
+    def _update_parsed_card_visibility(self):
+        """空间不足时自动收起卡片区，避免挤压上面的控件。
+
+        判断依据：主窗口高度（用户真正看到的窗口大小），
+        拿不到时才退回自身高度。自身高度可能被最大高度限制，
+        不能真实反映屏幕空间，所以优先用主窗口。
+        """
+        try:
+            if not getattr(self, "_parsed_cards", None):
+                try:
+                    self.parsed_card_area.hide()
+                except Exception:
+                    pass
+                return
+            _h = 0
+            # ExpandedCard 本身就是独立顶层窗口，按自身高度判断；
+            # 若被挂到别的父窗口下，则用父窗口高度。
+            try:
+                _p = self.parent()
+                if _p is not None and _p is not self:
+                    _h = int(_p.height() or 0)
+            except Exception:
+                _h = 0
+            if _h <= 0:
+                try:
+                    _h = int(self.height() or 0)
+                except Exception:
+                    _h = 0
+            # 拿不到高度就不误伤，直接显示
+            _ok = _h <= 0 or _h >= scale(430)
+            self.parsed_card_area.setVisible(_ok)
+        except Exception:
+            pass
+
+    def _load_cover_async(self, label, url):
+        """后台线程下载封面并贴到 QLabel 上。"""
+        def _work():
+            try:
+                import requests as _rq
+                r = _rq.get(url, timeout=10, headers={
+                    "User-Agent": "Mozilla/5.0",
+                    "Referer": "https://www.bilibili.com/"})
+                if r.status_code == 200 and r.content:
+                    pm = QPixmap()
+                    if pm.loadFromData(r.content):
+                        return pm.scaled(
+                            scale(136), scale(70),
+                            Qt.KeepAspectRatioByExpanding,
+                            Qt.SmoothTransformation)
+            except Exception:
+                pass
+            return None
+
+        def _done(pm):
+            try:
+                if pm is not None and not pm.isNull():
+                    label.setPixmap(pm)
+                    label.setText("")
+                else:
+                    label.setText("暂无封面")
+            except Exception:
+                pass
+
+        try:
+            th = _CoverFetchThread(_work, self)
+            th.done.connect(_done)
+            th.start()
+            if not hasattr(self, "_cover_threads"):
+                self._cover_threads = []
+            self._cover_threads.append(th)
+            if len(self._cover_threads) > 40:
+                self._cover_threads = self._cover_threads[-20:]
+        except Exception:
+            label.setText("暂无封面")
+
     def on_parse_clicked(self):
         print("解析按钮被点击了！")
         url = self.url_edit.text().strip()
@@ -2662,6 +2972,22 @@ class FloatingBall(QWidget):
                     item = QListWidgetItem(item_text)
                     item.setData(Qt.UserRole, video_info)
                     self.video_list.addItem(item)
+
+            # 下方空白区渲染卡片（集数太多时不铺卡片，避免卡顿）
+            try:
+                _eps = video_info.get('episodes') or []
+                if not _eps:
+                    _eps = [{
+                        'title': video_info.get('title', ''),
+                        'cover': video_info.get('cover') or video_info.get('pic') or '',
+                        'duration': video_info.get('duration', 0),
+                    }]
+                elif len(_eps) > 60:
+                    _eps = _eps[:60]
+                if hasattr(self, 'populate_parsed_cards'):
+                    self.populate_parsed_cards(_eps)
+            except Exception as _e:
+                logger.debug(f"渲染解析卡片失败：{_e}")
             
             # 弹幕由主窗统一取
         else:
@@ -16707,6 +17033,13 @@ class BilibiliDownloader(BaseWindow):
             full_min = getattr(self, '_full_min_height', 0)
             if full_min > 0:
                 self._apply_adaptive_density(self.height() < full_min)
+            # 空间不足时自动收起解析卡片区
+            try:
+                _ec = getattr(self, 'expanded_widget', None)
+                if _ec is not None and hasattr(_ec, '_update_parsed_card_visibility'):
+                    _ec._update_parsed_card_visibility()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -31076,21 +31409,61 @@ class BilibiliDownloader(BaseWindow):
         filename_var_scroll.setWidget(_chip_host)
         download_layout.addWidget(filename_var_scroll)
 
+        # 预览行：图标 + 文字（图标来自图标库，不用 emoji）
+        filename_template_preview_row = QWidget()
+        _prev_h = QHBoxLayout(filename_template_preview_row)
+        _prev_h.setContentsMargins(0, 0, 0, 0)
+        _prev_h.setSpacing(scale(5))
+
+        filename_template_preview_icon = QLabel()
+        filename_template_preview_icon.setFixedSize(scale(15), scale(15))
+        filename_template_preview_icon.setScaledContents(True)
+        filename_template_preview_icon.setVisible(False)
+        _prev_h.addWidget(filename_template_preview_icon)
+
         filename_template_preview = QLabel()
         filename_template_preview.setStyleSheet(
             scale_style("color: #909399; font-size: 13px;"))
         filename_template_preview.setWordWrap(True)
-        download_layout.addWidget(filename_template_preview)
+        _prev_h.addWidget(filename_template_preview, 1)
+        download_layout.addWidget(filename_template_preview_row)
+
+        def _set_preview_icon(name):
+            """按状态切换预览行的小图标；name 为空则隐藏"""
+            try:
+                if not name:
+                    filename_template_preview_icon.setVisible(False)
+                    return
+                _pm = _task_icon_pixmap(name, scale(15), "#e6a23c")
+                if _pm.isNull():
+                    filename_template_preview_icon.setVisible(False)
+                    return
+                filename_template_preview_icon.setPixmap(_pm)
+                filename_template_preview_icon.setVisible(True)
+            except Exception:
+                try:
+                    filename_template_preview_icon.setVisible(False)
+                except Exception:
+                    pass
 
         def _refresh_template_preview(*_a):
             _t = filename_template_edit.text().strip()
             if not _t:
+                _set_preview_icon("")
+                filename_template_preview.setStyleSheet(
+                    scale_style("color: #909399; font-size: 13px;"))
                 filename_template_preview.setText("预览：（留空，使用默认命名）")
                 return
             _ok, _msg = _ft_mod.validate_template(_t)
             if not _ok:
-                filename_template_preview.setText(f"⚠ {_msg}")
+                _set_preview_icon("alert_triangle")
+                filename_template_preview.setStyleSheet(
+                    scale_style("color: #e6a23c; font-size: 13px;"))
+                filename_template_preview.setText(_msg)
                 return
+            _set_preview_icon("")
+            filename_template_preview.setStyleSheet(
+                scale_style("color: #909399; font-size: 13px;"))
             filename_template_preview.setText("预览：%s" % _ft_mod.preview(_t))
 
         def _on_template_preset(_idx):

@@ -104,6 +104,37 @@ ASSET_LABELS = {
 }
 
 
+def _read_setting_fresh(config, key, default=""):
+    """读取设置项；内存为空时再从磁盘补读一次。
+
+    长时间运行的程序里，内存中的配置可能与磁盘不一致。
+    这里以磁盘为准，用户改完设置无需重启即可生效。
+    """
+    try:
+        val = config.get_app_setting(key, default)
+    except Exception:
+        val = default
+    if val not in (None, ""):
+        return val
+    try:
+        import json
+        import os
+        path = getattr(config, "config_file", None)
+        if path and os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                disk = json.load(f)
+            dval = (disk.get("app_settings") or {}).get(key)
+            if dval not in (None, ""):
+                try:
+                    config.set_app_setting(key, dval)
+                except Exception:
+                    pass
+                return dval
+    except Exception:
+        pass
+    return val
+
+
 def get_asset_template(config, asset="video"):
     """读取某资源类型的模板。
 
@@ -112,19 +143,13 @@ def get_asset_template(config, asset="video"):
     if config is None:
         return ""
     key = ASSET_SETTING_KEYS.get(asset, "filename_template")
-    try:
-        tpl = config.get_app_setting(key, "") or ""
-    except Exception:
-        tpl = ""
-    if str(tpl).strip():
+    tpl = _read_setting_fresh(config, key)
+    if tpl and str(tpl).strip():
         return str(tpl).strip()
     # 音频/弹幕/字幕/封面未单独设置时，沿用视频模板
     if asset != "video":
-        try:
-            base = config.get_app_setting("filename_template", "") or ""
-        except Exception:
-            base = ""
-        if str(base).strip():
+        base = _read_setting_fresh(config, "filename_template")
+        if base and str(base).strip():
             return str(base).strip()
     return ""
 

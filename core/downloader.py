@@ -809,7 +809,17 @@ class EpisodeDownloadThread(QThread):
         if not self.config:
             return None
         try:
-            template = self.config.get_app_setting("filename_template", "")
+            import filename_template as _ft
+            _fresh = getattr(_ft, "_read_setting_fresh", None)
+        except Exception:
+            try:
+                from core import filename_template as _ft
+                _fresh = getattr(_ft, "_read_setting_fresh", None)
+            except Exception:
+                return None
+        try:
+            template = _fresh(self.config, "filename_template") if _fresh else \
+                self.config.get_app_setting("filename_template", "")
         except Exception:
             template = ""
         if not template or not str(template).strip():
@@ -817,9 +827,9 @@ class EpisodeDownloadThread(QThread):
         built = self._template_context(base_title)
         if not built:
             return None
-        _ft, ctx = built
+        _ftmod, ctx = built
         try:
-            name = _ft.render_template(template, ctx)
+            name = _ftmod.render_template(template, ctx)
         except Exception as e:
             logger.warning(f"文件名模板渲染失败，回退默认命名：{e}")
             return None
