@@ -18228,12 +18228,14 @@ class BilibiliDownloader(BaseWindow):
         self._video_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         video_layout.addWidget(self._video_card)
 
-        # 已解析视频卡片区：占据下方空白；空间不足自动收起
+        # 已解析视频卡片区：只在解析后显示，占据下方空白
         self.parsed_card_panel = self._build_parsed_card_panel()
         video_layout.addWidget(self.parsed_card_panel)
-        # 上方信息卡保持原高度，多余空间给卡片区
+        # 信息卡保持原高，不参与拉伸（原来这里就是靠它+stretch留出下方空白）
         video_layout.setStretchFactor(self._video_card, 0)
-        video_layout.setStretchFactor(self.parsed_card_panel, 1)
+        # 未解析时靠这句留空：信息卡贴顶，下方保持原样空白
+        video_layout.addStretch(1)
+        video_layout.setStretchFactor(self.parsed_card_panel, 0)
         
         quality_layout = QHBoxLayout()
         quality_layout.setSpacing(scale(12))
@@ -26322,8 +26324,8 @@ class BilibiliDownloader(BaseWindow):
         """
         panel = QWidget()
         panel.setObjectName("parsedCardPanel")
-        # 不参与纵向挤压：信息卡优先，卡片区只吃剩余空间
-        panel.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        # 按内容取高，不抢上下方的空间
+        panel.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         v = QVBoxLayout(panel)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(scale(8))
@@ -26381,11 +26383,11 @@ class BilibiliDownloader(BaseWindow):
         self.parsed_card_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.parsed_card_scroll.setStyleSheet(
             "QScrollArea { background: transparent; border: none; }")
-        # 有下限也有上限，避免把上面的信息卡挤扁
-        self.parsed_card_scroll.setMinimumHeight(scale(150))
-        self.parsed_card_scroll.setMaximumHeight(scale(220))
+        # 固定高度：刚好放下一行卡片（封面78+标题36+底行24+边距 + 标题行 + 滚动条）
+        _scroll_h = scale(78) + scale(36) + scale(24) + scale(26) + scale(34) + scale(30)
+        self.parsed_card_scroll.setFixedHeight(_scroll_h)
         self.parsed_card_scroll.setSizePolicy(
-            QSizePolicy.Preferred, QSizePolicy.Expanding)
+            QSizePolicy.Preferred, QSizePolicy.Fixed)
 
         self.parsed_card_host = QWidget()
         self.parsed_card_layout = QHBoxLayout(self.parsed_card_host)
@@ -26393,7 +26395,7 @@ class BilibiliDownloader(BaseWindow):
         self.parsed_card_layout.setSpacing(scale(10))
         self.parsed_card_layout.addStretch(1)
         self.parsed_card_scroll.setWidget(self.parsed_card_host)
-        v.addWidget(self.parsed_card_scroll, stretch=1)
+        v.addWidget(self.parsed_card_scroll)
 
         self._parsed_cards = []
         panel.hide()
