@@ -26,6 +26,11 @@ dist/
 dist_beta/
 dist_onefile/
 dist_nuitka/
+# Windows 专用构建目录（dist/ 被 other/linux/build.sh 占用）
+# 注意用通配：PyInstaller 每个目标会生成独立的 build_win_<目标>/ 中间目录
+dist_win/
+build_win/
+build_win_*/
 output/
 output_beta/
 msix_staging/
@@ -77,3 +82,40 @@ version_info.win
 upx_tool/
 /Resources/
 /build/
+
+# ==================== 第三方构建暂存（体积巨大，绝不入库） ====================
+# other/android/.build_stage/ 是 buildozer / python-for-android 的完整构建树，
+# 含 3.7 万+ 文件（第三方 SDK 源码、hostpython、kivy 等），一旦 git add -A 就会把
+# 仓库撑爆，且混入大量第三方许可不明的代码。
+other/android/.build_stage/
+other/android/.buildozer/
+other/android/bin/
+*.apk
+*.aab
+
+# ==================== AI 工作区数据（含内部安全记录，不入库） ====================
+# .workbuddy-ai/ 是本地 AI 协作数据，内含未修复漏洞的内部记录，
+# 公开到 GitHub 等于对外公布自己的待修漏洞清单。
+.workbuddy-ai/
+
+# ==================== 凭据 / 密钥类文件（防御性兜底） ====================
+# 下面这些类型目前仓库里没有，属于兜底规则：即使将来误放也不会被提交。
+*.pem
+*.jks
+*.keystore
+*.mobileprovision
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+.env
+.env.*
+secrets.json
+*_secret*
+*_credential*
+cookies.txt
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.db-wal

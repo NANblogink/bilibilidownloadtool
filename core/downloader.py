@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from PyQt5.QtCore import QThread, pyqtSignal, QObject, Qt, QMutex, QWaitCondition
 import _pathsetup
 from utils import get_unique_filename
-from platform_utils import IS_MACOS, IS_WINDOWS, illegal_filename_chars
+from platform_utils import IS_MACOS, IS_WINDOWS, illegal_filename_chars, move_file_no_copy
 
 try:
     from logger_config import logger
@@ -69,6 +69,8 @@ class EpisodeDownloadThread(QThread):
         self.config = config
         self._is_running = True
         self.ep_title = f"第{ep_index+1}集_未知标题"
+        # 文件名序号（0 表示使用 ep_index+1）
+        self.seq_number = 0
         self.temp_files = []
         self._mutex = QMutex()
         self.audio_quality = self.config.get_app_setting("audio_quality", 0) if self.config else 0
@@ -156,6 +158,11 @@ class EpisodeDownloadThread(QThread):
                 err_msg += "（检查FFmpeg环境变量）"
             if "下载已取消" in err_msg:
                 err_msg = "下载已取消"
+            # 文件被截断（服务器提前断流）不再静默产出残缺视频，
+            # 这里给出可操作的提示，便于用户改用其它线路或稍后重试。
+            if "不完整" in err_msg and ("字节" in err_msg or "下载不完整" in err_msg):
+                err_msg = (f"{err_msg}（服务器提前中断了传输，为避免保存残缺视频已中止；"
+                           f"请重试，或在设置中降低下载线程数/更换网络后重试）")
             logger.error(f"线程{self.ep_index}：下载失败 - {err_msg}")
             self.episode_finished.emit(self.ep_index, False, err_msg)
         finally:
@@ -489,6 +496,39 @@ class EpisodeDownloadThread(QThread):
                     raise
                 elif "下载已取消" in str(e):
                     raise
+                elif "不完整" in str(e):
+                    # 服务器提前断流导致的截断：海外线路访问 B站 CDN 时
+                    # IncompleteRead/短响应非常常见，且同一个 CDN 节点往往
+                    # 会连续返回短响应。因此这里重新获取一次播放地址
+                    # （可能命中另一个 CDN 节点/线路），而不是只对同一 URL
+                    # 重试，重试间隔也更长以便 CDN 恢复。
+                    retry_count += 1
+                    if retry_count <= max_retry:
+                        delay = min(2 * retry_count, 6)
+                        logger.warning(
+                            f"线程{self.ep_index}：{media_type}下载被截断，"
+                            f"{delay}秒后重新获取地址并重试"
+                        )
+                        self.progress_updated.emit(
+                            self.ep_index, self._calc_total_progress(0),
+                            f"{media_type}传输被中断，正在更换线路重试({retry_count}/{max_retry})..."
+                        )
+                        self.msleep(delay * 1000)
+                        if not self.is_running:
+                            raise Exception("下载已取消")
+                        try:
+                            _bvid = bvid or self.video_info.get('bvid', self.ep_info.get('bvid', ''))
+                            _new_v, _new_a, _new_kid = self._get_media_urls_with_retry(_bvid, self.ep_info)
+                            _new = _new_a if media_type == 'audio' else _new_v
+                            if _new:
+                                url = _new
+                                if kid is None:
+                                    kid = _new_kid
+                                logger.info(f"线程{self.ep_index}：已更换{media_type}流地址，继续重试")
+                        except Exception as _re:
+                            logger.warning(f"线程{self.ep_index}：更换地址失败，沿用原地址重试: {_re}")
+                        continue
+                    raise Exception(f"{media_type}下载失败：{str(e)}")
                 else:
                     retry_count += 1
                     if retry_count <= max_retry:
@@ -686,6 +726,30 @@ class EpisodeDownloadThread(QThread):
 
         raise Exception(f"未找到匹配的视频流: qn={selected_qn}")
 
+    def _sequence_number(self):
+        """当前集应使用的序号：优先任务级起始序号（批量提交时由 UI 指定），否则用集内偏移"""
+        try:
+            base = int(self.seq_number or 0)
+        except Exception:
+            base = 0
+        if base > 0:
+            return base
+        try:
+            return int(self.ep_index) + 1
+        except Exception:
+            return 1
+
+    def _seq_prefix(self):
+        """文件名序号前缀，如 '01. ' / '001. '；未启用（位数为 0）时返回空串"""
+        try:
+            digits = int(self.config.get_app_setting("filename_sequence_digits", 2)) if self.config else 0
+        except Exception:
+            digits = 0
+        if digits <= 0:
+            return ""
+        digits = max(1, min(digits, 6))
+        return f"{self._sequence_number():0{digits}d}. "
+
     def _merge_media(self, video_path, audio_path, kid=None):
 
         if not video_path or not os.path.exists(video_path):
@@ -700,19 +764,27 @@ class EpisodeDownloadThread(QThread):
         
         raw_title = self.config.get_app_setting("raw_title", False) if self.config else False
         add_episode_prefix = self.config.get_app_setting("add_episode_to_filename", True) if self.config else True
+        seq_prefix = self._seq_prefix()
         if raw_title:
             # 不处理标题：直接用 ep_title，不加任何前缀
-            output_path = os.path.join(self.save_path, f"{self.ep_title}.mp4")
+            base_title = self.ep_title or ''
+        else:
+            # 去掉标题里已存在的 "第X集" 与序号前缀，避免叠加
+            base_title = re.sub(r'^第\d+集[ _\-]*', '', self.ep_title or '').strip() or (self.ep_title or '')
+            base_title = re.sub(r'^\d+[.、][ _\-]*', '', base_title).strip() or base_title
+        if seq_prefix:
+            # 启用序号时以序号为准，不再叠加"第N集"
+            output_path = os.path.join(self.save_path, f"{seq_prefix}{base_title}.mp4" if base_title
+                                       else f"{seq_prefix.rstrip()}.mp4")
+        elif raw_title:
+            output_path = os.path.join(self.save_path, f"{base_title}.mp4")
         elif add_episode_prefix:
-            # 去除 ep_title 中已存在的 "第X集" 前缀，避免重复
-            _clean_ep_title = re.sub(r'^第\d+集[ _\-]*', '', self.ep_title) if self.ep_title else ''
-            _final_ep_title = _clean_ep_title if _clean_ep_title else self.ep_title
-            if _final_ep_title:
-                output_path = os.path.join(self.save_path, f"第{self.ep_index+1}集 - {_final_ep_title}.mp4")
+            if base_title:
+                output_path = os.path.join(self.save_path, f"第{self.ep_index+1}集 - {base_title}.mp4")
             else:
                 output_path = os.path.join(self.save_path, f"第{self.ep_index+1}集.mp4")
         else:
-            output_path = os.path.join(self.save_path, f"{self.ep_title}.mp4")
+            output_path = os.path.join(self.save_path, f"{base_title}.mp4")
         output_path = get_unique_filename(output_path)
         if self.video_process_mode == 're-encode':
             merge_status = "正在重编码合并..."
@@ -729,15 +801,8 @@ class EpisodeDownloadThread(QThread):
                 if not merge_result:
                     raise Exception(f"合并失败：{merge_error}" if merge_error else "合并失败")
             else:
-                if os.path.exists(output_path):
-                    try:
-                        os.remove(output_path)
-                    except Exception as e:
-                        raise Exception(f"无法删除已存在的文件：{str(e)}")
-                try:
-                    os.rename(video_path, output_path)
-                except Exception as e:
-                    shutil.move(video_path, output_path)
+                # 只存一次：优先同盘原子移动（os.rename），跨盘才回退复制
+                move_file_no_copy(video_path, output_path, logger=logger)
 
             if not os.path.exists(output_path):
                 from utils import verify_and_ensure_save
@@ -1086,7 +1151,9 @@ class DownloadManager(QObject):
             "audio_quality": download_params.get('audio_quality', self.config.get_app_setting("audio_quality", 30280) if self.config else 30280),
             "video_process_mode": download_params.get('video_process_mode', self.config.get_app_setting("video_process_mode", "copy") if self.config else "copy"),
             "download_cover": download_params.get('download_cover', False),
-            "download_subtitle": download_params.get('download_subtitle', False)
+            "download_subtitle": download_params.get('download_subtitle', False),
+            # 批量提交时的起始序号（如从合集第 N 个开始），0/缺省表示从 1 开始
+            "sequence_start": download_params.get('sequence_start', 0)
         }
 
         self._mutex.lock()
@@ -1119,6 +1186,8 @@ class DownloadManager(QObject):
                 "completed_episodes": 0,
                 "task_start_time": datetime.now().isoformat(),
                 "task_type": "video",
+                # 批次内起始序号，供任务列表/续传时还原与文件名一致的编号
+                "sequence_start": download_params.get('sequence_start', 0),
             }
             task = self.task_manager.add_task(task_info_for_manager)
             self.task_added.emit(task_id)
@@ -1451,6 +1520,21 @@ class DownloadManager(QObject):
         temp_files = []
         try:
             ep_title = f"第{ep_index+1}集_未知标题"
+            # 本次任务的集数：<=1 视为「单集独立视频」。
+            # 收藏夹 / 多链接批量下载时，每个条目其实都是一个独立投稿，
+            # 但它们的 page 恒为 1，直接拼"第N集"会让所有文件都变成"第1集"，
+            # 既分不清也排不了序。
+            try:
+                _total_eps = len(task_info.get('episodes') or [])
+            except Exception:
+                _total_eps = 0
+            _single_video = _total_eps <= 1
+            try:
+                _seq_digits = int(self.config.get_app_setting("filename_sequence_digits", 2)) if self.config else 0
+            except Exception:
+                _seq_digits = 0
+            if _seq_digits:
+                _seq_digits = max(1, min(_seq_digits, 6))
             try:
                 raw_title = self.config.get_app_setting("raw_title", False) if self.config else False
                 add_episode_prefix = self.config.get_app_setting("add_episode_to_filename", True) if self.config else True
@@ -1530,7 +1614,14 @@ class DownloadManager(QObject):
                         actual_title = re.sub(r'^\s*│\s*', '', actual_title)
                         actual_title = re.sub(r'^P\d+\s*[-_]\s*', '', actual_title)
                         actual_title = actual_title.strip()
-                    if add_episode_prefix:
+                    if _single_video or _seq_digits:
+                        # 单集独立视频，或已启用文件名序号：
+                        # 直接用标题（序号本身已经提供了排序信息），
+                        # 不再叠加"第N集"，否则会得到"01. 第1集_标题"这种冗余名字。
+                        _base = actual_title or video_main_title or ''
+                        _base = re.sub(r'^第\d+集[ _\-]*', '', _base).strip()
+                        ep_title = _base or f"第{page}集"
+                    elif add_episode_prefix:
                         if actual_title:
                             # 去除 actual_title 中已存在的 "第X集" 前缀，避免重复
                             _actual_clean = re.sub(r'^第\d+集[ _\-]*', '', actual_title) if actual_title else ''
@@ -1605,7 +1696,12 @@ class DownloadManager(QObject):
                 if _m:
                     _rest = (_m.group(1) or '').strip()
                     if _rest and _rest not in ('未知标题', '未知'):
-                        clean_title = _rest
+                        # 只有「单集独立视频」才允许把"第N集"去掉。
+                        # 合集/多分P 必须保留集数，否则各集文件名会退化成纯标题：
+                        # 既分不出顺序，标题相同还会互相重名——这正是用户反馈的
+                        # "解析结果里有序号，下载后序号就没了"。
+                        if _single_video:
+                            clean_title = _rest
                     elif _vt:
                         clean_title = _vt
                 elif not clean_title and _vt:
@@ -1615,6 +1711,28 @@ class DownloadManager(QObject):
             except Exception:
                 if not clean_title:
                     clean_title = f"第{ep_index + 1}集"
+
+            # 文件名序号：形如 "01. 标题" / "001. 标题"，位数由设置决定（0 = 不添加）
+            # 位数在上面标题初始化时已经读取过，这里直接复用。
+            try:
+                _seq_digits = int(_seq_digits)
+            except Exception:
+                _seq_digits = 0
+            if _seq_digits > 0:
+                _seq_digits = max(1, min(_seq_digits, 6))
+                try:
+                    _seq_base = int(task_info.get('sequence_start') or 0)
+                except Exception:
+                    _seq_base = 0
+                _seq_num = (_seq_base + ep_index) if _seq_base > 0 else (ep_index + 1)
+                # 去掉标题里已有的序号/集数前缀，避免出现 "01. 第1集_标题"
+                # 这种冗余名字（序号本身已经表达了顺序）。
+                # 必须与 ui.format_ep_name 的显示规则保持一致。
+                _stripped = re.sub(r'^第\d+集[ _\-]*', '', clean_title or '')
+                _stripped = re.sub(r'^\d+[.、][ _\-]*', '', _stripped).strip()
+                clean_title = _stripped or clean_title
+                clean_title = f"{_seq_num:0{_seq_digits}d}. {clean_title}" if clean_title else f"{_seq_num:0{_seq_digits}d}"
+                logger.info(f"任务{task_id}：第{ep_index+1}集文件名序号 = {_seq_num:0{_seq_digits}d}")
             download_content_type = task_info.get('download_content_type', 0)
             download_video = task_info.get('download_video', True)
             download_audio = task_info.get('download_audio', True)
@@ -1646,7 +1764,7 @@ class DownloadManager(QObject):
                 audio_path = None
 
                 if download_content_type == 1:
-                    audio_path = self._download_media_with_retry(task_id, audio_url, "audio", bvid, ep_index, kid)
+                    audio_path = self._download_media_with_retry(task_id, audio_url, "audio", bvid, ep_index, kid, ep_info)
                     if not audio_path:
                         return False, "音频下载失败"
                     temp_files.append(audio_path)
@@ -1658,19 +1776,14 @@ class DownloadManager(QObject):
                         logger.info(f"任务{task_id}：仅音频模式，Hi-Res/杜比自动使用FLAC格式")
                     output_path = os.path.join(task_info['save_path'], f"{clean_title}.{audio_format}")
                     output_path = get_unique_filename(output_path)
-                    # 直接重命名音频文件为输出文件
-                    try:
-                        if os.path.exists(output_path):
-                            os.remove(output_path)
-                        os.rename(audio_path, output_path)
-                    except Exception as e:
-                        shutil.move(audio_path, output_path)
+                    # 直接移动音频文件为输出文件（同盘原子移动，只存一次）
+                    move_file_no_copy(audio_path, output_path, logger=logger)
                     temp_files.remove(audio_path)  # 已移动到输出路径，不再清理
                     self.episode_progress_updated.emit(task_id, ep_index, 100, "音频下载完成")
                     logger.info(f"任务{task_id}：第{ep_index+1}集音频下载完成：{output_path}")
 
                 elif download_content_type == 2:
-                    video_path = self._download_media_with_retry(task_id, video_url, "video", bvid, ep_index, kid)
+                    video_path = self._download_media_with_retry(task_id, video_url, "video", bvid, ep_index, kid, ep_info)
                     if not video_path:
                         return False, "视频下载失败"
                     temp_files.append(video_path)
@@ -1678,13 +1791,8 @@ class DownloadManager(QObject):
                     video_format = task_info.get('video_format', 'mp4')
                     output_path = os.path.join(task_info['save_path'], f"{clean_title}.{video_format}")
                     output_path = get_unique_filename(output_path)
-                    # 直接重命名视频文件为输出文件
-                    try:
-                        if os.path.exists(output_path):
-                            os.remove(output_path)
-                        os.rename(video_path, output_path)
-                    except Exception as e:
-                        shutil.move(video_path, output_path)
+                    # 直接移动视频文件为输出文件（同盘原子移动，只存一次）
+                    move_file_no_copy(video_path, output_path, logger=logger)
                     temp_files.remove(video_path)  # 已移动到输出路径，不再清理
                     self.episode_progress_updated.emit(task_id, ep_index, 100, "视频下载完成（无声）")
                     logger.info(f"任务{task_id}：第{ep_index+1}集视频下载完成（无声）：{output_path}")
@@ -1706,20 +1814,20 @@ class DownloadManager(QObject):
                             _mt = 4
                         if _mt >= 3:
                             # 串行：先下完视频再下音频，总连接数 = max_threads × 1
-                            video_path = self._download_media_with_retry(task_id, video_url, "video", bvid, ep_index, kid)
+                            video_path = self._download_media_with_retry(task_id, video_url, "video", bvid, ep_index, kid, ep_info)
                             if not video_path:
                                 pass  # 下方统一检查
                             else:
-                                audio_path = self._download_media_with_retry(task_id, audio_url, "audio", bvid, ep_index, kid)
+                                audio_path = self._download_media_with_retry(task_id, audio_url, "audio", bvid, ep_index, kid, ep_info)
                         else:
                             # 任务并发少(1-2)时，音视频并行下载以利用带宽
                             def _dl_v():
                                 nonlocal video_path
-                                video_path = self._download_media_with_retry(task_id, video_url, "video", bvid, ep_index, kid)
+                                video_path = self._download_media_with_retry(task_id, video_url, "video", bvid, ep_index, kid, ep_info)
 
                             def _dl_a():
                                 nonlocal audio_path
-                                audio_path = self._download_media_with_retry(task_id, audio_url, "audio", bvid, ep_index, kid)
+                                audio_path = self._download_media_with_retry(task_id, audio_url, "audio", bvid, ep_index, kid, ep_info)
 
                             with ThreadPoolExecutor(max_workers=2) as executor:
                                 v_future = executor.submit(_dl_v)
@@ -1730,7 +1838,7 @@ class DownloadManager(QObject):
                                     except Exception:
                                         raise
                     else:
-                        video_path = self._download_media_with_retry(task_id, video_url, "video", bvid, ep_index, kid)
+                        video_path = self._download_media_with_retry(task_id, video_url, "video", bvid, ep_index, kid, ep_info)
 
                     if not video_path:
                         self._mutex.lock()
@@ -1811,12 +1919,8 @@ class DownloadManager(QObject):
                                 if not merge_result:
                                     raise Exception(f"合并失败：{merge_error}" if merge_error else "合并失败")
                             else:
-                                if os.path.exists(output_path):
-                                    os.remove(output_path)
-                                try:
-                                    os.rename(video_path, output_path)
-                                except Exception as e:
-                                    shutil.move(video_path, output_path)
+                                # 只存一次：优先同盘原子移动（os.rename），跨盘才回退复制
+                                move_file_no_copy(video_path, output_path, logger=logger)
 
                             if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
                                 from utils import verify_and_ensure_save
@@ -2275,7 +2379,7 @@ class DownloadManager(QObject):
                 raise Exception("访问权限不足")
             raise Exception(f"链接获取失败：{error}")
 
-    def _download_media_with_retry(self, task_id, url, media_type, bvid, ep_index, kid=None):
+    def _download_media_with_retry(self, task_id, url, media_type, bvid, ep_index, kid=None, ep_info=None):
         self._mutex.lock()
         task_info = self.active_tasks.get(task_id)
         if not task_info:
@@ -2320,6 +2424,42 @@ class DownloadManager(QObject):
 
                     logger.error(f"任务{task_id}：{media_type}下载权限不足，无法下载")
                     raise
+                elif "不完整" in str(e):
+                    # 服务器提前断流：与单集下载保持一致，重新获取播放地址
+                    # （可能命中其它 CDN 节点），重试间隔更长。
+                    retry_count += 1
+                    if retry_count <= max_retry:
+                        delay = min(2 * retry_count, 6)
+                        logger.warning(
+                            f"任务{task_id}：{media_type}下载被截断，"
+                            f"{delay}秒后重新获取地址并重试"
+                        )
+                        time.sleep(delay)
+                        try:
+                            _vid = None
+                            self._mutex.lock()
+                            _ti = self.active_tasks.get(task_id) or self.paused_tasks.get(task_id)
+                            if _ti:
+                                _vid = _ti.get('video_info')
+                            self._mutex.unlock()
+                            _ep = ep_info
+                            if _ep is None and _vid:
+                                _eps = _vid.get('episodes') or _vid.get('pages') or []
+                                if isinstance(_eps, list) and 0 <= ep_index < len(_eps):
+                                    _ep = _eps[ep_index]
+                            _bvid = bvid or (_vid or {}).get('bvid', '')
+                            _new_v, _new_a, _new_kid = self._get_media_urls_with_retry(
+                                _bvid, dict(_ep or {}))
+                            _new = _new_a if media_type == 'audio' else _new_v
+                            if _new:
+                                url = _new
+                                if kid is None:
+                                    kid = _new_kid
+                                logger.info(f"任务{task_id}：已更换{media_type}流地址，继续重试")
+                        except Exception as _re:
+                            logger.warning(f"任务{task_id}：更换地址失败，沿用原地址重试: {_re}")
+                        continue
+                    raise Exception(f"{media_type}下载失败：{str(e)}")
                 else:
                     retry_count += 1
                     if retry_count <= max_retry:

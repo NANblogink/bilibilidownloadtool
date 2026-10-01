@@ -1,0 +1,65 @@
+APK: bilidownload-2.2.0-arm64-v8a_armeabi-v7a-debug.apk  (53.2 MB, 43 entries)
+
+=== 1. 架构 ===
+  PASS arm64-v8a 原生库 12 个 .so
+  PASS   arm64-v8a 含 libpython3
+  PASS   arm64-v8a 含 libmain
+  PASS   arm64-v8a 含 libSDL2.so
+  PASS   arm64-v8a 含 libssl
+  PASS   arm64-v8a 含 libcrypto
+  PASS armeabi-v7a 原生库 12 个 .so
+  PASS   armeabi-v7a 含 libpython3
+  PASS   armeabi-v7a 含 libmain
+  PASS   armeabi-v7a 含 libSDL2.so
+  PASS   armeabi-v7a 含 libssl
+  PASS   armeabi-v7a 含 libcrypto
+
+=== 2. assets/private.tar 里的应用代码 ===
+  private.tar 条目数: 53
+  PASS main.pyc
+  PASS qt_compat.pyc
+  PASS NotoSansSC-Regular.ttf
+  PASS NotoSansSC-Bold.ttf
+  PASS logo_ui.png
+  PASS core/downloader.pyc
+  PASS core/utils.pyc
+  PASS core/task_manager.pyc
+  PASS core/config.pyc
+  PASS core/download_history.pyc
+  PASS core/tool_manager.pyc
+  PASS core/infra/platform_utils.pyc
+  PASS core/infra/logger_config.pyc
+  PASS parsers/bilibili_parser.pyc
+
+=== 3. 字体文件真的写进去了吗（大小校验）===
+  PASS NotoSansSC-Regular.ttf 大小合理 788 KB (期望约 788 KB)
+  PASS NotoSansSC-Bold.ttf 大小合理 704 KB (期望约 704 KB)
+
+=== 4. 没有 PyQt5（Android 上不可能有）===
+  PASS APK 内无 PyQt5
+
+=== 5. 启动图标（必须是用户自己的 logo）===
+  找到 5 个图标资源:
+    res/drawable-hdpi-v4/ic_launcher.png               2683 B
+    res/drawable-mdpi-v4/ic_launcher.png               1698 B
+    res/drawable-xhdpi-v4/ic_launcher.png              3872 B
+    res/drawable-xxhdpi-v4/ic_launcher.png             6874 B
+    res/mipmap/icon.png                              244437 B
+  PASS 存在启动图标
+  PASS 存在 mipmap/icon.png（用户 logo）
+  PASS mipmap/icon.png 是高清 logo（>100 KB，SDL 图标仅 1-7 KB） 244437 B
+  PASS manifest 的 application icon 指向 mipmap/icon application: label='B站视频解析工具' icon='res/mipmap/icon.png'
+
+=== 6. AndroidManifest 关键项 ===
+  PASS manifest 可解析出字符串池 56 项
+  PASS manifest 含 screenOrientation 属性
+  PASS screenOrientation = portrait(1) 实际=1(portrait)
+  PASS manifest 不含 landscape（未误设横向）
+  PASS 包名正确
+
+=== 7. 权限 ===
+  PASS 权限 INTERNET
+  PASS 权限 ACCESS_NETWORK_STATE
+  PASS 权限 WRITE_EXTERNAL_STORAGE
+
+TOTAL FAILURES: 0

@@ -1,30 +1,102 @@
 import os
 import sys
+import shutil
 import subprocess
 
 IS_MACOS = sys.platform == 'darwin'
 IS_WINDOWS = sys.platform == 'win32'
 IS_LINUX = sys.platform.startswith('linux')
+IS_ANDROID = (sys.platform.startswith('linux')
+              and ('ANDROID_ARGUMENT' in os.environ
+                   or 'ANDROID_ROOT' in os.environ
+                   or 'ANDROID_STORAGE' in os.environ
+                   or os.path.exists('/system/build.prop')))
+
+PLATFORM_NAME = 'windows' if IS_WINDOWS else ('macos' if IS_MACOS else
+                                              ('android' if IS_ANDROID else 'linux'))
 
 
 def exe(name):
+    """可执行文件名：Windows 补 .exe，其余平台原名。
+
+    注意：若传入的名字已带 .exe 后缀（历史上部分调用点如此），
+    在非 Windows 平台会得到错误名。这里统一做一次规范化。
+    """
     if IS_WINDOWS:
-        return f"{name}.exe"
+        return name if name.lower().endswith('.exe') else f"{name}.exe"
+    if name.lower().endswith('.exe'):
+        return name[:-4]
     return name
 
 
-def subprocess_no_window_kwargs():
+def tool_names(name):
+    """返回该工具在当前平台的候选可执行名（含兜底别名），用于查找。
+
+    打包场景下用户可能拿到别的平台残留的文件名，因此把 .exe 变体也列为候选，
+    只在"确认可执行"时才使用。
+    """
+    base = exe(name)
     if IS_WINDOWS:
+        return [base]
+    return [base, f"{name}.exe"] if not base.endswith('.exe') else [base]
+
+
+# 某些 Windows 环境下，CreateProcess 传入 CREATE_NO_WINDOW 会间歇性失败并报
+# [WinError 50] 不支持该请求（日志里 ffprobe 加密检测、PowerShell 显卡检测都中过）。
+# 一旦命中，本次运行就彻底不再使用该标志，避免每个调用点都反复踩同一个坑。
+_NO_WINDOW_USABLE = True
+
+
+def note_no_window_failure(exc):
+    """记录一次 CREATE_NO_WINDOW 失败；命中 WinError 50 时全局降级。
+
+    返回 True 表示这是可降级的错误（调用方可以去掉该标志重试）。
+    """
+    global _NO_WINDOW_USABLE
+    if not IS_WINDOWS:
+        return False
+    if getattr(exc, 'winerror', None) == 50:
+        if _NO_WINDOW_USABLE:
+            _NO_WINDOW_USABLE = False
+        return True
+    return False
+
+
+def subprocess_no_window_kwargs():
+    if IS_WINDOWS and _NO_WINDOW_USABLE:
         return {'creationflags': subprocess.CREATE_NO_WINDOW}
     return {}
 
 
 def subprocess_low_priority_kwargs():
     """返回低优先级子进程的创建参数，用于ffmpeg等CPU密集型任务，降低CPU噪音但不降速"""
-    if IS_WINDOWS:
+    if IS_WINDOWS and _NO_WINDOW_USABLE:
         # BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
         return {'creationflags': subprocess.CREATE_NO_WINDOW | 0x00004000}
+    if IS_WINDOWS:
+        return {'creationflags': 0x00004000}
     return {}
+
+
+def run_no_window(cmd, timeout=30, text=False, **kwargs):
+    """执行子进程并隐藏窗口，遇到 Windows 的 WinError 50 自动降级重试一次。
+
+    ffprobe / powershell 这类探测型调用被这个错误打断时会静默退化成
+    "检测失败"，用户看到的是编码/加密判断失灵，因此这里兜一层。
+    """
+    if not IS_WINDOWS:
+        return subprocess.run(cmd, capture_output=True, text=text,
+                              timeout=timeout, **kwargs)
+    try:
+        return subprocess.run(cmd, capture_output=True, text=text, timeout=timeout,
+                              **subprocess_no_window_kwargs(), **kwargs)
+    except OSError as e:
+        if not note_no_window_failure(e):
+            raise
+        # 去掉 CREATE_NO_WINDOW 重试；此时子进程可能会闪一个控制台窗口，
+        # 但总好过功能直接失效。
+        return subprocess.run(cmd, capture_output=True, text=text,
+                              timeout=timeout, **kwargs)
 
 
 def app_data_dir(app_name="BilibiliDownloadTool"):
@@ -295,11 +367,10 @@ def detect_gpu():
     if IS_WINDOWS:
         # 方法1: 优先用PowerShell Get-CimInstance（wmic在新版Windows可能弃用）
         try:
-            result = subprocess.run(
+            result = run_no_window(
                 ['powershell', '-NoProfile', '-Command',
                  'Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name'],
-                capture_output=True, text=True, timeout=10,
-                creationflags=subprocess.CREATE_NO_WINDOW
+                timeout=10, text=True
             )
             output = result.stdout.strip()
             if output:
@@ -451,6 +522,379 @@ def _resolve_ascii_candidate(path):
     return None
 
 
+# --------------------------------------------------------------------------
+# 统一平台行为 API
+#
+# 这些函数把历史上散落在 ui.py / parsers 里的 Windows 专有调用
+# （explorer /select、taskkill、shutdown /s、cmd /c、os.startfile）
+# 收敛到一处，使 Linux / macOS / Android 走各自的等价实现。
+# 所有函数都保证"失败不抛异常"，返回 bool 表示是否成功发起操作。
+# --------------------------------------------------------------------------
+
+
+def open_path(path):
+    """用系统默认程序打开文件或目录。"""
+    if not path:
+        return False
+    path = os.path.normpath(path)
+    try:
+        if IS_WINDOWS:
+            os.startfile(path)  # noqa: S606 - Windows 专用
+        elif IS_MACOS:
+            subprocess.Popen(['open', path], **subprocess_no_window_kwargs())
+        elif IS_ANDROID:
+            # Termux / Kivy 环境没有 xdg-open，交给调用方降级
+            return False
+        else:
+            opener = shutil.which('xdg-open')
+            if not opener:
+                return False
+            subprocess.Popen([opener, path], **subprocess_no_window_kwargs())
+        return True
+    except Exception:
+        return False
+
+
+def reveal_in_file_manager(path, select=False):
+    """在文件管理器中定位文件（Windows 选中 / macOS 选中 / Linux 打开所在目录）。
+
+    select=True 表示尽量高亮该文件本身；平台不支持时退化为打开父目录。
+    """
+    if not path:
+        return False
+    path = os.path.normpath(path)
+    try:
+        if IS_WINDOWS:
+            if select and os.path.isfile(path):
+                subprocess.Popen(['explorer', '/select,', path],
+                                 **subprocess_no_window_kwargs())
+            else:
+                target = path if os.path.isdir(path) else os.path.dirname(path)
+                subprocess.Popen(['explorer', target],
+                                 **subprocess_no_window_kwargs())
+            return True
+        if IS_MACOS:
+            if select:
+                subprocess.Popen(['open', '-R', path], **subprocess_no_window_kwargs())
+            else:
+                subprocess.Popen(['open', path if os.path.isdir(path) else os.path.dirname(path)],
+                                 **subprocess_no_window_kwargs())
+            return True
+        # Linux / 其他：没有统一"选中"语义，打开所在目录
+        target = path if os.path.isdir(path) else os.path.dirname(path)
+        return open_path(target)
+    except Exception:
+        return False
+
+
+def open_terminal(command=None, path=None):
+    """打开一个终端窗口（可选在其中执行命令）。"""
+    try:
+        if IS_WINDOWS:
+            if command:
+                # 用 cmd /k 保持窗口不关闭，便于用户查看输出
+                subprocess.Popen(['cmd', '/k', command],
+                                 cwd=path, **subprocess_no_window_kwargs())
+            else:
+                subprocess.Popen(['cmd'], cwd=path, **subprocess_no_window_kwargs())
+            return True
+        if IS_MACOS:
+            if path:
+                subprocess.Popen(['open', '-a', 'Terminal', path])
+            else:
+                subprocess.Popen(['open', '-a', 'Terminal'])
+            return True
+        if IS_ANDROID:
+            return False
+        # Linux：按可用性依次尝试常见终端
+        for term in ('x-terminal-emulator', 'gnome-terminal', 'konsole',
+                     'xfce4-terminal', 'xterm'):
+            exe_path = shutil.which(term)
+            if not exe_path:
+                continue
+            if command:
+                if term in ('gnome-terminal', 'xfce4-terminal'):
+                    args = [exe_path, '--', 'bash', '-c', command + '; exec bash']
+                elif term == 'konsole':
+                    args = [exe_path, '-e', 'bash', '-c', command + '; exec bash']
+                else:
+                    args = [exe_path, '-e', 'bash', '-c', command + '; exec bash']
+            else:
+                args = [exe_path]
+            subprocess.Popen(args, cwd=path, **subprocess_no_window_kwargs())
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def kill_process_tree(pid, timeout=5):
+    """强制结束进程及其子进程。返回 bool。"""
+    if not pid:
+        return False
+    try:
+        if IS_WINDOWS:
+            subprocess.call(['taskkill', '/F', '/T', '/PID', str(pid)],
+                            **subprocess_no_window_kwargs())
+            return True
+        # POSIX：先温和终止进程组，超时后强杀
+        import signal
+        try:
+            pgid = os.getpgid(pid)
+        except Exception:
+            pgid = None
+        try:
+            if pgid is not None:
+                os.killpg(pgid, signal.SIGTERM)
+            else:
+                os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return True
+        except Exception:
+            pass
+
+        import time as _time
+        deadline = _time.time() + max(0.0, float(timeout))
+        while _time.time() < deadline:
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                return True
+            _time.sleep(0.05)
+        try:
+            if pgid is not None:
+                os.killpg(pgid, signal.SIGKILL)
+            else:
+                os.kill(pid, signal.SIGKILL)
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
+def popen_new_session_kwargs():
+    """让子进程独立成组，便于后续整组终止（POSIX）。
+
+    ffmpeg/播放器等长驻子进程需要它，否则 kill_process_tree 无法连带清理。
+    """
+    if IS_WINDOWS:
+        return {'creationflags': getattr(subprocess, 'CREATE_NO_WINDOW', 0)}
+    return {'start_new_session': True}
+
+
+def shutdown_system(delay_seconds=60, reason=""):
+    """安排系统关机。各平台使用各自的命令。返回 (ok, message)。"""
+    try:
+        if IS_WINDOWS:
+            args = ['shutdown', '/s', '/t', str(int(delay_seconds))]
+            if reason:
+                args += ['/c', reason]
+            subprocess.Popen(args, **subprocess_no_window_kwargs())
+            return True, '已安排关机'
+        if IS_MACOS:
+            # macOS 的 shutdown 只接受分钟粒度，且不支持自定义提示语
+            minutes = max(1, int(round(delay_seconds / 60.0)))
+            subprocess.Popen(['sudo', '-n', 'shutdown', '-h', '+%d' % minutes],
+                             **subprocess_no_window_kwargs())
+            return True, '已安排关机（如有提示请输入密码）'
+        if IS_ANDROID:
+            return False, '当前平台不支持自动关机'
+        # Linux：优先 systemd，回退 shutdown
+        if shutil.which('systemctl'):
+            subprocess.Popen(['systemctl', 'poweroff'],
+                             **subprocess_no_window_kwargs())
+            return True, '已安排关机'
+        if shutil.which('shutdown'):
+            subprocess.Popen(['shutdown', '-h', '+%d' % max(1, int(round(delay_seconds / 60.0)))],
+                             **subprocess_no_window_kwargs())
+            return True, '已安排关机'
+        return False, '未找到可用的关机命令'
+    except Exception as e:
+        return False, f'安排关机失败: {e}'
+
+
+def set_process_priority_low(pid=None):
+    """把当前进程或指定进程降到低优先级。返回 bool。"""
+    try:
+        if IS_WINDOWS:
+            import ctypes
+            handle = None
+            BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+            kernel32 = ctypes.windll.kernel32
+            if pid:
+                handle = kernel32.OpenProcess(0x0200 | 0x0400, False, int(pid))
+            else:
+                handle = kernel32.GetCurrentProcess()
+            if not handle:
+                return False
+            try:
+                return bool(kernel32.SetPriorityClass(handle, BELOW_NORMAL_PRIORITY_CLASS))
+            finally:
+                if pid and handle:
+                    kernel32.CloseHandle(handle)
+        # POSIX
+        import psutil
+        proc = psutil.Process(pid) if pid else psutil.Process()
+        proc.nice(10)
+        return True
+    except Exception:
+        return False
+
+
+def available_memory_bytes():
+    """返回可用物理内存字节数，获取不到返回 None。
+
+    用于在移动端/低配设备上自适应并发度，避免把机器打崩。
+    """
+    try:
+        import psutil
+        return int(psutil.virtual_memory().available)
+    except Exception:
+        pass
+    try:
+        if IS_LINUX or IS_ANDROID:
+            with open('/proc/meminfo') as fh:
+                for line in fh:
+                    if line.startswith('MemAvailable:'):
+                        return int(line.split()[1]) * 1024
+    except Exception:
+        pass
+    return None
+
+
+def cpu_count():
+    """逻辑 CPU 数，失败回退 2（保守值）。"""
+    try:
+        return max(1, os.cpu_count() or 2)
+    except Exception:
+        return 2
+
+
+def recommended_concurrency(explicit=None, cap=8, floor=1):
+    """按设备能力推荐并发数。
+
+    Android / 低内存设备上主动降低并发，避免 OOM 与系统卡顿。
+    """
+    if explicit:
+        try:
+            return max(floor, min(int(explicit), cap))
+        except Exception:
+            pass
+    n = cpu_count()
+    mem = available_memory_bytes()
+    if mem is not None:
+        gb = mem / float(1024 ** 3)
+        if gb < 1.0:
+            n = min(n, 2)
+        elif gb < 2.0:
+            n = min(n, 3)
+        elif gb < 4.0:
+            n = min(n, 4)
+    if IS_ANDROID:
+        n = min(n, 3)
+    return max(floor, min(n, cap))
+
+
+# --------------------------------------------------------------------------
+# 跨平台桌面通知
+#
+# Windows 走 WinRT(winsdk)；macOS 走 osascript；Linux 走 notify-send
+# （D-Bus 桌面通知规范）。三者都只做"尽力而为"，失败静默返回 False，
+# 绝不影响主流程。
+# --------------------------------------------------------------------------
+
+
+def _notify_macos(title, message, subtitle=""):
+    def _esc(s):
+        return str(s).replace('\\', '\\\\').replace('"', '\\"')
+    parts = ['display notification "%s"' % _esc(message)]
+    if title:
+        parts.append('with title "%s"' % _esc(title))
+    if subtitle:
+        parts.append('subtitle "%s"' % _esc(subtitle))
+    script = ' '.join(parts)
+    subprocess.Popen(['osascript', '-e', script], **subprocess_no_window_kwargs())
+    return True
+
+
+def _notify_linux(title, message, urgency='normal'):
+    sender = shutil.which('notify-send')
+    if not sender:
+        return False
+    # -a 是应用名，-u 是紧急度（low/normal/critical）
+    args = [sender, '-a', 'B站视频下载工具']
+    if urgency in ('low', 'normal', 'critical'):
+        args += ['-u', urgency]
+    args += [str(title or ''), str(message or '')]
+    subprocess.Popen(args, **subprocess_no_window_kwargs())
+    return True
+
+
+def native_notify(title, message, urgency='normal', subtitle=''):
+    """发送一条系统级桌面通知。返回 bool 表示是否成功发起。
+
+    Windows 的 WinRT 实现留在 ui.py（需要保留 Toast 动作/进度条能力），
+    这里只提供 POSIX 平台实现，供 ui.py 统一入口调用。
+    """
+    try:
+        if IS_WINDOWS:
+            return False  # 由 ui._winrt_toast 接管
+        if IS_MACOS:
+            return _notify_macos(title, message, subtitle)
+        if IS_ANDROID:
+            return False  # 由 Android 端 Kivy 层接管
+        return _notify_linux(title, message, urgency)
+    except Exception:
+        return False
+
+
+def notification_backend():
+    """返回当前平台可用的通知后端名，便于界面显示与自查。"""
+    if IS_WINDOWS:
+        try:
+            import winsdk  # noqa: F401
+            return 'winrt'
+        except Exception:
+            return 'none'
+    if IS_MACOS:
+        return 'osascript' if shutil.which('osascript') else 'none'
+    if IS_ANDROID:
+        return 'android'
+    return 'notify-send' if shutil.which('notify-send') else 'none'
+
+
+def beep(kind='info'):
+    """播放一声系统提示音。各平台实现不同，失败静默返回 False。"""
+    try:
+        if IS_WINDOWS:
+            import winsound
+            tone = winsound.MB_ICONEXCLAMATION if kind == 'warn' else winsound.MB_OK
+            winsound.MessageBeep(tone)
+            return True
+        if IS_MACOS:
+            # afplay 附带在 macOS 上，声音文件位于 /System/Library/Sounds
+            for name in (('Basso.aiff',) if kind == 'warn' else ('Glass.aiff', 'Ping.aiff')):
+                p = '/System/Library/Sounds/' + name
+                if os.path.exists(p):
+                    subprocess.Popen(['afplay', p], **subprocess_no_window_kwargs())
+                    return True
+            return False
+        # Linux：优先 paplay/canberra，回退终端响铃
+        for cmd in (['canberra-gtk-play', '-i', 'complete'],
+                    ['paplay', '/usr/share/sounds/freedesktop/stereo/complete.oga']):
+            if shutil.which(cmd[0]):
+                subprocess.Popen(cmd, **subprocess_no_window_kwargs())
+                return True
+        sys.stdout.write('\a')
+        sys.stdout.flush()
+        return True
+    except Exception:
+        return False
+
+
+
+
 def get_safe_temp_dir(base_dir, sub_dir="temp", cache_dir=None, prefer_dir=None):
     """获取 ASCII 安全的临时目录，用于调用 C++ 工具(mp4decrypt/ffmpeg等)时避免中文路径问题。
 
@@ -514,4 +958,125 @@ def get_safe_temp_dir(base_dir, sub_dir="temp", cache_dir=None, prefer_dir=None)
     sys_temp = tempfile.gettempdir()
     resolved = _resolve_ascii_candidate(sys_temp)
     return resolved or sys_temp
+
+
+def move_file_no_copy(src, dst, overwrite=True, logger=None):
+    """把 src 移动到 dst，优先「同盘重命名」，绝不做无谓的复制+删除。
+
+    设计目标（用户明确要求）：
+        "下载到目标文件夹所在盘，然后移动到目标文件夹，只存一次，
+         必须是移动不能复制再删除。"
+
+    行为：
+        1. 先尝试 os.replace / os.rename —— 同一卷上是原子操作，
+           零额外磁盘写入、零额外占用，瞬间完成（这才是真正的"移动"）。
+        2. 仅当重命名确实失败（源与目标跨卷 / 跨设备）时，才回退到
+           shutil.move；shutil.move 在同盘时内部也是 rename，
+           跨盘时才复制+删除，属于无法避免的情况。
+        3. 目标已存在时，先删除再移动（避免 rename 在某些平台失败）。
+
+    :param src: 源文件路径
+    :param dst: 目标文件路径
+    :param overwrite: 目标存在时是否覆盖（默认 True）
+    :param logger: 可选 logger，用于记录实际采用的是移动还是回退复制
+    :return: 最终文件路径（成功）
+    :raises: 移动失败时抛出最后一个异常
+    """
+    src = os.path.abspath(src)
+    dst = os.path.abspath(dst)
+
+    if src == dst:
+        return dst
+
+    dst_dir = os.path.dirname(dst)
+    if dst_dir:
+        os.makedirs(dst_dir, exist_ok=True)
+
+    if os.path.exists(dst):
+        if overwrite:
+            try:
+                os.remove(dst)
+            except Exception as _e:
+                if logger:
+                    logger.warning(f"覆盖前删除目标文件失败：{dst} - {_e}")
+        else:
+            raise FileExistsError(f"目标文件已存在：{dst}")
+
+    # 1) 同盘：原子重命名（零拷贝）
+    try:
+        os.replace(src, dst)
+        if logger:
+            logger.debug(f"同盘重命名完成（零拷贝）：{src} -> {dst}")
+        return dst
+    except OSError as e:
+        _rename_err = e
+
+    try:
+        os.rename(src, dst)
+        if logger:
+            logger.debug(f"同盘重命名完成（零拷贝）：{src} -> {dst}")
+        return dst
+    except OSError as e:
+        _rename_err = e
+
+    # 2) 跨卷回退：shutil.move（同盘时内部仍是 rename；跨盘才会真正复制）
+    same_volume = False
+    try:
+        same_volume = os.path.splitdrive(src)[0].lower() == os.path.splitdrive(dst)[0].lower()
+    except Exception:
+        pass
+    if same_volume and logger:
+        logger.warning(f"同盘重命名失败（{_rename_err}），回退 shutil.move：{src} -> {dst}")
+    elif logger:
+        logger.info(f"源与目标跨盘，回退 shutil.move（不可避免的一次搬运）：{src} -> {dst}")
+
+    shutil.move(src, dst)
+    return dst
+
+
+def link_or_copy(src, dst, overwrite=True, logger=None):
+    """为「工具不支持中文路径」等场景准备一份可访问副本，但尽量不额外占用磁盘。
+
+    优先硬链接（同一卷上零额外空间、瞬间完成，数据只存一份），
+    失败才回退 shutil.copy2（跨卷或文件系统不支持硬链接时）。
+
+    注意：硬链接与原文件共享同一份数据，删除其中任意一个都不会丢失数据，
+    但修改其一会影响另一个。此函数仅用于「只读副本」场景
+    （如交给 ffmpeg/mp4decrypt 读取），不可用于需要独立修改的副本。
+
+    :param src: 源文件
+    :param dst: 目标副本路径
+    :param overwrite: 目标存在时是否覆盖
+    :return: dst
+    """
+    src = os.path.abspath(src)
+    dst = os.path.abspath(dst)
+
+    dst_dir = os.path.dirname(dst)
+    if dst_dir:
+        os.makedirs(dst_dir, exist_ok=True)
+
+    if os.path.exists(dst):
+        if overwrite:
+            try:
+                os.remove(dst)
+            except Exception:
+                pass
+        else:
+            return dst
+
+    # 1) 硬链接：同卷零额外空间，数据只存一份
+    try:
+        os.link(src, dst)
+        if logger:
+            logger.debug(f"使用硬链接创建副本（零额外空间）：{dst}")
+        return dst
+    except OSError:
+        pass
+
+    # 2) 回退：真实复制
+    shutil.copy2(src, dst)
+    if logger:
+        logger.debug(f"硬链接不可用，已复制副本：{dst}")
+    return dst
 

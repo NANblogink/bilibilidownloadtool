@@ -240,33 +240,184 @@ class CloudService:
         self._save_consent()
 
     @staticmethod
-    def _get_client_id_file_path():
+    def _get_client_id_file_paths():
+        """返回设备码所有可能的存放位置（按优先级）。
+
+        多路径的意义：内测用户会反复安装/覆盖安装，如果设备码只落在
+        安装目录（_internal 或 exe 旁），重装或换版本就会连同目录一起被替换，
+        于是每次安装都随机生成一个新的设备码，服务端便把同一台机器
+        当成新设备，内测授权也随之丢失。
+        因此除应用目录外，还要在用户数据目录保留一份，做到跨重装稳定。
+        """
+        paths = []
+        seen = set()
+
+        def _add(p):
+            if not p:
+                return
+            try:
+                norm = os.path.normcase(os.path.abspath(p))
+            except Exception:
+                return
+            if norm not in seen:
+                seen.add(norm)
+                paths.append(p)
+
+        # 1) 用户数据目录（跨重装、跨版本稳定，最可靠）
+        for base in (os.environ.get('LOCALAPPDATA'), os.environ.get('APPDATA')):
+            if base:
+                _add(os.path.join(base, 'BilibiliDownloadTool', 'client_id.txt'))
+        try:
+            _add(os.path.join(os.path.expanduser('~'), '.bilidown', 'client_id.txt'))
+        except Exception:
+            pass
+
+        # 2) 应用目录（兼容历史版本）
         try:
             from logger_config import get_app_dir
-            base_dir = get_app_dir()
-            return os.path.join(base_dir, "client_id.txt")
+            _add(os.path.join(get_app_dir(), 'client_id.txt'))
         except Exception:
-            return os.path.join(os.path.expanduser("~"), "bilidown_client_id.txt")
+            pass
 
-    def _load_or_create_client_id(self):
+        # 3) 兜底：用户主目录
         try:
-            id_file = self._get_client_id_file_path()
-            if os.path.exists(id_file):
-                with open(id_file, 'r', encoding='utf-8') as f:
+            _add(os.path.join(os.path.expanduser("~"), "bilidown_client_id.txt"))
+        except Exception:
+            pass
+        return paths
+
+    @staticmethod
+    def _get_client_id_file_path():
+        """主路径（保持向后兼容）：优先用户数据目录。"""
+        return CloudService._get_client_id_file_paths()[0]
+
+    @staticmethod
+    def _read_client_id_from(path):
+        try:
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
                     cid = f.read().strip()
                 if cid and len(cid) >= 16:
                     return cid
-            self._is_new_install = True
-            cid = uuid.uuid4().hex
+        except Exception:
+            pass
+        return ""
+
+    @staticmethod
+    def _write_client_id_to(path, cid):
+        try:
+            d = os.path.dirname(path)
+            if d:
+                os.makedirs(d, exist_ok=True)
+            # 先写临时文件再改名，避免写入中断留下半截文件
+            tmp = path + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as f:
+                f.write(cid)
             try:
-                with open(id_file, 'w', encoding='utf-8') as f:
+                os.replace(tmp, path)
+            except Exception:
+                os.remove(tmp)
+                with open(path, 'w', encoding='utf-8') as f:
                     f.write(cid)
-            except Exception as e:
-                logger.debug(f"保存client_id失败: {e}")
+            return True
+        except Exception as e:
+            logger.debug(f"保存client_id失败({path}): {e}")
+            return False
+
+    @staticmethod
+    def _machine_identity():
+        """由本机稳定硬件特征派生一个可复现的标识，作为设备码的最后兜底。
+
+        仅在本地完全没有任何已保存的设备码时使用（例如首次运行且用户目录
+        不可写）。它保证"同一台机器重装后算出的设备码一致"，
+        而不像 uuid4 那样每次安装都不同。
+        """
+        import platform
+        import hashlib
+        parts = []
+        try:
+            parts.append(platform.node() or '')
+        except Exception:
+            pass
+        try:
+            parts.append(platform.machine() or '')
+        except Exception:
+            pass
+        # Windows: 机器 GUID（安装时生成，重装系统才会变），最稳定
+        if IS_WINDOWS:
+            try:
+                import subprocess
+                try:
+                    from platform_utils import subprocess_no_window_kwargs as _snwk
+                except Exception:
+                    def _snwk():
+                        return {}
+                out = subprocess.run(
+                    ['reg', 'query',
+                     r'HKLM\SOFTWARE\Microsoft\Cryptography',
+                     '/v', 'MachineGuid'],
+                    capture_output=True, text=True, timeout=5,
+                    **_snwk()
+                )
+                for line in (out.stdout or '').splitlines():
+                    if 'MachineGuid' in line:
+                        parts.append(line.split()[-1].strip())
+                        break
+            except Exception:
+                pass
+        # 网卡 MAC（取排序后的第一个，避免虚拟网卡顺序抖动）
+        try:
+            import uuid as _uuid
+            mac = _uuid.getnode()
+            if mac:
+                parts.append('%012x' % mac)
+        except Exception:
+            pass
+        seed = '|'.join(p for p in parts if p)
+        if not seed:
+            return ""
+        return hashlib.sha256(('bilidown-device:' + seed).encode('utf-8')).hexdigest()
+
+    def _load_or_create_client_id(self):
+        try:
+            paths = self._get_client_id_file_paths()
+
+            # 1) 依次读取所有已知位置，取第一个有效值
+            for p in paths:
+                cid = self._read_client_id_from(p)
+                if cid:
+                    # 回写其它位置，保证后续重装/换目录时仍能读到同一个设备码
+                    for other in paths:
+                        if other != p and not self._read_client_id_from(other):
+                            self._write_client_id_to(other, cid)
+                    self._is_new_install = False
+                    return cid
+
+            # 2) 本地没有记录：优先用可复现的机器指纹，保证重装后设备码不变
+            cid = None
+            machine_id = self._machine_identity()
+            if machine_id and len(machine_id) >= 16:
+                cid = machine_id
+                logger.info("未发现历史设备码，已按本机特征生成稳定设备码")
+            else:
+                cid = uuid.uuid4().hex
+
+            for p in paths:
+                self._write_client_id_to(p, cid)
+
+            # 只有无法从任何位置恢复历史设备码时才算“新安装”
+            # （机器指纹命中说明是同一台机器的重装，不应重复触发新手流程）
+            self._is_new_install = machine_id == ""
             return cid
         except Exception as e:
             logger.debug(f"加载client_id失败: {e}")
             self._is_new_install = True
+            try:
+                _m = self._machine_identity()
+                if _m:
+                    return _m
+            except Exception:
+                pass
             return uuid.uuid4().hex
 
     @property

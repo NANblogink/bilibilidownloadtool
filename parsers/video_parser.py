@@ -27,6 +27,16 @@ class VideoParser:
             logger.info(f"解析成功: 类型=live, ID={room_id}")
             return {"type": "live", "id": room_id, "error": ""}
 
+        # UP主合集/系列页（必须先于 space 主页判断，否则会被当成整个主页）
+        # 形如 https://space.bilibili.com/{mid}/lists/{list_id}?type=series|season
+        list_match = re.search(r'space\.bilibili\.com/(\d+)/lists/(\d+)', url, re.IGNORECASE)
+        if list_match:
+            list_mid, list_id = list_match.group(1), list_match.group(2)
+            type_match = re.search(r'[?&]type=(series|season)', url, re.IGNORECASE)
+            list_type = type_match.group(1).lower() if type_match else 'season'
+            logger.info(f"解析成功: 类型=space_list, mid={list_mid}, id={list_id}, type={list_type}")
+            return {"type": "space_list", "id": f"{list_mid}:{list_id}:{list_type}", "error": ""}
+
         space_match = re.search(r'space\.bilibili\.com/(\d+)', url, re.IGNORECASE)
         if space_match:
             mid = space_match.group(1)
@@ -95,6 +105,14 @@ class VideoParser:
         p_match_final = re.search(r'[?&]p=(\d+)', final_url)
         if p_match_final:
             page_from_url = int(p_match_final.group(1))
+
+        list_match_final = re.search(r'space\.bilibili\.com/(\d+)/lists/(\d+)', final_url, re.IGNORECASE)
+        if list_match_final:
+            list_mid, list_id = list_match_final.group(1), list_match_final.group(2)
+            type_match_final = re.search(r'[?&]type=(series|season)', final_url, re.IGNORECASE)
+            list_type = type_match_final.group(1).lower() if type_match_final else 'season'
+            logger.info(f"解析成功: 类型=space_list, mid={list_mid}, id={list_id}, type={list_type}")
+            return {"type": "space_list", "id": f"{list_mid}:{list_id}:{list_type}", "error": ""}
 
         space_match = re.search(r'space\.bilibili\.com/(\d+)', final_url, re.IGNORECASE)
         if space_match:

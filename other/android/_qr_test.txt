@@ -1,0 +1,37 @@
+=== 1. 生成一个真实 B 站登录链接的二维码 ===
+  文本长度: 100 字符
+  矩阵尺寸: 41x41
+  PASS 尺寸符合 QR 规范 (4v+17) 41
+  PASS 左上定位图形
+  PASS 右上定位图形
+  PASS 左下定位图形
+  PASS 水平时序图形
+  PASS 垂直时序图形
+  PASS 固定暗模块
+  PASS 矩阵无空值
+
+=== 2. 与参考库逐格对比 ===
+  PASS 掩码 0 与参考库一致 差异 0 格
+  PASS 掩码 1 与参考库一致 差异 0 格
+  PASS 掩码 2 与参考库一致 差异 0 格
+  PASS 掩码 3 与参考库一致 差异 0 格
+  PASS 掩码 4 与参考库一致 差异 0 格
+  PASS 掩码 5 与参考库一致 差异 0 格
+  PASS 掩码 6 与参考库一致 差异 0 格
+  PASS 掩码 7 与参考库一致 差异 0 格
+  PASS 尺寸与参考库一致 ours=41 ref=41
+  PASS 全部 8 个掩码逐格一致
+  PASS 掩码评分与参考库一致
+  PASS 真实解码器能读出原文 解码结果='https://passport.bilibili.com/h5-app/pas'
+=== 3. 多个长度都要能编码 ===
+  PASS 编码 1 字符 -> 21x21
+  PASS 编码 12 字符 -> 21x21
+  PASS 编码 22 字符 -> 25x25
+  PASS 编码 100 字符 -> 41x41
+  PASS 编码 143 字符 -> 49x49
+
+=== 4. 生成 PNG（不依赖 Pillow）===
+  PASS PNG 已生成 1222 B
+  PASS PNG 文件头正确 b'\x89PNG\r\n\x1a\n'
+
+TOTAL FAILURES: 0

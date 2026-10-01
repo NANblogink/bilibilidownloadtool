@@ -86,8 +86,30 @@ def resolve_builtin_icon_path(icon_key="default"):
     for base_dir in get_runtime_search_dirs():
         candidate = os.path.join(base_dir, file_name)
         if os.path.exists(candidate):
+            # 防御：历史版本的 logo.ico 实际是「PNG 改名」，Windows 任务栏
+            # 按 ICO 解析会得到空白图标。这里校验魔数，遇到假 ICO 就跳过，
+            # 继续寻找后续候选（真 ICO / PNG 兜底），避免任务栏空白。
+            if file_name.lower().endswith(".ico") and not _is_real_ico(candidate):
+                continue
             return candidate
-    return os.path.join(get_writable_app_dir(), file_name)
+    # 没有可用的真 ICO 时返回空串，让调用方继续尝试其它图标源
+    # （例如 alt 图标 logo_alt_kaisui.ico 就是真正的 ICO），
+    # 而不是退回一个会被任务栏渲染成空白的假 ICO。
+    return ""
+
+
+def _is_real_ico(path):
+    """校验文件是否为真正的 ICO（魔数 00 00 01 00）。
+
+    历史缺陷：仓库里的 logo.ico 实际是 PNG 改扩展名，Qt 能正常显示，
+    但 Windows 任务栏/资源管理器按 ICO 解析会显示空白。此函数用于识别。
+    """
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4)
+        return head == b"\x00\x00\x01\x00"
+    except Exception:
+        return False
 
 
 def get_effective_icon_mode(config=None):

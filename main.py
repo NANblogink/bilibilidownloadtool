@@ -403,12 +403,17 @@ if __name__ == "__main__":
     if sys.platform == 'win32' and not _is_msix_environment():
         try:
             import ctypes
+            # 防循环标记：必须在**清理 argv 之前**判断，否则永远检测不到。
+            # 注意 UAC 提权会跨越安全边界，子进程**不继承**父进程的环境变量，
+            # 所以 BILIDOWN_ELEVATING 不可靠；真正可靠的判据是命令行参数
+            # --elevated（ShellExecuteW 的 params 会原样传给子进程）。
+            _already_elevated = (
+                ('--elevated' in sys.argv)
+                or (os.environ.get('BILIDOWN_ELEVATING') == '1')
+            )
             # 清理 argv 中的 --elevated 标记，避免影响后续参数解析
             if '--elevated' in sys.argv:
                 sys.argv = [a for a in sys.argv if a != '--elevated']
-            # 防循环标记：如果是被提权启动的子进程，跳过提权检查
-            _already_elevated = (os.environ.get('BILIDOWN_ELEVATING') == '1')
-            # 清理环境变量，避免子进程继承导致误判
             os.environ.pop('BILIDOWN_ELEVATING', None)
             if not _already_elevated and not ctypes.windll.shell32.IsUserAnAdmin():
                 if getattr(sys, 'frozen', False):
@@ -661,6 +666,15 @@ if __name__ == "__main__":
         QApplication.setAttribute(Qt.AA_DisableHighDpiScaling)
         QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
         QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
+        # 必须在构造 QApplication 之前注册 Qt 插件搜索路径。
+        # 精简包把 PyQt5 解压到非标准目录（runtime/ 或 pyqt5_runtime/），
+        # 不注册的话 Qt 找不到 platforms/qwindows.dll，会直接报
+        # "no Qt platform plugin could be initialized" 并退出。
+        try:
+            import pyqt5_bootstrap
+            pyqt5_bootstrap.ensure_qt_plugins()
+        except Exception as _qe:
+            print(f"[启动] Qt 插件路径注册失败(可忽略): {_qe}")
         def message_handler(msg_type, context, message):
             if "Unknown property z-index" not in message:
                 print(f"{message}")
@@ -682,7 +696,15 @@ if __name__ == "__main__":
         app.setFont(font)
         app.setStyle('Fusion')
         # 注册通知 AUMID（后台线程），确保通知中心 Toast 能显示可执行按钮
+        # 同时同步设置「进程级 AUMID」：Windows 任务栏按它决定图标与分组身份，
+        # 不设置会沿用打包器/python 的默认 AUMID，任务栏图标可能显示空白。
+        # 必须在创建任何窗口之前完成。
         if IS_WINDOWS:
+            try:
+                from toast_winrt import set_process_app_user_model_id
+                set_process_app_user_model_id()
+            except Exception:
+                pass
             try:
                 from toast_winrt import register_aumid_shortcut_async
                 register_aumid_shortcut_async()

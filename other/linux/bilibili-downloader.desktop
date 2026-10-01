@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=B站视频解析工具
+Name[en]=Bilibili Video Downloader
+GenericName=视频下载工具
+GenericName[en]=Video Downloader
+Comment=B站视频解析与下载工具，支持番剧、合集、直播回放、字幕
+Comment[en]=Bilibili video parser and downloader
+Exec=bilibili-downloader %u
+Icon=bilibili-downloader
+Terminal=false
+Categories=AudioVideo;Video;Network;
+Keywords=Bilibili;Video;Download;Downloader;番剧;下载;
+StartupNotify=true
+StartupWMClass=BilibiliDownloader
+MimeType=x-scheme-handler/bilibili;

@@ -35,8 +35,14 @@ except Exception as e:
 try:
     from platform_utils import IS_WINDOWS, exe, subprocess_no_window_kwargs, subprocess_low_priority_kwargs
 except ImportError:
-    IS_WINDOWS = True
-    def exe(n): return n + ('.exe' if os.name == 'nt' else '')
+    # 兜底：绝不能硬设 IS_WINDOWS=True，否则 Linux/macOS 会误走 Windows 分支
+    IS_WINDOWS = sys.platform == 'win32'
+
+    def exe(name):
+        if IS_WINDOWS:
+            return name if name.lower().endswith('.exe') else name + '.exe'
+        return name[:-4] if name.lower().endswith('.exe') else name
+
     def subprocess_no_window_kwargs(): return {}
     def subprocess_low_priority_kwargs(): return {}
 
@@ -116,11 +122,11 @@ def _probe_stream_codec(url):
     try:
         import subprocess
         import shutil
-        ffprobe = shutil.which('ffprobe')
+        ffprobe = shutil.which(exe('ffprobe'))
         if not ffprobe:
-            ffmpeg_path = shutil.which('ffmpeg')
+            ffmpeg_path = shutil.which(exe('ffmpeg'))
             if ffmpeg_path:
-                ffprobe = os.path.join(os.path.dirname(ffmpeg_path), 'ffprobe.exe')
+                ffprobe = os.path.join(os.path.dirname(ffmpeg_path), exe('ffprobe'))
                 if not os.path.exists(ffprobe):
                     ffprobe = None
         if not ffprobe:
@@ -836,7 +842,7 @@ class StreamPlayerDialog(QDialog):
         return self._current_url
 
     def _find_mpv(self):
-        """查找 mpv.exe"""
+        """查找 mpv 可执行文件（按当前平台的可执行名查找）"""
         # 项目根（本文件位于 parsers/，根在其上一级）
         root_dir = _pathsetup.project_root()
         for d in [os.path.join(root_dir, 'mpv'),
@@ -845,7 +851,13 @@ class StreamPlayerDialog(QDialog):
             if os.path.exists(p): return p
         if getattr(sys, 'frozen', False):
             base = os.path.dirname(sys.executable)
-            for d in [base, os.path.join(base, '_internal'), os.path.join(base, 'mpv')]:
+            # 精简包/PyInstaller 把 mpv 放在 _internal/mpv/ 下，
+            # 历史实现只查 base、base/_internal、base/mpv 三处，
+            # 全都命中不到 _internal/mpv/，导致 mpv 明明在却回退到 ffplay。
+            for d in [base,
+                      os.path.join(base, '_internal'),
+                      os.path.join(base, 'mpv'),
+                      os.path.join(base, '_internal', 'mpv')]:
                 p = os.path.join(d, exe('mpv'))
                 if os.path.exists(p): return p
         import shutil
@@ -1615,10 +1627,11 @@ end)
         if not target:
             QMessageBox.warning(self, "提示", "请输入URL"); return
         try:
-            if IS_WINDOWS: os.startfile(target)
-            elif sys.platform == 'darwin': subprocess.Popen(['open', target])
-            else: subprocess.Popen(['xdg-open', target])
-            self.status_label.setText("已在外部打开")
+            from platform_utils import open_path as _open_path
+            if _open_path(target):
+                self.status_label.setText("已在外部打开")
+            else:
+                self.status_label.setText("打开失败: 当前平台不支持")
         except Exception as e:
             self.status_label.setText(f"打开失败: {e}")
 

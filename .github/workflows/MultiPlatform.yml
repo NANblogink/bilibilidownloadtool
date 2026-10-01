@@ -1,0 +1,211 @@
+name: Multi-Platform CI
+
+# 在 Linux 与 macOS 上验证跨平台适配：
+#   * 全量语法编译
+#   * 关键模块导入
+#   * 平台工具函数行为断言
+#   * 平台专有调用守卫检查
+#   * PyQt5 在无显示器环境下能创建 QApplication（offscreen）
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest ]
+        python: [ '3.11' ]
+
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: '1'
+      # 无显示器环境下运行 Qt
+      QT_QPA_PLATFORM: offscreen
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # Ubuntu 需要这些系统库，PyQt5 才能加载 xcb 平台插件
+      - name: Install Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xkb1 \
+            libxkbcommon-x11-0 libgl1 libegl1 libnss3 libasound2t64 \
+            libnotify-bin file
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r other/common/requirements.txt
+          python -m pip install pycryptodome pycryptodomex
+
+      - name: Compile all sources (语法编译检查)
+        run: |
+          python -m compileall -q . \
+            -x "(__pycache__|build|dist|dist_beta|output|output_beta|msix_staging|ffmpeg|mpv|bento4|upx_tool|_整理|云端)"
+
+      - name: Repo self-check (平台函数 / 资源 / 导入 / 守卫)
+        run: python .github/ci_checks.py
+
+      - name: Environment doctor (跨平台环境自检)
+        run: python other/common/doctor.py
+        continue-on-error: true
+
+      - name: Platform API behaviour tests
+        run: python -m pytest other/common/tests -q
+        continue-on-error: true
+
+      - name: Platform unit tests
+        shell: bash
+        run: |
+          set -e
+          for t in test_platform test_bootstrap test_tools test_android_bridge; do
+            echo "---- $t ----"
+            python "other/common/tests/$t.py"
+          done
+
+      - name: GUI smoke test (主窗口构建 + 事件循环)
+        run: python other/common/tests/smoke_gui.py
+
+      - name: Guard against non-daemon threads (退出挂起风险)
+        run: python other/common/check_threads.py
+
+  # =========================================================================
+  # 打包任务：workflow_dispatch 手动触发，或推送 tag 时自动出包
+  # =========================================================================
+  package-macos:
+    name: macOS 打包 (.dmg / .zip)
+    runs-on: macos-latest
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r other/common/requirements.txt pyinstaller
+
+      - name: Build .app + .dmg + .zip
+        run: bash other/macos/pack.sh
+
+      - name: Verify .app launches (offscreen)
+        run: |
+          export QT_QPA_PLATFORM=offscreen
+          APP="dist/B站视频解析工具.app"
+          test -d "$APP" || { echo "app bundle missing"; exit 1; }
+          BIN="$APP/Contents/MacOS/BilibiliDownloader"
+          test -x "$BIN" || { echo "binary missing in bundle"; exit 1; }
+          echo "app bundle OK"
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist/*.dmg
+          if-no-files-found: warn
+
+      - name: Upload ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-zip
+          path: dist/*.zip
+          if-no-files-found: warn
+
+  package-linux:
+    name: Linux 打包 (tar.gz)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xkb1 \
+            libxkbcommon-x11-0 libgl1 libegl1 libnss3 libasound2t64
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r other/common/requirements.txt pyinstaller
+
+      - name: Build tar.gz
+        run: bash other/linux/pack.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-tarball
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  package-android:
+    name: Android 打包 (APK)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install system build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git zip unzip autoconf libtool pkg-config zlib1g-dev \
+            libncurses5-dev cmake libffi-dev libssl-dev build-essential \
+            ccache libltdl-dev
+
+      - name: Install buildozer
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install buildozer cython
+
+      - name: Cache buildozer global dir
+        uses: actions/cache@v4
+        with:
+          path: ~/.buildozer
+          key: buildozer-${{ runner.os }}-${{ hashFiles('other/android/buildozer.spec') }}
+          restore-keys: buildozer-${{ runner.os }}-
+
+      - name: Build APK
+        run: bash other/android/pack.sh
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: dist/*.apk
+          if-no-files-found: error

@@ -35,8 +35,15 @@ except ImportError:
 try:
     from platform_utils import IS_WINDOWS, exe, subprocess_no_window_kwargs, subprocess_low_priority_kwargs
 except ImportError:
-    IS_WINDOWS = True
-    def exe(name): return name + ('.exe' if os.name == 'nt' else '')
+    # 兜底：绝不能硬设 IS_WINDOWS=True，否则 Linux/macOS 会误走 Windows 分支
+    import sys as _sys
+    IS_WINDOWS = _sys.platform == 'win32'
+
+    def exe(name):
+        if IS_WINDOWS:
+            return name if name.lower().endswith('.exe') else name + '.exe'
+        return name[:-4] if name.lower().endswith('.exe') else name
+
     def subprocess_no_window_kwargs(): return {}
     def subprocess_low_priority_kwargs(): return {}
 

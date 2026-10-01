@@ -212,11 +212,37 @@ def register_app_identity():
         return False
 
 
+def set_process_app_user_model_id(aumid=None):
+    """把当前进程的 AppUserModelID 设置为应用自己的 AUMID。
+
+    Windows 任务栏按进程 AUMID 决定「图标 / 分组 / 固定到任务栏」的身份：
+    不设置时进程沿用 exe（python.exe / 打包器）的默认 AUMID，任务栏会显示
+    默认或空白图标，且无法正确固定。必须在创建窗口之前调用。
+
+    注意：仅对已有窗口调用 setWindowIcon 不足以修复任务栏图标，
+    进程级 AUMID 才是任务栏身份来源。
+
+    :return: 成功返回 True
+    """
+    if not sys.platform.startswith("win"):
+        return False
+    try:
+        import ctypes
+        _aumid = aumid or APP_AUMID
+        ret = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            ctypes.c_wchar_p(_aumid))
+        return ret == 0
+    except Exception:
+        return False
+
+
 def register_aumid_shortcut():
     """确保开始菜单里存在带 AUMID 的快捷方式（通知按钮显示的前提）。
     每次启动都重新写入，避免旧快捷方式缺少 AUMID 导致按钮不显示。"""
     if not sys.platform.startswith("win"):
         return False
+    # 进程 AUMID 优先设置：任务栏图标与分组依赖它
+    set_process_app_user_model_id()
     register_app_identity()
     lnk_path = _shortcut_path()
     target = _launch_target()

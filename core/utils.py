@@ -6,13 +6,17 @@ import urllib.parse
 import requests
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import QMessageBox
-from platform_utils import IS_MACOS, IS_WINDOWS, subprocess_no_window_kwargs
+from platform_utils import IS_LINUX, IS_MACOS, IS_WINDOWS, subprocess_no_window_kwargs
 
 class HEVCCheckThread(QThread):
     result_signal = pyqtSignal(bool)
 
     def run(self):
-        if IS_MACOS:
+        # HEVC 扩展是 Windows 特有的概念：
+        #   macOS 原生支持 HEVC 解码
+        #   Linux 由发行版 codec 包（如 gstreamer1.0-libav / ffmpeg）提供
+        # 因此这两个平台直接判定为"已支持"，避免用户被无意义地引导安装 Appx。
+        if IS_MACOS or IS_LINUX:
             self.result_signal.emit(True)
             return
         try:
@@ -39,6 +43,11 @@ class HEVCDownloadThread(QThread):
     def run(self):
         if IS_MACOS:
             self.finish_signal.emit(True, "macOS 原生支持 HEVC，无需安装")
+            return
+        if IS_LINUX:
+            self.finish_signal.emit(
+                True, "Linux 请通过发行版包管理器安装 HEVC 解码支持"
+                      "（如 gstreamer1.0-libav 或 ffmpeg）")
             return
         try:
             import subprocess

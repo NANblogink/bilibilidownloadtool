@@ -14,7 +14,7 @@
 <img src='./assets/badges/copyright.svg'>
 <a href='http://www.bilidown.cn'><img src='./assets/badges/license.svg'></a>
 
-**当前版本 V2.2.0**
+**当前版本 V2.2.1**
 
 **已获计算机软件著作权登记** · 登记号 `2026SR0955077`
 
@@ -39,6 +39,40 @@
 | 权利范围 | 全部权利 |
 
 软件著作权登记针对申请时提交的版本，后续迭代不影响已登记的著作权归属。
+
+---
+
+## 开源许可
+
+本项目采用 [MIT License](./LICENSE) 发布，是符合 [OSI 认证](https://opensource.org/licenses) 的开源软件。
+
+任何人都可以自由使用、修改、分发本项目的源代码，包括商业用途，只需保留原始版权声明。
+
+---
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+### 团队角色
+
+| 角色 | 成员 | 职责 |
+| --- | --- | --- |
+| Authors | [@NANblogink](https://github.com/NANblogink) | 有权直接修改仓库源代码 |
+| Reviewers | [@NANblogink](https://github.com/NANblogink) | 审核来自非提交者的 Pull Request |
+| Approvers | [@NANblogink](https://github.com/NANblogink) | 批准每次发布请求的代码签名 |
+
+### 隐私政策
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
+
+详细说明见 [隐私政策](http://www.bilidown.cn/privacy.html)（源码位于 [`云端/web/privacy.html`](./云端/web/privacy.html)）。除用户主动发起的功能外，本程序不会向外部网络传输信息。
+
+本程序使用以下第三方开源组件，它们各自的隐私政策适用于其自身行为：
+
+- [FFmpeg](https://ffmpeg.org/) — 音视频转码与合并（本地运行，不联网）
+- [mpv](https://mpv.io/) — 内置播放器（本地运行，不联网）
+- [Bento4](https://www.bento4.com/) — DASH 流处理（本地运行，不联网）
 
 ---
 
@@ -353,7 +387,25 @@ python main.py
 
 ## 版本历史
 
-### V2.2.0 -- 当前版本
+### V2.2.1 -- 当前版本
+
+新增：
+- **分类链接直接解析**：支持 `space.bilibili.com/{mid}/lists/{id}?type=series|season`，可直接列出整个合集/系列并整组勾选下载，无需逐个进入视频明细页
+- **文件名自动序号**：下载设置新增「文件名序号」，可选 2/3/4 位（如 `01. 标题.mp4`、`001. 标题.mp4`）；收藏夹与合集批量下载时批次内连续编号，方便按顺序整理课件
+
+修复：
+- **解析后未下载、关闭选集窗口就再也无法解析**：解析回调中途抛异常会跳过界面复位，「解析」按钮永久变灰，换链接也无效，只能退出重进
+- **批量下载时所有文件都叫「第1集」**：收藏夹与多链接批量下载中每一项其实是独立投稿，却各自带着分 P 的 `page=1`，导致列表显示与最终文件名全部变成「第1集」
+- **合集/多分 P 下载后文件名丢失集数**：文件名兜底逻辑把「第N集_」前缀一并剥离，各集退化成纯标题，既分不出顺序也容易重名
+- **下载完成提示会顶掉前台程序**：通知窗口抢焦点并激活自身，玩游戏或全屏工作时会被打断
+- **窗口最小化按钮点击不灵**：无边框窗口的边缘缩放窄条常驻置顶，挡住了标题栏按钮的点击
+- **收藏夹内容列表初始顶格**：首行 UP 主名被裁切，需要滚动一次才恢复正常间距
+- **多级更新走到一半就停**：更新链标记引用了并不存在的 `version_info` 模块，每次标记都失败，连续更新（如 2.1.0 → 2.1.1 → 2.2.0）无法接力
+- **偶发的 ffprobe / 显卡检测失败**：部分环境下 `CREATE_NO_WINDOW` 会返回 WinError 50，导致编码与加密判断静默退化，现改为自动降级重试
+- **弹幕获取失败**：降级解析器把 protobuf 的字段号与线类型读反了，永远解析不出弹幕，日志中反复出现「Protobuf API未解析到弹幕」
+- **UP主系列列表获取失败**：`seasons_series` 接口缺少 WBI 签名，固定返回 -400
+
+### V2.2.0
 
 新增：
 - **软件著作权信息**：设置 - 关于我们新增「软件著作权」卡片，可查看登记证书

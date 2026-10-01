@@ -1,0 +1,116 @@
+# SignPath Foundation 代码签名
+#
+# 前提：
+#   1. 已在 https://signpath.org/apply 申请通过
+#   2. 已在仓库 Settings → Secrets 配置：
+#        SIGNPATH_API_TOKEN   —— SignPath 个人访问令牌
+#        SIGNPATH_ORG_ID      —— SignPath 组织 ID
+#   3. 已在 SignPath 后台配置 Artifact Configuration（slug: zip）
+#      与 Signing Policy（slug: release-signing）
+#
+# 重要：SignPath 要求每次签名都由 Approver 人工批准，无法全自动/
+#       无人工确认地放行。这是其安全模型的一部分，请勿尝试绕过。
+#
+# 本工作流默认只做「构建 + 提交签名申请」，不自动发布 Release，
+# 待人工在 SignPath 后台批准后，签名产物会回传到 Artifacts。
+
+name: Sign Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '要签名的版本号（如 2.2.1）'
+        required: true
+        type: string
+      artifact_url:
+        description: '待签名产物的下载地址（GitHub Release / 网盘直链）'
+        required: true
+        type: string
+
+jobs:
+  # --------------------------------------------------------------------------
+  # 第一步：把待签名的 exe 提交给 SignPath
+  # --------------------------------------------------------------------------
+  submit-signing:
+    name: 提交签名申请
+    runs-on: ubuntu-latest
+    outputs:
+      signing-request-id: ${{ steps.sign.outputs.signing-request-id }}
+
+    steps:
+      - name: 下载待签名产物
+        run: |
+          mkdir -p unsigned
+          curl -L --fail -o "unsigned/BilibiliDownloader_Setup_${{ inputs.version }}.exe" \
+            "${{ inputs.artifact_url }}"
+
+      - name: 计算哈希（留档，便于申诉与校验）
+        run: |
+          echo "=== 待签名文件 SHA256 ==="
+          sha256sum unsigned/*.exe | tee unsigned/SHA256SUMS.txt
+
+      - name: 提交到 SignPath
+        id: sign
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORG_ID }}
+          project-slug: bilibilidownloadtool
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: zip
+          github-artifact-id: ${{ github.run_id }}
+          wait-for-completion: false
+          output-artifact-directory: signed
+
+      - name: 上传签名产物
+        if: steps.sign.outputs.signing-request-id != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-${{ inputs.version }}
+          path: signed/
+
+      - name: 提示
+        run: |
+          echo "======================================================"
+          echo "  签名申请已提交，请求 ID: ${{ steps.sign.outputs.signing-request-id }}"
+          echo ""
+          echo "  下一步（必须人工操作）："
+          echo "    1. 登录 https://app.signpath.io"
+          echo "    2. 进入 Projects → bilibilidownloadtool → Signing Requests"
+          echo "    3. 找到该请求，核对来源与哈希后点击 Approve"
+          echo "    4. 批准后才能下载到已签名文件"
+          echo "======================================================"
+
+  # --------------------------------------------------------------------------
+  # 第二步：申请被批准后，验证签名有效性
+  # --------------------------------------------------------------------------
+  verify-signature:
+    name: 验证签名
+    needs: submit-signing
+    if: needs.submit-signing.outputs.signing-request-id != ''
+    runs-on: windows-latest
+
+    steps:
+      - name: 下载已签名产物
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-${{ inputs.version }}
+          path: signed
+
+      - name: 用 signtool 校验
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem signed -Filter *.exe -Recurse | Select-Object -First 1
+          if (-not $exe) { throw "未找到签名产物" }
+
+          Write-Host "校验文件: $($exe.Name)"
+          $sig = Get-AuthenticodeSignature $exe.FullName
+
+          Write-Host "签名状态: $($sig.Status)"
+          Write-Host "签名者:   $($sig.SignerCertificate.Subject)"
+
+          if ($sig.Status -ne 'Valid') {
+            throw "签名无效: $($sig.Status) —— 请确认 SignPath 申请已获批准"
+          }
+          Write-Host "签名有效 ✓"

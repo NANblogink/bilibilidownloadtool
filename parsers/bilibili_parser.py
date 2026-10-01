@@ -21,7 +21,7 @@ from wbi_sign import WbiSign
 from api_request import ApiRequest
 from video_parser import VideoParser
 import requests
-from platform_utils import IS_MACOS, IS_WINDOWS, exe, subprocess_no_window_kwargs, subprocess_low_priority_kwargs, hide_file, get_bento4_sdk_dirname, has_non_ascii, to_short_path, get_safe_temp_dir
+from platform_utils import IS_MACOS, IS_WINDOWS, exe, subprocess_no_window_kwargs, subprocess_low_priority_kwargs, hide_file, get_bento4_sdk_dirname, has_non_ascii, to_short_path, get_safe_temp_dir, run_no_window, move_file_no_copy, link_or_copy
 
 try:
     from tool_manager import get_tool_manager
@@ -476,7 +476,9 @@ class BilibiliParser:
         self.load_browser_env()
 
         self._load_cached_wbi_keys()
-        threading.Thread(target=self._update_wbi_keys).start()
+        # daemon=True 必须保留：该线程会发起网络请求，若为非守护线程，
+        # 关闭窗口后解释器会一直等待它结束，在 Linux/macOS 上表现为"程序退不掉"
+        threading.Thread(target=self._update_wbi_keys, daemon=True).start()
         
         if 'bili_ticket' not in self.cookies:
             def _gen_ticket():
@@ -2374,8 +2376,7 @@ class BilibiliParser:
                 return False
 
             cmd = [ffmpeg_exec, '-codecs']
-            result = subprocess.run(cmd, capture_output=True, text=False, timeout=10,
-                                   **subprocess_no_window_kwargs())
+            result = run_no_window(cmd, timeout=10, text=False)
             output = result.stdout.decode('utf-8', errors='replace')
             self.hevc_supported = 'hevc' in output.lower() and 'decoder' in output.lower()
             return self.hevc_supported
@@ -2455,8 +2456,7 @@ class BilibiliParser:
                 return {"compatible": True, "codec": "unknown", "reason": "无法检测编码"}
 
             cmd = [ffprobe_path, '-v', 'quiet', '-print_format', 'json', '-show_streams', video_path]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30,
-                                  **subprocess_no_window_kwargs())
+            result = run_no_window(cmd, timeout=30, text=True)
 
             if result.returncode != 0:
                 return {"compatible": True, "codec": "unknown", "reason": "检测失败"}
@@ -2522,7 +2522,13 @@ class BilibiliParser:
         # 写入临时文件再替换（避免覆盖源文件导致损坏）
         # 如果输出路径含中文，使用ASCII安全临时目录，转码后再移动到目标位置
         if has_non_ascii(output_path):
-            temp_output = os.path.join(self.safe_temp_dir, f"transcode_{os.getpid()}_{int(time.time() * 1000) % 100000000}.mp4")
+            # 临时文件与输出目标同盘：转码完成后 os.rename 原子移动，零额外拷贝
+            _tr_temp_dir = get_safe_temp_dir(
+                os.path.dirname(os.path.abspath(__file__)), "temp",
+                cache_dir=None,
+                prefer_dir=os.path.dirname(os.path.abspath(output_path)),
+            ) or self.safe_temp_dir
+            temp_output = os.path.join(_tr_temp_dir, f"transcode_{os.getpid()}_{int(time.time() * 1000) % 100000000}.mp4")
             need_move_output = True
         else:
             temp_output = output_path + '.transcoding.tmp'
@@ -2582,9 +2588,8 @@ class BilibiliParser:
             
             # 用临时文件替换输出文件
             if os.path.exists(temp_output):
-                if os.path.exists(output_path):
-                    os.remove(output_path)
-                shutil.move(temp_output, output_path)
+                # 只存一次：同盘优先原子移动（temp_output 已与 output_path 同盘）
+                move_file_no_copy(temp_output, output_path, logger=logger)
             
             logger.info(f"[转码] 成功转换为 {codec_name}")
             return True
@@ -2668,9 +2673,8 @@ class BilibiliParser:
             # 中文路径适配：转码成功后移动临时文件到目标位置
             if need_move_output and os.path.exists(actual_output) and os.path.getsize(actual_output) > 0:
                 try:
-                    if os.path.exists(output_path):
-                        os.remove(output_path)
-                    shutil.move(actual_output, output_path)
+                    # 同盘优先原子移动，避免"复制再删除"的双倍写入
+                    move_file_no_copy(actual_output, output_path, logger=logger)
                 except Exception as e:
                     logger.error(f"[H264转换] 移动临时文件失败: {e}")
                     return False, f"移动文件失败: {str(e)}"
@@ -3679,6 +3683,12 @@ class BilibiliParser:
                     "error": "space类型需要在UI层通过show_space_videos处理，请使用主界面解析UP主主页链接"
                 }
 
+            if media_type == "space_list":
+                return {
+                    "success": False,
+                    "error": "space_list类型需要在UI层通过show_space_videos处理，请使用主界面解析合集/系列链接"
+                }
+
             if media_type == "av":
                 try:
                     if progress_callback:
@@ -4343,6 +4353,27 @@ class BilibiliParser:
             else:
                 estimated_size_str = "未知"
 
+            # 试看/截断提示：未登录或非会员时，B站对番剧/电影/课程只返回
+            # 前若干分钟（常见为 6 分钟）的试看片段。此前该信息只写进日志，
+            # 用户在界面上看不到，会误以为"下载失败/只有几秒"。
+            # 这里提升到解析结果顶层，供 UI 显式提示。
+            _truncated_top = bool(play_info.get('is_truncated'))
+            _avail_ms_top = play_info.get('available_duration_ms') or 0
+            _decl_ms_top = play_info.get('declared_duration_ms') or 0
+            preview_notice = ""
+            if _truncated_top and _decl_ms_top and _avail_ms_top:
+                try:
+                    _decl_sec = int(_decl_ms_top) // 1000
+                    _avail_sec = int(_avail_ms_top) // 1000
+                    preview_notice = (
+                        f"当前未登录（或登录已失效/非大会员），B站仅提供约"
+                        f"{self._format_duration(_avail_sec)}的试看片段"
+                        f"（完整时长约{self._format_duration(_decl_sec)}）。"
+                        f"请先登录大会员账号后再解析下载，否则只能下到试看部分。"
+                    )
+                except Exception:
+                    preview_notice = "当前未登录，B站仅提供试看片段，请登录后重新解析下载。"
+
             logger.info(f"媒体信息解析成功: {title}，总时长: {total_duration}秒，预估大小: {estimated_size_str}")
             
             return {
@@ -4372,7 +4403,11 @@ class BilibiliParser:
                 "total_duration": total_duration,
                 "estimated_size": estimated_size_str,
                 "estimated_size_mb": estimated_size_mb,
-                "kid": play_info.get('kid')
+                "kid": play_info.get('kid'),
+                "is_truncated": _truncated_top,
+                "declared_duration_ms": _decl_ms_top,
+                "available_duration_ms": _avail_ms_top,
+                "preview_notice": preview_notice,
             }
         except Exception as e:
             logger.error(f"解析媒体信息失败: {str(e)}")
@@ -5701,9 +5736,9 @@ class BilibiliParser:
                     logger.warning(f"无法获取UP主mid: {bvid}")
                     return []
             
-            # 获取UP主的系列和合集列表
+            # 获取UP主的系列和合集列表（该接口必须带 WBI 签名，否则返回 -400）
             series_url = f"https://api.bilibili.com/x/polymer/web-space/home/seasons_series?mid={mid}&page_num=1&page_size=30"
-            success, data = self._api_request(series_url, timeout=5, use_cache=False)
+            success, data = self._api_request(series_url, timeout=8, use_cache=False, use_wbi=True)
             if not success:
                 logger.warning(f"获取UP主系列列表失败: {data.get('error', '未知')}")
                 return []
@@ -5832,6 +5867,138 @@ class BilibiliParser:
                 break
         
         return all_archives
+
+    def get_space_list(self, mid, list_id, list_type='season', cancel_check=None, progress_callback=None):
+        """解析 UP主「合集/系列」页，直接返回该分类下的完整视频列表。
+
+        对应链接：https://space.bilibili.com/{mid}/lists/{list_id}?type=series|season
+        用户无需再逐个进入视频明细页，可直接整分类勾选下载。
+
+        Args:
+            mid: UP主 mid
+            list_id: 合集/系列 id
+            list_type: 'series'（系列）或 'season'（合集）
+            cancel_check: 可选可调用对象，返回 True 时中断
+            progress_callback: 可选进度回调 (message)
+
+        Returns:
+            dict: {"success": bool, "title": str, "total": int, "videos": [...], "list_type": str}
+        """
+        list_type = (list_type or 'season').lower()
+        if list_type not in ('series', 'season'):
+            list_type = 'season'
+        try:
+            if progress_callback:
+                progress_callback("正在获取分类信息...")
+
+            title = ''
+            total = 0
+            page_size = 30
+
+            if list_type == 'series':
+                # 系列：先取元信息拿到标题与总数
+                meta_url = f"https://api.bilibili.com/x/series/series?series_id={list_id}"
+                ok, meta_data = self._api_request(meta_url, timeout=8, use_cache=False)
+                if ok and meta_data.get('code') == 0:
+                    meta = (meta_data.get('data') or {}).get('meta') or {}
+                    title = meta.get('name', '') or ''
+                    total = int(meta.get('total', 0) or 0)
+                else:
+                    logger.warning(f"获取系列元信息失败：{(meta_data or {}).get('message', '未知')}")
+            else:
+                # 合集：元信息随第一页一起返回
+                pass
+
+            all_archives = []
+            page_num = 1
+            max_pages = 200
+            while page_num <= max_pages:
+                if cancel_check and cancel_check():
+                    logger.info("用户取消加载分类列表")
+                    break
+
+                if list_type == 'series':
+                    url = (f"https://api.bilibili.com/x/series/archives?mid={mid}"
+                           f"&series_id={list_id}&only_normal=true&sort=desc"
+                           f"&pn={page_num}&ps={page_size}")
+                else:
+                    url = (f"https://api.bilibili.com/x/polymer/web-space/seasons_archives_list"
+                           f"?mid={mid}&season_id={list_id}&sort_reverse=false"
+                           f"&page_num={page_num}&page_size={page_size}")
+
+                ok, data = self._api_request(url, timeout=10, use_cache=False)
+                if not ok or data.get('code') != 0:
+                    if page_num == 1:
+                        msg = (data or {}).get('message') or (data or {}).get('error') or '请求失败'
+                        logger.warning(f"获取分类列表失败（{list_type}）：{msg}")
+                        return {"success": False, "error": f"获取分类列表失败：{msg}"}
+                    logger.warning(f"分类列表第{page_num}页获取失败，已获取{len(all_archives)}个")
+                    break
+
+                page_data = data.get('data') or {}
+                if list_type == 'season' and not title:
+                    meta = page_data.get('meta') or {}
+                    title = meta.get('name', '') or ''
+                    total = int(meta.get('total', 0) or 0)
+
+                archives = page_data.get('archives') or []
+                if not archives:
+                    break
+
+                all_archives.extend(archives)
+
+                page_info = page_data.get('page') or {}
+                if not total:
+                    total = int(page_info.get('total', 0) or 0)
+
+                if progress_callback:
+                    progress_callback(f"已获取 {len(all_archives)}/{total or '?'} 个视频")
+
+                if len(archives) < page_size:
+                    break
+                if total and len(all_archives) >= total:
+                    break
+                page_num += 1
+                time.sleep(0.2)
+
+            videos = [self._parse_space_list_item(arc, mid) for arc in all_archives if arc.get('bvid')]
+            if not total:
+                total = len(videos)
+
+            logger.info(f"分类列表解析完成：{title or list_id}，共 {len(videos)}/{total} 个视频（{list_type}）")
+            return {
+                "success": True,
+                "title": title or f"分类{list_id}",
+                "total": total,
+                "videos": videos,
+                "list_type": list_type,
+            }
+        except Exception as e:
+            logger.error(f"解析分类列表异常：{str(e)}")
+            return {"success": False, "error": f"解析分类列表失败：{str(e)}"}
+
+    def _parse_space_list_item(self, arc, mid):
+        """把合集/系列接口返回的条目转换为与空间视频列表一致的结构"""
+        stat = arc.get('stat') or {}
+        try:
+            duration = int(arc.get('duration', 0) or 0)
+        except Exception:
+            duration = 0
+        return {
+            "aid": arc.get('aid', ''),
+            "bvid": arc.get('bvid', ''),
+            "title": arc.get('title', ''),
+            "pic": arc.get('pic', ''),
+            "description": '',
+            "created": arc.get('pubdate') or arc.get('ctime') or 0,
+            "length": self._format_duration(duration),
+            "play": stat.get('view', 0) or 0,
+            "video_review": stat.get('danmaku', 0) or 0,
+            "review": 0,
+            "favorites": 0,
+            "author": '',
+            "mid": mid,
+        }
 
     def _get_video_main_info(self, bvid):
         try:
@@ -7652,8 +7819,30 @@ class BilibiliParser:
             raise Exception(f"创建保存目录失败：{str(e)}")
 
         
+        # 临时分片目录必须与"下载目标盘"同盘，优先使用初始化时算好的
+        # self.safe_temp_dir（用户缓存目录 > 下载盘根级 ASCII 目录 > 程序目录/temp）。
+        # 历史缺陷：这里曾硬编码为 os.path.dirname(__file__)/temp，即"程序所在盘"。
+        # 程序装在 C 盘时，大文件会先完整写入 C 盘，再 shutil.move 到目标盘，
+        # 造成跨盘双倍写入、白白损耗硬盘寿命（用户反馈的核心问题）。
         work_dir = os.path.dirname(os.path.abspath(__file__))
-        temp_dir = os.path.join(work_dir, "temp")
+        temp_dir = None
+        # 1) 首选：同下载盘的 ASCII 安全临时目录（download_file 收到的 save_path 即目标文件路径）
+        try:
+            _target_dir = os.path.dirname(os.path.abspath(save_path)) if save_path else ""
+            if _target_dir:
+                temp_dir = get_safe_temp_dir(
+                    work_dir, "temp",
+                    cache_dir=None,
+                    prefer_dir=_target_dir,
+                )
+        except Exception as _e:
+            logger.debug(f"按下载盘解析临时目录失败，回退 safe_temp_dir: {_e}")
+        # 2) 回退：解析器初始化时算好的 safe_temp_dir
+        if not temp_dir:
+            temp_dir = getattr(self, "safe_temp_dir", None)
+        # 3) 最后回退：程序目录下的 temp（保持旧行为，避免路径完全不可用时中断下载）
+        if not temp_dir:
+            temp_dir = os.path.join(work_dir, "temp")
         try:
             os.makedirs(temp_dir, exist_ok=True)
             hide_file(temp_dir)
@@ -7821,6 +8010,14 @@ class BilibiliParser:
                                                     progress_callback(overall, progress_state['cumulative_size'])
 
                             resp.close()
+                            # 分片完整性校验：iter_content 可能在连接提前关闭时
+                            # 正常结束而不抛异常，若不核对长度就会把短分片当作
+                            # 完整分片合并，最终成品音频/视频被截断。
+                            if chunk_downloaded < chunk_total:
+                                raise requests.exceptions.ChunkedEncodingError(
+                                    f"分片{chunk_index}不完整：已下载{chunk_downloaded}字节，"
+                                    f"应为{chunk_total}字节"
+                                )
                             ch_session.close()
                             logger.info(f"分片{chunk_index}下载完成: {chunk_downloaded/1024/1024:.1f}MB")
                             return chunk_path, chunk_downloaded
@@ -8055,9 +8252,21 @@ class BilibiliParser:
                         time.sleep(wait)
 
             
-            total_size = int(response.headers.get('content-length', 0))
+            # 期望长度：优先使用前面 Range 探针得到的权威大小（total_file_size）。
+            # 截断型 CDN 会连 Content-Length 一起报成短长度，如果这里直接用
+            # 响应头的 content-length 覆盖它，就会把"短文件"当成完整文件放行，
+            # 这正是用户"61 分钟视频只下到 1 分 44 秒"却提示下载成功的根因。
+            _hdr_total = int(response.headers.get('content-length', 0))
             if 'content-range' in response.headers:
-                total_size = int(response.headers['content-range'].split('/')[-1])
+                try:
+                    _hdr_total = max(_hdr_total,
+                                     int(response.headers['content-range'].split('/')[-1]))
+                except (ValueError, TypeError):
+                    pass
+            total_size = _hdr_total
+            # 若探针已知完整大小，则以探针为准（取较大值，避免被短响应拉低）
+            if total_file_size and total_file_size > total_size:
+                total_size = total_file_size
             logger.info(f"文件大小：{total_size}字节")
 
             
@@ -8122,6 +8331,18 @@ class BilibiliParser:
                                         logger.debug(f"下载速度：{speed:.2f} KB/s，进度：{progress}%")
                                         bytes_processed = 0
                     
+                    # 关键完整性校验：iter_content 在 CDN 提前关闭连接时可能正常结束
+                    # 而不抛异常（chunked 编码下尤其常见），此前直接置 download_success=True
+                    # 会把截断的临时文件当作完整文件交给后续合并，产出只有原视频一小段的成品
+                    # （日志中的 61 分钟视频只下到 1 分 44 秒即由此产生）。
+                    # 这里按 Content-Length / Content-Range 声明的总长度核对，
+                    # 长度不足则抛出异常，交给外层断点续传逻辑继续补齐剩余部分。
+                    if total_size > 0 and downloaded_size < total_size:
+                        raise requests.exceptions.ChunkedEncodingError(
+                            f"下载不完整：已下载{downloaded_size}字节，应为{total_size}字节"
+                            f"（缺少{total_size - downloaded_size}字节）"
+                        )
+
                     download_success = True
                     total_time = time.time() - start_time
                     if total_time > 0:
@@ -8169,14 +8390,36 @@ class BilibiliParser:
                     try:
                         response = session.get(url, stream=True, headers=headers, timeout=(15, 30))
                         logger.info(f"断点续传响应状态码：{response.status_code}")
-                        
+
+                        # 断点续传的 206 响应带 Content-Range: bytes start-end/total，
+                        # 其中的 total 才是权威的完整长度；用它更新 total_size，
+                        # 保证续传后仍能校验文件是否真的补齐（此前不更新，导致
+                        # 续传拿到短响应后直接判定成功，产出截断视频）。
+                        if response.status_code == 206:
+                            _cr = response.headers.get('content-range', '')
+                            if '/' in _cr:
+                                try:
+                                    total_size = int(_cr.split('/')[-1])
+                                    logger.info(f"断点续传：完整文件大小应为{total_size}字节")
+                                except (ValueError, TypeError):
+                                    pass
+
                         if response.status_code == 416:
-                            logger.info("文件已下载完成")
+                            # 416 仅当本地已具备完整长度时才算完成，
+                            # 否则视为 CDN 拒绝续传，交由外层重试而不是直接成功。
+                            _local = os.path.getsize(temp_path) if os.path.exists(temp_path) else 0
                             response.close()
                             response = None
-                            download_success = True
-                            break
-                        
+                            if total_size > 0 and _local >= total_size:
+                                logger.info("文件已下载完成")
+                                downloaded_size = _local
+                                download_success = True
+                                break
+                            raise Exception(
+                                f"断点续传被拒绝(416)：本地{_local}字节，"
+                                f"应为{total_size}字节"
+                            )
+
                         response.raise_for_status()
                     except Exception as retry_e:
                         logger.error(f"断点续传请求失败：{str(retry_e)}")
@@ -8189,6 +8432,23 @@ class BilibiliParser:
                 except Exception:
                     pass
                 response = None
+
+            # 出口前的最终完整性兜底：无论走的是首次下载、断点续传还是 416 分支，
+            # 只要声明了总长度，落盘文件就必须达到该长度，否则绝不放行到
+            # 解密/合并阶段（截断的视频一旦进入合并就会输出残缺成品，
+            # 且日志里仍显示“下载完成”，非常难以排查）。
+            if not download_success or downloaded_size <= 0:
+                raise Exception("下载未完成：未获取到有效数据")
+            if total_size > 0 and downloaded_size < total_size:
+                raise Exception(
+                    f"下载不完整：已下载{downloaded_size}字节，应为{total_size}字节"
+                )
+            _actual_size = os.path.getsize(temp_path) if os.path.exists(temp_path) else 0
+            if total_size > 0 and _actual_size < total_size:
+                raise Exception(
+                    f"临时文件不完整：{_actual_size}字节，应为{total_size}字节"
+                )
+
             if progress_callback:
                 progress_callback(100, downloaded_size)
             
@@ -8283,8 +8543,10 @@ class BilibiliParser:
                                 time.sleep(1)
                             else:
                                 raise
-                shutil.move(temp_path, actual_save_path)
-                logger.info(f"文件已保存到：{actual_save_path}")
+                # 用户要求：只存一次，必须是"移动"而不是"复制再删除"。
+                # 临时分片目录已与下载目标同盘，这里优先 os.rename 原子移动（零拷贝）。
+                move_file_no_copy(temp_path, actual_save_path, logger=logger)
+                logger.info(f"文件已保存到（同盘零拷贝移动）：{actual_save_path}")
 
                 if not os.path.exists(actual_save_path) or os.path.getsize(actual_save_path) == 0:
                     from utils import verify_and_ensure_save
@@ -8750,11 +9012,12 @@ class BilibiliParser:
                         temp_input = short_input
                         logger.info(f"输入文件使用8.3短路径：{short_input}")
                     else:
-                        # 短路径转换失败（文件不存在或8.3被禁用），回退到复制方式
+                        # 短路径转换失败（文件不存在或8.3被禁用），回退到副本方式
+                        # 优先硬链接（同卷零额外空间，数据只存一份），仅只读交给ffmpeg使用
                         temp_input = os.path.join(temp_dir, f"decrypt_input_{os.getpid()}_{int(time.time() * 1000) % 100000000}_{os.path.basename(input_file)}")
-                        shutil.copy2(input_file, temp_input)
-                        temp_input_is_copy = True  # 标记为复制的副本，异常时需清理
-                        logger.info(f"输入文件短路径转换失败，复制到临时目录：{temp_input}")
+                        link_or_copy(input_file, temp_input, logger=logger)
+                        temp_input_is_copy = True  # 标记为副本，异常时需清理
+                        logger.info(f"输入文件短路径转换失败，已准备同盘副本：{temp_input}")
                 
                 # 输出路径处理：只要输入或输出含中文，输出都使用ASCII临时路径
                 # ffmpeg新版本虽支持中文路径，但混合斜杠/不同locale仍可能崩溃，统一用ASCII最安全
@@ -8824,8 +9087,9 @@ class BilibiliParser:
                 logger.info(f"ffmpeg解密输出文件验证通过: {actual_output} ({output_size}字节)")
                 
                 if need_temp_copy and temp_output != output_file:
-                    shutil.copy2(temp_output, output_file)
-                    logger.info(f"复制解密结果到目标路径：{output_file}")
+                    # 只存一次：同盘优先原子移动，避免"复制再删除"的双倍写入
+                    move_file_no_copy(temp_output, output_file, logger=logger)
+                    logger.info(f"解密结果已移动到目标路径（同盘零拷贝）：{output_file}")
                 
                 logger.info(f"ffmpeg解密成功：{input_file} -> {output_file}")
                 return output_file
@@ -8845,9 +9109,9 @@ class BilibiliParser:
                     # 使用唯一后缀避免多任务并发时临时文件名冲突
                     _unique_suffix = f"{os.getpid()}_{int(time.time() * 1000) % 1000000}_{os.urandom(4).hex()}"
                     simple_input = os.path.join(temp_dir, f"bento4_input_{_unique_suffix}.m4s")
-                    # 优先从短路径/原路径复制，确保得到ASCII安全路径的副本
-                    shutil.copy2(temp_input, simple_input)
-                    logger.info(f"复制文件到ASCII安全临时目录：{simple_input}")
+                    # 优先硬链接（同卷零额外空间），确保得到ASCII安全路径的只读副本
+                    link_or_copy(temp_input, simple_input, logger=logger)
+                    logger.info(f"已准备ASCII安全同盘副本：{simple_input}")
                 # simple_output 基于已有的 simple_input 名生成，确保唯一
                 simple_output = os.path.splitext(simple_input)[0] + ".decrypted.mp4"
                 
@@ -8883,8 +9147,9 @@ class BilibiliParser:
                 await asyncio.sleep(1.0)  # 增加等待时间
 
                 if os.path.exists(simple_output) and os.path.getsize(simple_output) > 1024:
-                    shutil.copy2(simple_output, output_file)
-                    logger.info(f"复制解密后的文件到目标位置：{output_file}")
+                    # 只存一次：同盘优先原子移动（move_file_no_copy 内部会在同盘用 rename）
+                    move_file_no_copy(simple_output, output_file, logger=logger)
+                    logger.info(f"解密后的文件已移动到目标位置（同盘零拷贝）：{output_file}")
                 else:
                     if os.path.exists(simple_input):
                         try:
@@ -8964,8 +9229,7 @@ class BilibiliParser:
                 if ffprobe_exec and os.path.exists(ffprobe_exec):
                     cmd = [ffprobe_exec, '-i', video_path, '-v', 'error', '-print_format', 'json', '-show_format', '-show_streams']
                     logger.info(f"加密检测：使用ffprobe检测文件类型，命令={cmd}")
-                    result = subprocess.run(cmd, capture_output=True, text=False, timeout=30,
-                                          **subprocess_no_window_kwargs())
+                    result = run_no_window(cmd, timeout=30, text=False)
                     stdout = result.stdout.decode('utf-8', errors='replace')
                     stderr = result.stderr.decode('utf-8', errors='replace')
                     logger.info(f"加密检测：ffprobe返回码={result.returncode}")
@@ -9319,6 +9583,126 @@ class BilibiliParser:
             logger.error(f"获取弹幕分段失败：{str(e)}")
             return {"success": False, "error": str(e)}
             
+    @staticmethod
+    def _read_varint(data, pos):
+        """读取 protobuf varint，返回 (值, 新位置)；数据不足时返回 (None, pos)"""
+        result = 0
+        shift = 0
+        n = len(data)
+        while pos < n:
+            byte = data[pos]
+            pos += 1
+            result |= (byte & 0x7F) << shift
+            if not (byte & 0x80):
+                return result, pos
+            shift += 7
+            if shift > 63:
+                break
+        return None, pos
+
+    def _parse_danmaku_proto_manual(self, data):
+        """不依赖生成的 _pb2 模块，手工解析 DmSegMobileReply。
+
+        结构（proto3，字段号已按实际接口响应校验）：
+          DmSegMobileReply { repeated DanmakuElem elems = 1; }
+          DanmakuElem {
+            int64  id=1; int32 progress=2; int32 mode=3; int32 fontsize=4;
+            uint32 color=5; string midHash=6; string content=7; int64 ctime=8;
+            int32  weight=9; string action=10; int32 pool=11; string idStr=12;
+            int32  attr=13;
+          }
+        注意：protobuf tag 字节 = (字段号 << 3) | 线类型，两者不可混用。
+        """
+        danmaku_list = []
+        n = len(data)
+        pos = 0
+        while pos < n:
+            tag, pos = self._read_varint(data, pos)
+            if tag is None:
+                break
+            field_no = tag >> 3
+            wire_type = tag & 0x07
+
+            if wire_type == 2:
+                length, pos = self._read_varint(data, pos)
+                if length is None or pos + length > n:
+                    break
+                payload = data[pos:pos + length]
+                pos += length
+                if field_no == 1:
+                    elem = self._parse_danmaku_elem(payload)
+                    if elem and elem.get("content"):
+                        danmaku_list.append(elem)
+            elif wire_type == 0:
+                _, pos = self._read_varint(data, pos)
+            elif wire_type == 1:
+                pos += 8
+            elif wire_type == 5:
+                pos += 4
+            else:
+                break
+
+        logger.info(f"内置方式解析获取到{len(danmaku_list)}条弹幕")
+        return danmaku_list
+
+    def _parse_danmaku_elem(self, payload):
+        """解析单条 DanmakuElem"""
+        danmaku = {
+            "id": 0, "progress": 0, "mode": 1, "fontsize": 25,
+            "color": 16777215, "midHash": "unknown", "content": "",
+            "ctime": 0, "weight": 1, "pool": 0, "idStr": "", "attr": 0,
+        }
+        n = len(payload)
+        pos = 0
+        while pos < n:
+            tag, pos = self._read_varint(payload, pos)
+            if tag is None:
+                break
+            field_no = tag >> 3
+            wire_type = tag & 0x07
+
+            if wire_type == 2:
+                length, pos = self._read_varint(payload, pos)
+                if length is None or pos + length > n:
+                    break
+                raw = payload[pos:pos + length]
+                pos += length
+                if field_no == 6:
+                    danmaku["midHash"] = raw.decode("utf-8", errors="replace")
+                elif field_no == 7:
+                    danmaku["content"] = raw.decode("utf-8", errors="replace")
+                elif field_no == 12:
+                    danmaku["idStr"] = raw.decode("utf-8", errors="replace")
+            elif wire_type == 0:
+                value, pos = self._read_varint(payload, pos)
+                if value is None:
+                    break
+                if field_no == 1:
+                    danmaku["id"] = value
+                elif field_no == 2:
+                    danmaku["progress"] = value
+                elif field_no == 3:
+                    danmaku["mode"] = value
+                elif field_no == 4:
+                    danmaku["fontsize"] = value
+                elif field_no == 5:
+                    danmaku["color"] = value
+                elif field_no == 8:
+                    danmaku["ctime"] = value
+                elif field_no == 9:
+                    danmaku["weight"] = value
+                elif field_no == 11:
+                    danmaku["pool"] = value
+                elif field_no == 13:
+                    danmaku["attr"] = value
+            elif wire_type == 1:
+                pos += 8
+            elif wire_type == 5:
+                pos += 4
+            else:
+                break
+        return danmaku
+
     def _parse_danmaku_proto(self, data):
         import logging
         import struct
@@ -9350,100 +9734,8 @@ class BilibiliParser:
                 
                 return danmaku_list
             except ImportError:
-                logger.warning("未找到编译的protobuf文件，使用简单解析方式")
-                
-                danmaku_list = []
-                offset = 0
-                data_len = len(data)
-                
-                while offset < data_len:
-                    try:
-                        if offset + 4 > data_len:
-                            break
-                        msg_len = struct.unpack('<I', data[offset:offset+4])[0]
-                        offset += 4
-                        
-                        if offset + 1 > data_len:
-                            break
-                        msg_type = data[offset]
-                        offset += 1
-                        
-                        if msg_type == 1:
-                            danmaku = {
-                                "id": 0,
-                                "progress": 0,
-                                "mode": 1,
-                                "fontsize": 25,
-                                "color": 16777215,
-                                "midHash": "unknown",
-                                "content": "",
-                                "ctime": 0,
-                                "weight": 1,
-                                "pool": 0,
-                                "idStr": "",
-                                "attr": 0
-                            }
-                            
-                            pos = offset
-                            while pos < offset + msg_len:
-                                if pos + 2 > data_len:
-                                    break
-                                field_type = (data[pos] >> 3) & 0x7
-                                field_num = data[pos] & 0x7
-                                pos += 1
-                                
-                                if field_type == 2:
-                                    if pos + 4 > data_len:
-                                        break
-                                    str_len = struct.unpack('<I', data[pos:pos+4])[0]
-                                    pos += 4
-                                    if pos + str_len <= data_len:
-                                        if field_num == 8:
-                                            danmaku["content"] = data[pos:pos+str_len].decode('utf-8', errors='replace')
-                                        elif field_num == 5:
-                                            danmaku["midHash"] = data[pos:pos+str_len].decode('utf-8', errors='replace')
-                                    pos += str_len
-                                elif field_type == 0:
-                                    varint = 0
-                                    shift = 0
-                                    while pos < data_len:
-                                        byte = data[pos]
-                                        varint |= (byte & 0x7f) << shift
-                                        shift += 7
-                                        pos += 1
-                                        if not (byte & 0x80):
-                                            break
-                                    if field_num == 1:
-                                        danmaku["id"] = varint
-                                    elif field_num == 2:
-                                        danmaku["progress"] = varint
-                                    elif field_num == 3:
-                                        danmaku["mode"] = varint
-                                    elif field_num == 4:
-                                        danmaku["fontsize"] = varint
-                                    elif field_num == 6:
-                                        danmaku["color"] = varint
-                                    elif field_num == 7:
-                                        danmaku["ctime"] = varint
-                                    elif field_num == 9:
-                                        danmaku["weight"] = varint
-                                    elif field_num == 10:
-                                        danmaku["pool"] = varint
-                                    elif field_num == 12:
-                                        danmaku["attr"] = varint
-                                elif field_type == 1:
-                                    pos += 8
-                                elif field_type == 5:
-                                    pos += 4
-                        
-                        offset += msg_len
-                    except Exception as e:
-                        logger.error(f"解析弹幕片段失败：{str(e)}")
-                        offset += 1
-                
-                danmaku_list = [d for d in danmaku_list if d["content"]]
-                logger.info(f"简单解析获取到{len(danmaku_list)}条弹幕")
-                return danmaku_list
+                logger.debug("未找到编译的protobuf文件，改用内置解析方式")
+                return self._parse_danmaku_proto_manual(data)
         except Exception as e:
             logger.error(f"解析弹幕protobuf失败：{str(e)}")
             return []
@@ -9564,14 +9856,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 '-show_streams',
                 video_path
             ]
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                shell=False,
-                **subprocess_no_window_kwargs(),
-                timeout=30
-            )
+            result = run_no_window(cmd, timeout=30)
             if result.returncode != 0:
                 logger.warning(f"ffprobe检测视频编码失败，返回码：{result.returncode}")
                 return 'unknown'
@@ -9621,14 +9906,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 '-show_format',
                 video_path
             ]
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                shell=False,
-                **subprocess_no_window_kwargs(),
-                timeout=30
-            )
+            result = run_no_window(cmd, timeout=30)
             if result.returncode != 0:
                 return 0
             import json
@@ -9781,7 +10059,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             import time
             # 使用预计算的ASCII安全临时目录，避免系统临时目录含中文用户名导致ffmpeg无法处理
-            merge_temp_dir = self.safe_temp_dir
+            # 用户要求：只存一次。临时合并目录必须与"本次输出目标盘"同盘，
+            # 这样合并完成后用 os.rename 原子移动即可，不再"复制再删除"。
+            try:
+                merge_temp_dir = get_safe_temp_dir(
+                    os.path.dirname(os.path.abspath(__file__)), "temp",
+                    cache_dir=None,
+                    prefer_dir=os.path.dirname(os.path.abspath(output_path)),
+                )
+            except Exception:
+                merge_temp_dir = self.safe_temp_dir
+            if not merge_temp_dir:
+                merge_temp_dir = self.safe_temp_dir
             # 检查输出路径是否含非ASCII字符（merge_temp_dir已通过get_safe_temp_dir保证ASCII安全）
             # 注意：局部变量必须改名为 output_has_non_ascii，避免遮蔽导入的 has_non_ascii 函数
             output_has_non_ascii = has_non_ascii(output_path)
@@ -10405,20 +10694,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             
             if merge_temp_output and merge_temp_output != output_path and os.path.exists(merge_temp_output):
                 try:
-                    output_dir = os.path.dirname(output_path)
-                    if output_dir:
-                        os.makedirs(output_dir, exist_ok=True)
-                    shutil.copy2(merge_temp_output, output_path)
-                    logger.info(f"复制合并结果到目标路径：{output_path}")
-                    try:
-                        os.remove(merge_temp_output)
-                    except Exception:
-                        pass
-                except Exception as copy_e:
-                    logger.error(f"复制合并结果失败：{str(copy_e)}")
+                    # 用户要求：只存一次，必须是"移动"而不是"复制再删除"。
+                    # 临时目录已与下载目标同盘，这里优先 os.rename 原子移动（零拷贝）。
+                    move_file_no_copy(merge_temp_output, output_path, logger=logger)
+                    logger.info(f"合并结果已移动到目标路径（同盘零拷贝）：{output_path}")
+                except Exception as move_e:
+                    logger.error(f"移动合并结果失败：{str(move_e)}")
                     if os.path.exists(merge_temp_output):
                         try:
-                            os.rename(merge_temp_output, output_path)
+                            shutil.move(merge_temp_output, output_path)
                         except Exception:
                             pass
             
@@ -10499,18 +10783,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     logger.info("CPU编码回退成功")
                     if merge_temp_output and merge_temp_output != output_path and os.path.exists(merge_temp_output):
                         try:
-                            output_dir = os.path.dirname(output_path)
-                            if output_dir:
-                                os.makedirs(output_dir, exist_ok=True)
-                            shutil.copy2(merge_temp_output, output_path)
-                            try:
-                                os.remove(merge_temp_output)
-                            except Exception:
-                                pass
-                        except Exception as copy_e:
+                            # 同盘优先原子移动，避免"复制再删除"的双倍写入
+                            move_file_no_copy(merge_temp_output, output_path, logger=logger)
+                        except Exception:
                             if os.path.exists(merge_temp_output):
                                 try:
-                                    os.rename(merge_temp_output, output_path)
+                                    shutil.move(merge_temp_output, output_path)
                                 except Exception:
                                     pass
                     if decrypted_video_path != video_path and os.path.exists(decrypted_video_path):

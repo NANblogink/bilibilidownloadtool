@@ -109,6 +109,9 @@ class ConfigLoader:
                 "auto_convert_incompatible": False,
                 "hevc_not_supported_ask": True,
                 "add_episode_to_filename": True,
+                # 文件名序号位数：0=不添加，2=01，3=001，4=0001
+                # 形如 "01. 视频标题.mp4"，便于按顺序整理课件/合集
+                "filename_sequence_digits": 2,
                 "batch_download_first": False,
                 "filename_add_author": False,
                 "use_author_folder": False,

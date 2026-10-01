@@ -272,7 +272,9 @@ class RecordingTrayManager(QObject):
         try:
             folder = os.path.dirname(os.path.abspath(filepath))
             if os.path.isdir(folder):
-                os.startfile(folder)
+                from platform_utils import reveal_in_file_manager
+                if not reveal_in_file_manager(folder):
+                    logger.warning(f"当前平台不支持自动打开文件夹: {folder}")
         except Exception as e:
             logger.warning(f"打开文件夹失败: {e}")
 
