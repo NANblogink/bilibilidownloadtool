@@ -25080,6 +25080,12 @@ class BilibiliDownloader(BaseWindow):
             self.selected_episodes = episodes.copy()
             self.select_episode_btn.setText(f"已选{len(self.selected_episodes)}集")
             self.select_episode_btn.setToolTip("点击修改集数选择")
+            # 卡片同步勾上，保持界面与下载一致
+            try:
+                if getattr(self, "_parsed_cards", None):
+                    self._set_all_parsed_cards(True)
+            except Exception:
+                pass
             
             # 启用弹幕下载选项
             if hasattr(self, 'danmaku_checkbox'):
@@ -25155,8 +25161,17 @@ class BilibiliDownloader(BaseWindow):
 
         danmaku_format = self.danmaku_format_combo.currentText() if hasattr(self, 'danmaku_format_combo') else 'XML'
 
+        # 卡片上勾选的集数优先；没有卡片时退回「选择集数」弹窗的结果
+        _card_picked = self.get_cards_selected_episodes()
+        if _card_picked is not None:
+            self.selected_episodes = list(_card_picked)
+
         if (download_video or content_type == 1) and not self.selected_episodes:
-            self.show_notification("请先选择要下载的集数哦", "warning")
+            # 有卡片但一个都没勾，比「请先选择集数」更准确
+            if getattr(self, "_parsed_cards", None):
+                self.show_notification("请先勾选要下载的视频", "warning")
+            else:
+                self.show_notification("请先选择要下载的集数哦", "warning")
             return
 
         if download_video:
@@ -25188,6 +25203,12 @@ class BilibiliDownloader(BaseWindow):
         url = self.url_edit.text().strip()
         
         episodes = self.selected_episodes
+        # 卡片勾选也算数，避免「勾了却仍提示去选集数」
+        if not episodes:
+            _cp = self.get_cards_selected_episodes()
+            if _cp:
+                episodes = list(_cp)
+                self.selected_episodes = list(_cp)
         if not episodes and (download_danmaku or download_subtitle or download_cover) and not download_video:
             if self.current_video_info.get("is_bangumi") and self.current_video_info.get("bangumi_info"):
                 episodes = [self.current_video_info["bangumi_info"].get("episodes", [])[0]] if self.current_video_info["bangumi_info"].get("episodes", []) else []
@@ -26408,12 +26429,40 @@ class BilibiliDownloader(BaseWindow):
             except Exception:
                 pass
 
+    def get_cards_selected_episodes(self):
+        """把卡片上勾选的集数同步给下载逻辑。
+
+        返回勾选到的 episode 列表；没有卡片时返回 None，
+        让调用方走原有逻辑（不改变老行为）。
+        """
+        cards = getattr(self, "_parsed_cards", None)
+        if not cards:
+            return None
+        picked = [c["ep"] for c in cards if c["check"].isChecked()]
+        return picked
+
     def _on_parsed_card_toggled(self, *_a):
         _n = sum(1 for c in getattr(self, "_parsed_cards", [])
                  if c["check"].isChecked())
         try:
             self.parsed_count_label.setText(
                 "已选 %d / %d" % (_n, len(self._parsed_cards)))
+        except Exception:
+            pass
+        # 同步给下载逻辑，并更新「选择集数」按钮文字
+        try:
+            picked = self.get_cards_selected_episodes()
+            if picked:
+                self.selected_episodes = list(picked)
+                if hasattr(self, "select_episode_btn"):
+                    self.select_episode_btn.setText("已选%d集" % len(picked))
+                    self.select_episode_btn.setToolTip("点击可重新选择集数")
+            elif picked is not None:
+                # 一张都没勾：清空，避免残留上一次的选择
+                self.selected_episodes = []
+                if hasattr(self, "select_episode_btn"):
+                    self.select_episode_btn.setText("选择集数")
+                    self.select_episode_btn.setToolTip("")
         except Exception:
             pass
 
@@ -26448,6 +26497,21 @@ class BilibiliDownloader(BaseWindow):
                     self.parsed_card_layout.count() - 1, _card)
                 self._parsed_cards.append(
                     {"check": _card.property("_check"), "ep": _ep, "index": _i})
+            # 新一批结果：清掉上一批的选中状态
+            self.selected_episodes = []
+            try:
+                if hasattr(self, "select_episode_btn"):
+                    self.select_episode_btn.setText("选择集数")
+                    self.select_episode_btn.setToolTip("")
+            except Exception:
+                pass
+            # 完全模式勾着就默认全选，否则默认一个都不选
+            try:
+                if (hasattr(self, "full_mode_checkbox")
+                        and self.full_mode_checkbox.isChecked()):
+                    self._set_all_parsed_cards(True)
+            except Exception:
+                pass
             self._on_parsed_card_toggled()
             self.parsed_card_panel.show()
             QTimer.singleShot(0, self._update_parsed_card_visibility)
@@ -26502,7 +26566,8 @@ class BilibiliDownloader(BaseWindow):
         foot.addWidget(dl)
         foot.addStretch(1)
         chk = QCheckBox()
-        chk.setChecked(True)
+        # 默认不勾选，由用户自行选择
+        chk.setChecked(False)
         chk.setCursor(Qt.PointingHandCursor)
         chk.toggled.connect(self._on_parsed_card_toggled)
         foot.addWidget(chk)
