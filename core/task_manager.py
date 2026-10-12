@@ -44,7 +44,6 @@ class TaskManager:
 
     def save_tasks(self):
         try:
-            # 深拷贝非JSON数据
             def _clean(obj):
                 if isinstance(obj, dict):
                     return {str(k): _clean(v) for k, v in obj.items()}
@@ -123,7 +122,6 @@ class TaskManager:
         if error_message and status == "failed":
             updates["error_message"] = error_message
         elif status == "completed":
-            #记完成语
             updates["completion_message"] = error_message if error_message else ""
             updates["error_message"] = ""
         elif status in ("downloading", "pending", "cancelled"):

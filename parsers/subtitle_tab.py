@@ -1,7 +1,3 @@
-"""
-B站视频字幕解析 Tab 页
-功能：使用主界面全局输入框的视频链接，解析各分P的AI字幕，时间轴预览并下载SRT字幕（需登录，跟随全局解析）
-"""
 
 import os
 import re
@@ -77,7 +73,7 @@ def _new_session(cookies=None):
 
 
 class SubtitleTimeline(QWidget):
-    """字幕时间分布时间轴（点击/拖动跳转，带当前位置指示线）"""
+    """字幕时间分布时间轴"""
 
     seek_requested = pyqtSignal(float)
 
@@ -174,7 +170,6 @@ class SubtitleTimeline(QWidget):
                 if x2 - x1 < 2:
                     x2 = x1 + 2
                 p.fillRect(QRect(x1, top + 2, x2 - x1, plot_h - 4), QColor(0, 161, 214, 150))
-            # 当前位置指示线
             if self._current_pos >= 0:
                 x = self._time_to_x(self._current_pos)
                 p.setPen(QPen(QColor("#ff4d4f"), 2))
@@ -394,7 +389,7 @@ class SubtitleDownloadThread(QThread):
 
 
 class SubtitleTab(QWidget):
-    """视频字幕解析 Tab 页（需登录，读取主界面全局输入框，跟随全局解析）"""
+    """视频字幕解析 Tab 页"""
 
     _list_ready_signal = pyqtSignal(dict)
     _list_error_signal = pyqtSignal(str)
@@ -493,7 +488,6 @@ class SubtitleTab(QWidget):
         main_layout.setSpacing(scale(8))
         main_layout.setContentsMargins(scale(8), scale(8), scale(8), scale(8))
 
-        # 分P字幕列表
         list_group = QGroupBox("分P字幕列表")
         list_group.setStyleSheet(scale_style(self._GB))
         list_layout = QVBoxLayout(list_group)
@@ -516,7 +510,6 @@ class SubtitleTab(QWidget):
         self.sub_table.cellClicked.connect(self._on_cell_clicked)
         list_layout.addWidget(self.sub_table)
 
-        # 操作行按钮
         op_row = QHBoxLayout()
         op_row.setSpacing(scale(8))
 
@@ -568,7 +561,6 @@ class SubtitleTab(QWidget):
         list_layout.addLayout(op_row)
         main_layout.addWidget(list_group)
 
-        # 字幕预览列表
         preview_group = QGroupBox("字幕预览")
         preview_group.setStyleSheet(scale_style(self._GB))
         preview_layout = QVBoxLayout(preview_group)
@@ -757,7 +749,6 @@ class SubtitleTab(QWidget):
         segments = [(float(i.get('from', 0)), float(i.get('to', 0))) for i in body]
         duration = pg.get("duration", 0) or (segments[-1][1] if segments else 0)
 
-        # 已存在则只展开定位
         for gi, g in enumerate(self._preview_groups):
             if g['title'] == title_text:
                 if not g['expanded']:
@@ -817,7 +808,6 @@ class SubtitleTab(QWidget):
             if row == g['header_row']:
                 self._toggle_group(gi)
                 return
-        # 点行同步时间轴
         for g in self._preview_groups:
             if g['expanded'] and g['start_row'] <= row < g['start_row'] + len(g['body']):
                 entry = g['body'][row - g['start_row']]
@@ -867,7 +857,6 @@ class SubtitleTab(QWidget):
         if not g['expanded']:
             self._toggle_group(self._preview_groups.index(g))
         self.preview_table.scrollToItem(self.preview_table.item(row, 0))
-        # 避免蓝色遮挡高亮
         cells = []
         for c in range(3):
             it = self.preview_table.item(row, c)
@@ -876,7 +865,6 @@ class SubtitleTab(QWidget):
         self._highlight_cells = cells
         entry = g['body'][idx]
         self.timeline.set_current_position(float(entry.get('from', 0)))
-        # 黄色快速闪烁约1秒
         self._blink_count = 0
         self._blink_on = False
         self._blink_max = 10
@@ -923,7 +911,6 @@ class SubtitleTab(QWidget):
                 entry = g['body'][top_row - start]
                 self.timeline.set_current_position(float(entry.get('from', 0)))
                 return
-        # 向下找首条可见字幕
         for g in self._preview_groups:
             if not g['expanded']:
                 continue

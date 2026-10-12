@@ -17,11 +17,6 @@ PLATFORM_NAME = 'windows' if IS_WINDOWS else ('macos' if IS_MACOS else
 
 
 def exe(name):
-    """可执行文件名：Windows 补 .exe，其余平台原名。
-
-    注意：若传入的名字已带 .exe 后缀（历史上部分调用点如此），
-    在非 Windows 平台会得到错误名。这里统一做一次规范化。
-    """
     if IS_WINDOWS:
         return name if name.lower().endswith('.exe') else f"{name}.exe"
     if name.lower().endswith('.exe'):
@@ -30,28 +25,16 @@ def exe(name):
 
 
 def tool_names(name):
-    """返回该工具在当前平台的候选可执行名（含兜底别名），用于查找。
-
-    打包场景下用户可能拿到别的平台残留的文件名，因此把 .exe 变体也列为候选，
-    只在"确认可执行"时才使用。
-    """
     base = exe(name)
     if IS_WINDOWS:
         return [base]
     return [base, f"{name}.exe"] if not base.endswith('.exe') else [base]
 
 
-# 某些Win下Crea
-# 该标志报WinErr
-# 故命中后本次弃用
 _NO_WINDOW_USABLE = True
 
 
 def note_no_window_failure(exc):
-    """记录一次 CREATE_NO_WINDOW 失败；命中 WinError 50 时全局降级。
-
-    返回 True 表示这是可降级的错误（调用方可以去掉该标志重试）。
-    """
     global _NO_WINDOW_USABLE
     if not IS_WINDOWS:
         return False
@@ -71,7 +54,6 @@ def subprocess_no_window_kwargs():
 def subprocess_low_priority_kwargs():
     """返回低优先级子进程的创建参数，用于ffmpeg等CPU密集型任务，降低CPU噪音但不降速"""
     if IS_WINDOWS and _NO_WINDOW_USABLE:
-        #BELOW_NORM
         return {'creationflags': subprocess.CREATE_NO_WINDOW | 0x00004000}
     if IS_WINDOWS:
         return {'creationflags': 0x00004000}
@@ -79,11 +61,6 @@ def subprocess_low_priority_kwargs():
 
 
 def run_no_window(cmd, timeout=30, text=False, **kwargs):
-    """执行子进程并隐藏窗口，遇到 Windows 的 WinError 50 自动降级重试一次。
-
-    ffprobe / powershell 这类探测型调用被这个错误打断时会静默退化成
-    "检测失败"，用户看到的是编码/加密判断失灵，因此这里兜一层。
-    """
     if not IS_WINDOWS:
         return subprocess.run(cmd, capture_output=True, text=text,
                               timeout=timeout, **kwargs)
@@ -93,8 +70,6 @@ def run_no_window(cmd, timeout=30, text=False, **kwargs):
     except OSError as e:
         if not note_no_window_failure(e):
             raise
-        # 去掉该标志重试
-        # 但总好过功能直接失效。
         return subprocess.run(cmd, capture_output=True, text=text,
                               timeout=timeout, **kwargs)
 
@@ -325,7 +300,6 @@ def get_system_proxy():
             try:
                 proxy_server = winreg.QueryValueEx(internet_settings, 'ProxyServer')[0]
             except (UnicodeDecodeError, Exception):
-                # 按字节读Proxy
                 try:
                     proxy_server_raw = winreg.QueryValueEx(internet_settings, 'ProxyServer')
                     proxy_server = str(proxy_server_raw[0]) if proxy_server_raw else ''
@@ -361,11 +335,7 @@ def get_system_proxy():
 
 
 def detect_gpu():
-    """检测系统是否有可用的GPU（NVIDIA/AMD/Intel），返回 (has_gpu, gpu_type, gpu_name)
-    gpu_type: 'nvidia', 'amd', 'intel', 或 None
-    """
     if IS_WINDOWS:
-        # 方法1 Get-Cim
         try:
             result = run_no_window(
                 ['powershell', '-NoProfile', '-Command',
@@ -392,7 +362,6 @@ def detect_gpu():
             except Exception:
                 pass
 
-        # 方法2用wmic后备
         try:
             result = subprocess.run(
                 ['wmic', 'path', 'win32_VideoController', 'get', 'name'],
@@ -413,7 +382,6 @@ def detect_gpu():
         except Exception:
             pass
 
-        # 方法3 nvidia
         try:
             result = subprocess.run(
                 ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader,nounits'],
@@ -430,37 +398,15 @@ def detect_gpu():
 
 
 def has_non_ascii(path):
-    """检测路径是否包含非ASCII字符（如中文用户名/中文安装路径）"""
+    """检测路径是否包含非ASCII字符"""
     if not path:
         return False
     return any(ord(c) > 127 for c in path)
 
 
 def to_short_path(path):
-    """将路径转换为Windows 8.3短路径名，解决C++工具无法处理中文路径的问题
-
-    Windows API GetShortPathNameW 可将 C:\\Users\\廖武彬\\AppData\\Local\\Temp
-    转换为 C:\\Users\\LIAOWU~1\\AppData\\Local\\Temp 这种纯ASCII短路径
-
-    优点：
-    - 原生支持，无需复制文件，无需管理员权限
-    - 纯ASCII，所有C++工具(mp4decrypt/ffmpeg/ffprobe)都能处理
-    - 对所有已存在的文件/目录都有效
-
-    注意：
-    - 文件/目录必须存在才能调用，否则返回原路径
-    - NTFS默认支持8.3短文件名，部分系统可能禁用（返回原路径由调用方兜底）
-    - 网络路径不支持8.3短文件名
-
-    Args:
-        path: 待转换的路径（可能含中文）
-
-    Returns:
-        转换后的ASCII短路径；转换失败或非Windows平台返回原路径
-    """
     if not IS_WINDOWS or not path:
         return path
-    # 全ASCII无需转换
     if not has_non_ascii(path):
         return path
     try:
@@ -470,17 +416,14 @@ def to_short_path(path):
         GetShortPathNameW.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
         GetShortPathNameW.restype = wintypes.DWORD
 
-        # 先取所需缓冲区长度
         buf_size = GetShortPathNameW(path, None, 0)
         if buf_size == 0:
-            return path  # 转换失败或短名禁用
+            return path
 
-        # 实际获取短路径
         buf = ctypes.create_unicode_buffer(buf_size)
         result = GetShortPathNameW(path, buf, buf_size)
         if result > 0:
             short_path = buf.value
-            # 确认确为纯ASCII
             if not has_non_ascii(short_path):
                 return short_path
         return path
@@ -489,7 +432,7 @@ def to_short_path(path):
 
 
 def _is_usable_dir(path):
-    """目录是否存在、可写、且不依赖中文路径（供 C++ 工具使用）。"""
+    """目录是否存在、可写、且不依赖中文路径。"""
     if not path:
         return False
     try:
@@ -507,7 +450,7 @@ def _is_usable_dir(path):
 
 
 def _resolve_ascii_candidate(path):
-    """返回可用的 ASCII 路径（必要时转 8.3 短路径），不可用则返回 None。"""
+    """返回可用的 ASCII 路径，不可用则返回 None。"""
     if not path:
         return None
     try:
@@ -522,14 +465,6 @@ def _resolve_ascii_candidate(path):
     return None
 
 
-# --------------------------------------------------------------------------
-# 统一平台行为 API
-#
-# 收敛Win专有调用
-# 如explorer
-# 各平台等价实现
-# 失败不抛返回bool
-# --------------------------------------------------------------------------
 
 
 def open_path(path):
@@ -543,7 +478,6 @@ def open_path(path):
         elif IS_MACOS:
             subprocess.Popen(['open', path], **subprocess_no_window_kwargs())
         elif IS_ANDROID:
-            # 无xdg-open降级
             return False
         else:
             opener = shutil.which('xdg-open')
@@ -556,10 +490,6 @@ def open_path(path):
 
 
 def reveal_in_file_manager(path, select=False):
-    """在文件管理器中定位文件（Windows 选中 / macOS 选中 / Linux 打开所在目录）。
-
-    select=True 表示尽量高亮该文件本身；平台不支持时退化为打开父目录。
-    """
     if not path:
         return False
     path = os.path.normpath(path)
@@ -580,7 +510,6 @@ def reveal_in_file_manager(path, select=False):
                 subprocess.Popen(['open', path if os.path.isdir(path) else os.path.dirname(path)],
                                  **subprocess_no_window_kwargs())
             return True
-        # Linux开目录
         target = path if os.path.isdir(path) else os.path.dirname(path)
         return open_path(target)
     except Exception:
@@ -588,11 +517,10 @@ def reveal_in_file_manager(path, select=False):
 
 
 def open_terminal(command=None, path=None):
-    """打开一个终端窗口（可选在其中执行命令）。"""
+    """打开一个终端窗口。"""
     try:
         if IS_WINDOWS:
             if command:
-                # cmd /k保持窗口不关
                 subprocess.Popen(['cmd', '/k', command],
                                  cwd=path, **subprocess_no_window_kwargs())
             else:
@@ -606,7 +534,6 @@ def open_terminal(command=None, path=None):
             return True
         if IS_ANDROID:
             return False
-        # 按可用性试常见终端
         for term in ('x-terminal-emulator', 'gnome-terminal', 'konsole',
                      'xfce4-terminal', 'xterm'):
             exe_path = shutil.which(term)
@@ -637,7 +564,6 @@ def kill_process_tree(pid, timeout=5):
             subprocess.call(['taskkill', '/F', '/T', '/PID', str(pid)],
                             **subprocess_no_window_kwargs())
             return True
-        # 先温和终止超时强杀
         import signal
         try:
             pgid = os.getpgid(pid)
@@ -674,10 +600,6 @@ def kill_process_tree(pid, timeout=5):
 
 
 def popen_new_session_kwargs():
-    """让子进程独立成组，便于后续整组终止（POSIX）。
-
-    ffmpeg/播放器等长驻子进程需要它，否则 kill_process_tree 无法连带清理。
-    """
     if IS_WINDOWS:
         return {'creationflags': getattr(subprocess, 'CREATE_NO_WINDOW', 0)}
     return {'start_new_session': True}
@@ -693,14 +615,12 @@ def shutdown_system(delay_seconds=60, reason=""):
             subprocess.Popen(args, **subprocess_no_window_kwargs())
             return True, '已安排关机'
         if IS_MACOS:
-            # shutdown收
             minutes = max(1, int(round(delay_seconds / 60.0)))
             subprocess.Popen(['sudo', '-n', 'shutdown', '-h', '+%d' % minutes],
                              **subprocess_no_window_kwargs())
             return True, '已安排关机（如有提示请输入密码）'
         if IS_ANDROID:
             return False, '当前平台不支持自动关机'
-        # 优先systemd
         if shutil.which('systemctl'):
             subprocess.Popen(['systemctl', 'poweroff'],
                              **subprocess_no_window_kwargs())
@@ -733,7 +653,6 @@ def set_process_priority_low(pid=None):
             finally:
                 if pid and handle:
                     kernel32.CloseHandle(handle)
-        # POSIX
         import psutil
         proc = psutil.Process(pid) if pid else psutil.Process()
         proc.nice(10)
@@ -743,10 +662,6 @@ def set_process_priority_low(pid=None):
 
 
 def available_memory_bytes():
-    """返回可用物理内存字节数，获取不到返回 None。
-
-    用于在移动端/低配设备上自适应并发度，避免把机器打崩。
-    """
     try:
         import psutil
         return int(psutil.virtual_memory().available)
@@ -764,7 +679,7 @@ def available_memory_bytes():
 
 
 def cpu_count():
-    """逻辑 CPU 数，失败回退 2（保守值）。"""
+    """逻辑 CPU 数，失败回退 2。"""
     try:
         return max(1, os.cpu_count() or 2)
     except Exception:
@@ -772,10 +687,6 @@ def cpu_count():
 
 
 def recommended_concurrency(explicit=None, cap=8, floor=1):
-    """按设备能力推荐并发数。
-
-    Android / 低内存设备上主动降低并发，避免 OOM 与系统卡顿。
-    """
     if explicit:
         try:
             return max(floor, min(int(explicit), cap))
@@ -796,13 +707,6 @@ def recommended_concurrency(explicit=None, cap=8, floor=1):
     return max(floor, min(n, cap))
 
 
-# --------------------------------------------------------------------------
-# 跨平台桌面通知
-#
-# Win走WinRT
-#notify-send
-# 绝不影响主流程。
-# --------------------------------------------------------------------------
 
 
 def _notify_macos(title, message, subtitle=""):
@@ -822,7 +726,6 @@ def _notify_linux(title, message, urgency='normal'):
     sender = shutil.which('notify-send')
     if not sender:
         return False
-    # a为应用名u为紧急度
     args = [sender, '-a', 'B站视频下载工具']
     if urgency in ('low', 'normal', 'critical'):
         args += ['-u', urgency]
@@ -832,18 +735,13 @@ def _notify_linux(title, message, urgency='normal'):
 
 
 def native_notify(title, message, urgency='normal', subtitle=''):
-    """发送一条系统级桌面通知。返回 bool 表示是否成功发起。
-
-    Windows 的 WinRT 实现留在 ui.py（需要保留 Toast 动作/进度条能力），
-    这里只提供 POSIX 平台实现，供 ui.py 统一入口调用。
-    """
     try:
         if IS_WINDOWS:
-            return False  # 由_winrt接管
+            return False
         if IS_MACOS:
             return _notify_macos(title, message, subtitle)
         if IS_ANDROID:
-            return False  # 由Android接管
+            return False
         return _notify_linux(title, message, urgency)
     except Exception:
         return False
@@ -873,14 +771,12 @@ def beep(kind='info'):
             winsound.MessageBeep(tone)
             return True
         if IS_MACOS:
-            #mac用afplay
             for name in (('Basso.aiff',) if kind == 'warn' else ('Glass.aiff', 'Ping.aiff')):
                 p = '/System/Library/Sounds/' + name
                 if os.path.exists(p):
                     subprocess.Popen(['afplay', p], **subprocess_no_window_kwargs())
                     return True
             return False
-        # 优先paplay
         for cmd in (['canberra-gtk-play', '-i', 'complete'],
                     ['paplay', '/usr/share/sounds/freedesktop/stereo/complete.oga']):
             if shutil.which(cmd[0]):
@@ -896,38 +792,13 @@ def beep(kind='info'):
 
 
 def get_safe_temp_dir(base_dir, sub_dir="temp", cache_dir=None, prefer_dir=None):
-    """获取 ASCII 安全的临时目录，用于调用 C++ 工具(mp4decrypt/ffmpeg等)时避免中文路径问题。
-
-    回退顺序（按优先级）：
-    1. 用户在设置里指定的缓存目录（cache_dir）
-    2. prefer_dir 所在盘符的根级 ASCII 目录（如 E:\\_bili_cache）——
-       关键：优先与"下载目标盘"同盘，避免把临时文件中转到系统盘(C:)把 C 盘写满
-    3. base_dir/sub_dir（程序目录下的 temp）
-    4. base_dir 所在盘符的根级 ASCII 目录
-    5. 系统 Temp
-
-    注意：C++ 工具无法处理含中文的路径，而 8.3 短路径在部分系统/卷上被禁用，
-    因此这里会主动构造盘符根目录下的纯 ASCII 目录作为首选回退，
-    而不是直接落到系统 Temp。
-
-    Args:
-        base_dir: 基础目录（通常是程序工作目录）
-        sub_dir: 程序目录下的子目录名（如 "temp"）
-        cache_dir: 用户配置的缓存目录（优先使用）
-        prefer_dir: 期望同盘的目录（通常是下载保存路径）
-
-    Returns:
-        ASCII 安全的临时目录路径
-    """
     import tempfile
 
     candidates = []
 
-    # 1. 用户配置的缓存目录
     if cache_dir:
         candidates.append(cache_dir)
 
-    # 同盘ASCII免占C
     if prefer_dir:
         try:
             drive = os.path.splitdrive(os.path.abspath(prefer_dir))[0]
@@ -936,11 +807,9 @@ def get_safe_temp_dir(base_dir, sub_dir="temp", cache_dir=None, prefer_dir=None)
         except Exception:
             pass
 
-    # 程序目录下的temp
     if base_dir:
         candidates.append(os.path.join(base_dir, sub_dir))
 
-    # 4. 程序所在盘符根目录
     if base_dir:
         try:
             drive = os.path.splitdrive(os.path.abspath(base_dir))[0]
@@ -954,34 +823,12 @@ def get_safe_temp_dir(base_dir, sub_dir="temp", cache_dir=None, prefer_dir=None)
         if resolved and _is_usable_dir(resolved):
             return resolved
 
-    # 5. 兜底：系统 Temp
     sys_temp = tempfile.gettempdir()
     resolved = _resolve_ascii_candidate(sys_temp)
     return resolved or sys_temp
 
 
 def move_file_no_copy(src, dst, overwrite=True, logger=None):
-    """把 src 移动到 dst，优先「同盘重命名」，绝不做无谓的复制+删除。
-
-    设计目标（用户明确要求）：
-        "下载到目标文件夹所在盘，然后移动到目标文件夹，只存一次，
-         必须是移动不能复制再删除。"
-
-    行为：
-        1. 先尝试 os.replace / os.rename —— 同一卷上是原子操作，
-           零额外磁盘写入、零额外占用，瞬间完成（这才是真正的"移动"）。
-        2. 仅当重命名确实失败（源与目标跨卷 / 跨设备）时，才回退到
-           shutil.move；shutil.move 在同盘时内部也是 rename，
-           跨盘时才复制+删除，属于无法避免的情况。
-        3. 目标已存在时，先删除再移动（避免 rename 在某些平台失败）。
-
-    :param src: 源文件路径
-    :param dst: 目标文件路径
-    :param overwrite: 目标存在时是否覆盖（默认 True）
-    :param logger: 可选 logger，用于记录实际采用的是移动还是回退复制
-    :return: 最终文件路径（成功）
-    :raises: 移动失败时抛出最后一个异常
-    """
     src = os.path.abspath(src)
     dst = os.path.abspath(dst)
 
@@ -1002,7 +849,6 @@ def move_file_no_copy(src, dst, overwrite=True, logger=None):
         else:
             raise FileExistsError(f"目标文件已存在：{dst}")
 
-    # 同盘原子重命名零拷贝
     try:
         os.replace(src, dst)
         if logger:
@@ -1019,7 +865,6 @@ def move_file_no_copy(src, dst, overwrite=True, logger=None):
     except OSError as e:
         _rename_err = e
 
-    # 跨卷才复制
     same_volume = False
     try:
         same_volume = os.path.splitdrive(src)[0].lower() == os.path.splitdrive(dst)[0].lower()
@@ -1035,20 +880,6 @@ def move_file_no_copy(src, dst, overwrite=True, logger=None):
 
 
 def link_or_copy(src, dst, overwrite=True, logger=None):
-    """为「工具不支持中文路径」等场景准备一份可访问副本，但尽量不额外占用磁盘。
-
-    优先硬链接（同一卷上零额外空间、瞬间完成，数据只存一份），
-    失败才回退 shutil.copy2（跨卷或文件系统不支持硬链接时）。
-
-    注意：硬链接与原文件共享同一份数据，删除其中任意一个都不会丢失数据，
-    但修改其一会影响另一个。此函数仅用于「只读副本」场景
-    （如交给 ffmpeg/mp4decrypt 读取），不可用于需要独立修改的副本。
-
-    :param src: 源文件
-    :param dst: 目标副本路径
-    :param overwrite: 目标存在时是否覆盖
-    :return: dst
-    """
     src = os.path.abspath(src)
     dst = os.path.abspath(dst)
 
@@ -1065,7 +896,6 @@ def link_or_copy(src, dst, overwrite=True, logger=None):
         else:
             return dst
 
-    # 硬链接同卷零空间
     try:
         os.link(src, dst)
         if logger:
@@ -1074,7 +904,6 @@ def link_or_copy(src, dst, overwrite=True, logger=None):
     except OSError:
         pass
 
-    # 2) 回退：真实复制
     shutil.copy2(src, dst)
     if logger:
         logger.debug(f"硬链接不可用，已复制副本：{dst}")

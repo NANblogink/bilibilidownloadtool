@@ -12,10 +12,6 @@ class HEVCCheckThread(QThread):
     result_signal = pyqtSignal(bool)
 
     def run(self):
-        # HEVC扩展Win
-        # macOS原生支持
-        #Linux:codec
-        # 这两平台直接判支持
         if IS_MACOS or IS_LINUX:
             self.result_signal.emit(True)
             return
@@ -172,16 +168,8 @@ def verify_and_ensure_save(target_path, source_path=None, content=None):
     return target_path, False
 
 def generate_qrcode(url):
-    """生成二维码图片，返回 BytesIO 对象。
-    
-    优先级:
-    1. qrcode + Pillow (离线，最佳质量)
-    2. qrcode + PyQt5 QPainter (离线，降级)
-    3. 在线QR API (需要网络，兜底)
-    """
     errors = []
     
-    #qrcode+PIL
     try:
         import qrcode
         from PIL import Image
@@ -203,7 +191,6 @@ def generate_qrcode(url):
     except Exception as e:
         errors.append(f"Pillow方案失败: {e}")
     
-    #qrcode+QImg
     try:
         import qrcode
         from PyQt5.QtGui import QImage, QPainter, QColor
@@ -244,7 +231,6 @@ def generate_qrcode(url):
     except Exception as e:
         errors.append(f"PyQt5方案失败: {e}")
     
-    # 方案3在线QR兜底
     try:
         safe_url = urllib.parse.quote(url, safe='')
         api_url = f"https://api.qrserver.com/v1/create-qr-code/?size=240x240&data={safe_url}"
@@ -252,7 +238,7 @@ def generate_qrcode(url):
         resp.raise_for_status()
         buf = io.BytesIO(resp.content)
         buf.seek(0)
-        if len(resp.content) > 100:  # 确实是图片不是错误页
+        if len(resp.content) > 100:
             return buf
         errors.append("在线API返回空内容")
     except Exception as e:

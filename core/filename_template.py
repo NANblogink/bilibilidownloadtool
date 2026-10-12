@@ -1,45 +1,12 @@
 # -*- coding: utf-8 -*-
-"""文件名模板引擎。
-
-提供统一的文件名模板渲染，替代原先散落在下载器里的多分支硬编码逻辑。
-
-模板变量用 {变量} 引用，变量名支持中文，也兼容旧的英文名：
-
-    {标题}      视频标题（合集/分P标题，已按 raw_title 规则清洗）
-    {集数}      集数，不带前导零（1、2、10）
-    {集数2}     集数，两位补零（01、02、10）
-    {集数3}     集数，三位补零（001、002、010）
-    {序号}      批次序号，按「文件名序号位数」设置补零（默认两位）
-    {UP主}      UP主名
-    {合集}      合集 / 番剧 / 课程标题
-    {BV号}      视频 BV 号（课程无 BV 号时为空）
-    {cid}       视频 cid
-    {日期}      当前日期 2026-10-01
-    {时间}      当前时间 19.04.52（用点号，避免冒号在文件名非法）
-    {类型}      媒体类型：普通视频 / 番剧 / 课程 / 互动视频
-
-旧的英文变量名（title/ep/ep2/ep3/seq/author/season/bvid/date/time/type）
-仍然可用，效果完全相同，已有配置不会失效。
-
-空变量处理：
-    {a}-{b} 这种写法在某一段为空时会留下多余分隔符，因此渲染后统一
-    清理连续分隔符、首尾分隔符与空括号。
-
-非法字符：
-    渲染结果中的 Windows 非法字符会被替换为下划线。
-"""
 import os
 import re
 import time as _time
 
-# 模板中最多允许的长度，防止极端模板产生超长文件名
 MAX_NAME_LEN = 200
 
-# 未渲染成功时的兜底模板
 FALLBACK_TEMPLATE = "{标题}"
 
-# 变量说明，供设置界面展示。第一项为中文名（按钮显示），
-# 第二项为英文别名（兼容旧配置，不显示在按钮上）。
 TEMPLATE_VARS = [
     ("{标题}", "视频标题"),
     ("{集数}", "集数（1、2、10）"),
@@ -55,7 +22,6 @@ TEMPLATE_VARS = [
     ("{类型}", "类型（普通视频/番剧/课程）"),
 ]
 
-# 英文别名 -> 中文主名。旧配置里的英文变量仍可正常渲染。
 VAR_ALIASES = {
     "title": "标题",
     "ep": "集数",
@@ -72,7 +38,6 @@ VAR_ALIASES = {
     "type": "类型",
 }
 
-# 预设模板，设置界面下拉可直接选
 PRESET_TEMPLATES = [
     ("默认（集数前缀）", "{标题}"),
     ("序号 + 标题", "{序号} {标题}"),
@@ -84,8 +49,6 @@ PRESET_TEMPLATES = [
     ("原样（不加工）", "{标题}"),
 ]
 
-# 各资源类型对应的设置项名。视频以外的资源可各自单独设置模板，
-# 留空时回退到视频模板，再留空则用内置默认命名。
 ASSET_SETTING_KEYS = {
     "video": "filename_template",
     "audio": "filename_template_audio",
@@ -94,7 +57,6 @@ ASSET_SETTING_KEYS = {
     "cover": "filename_template_cover",
 }
 
-# 资源类型显示名，供设置界面使用
 ASSET_LABELS = {
     "video": "视频",
     "audio": "音频",
@@ -105,11 +67,6 @@ ASSET_LABELS = {
 
 
 def _read_setting_fresh(config, key, default=""):
-    """读取设置项；内存为空时再从磁盘补读一次。
-
-    长时间运行的程序里，内存中的配置可能与磁盘不一致。
-    这里以磁盘为准，用户改完设置无需重启即可生效。
-    """
     try:
         val = config.get_app_setting(key, default)
     except Exception:
@@ -136,17 +93,12 @@ def _read_setting_fresh(config, key, default=""):
 
 
 def get_asset_template(config, asset="video"):
-    """读取某资源类型的模板。
-
-    回退顺序：该资源专属模板 -> 视频模板 -> 空串（表示走内置默认命名）。
-    """
     if config is None:
         return ""
     key = ASSET_SETTING_KEYS.get(asset, "filename_template")
     tpl = _read_setting_fresh(config, key)
     if tpl and str(tpl).strip():
         return str(tpl).strip()
-    # 音频/弹幕/字幕/封面未单独设置时，沿用视频模板
     if asset != "video":
         base = _read_setting_fresh(config, "filename_template")
         if base and str(base).strip():
@@ -155,10 +107,6 @@ def get_asset_template(config, asset="video"):
 
 
 def render_asset_name(config, asset, context):
-    """按资源类型渲染文件名（不含扩展名）。
-
-    返回 None 表示未配置模板，调用方应回退到原有命名逻辑。
-    """
     tpl = get_asset_template(config, asset)
     if not tpl:
         return None
@@ -172,7 +120,7 @@ _ILLEGAL = '\\/:*?"<>|'
 
 
 def illegal_filename_chars():
-    """返回文件名非法字符列表（保留原接口，供既有代码调用）"""
+    """返回文件名非法字符列表"""
     return list(_ILLEGAL)
 
 
@@ -183,10 +131,8 @@ def sanitize_filename(name, replacement="_"):
     s = str(name)
     for c in _ILLEGAL:
         s = s.replace(c, replacement)
-    # 控制字符
     s = "".join(ch for ch in s if ord(ch) >= 32)
     s = s.strip()
-    # Windows 不允许文件名以点或空格结尾
     s = s.rstrip(" .")
     return s
 
@@ -211,10 +157,6 @@ def _pad(number, digits):
 
 def build_context(title="", ep=None, seq=None, seq_digits=2, author="",
                   season="", bvid="", cid="", media_type=""):
-    """构造模板变量字典。
-
-    title/author/season 等会做基础清洗；数值类变量同时提供补零版本。
-    """
     _now = _time.localtime()
     type_map = {
         "video": "普通视频",
@@ -243,7 +185,6 @@ def build_context(title="", ep=None, seq=None, seq_digits=2, author="",
         "时间": _time.strftime("%H.%M.%S", _now),
         "类型": type_map.get(str(media_type or "").strip().lower(), ""),
     }
-    # 英文别名指向同一份值，兼容旧配置
     for _en, _cn in VAR_ALIASES.items():
         if _cn in ctx:
             ctx[_en] = ctx[_cn]
@@ -253,32 +194,19 @@ def build_context(title="", ep=None, seq=None, seq_digits=2, author="",
 def _clean_rendered(text):
     """清理渲染结果里因空变量留下的多余分隔符与空括号。"""
     s = text
-    # 去掉空括号（含中英文括号与方括号），避免出现 [] () 【】
     for _ in range(3):
         new = re.sub(r"[\[\(【]\s*[\]\)】]", "", s)
         if new == s:
             break
         s = new
-    # 折叠连续空格
     s = re.sub(r"[ \t]{2,}", " ", s)
-    # 折叠连续的下划线/连字符分隔
     s = re.sub(r"[_\-]{2,}", "_", s)
-    # 去掉分隔符两侧多余空格
     s = re.sub(r"\s*([_\-])\s*", r"\1", s)
-    # 去掉首尾的分隔符与空白
     s = s.strip(" _-.")
     return s
 
 
 def render_template(template, context, strict=False):
-    """渲染模板。
-
-    template: 形如 "{seq} {title}" 的字符串
-    context:  build_context 的返回值，或普通 dict
-    strict:   True 时未定义变量会抛错（用于设置界面的即时校验）；
-              默认 False，未定义变量渲染为空串，保证下载流程不中断。
-    返回：清洗并替换非法字符后的文件名（不含扩展名）。
-    """
     if not template or not str(template).strip():
         template = FALLBACK_TEMPLATE
     template = str(template)
@@ -294,12 +222,10 @@ def render_template(template, context, strict=False):
         table[str(k)] = "" if v is None else str(v)
 
     try:
-        # 用 format_map 支持 {var}，并容忍未知变量
         rendered = template.format_map(table)
     except (KeyError, IndexError, ValueError):
         if strict:
             raise
-        # 模板语法有误时退化为逐个替换，尽量保留可用部分
         rendered = template
         for k, v in table.items():
             rendered = rendered.replace("{" + k + "}", v)
@@ -310,7 +236,6 @@ def render_template(template, context, strict=False):
     if len(rendered) > MAX_NAME_LEN:
         rendered = rendered[:MAX_NAME_LEN].rstrip(" _-.")
     if not rendered:
-        # 全部变量为空时给一个可用兜底
         rendered = sanitize_filename(
             str((context or {}).get("标题") or (context or {}).get("title") or "")
         ) or "未命名"
@@ -318,17 +243,11 @@ def render_template(template, context, strict=False):
 
 
 def validate_template(template):
-    """校验模板，返回 (是否合法, 错误信息)。
-
-    用于设置界面在用户保存时给出即时反馈。
-    """
     if not template or not str(template).strip():
-        return True, ""  # 空模板按默认处理
+        return True, ""
     t = str(template)
-    # 中文主名 + 英文别名都算合法
     known = {k.strip("{}") for k, _ in TEMPLATE_VARS}
     known |= set(VAR_ALIASES.keys())
-    # 检查花括号是否配对
     depth = 0
     for ch in t:
         if ch == "{":
@@ -339,12 +258,10 @@ def validate_template(template):
             return False, "花括号不匹配：出现了多余的 }"
     if depth != 0:
         return False, "花括号不匹配：缺少 }"
-    # 检查未知变量
     used = re.findall(r"\{([^{}]*)\}", t)
     unknown = []
     for u in used:
         name = u.strip()
-        # 允许 {var:格式} 与 {var!r} 之类，取主名
         name = re.split(r"[!:.]", name)[0].strip()
         if name and name not in known:
             unknown.append(u)

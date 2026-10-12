@@ -17,16 +17,10 @@ logger = logging.getLogger(__name__)
 
 
 def _app_tool_dirs():
-    """返回可能存放工具的"用户数据目录"列表（各平台不同）。
-
-    历史上这里硬编码 Windows 的 LOCALAPPDATA/APPDATA，在 Linux/macOS 上
-    会指向不存在的路径（甚至因反斜杠而变成奇怪的文件名）。
-    """
     dirs = []
     for d in (app_data_dir(), program_files_dir()):
         if d and d not in dirs:
             dirs.append(d)
-    #LocalApp
     if IS_WINDOWS:
         local = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~\\AppData\\Local')
         cand = os.path.join(local, 'BilibiliDownloadTool')
@@ -75,10 +69,6 @@ def _extract_zip(zip_path, target_dir, progress_callback=None):
 
 
 def _extract_tar(archive_path, target_dir, progress_callback=None):
-    """解压 .tar.xz / .tar.gz / .tar.bz2（Linux 下 ffmpeg 官方静态包是 tar.xz）。
-
-    安全要点：逐个成员过滤绝对路径与 ".."，避免压缩包穿越写入目标目录之外。
-    """
     import tarfile
     try:
         with tarfile.open(archive_path, 'r:*') as tf:
@@ -87,7 +77,6 @@ def _extract_tar(archive_path, target_dir, progress_callback=None):
             base = os.path.abspath(target_dir)
             for i, m in enumerate(members):
                 name = m.name
-                # 跳过绝对与穿越
                 if name.startswith('/') or name.startswith('\\'):
                     continue
                 dest = os.path.abspath(os.path.join(base, name))
@@ -108,7 +97,6 @@ def _extract_archive(archive_path, target_dir, progress_callback=None):
         return _extract_zip(archive_path, target_dir, progress_callback)
     if low.endswith(('.tar.xz', '.txz', '.tar.gz', '.tgz', '.tar.bz2', '.tar')):
         return _extract_tar(archive_path, target_dir, progress_callback)
-    # 未知先zip后tar
     ok, err = _extract_zip(archive_path, target_dir, progress_callback)
     if ok:
         return ok, err
@@ -116,8 +104,6 @@ def _extract_archive(archive_path, target_dir, progress_callback=None):
 
 
 def _copy_if_needed(src, dst):
-    """复制工具文件。当源与目标为同一文件时跳过，避免 SameFileError。
-    返回 True 表示已在目标就位（已复制或本就同一文件）。"""
     try:
         if os.path.abspath(src) == os.path.abspath(dst) or os.path.samefile(src, dst):
             return True
@@ -128,8 +114,6 @@ def _copy_if_needed(src, dst):
 
 
 def install_tools_from_cdn(dest_dir, need_ffmpeg=True, need_bento4=True, progress_callback=None):
-    """从 CDN 下载 ffmpeg/bento4 并安装到 dest_dir/<name>/bin。
-    供安装器与运行时自愈共用。返回 {'ffmpeg_installed','bento4_installed'}。"""
     results = {'ffmpeg_installed': False, 'bento4_installed': False}
 
     def update(p, m):
@@ -143,8 +127,6 @@ def install_tools_from_cdn(dest_dir, need_ffmpeg=True, need_bento4=True, progres
         if need_ffmpeg:
             update(30, "正在从网络下载 FFmpeg...")
             ffmpeg_url = get_cdn_url('ffmpeg')
-            #Linux:tar.xz
-            # 扩展名不匹配会失败
             _ff_ext = '.tar.xz' if ffmpeg_url.lower().endswith(('.tar.xz', '.txz')) else '.zip'
             ffmpeg_archive = os.path.join(temp_dir, 'ffmpeg' + _ff_ext)
             ok, err = _download_file(
@@ -248,7 +230,6 @@ class ToolManager:
         if getattr(sys, 'frozen', False):
             self.install_dir = os.path.dirname(sys.executable)
             _parent_dir = os.path.dirname(self.install_dir)
-            #_internal路径
             _internal_dir = os.path.join(self.install_dir, '_internal')
             if os.path.isdir(_internal_dir):
                 self.install_dir = _internal_dir
@@ -257,9 +238,6 @@ class ToolManager:
                 self.install_dir = _parent_dir
                 logger.info(f"检测到工具在上级目录，使用: {self.install_dir}")
         else:
-            # 源码 / 非打包运行：
-            # 仓库自带的直接用
-            # 否则落用户可写目录
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             if self._looks_like_tool_home(project_root):
                 self.install_dir = project_root
@@ -273,7 +251,6 @@ class ToolManager:
                 else:
                     self.install_dir = ud_dir
             else:
-                # 优先用户目录
                 self.install_dir = app_data_dir()
 
         self.ffmpeg_dir = os.path.join(self.install_dir, 'ffmpeg', 'bin')
@@ -322,7 +299,6 @@ class ToolManager:
             self.bento4_dir = local_tools.get('bento4_dir', os.path.dirname(self.mp4decrypt_path))
             logger.info(f"回退到本地Bento4: {self.mp4decrypt_path}")
 
-        # 最后尝试系统PATH
         if need_ffmpeg and not os.path.exists(self.ffmpeg_path):
             sys_ffmpeg = shutil.which('ffmpeg')
             if sys_ffmpeg:
@@ -393,14 +369,12 @@ class ToolManager:
             ffmpeg_candidates.insert(3, os.path.join(parent_dir, 'ffmpeg', 'bin'))
             ffmpeg_candidates.insert(4, os.path.join(exe_dir, 'ffmpeg', 'bin', exe('ffmpeg')))
             ffmpeg_candidates.insert(5, os.path.join(exe_dir, 'ffmpeg', 'bin'))
-            # 搜用户数据目录
             for _ad in _app_tool_dirs():
                 ffmpeg_candidates.extend([
                     os.path.join(_ad, 'ffmpeg', 'bin', exe('ffmpeg')),
                     os.path.join(_ad, 'ffmpeg', 'bin'),
                 ])
         else:
-            # 源码搜dist与上级
             dist_internal = os.path.join(self.project_root, 'dist', 'BilibiliDownloader', '_internal', 'ffmpeg', 'bin')
             dist_root = os.path.join(self.project_root, 'dist', 'BilibiliDownloader', 'ffmpeg', 'bin')
             parent_project = os.path.dirname(self.project_root)
@@ -417,7 +391,6 @@ class ToolManager:
                     os.path.join(_ad, 'ffmpeg', 'bin', exe('ffmpeg')),
                     os.path.join(_ad, 'ffmpeg', 'bin'),
                 ])
-            #PATH:ffmpeg
             sys_ffmpeg = shutil.which(exe('ffmpeg'))
             if sys_ffmpeg:
                 ffmpeg_candidates.append(sys_ffmpeg)
@@ -454,7 +427,6 @@ class ToolManager:
                     os.path.join(_ad, 'bento4', 'bin', exe('mp4decrypt')),
                 ])
         else:
-            # 源码运行另搜dist
             dist_internal_b4 = os.path.join(self.project_root, 'dist', 'BilibiliDownloader', '_internal', 'bento4')
             parent_project = os.path.dirname(self.project_root)
             bento4_candidates.extend([
@@ -468,7 +440,6 @@ class ToolManager:
                     os.path.join(_ad, 'bento4', get_bento4_sdk_dirname(), 'bin', exe('mp4decrypt')),
                     os.path.join(_ad, 'bento4', 'bin', exe('mp4decrypt')),
                 ])
-            #PATH找mp4d
             sys_mp4decrypt = shutil.which(exe('mp4decrypt'))
             if sys_mp4decrypt:
                 bento4_candidates.append(sys_mp4decrypt)

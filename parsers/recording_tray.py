@@ -1,11 +1,3 @@
-"""
-录播工具托盘管理器
-- 独立的系统托盘图标，名称"录播工具"
-- 点击显示录制工具条（时长+控制按钮）
-- 支持多个同时进行的录制任务
-- 气泡通知录制开始/结束
-- 归主窗口所有，不依赖子页面生命周期
-"""
 
 import os
 import sys
@@ -66,11 +58,11 @@ class RecordingSession:
 
 
 class RecordingTrayManager(QObject):
-    """录播工具托盘管理器（由主窗口持有）"""
+    """录播工具托盘管理器"""
 
-    stop_requested = pyqtSignal(str)   # session_id
-    pause_requested = pyqtSignal(str)  # session_id
-    resume_requested = pyqtSignal(str) # session_id
+    stop_requested = pyqtSignal(str)
+    pause_requested = pyqtSignal(str)
+    resume_requested = pyqtSignal(str)
 
     def __init__(self, parent=None, visible=True):
         super().__init__(parent)
@@ -79,7 +71,7 @@ class RecordingTrayManager(QObject):
         self.tray_icon = None
         self.tray_menu = None
         self._timer = None
-        self._panel = None  # 当前显示的工具条面板
+        self._panel = None
         self._visible = visible
         self._init_tray()
 
@@ -90,7 +82,6 @@ class RecordingTrayManager(QObject):
 
         self.tray_icon = QSystemTrayIcon()
 
-        # 红色REC图标
         pixmap = QPixmap(32, 32)
         pixmap.fill(QColor(0, 0, 0, 0))
         painter = QPainter(pixmap)
@@ -111,7 +102,6 @@ class RecordingTrayManager(QObject):
         self._rebuild_menu()
         self.tray_icon.setContextMenu(self.tray_menu)
 
-        # 左键点击 → 显示工具条
         self.tray_icon.activated.connect(self._on_tray_activated)
 
         self._apply_visibility()
@@ -168,7 +158,6 @@ class RecordingTrayManager(QObject):
             parts.append(f"{paused}个暂停")
         self.tray_icon.setToolTip(f"录播工具 - {'、'.join(parts)}")
         self._rebuild_menu()
-        # 同步刷新工具条面板
         if self._panel and not self._panel.isHidden():
             self._panel.refresh()
 
@@ -177,13 +166,11 @@ class RecordingTrayManager(QObject):
         if not self.sessions and not self._panel:
             return
 
-        # 关闭旧面板
         if self._panel:
             self._panel.close()
             self._panel = None
 
         self._panel = RecordingPanel(self)
-        # 定位到托盘图标附近
         geo = QApplication.primaryScreen().availableGeometry()
         tray_geo = self.tray_icon.geometry()
         x = tray_geo.x()
@@ -202,14 +189,12 @@ class RecordingTrayManager(QObject):
             self._panel.close()
             self._panel = None
 
-    # ==================== 气泡通知 ====================
 
     def notify(self, title, msg, icon=QSystemTrayIcon.Information):
         """发送气泡通知"""
         if self.tray_icon and QSystemTrayIcon.supportsMessages():
             self.tray_icon.showMessage(title, msg, icon, 5000)
 
-    # ==================== 公共接口 ====================
 
     def add_session(self, room_id, title, output_path):
         session_id = f"rec_{self._next_id}"
@@ -222,7 +207,7 @@ class RecordingTrayManager(QObject):
         return session_id
 
     def set_visible(self, visible):
-        """设置托盘图标是否启用（关闭后即使有任务也不显示）"""
+        """设置托盘图标是否启用"""
         self._visible = visible
         if not visible:
             self.close_panel()
@@ -264,7 +249,7 @@ class RecordingTrayManager(QObject):
         return len(self.sessions)
 
     def stop_all(self):
-        """停止所有录制（退出时调用）"""
+        """停止所有录制"""
         for sid in list(self.sessions.keys()):
             self.stop_requested.emit(sid)
 
@@ -299,7 +284,6 @@ class RecordingPanel(QDialog):
         self._refresh_timer.start(500)
 
     def _setup_ui(self):
-        # 外层容器（带圆角和阴影）
         container = QFrame(self)
         container.setObjectName("recording_panel_container")
         container.setStyleSheet("""
@@ -378,7 +362,6 @@ class RecordingPanel(QDialog):
         lyt.setSpacing(scale(5))
         lyt.setContentsMargins(scale(10), scale(8), scale(10), scale(8))
 
-        # 头部：状态 + 标题
         hdr = QHBoxLayout()
         stxt = "已暂停" if session.paused else "正在录制"
         scolor = "#e0a800" if session.paused else "#dc3545"

@@ -1,7 +1,3 @@
-"""
-B站直播 API 封装
-功能：直播间信息查询、直播流获取、直播录制、回放下载
-"""
 
 import os
 import time
@@ -11,7 +7,6 @@ import threading
 
 logger = logging.getLogger(__name__)
 
-# 直播状态映射
 LIVE_STATUS_MAP = {
     0: "未开播",
     1: "直播中",
@@ -29,7 +24,6 @@ QUALITY_MAP = {
     30000: "杜比"
 }
 
-# 直播API基础URL
 LIVE_API_BASE = "https://api.live.bilibili.com"
 
 
@@ -42,7 +36,6 @@ class LiveParser:
         self.csrf_token = csrf_token
         self.session = requests.Session()
 
-        # 浏览器请求头
         self._headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
             'Referer': 'https://live.bilibili.com/',
@@ -53,7 +46,6 @@ class LiveParser:
         }
         self.session.headers.update(self._headers)
 
-        # 更新cookie
         if self.cookies:
             for k, v in self.cookies.items():
                 self.session.cookies.set(k, v, domain=".bilibili.com")
@@ -111,11 +103,6 @@ class LiveParser:
             return {"success": False, "error": f"解析错误: {str(e)}"}
 
     def get_room_info(self, room_id):
-        """
-        获取直播间信息
-        :param room_id: 房间号（短号或长号）
-        :return: 直播间详细信息
-        """
         result = self._get("/room/v1/Room/get_info", {"room_id": room_id})
         if not result["success"]:
             return result
@@ -143,11 +130,6 @@ class LiveParser:
         }
 
     def room_init(self, room_id):
-        """
-        房间初始化（短号转长号）
-        :param room_id: 短号
-        :return: 真实房间ID、主播UID等
-        """
         result = self._get("/room/v1/Room/room_init", {"id": room_id})
         if not result["success"]:
             return result
@@ -170,10 +152,6 @@ class LiveParser:
         }
 
     def get_master_info(self, uid):
-        """
-        获取主播信息
-        :param uid: 主播mid
-        """
         result = self._get("/live_user/v1/Master/info", {"uid": uid})
         if not result["success"]:
             return result
@@ -194,10 +172,6 @@ class LiveParser:
         }
 
     def get_room_base_info(self, room_ids):
-        """
-        批量获取直播间基本信息
-        :param room_ids: 房间ID列表
-        """
         if isinstance(room_ids, (list, tuple)):
             room_ids_str = ",".join(str(r) for r in room_ids)
         else:
@@ -209,33 +183,19 @@ class LiveParser:
         return result
 
     def get_live_stream_url(self, room_id, platform="web", qn=None):
-        """
-        获取直播流地址（优先使用V2接口，支持Cookie画质选择）
-        :param room_id: 真实房间号（长号）
-        :param platform: web=http-flv, h5=hls(m3u8)
-        :param qn: 画质代码，None=自动最高
-        :return: 直播流URL列表
-        """
-        # V2按返画质
         v2_result = self._get_live_stream_url_v2(room_id, qn=qn)
         if v2_result["success"]:
             return v2_result
 
-        # V2失败回退V1
         logger.warning(f"V2接口获取直播流失败，回退V1: {v2_result.get('error')}")
         return self._get_live_stream_url_v1(room_id, platform=platform, qn=qn)
 
     def _get_live_stream_url_v2(self, room_id, qn=None):
-        """
-        V2接口获取直播流（支持Cookie画质选择，返回HLS/FLV多格式）
-        :param room_id: 真实房间号
-        :param qn: 画质代码
-        """
         params = {
             "room_id": room_id,
-            "protocol": "0,1",       # 0=flv 1=hls
-            "format": "0,1,2",       #flv/ts/fmp4
-            "codec": "0,1",          # 0avc 1hevc
+            "protocol": "0,1",
+            "format": "0,1,2",
+            "codec": "0,1",
             "platform": "web",
             "ptype": "16",
         }
@@ -255,7 +215,6 @@ class LiveParser:
         accept_qn = playurl.get("accept_qn", [])
         quality_desc = playurl.get("quality_description", [])
 
-        # 提取所有可用URL
         stream_urls = []
         stream_list = playurl.get("stream", [])
         for stream in stream_list:
@@ -291,12 +250,6 @@ class LiveParser:
         }
 
     def _get_live_stream_url_v1(self, room_id, platform="web", qn=None):
-        """
-        V1接口获取直播流（备用，不支持Cookie画质选择）
-        :param room_id: 真实房间号
-        :param platform: web=http-flv, h5=hls(m3u8)
-        :param qn: 画质代码
-        """
         params = {
             "cid": room_id,
             "platform": platform,
@@ -328,19 +281,12 @@ class LiveParser:
         }
 
     def get_best_live_stream(self, room_id, prefer_hls=True):
-        """
-        获取最佳直播流（自动选最高画质）
-        :param room_id: 真实房间号
-        :param prefer_hls: True=优先HLS(m3u8), False=FLV
-        :return: 直播流URL
-        """
         result = self.get_live_stream_url(room_id)
         if not result["success"]:
             return result
         urls = result["data"]["stream_urls"]
         if not urls:
             return {"success": False, "error": "未获取到直播流地址，可能未开播"}
-        # 根据偏好选择格式
         if prefer_hls:
             hls = [u for u in urls if "fmp4" in u.get("format", "") or "ts" in u.get("format", "")]
             best = hls[0] if hls else urls[0]
@@ -358,11 +304,6 @@ class LiveParser:
         }
 
     def get_replay_list(self, page=1, page_size=30):
-        """
-        获取自己的直播回放列表（仅14天内）
-        :param page: 页码
-        :param page_size: 每页数量（最大30）
-        """
         result = self._get("/xlive/app-blink/v1/anchorVideo/AnchorGetReplayList", {
             "page": page,
             "page_size": page_size
@@ -421,12 +362,6 @@ class LiveParser:
         }
 
     def get_other_replay_list(self, live_uid, time_range=3, page=1, page_size=30):
-        """
-        获取某位主播的回放列表（需要授权）
-        :param live_uid: 主播UID
-        :param time_range: 1=近3天, 2=近7天, 3=近14天
-        """
-        # 优先app-blink
         result = self._get("/xlive/app-blink/v1/anchorVideo/AnchorGetReplayList", {
             "live_uid": live_uid,
             "time_range": time_range,
@@ -437,7 +372,6 @@ class LiveParser:
             logger.info(f"获取他人回放成功(app-blink): uid={live_uid}")
             return self._format_replay_list(result["data"])
 
-        # 回退web-room
         logger.warning(f"app-blink 获取他人回放失败，回退 web-room: {result.get('error')}")
         result = self._get("/xlive/web-room/v1/videoService/GetOtherSliceList", {
             "live_uid": live_uid,
@@ -450,12 +384,6 @@ class LiveParser:
         return self._format_replay_list(result["data"])
 
     def request_replay_download(self, record_id=None, live_key=None):
-        """
-        请求整场直播回放下载链接（未生成时会触发生成）
-        :param record_id: 回放ID
-        :param live_key: 直播场次key
-        :return: 下载链接或生成状态
-        """
         post_data = {}
         if record_id:
             post_data["record_id"] = record_id
@@ -470,7 +398,6 @@ class LiveParser:
         data = result["data"]
         record = data.get("record", {})
         status = record.get("status", 0)
-        # 30合成中 2已完成
         download_url = data.get("download_url", "")
         download_url_list = data.get("download_url_list", [])
 
@@ -489,13 +416,6 @@ class LiveParser:
         }
 
     def get_slice_stream(self, live_key, start_time, end_time):
-        """
-        获取切片视频流
-        :param live_key: 直播场次key
-        :param start_time: 开始时间戳（秒）
-        :param end_time: 结束时间戳（秒）
-        :return: 切片视频流列表
-        """
         result = self._get("/xlive/app-blink/v1/anchorVideo/GetSliceStream", {
             "live_key": live_key,
             "start_time": start_time,
@@ -522,12 +442,6 @@ class LiveParser:
         }
 
     def get_live_session_data(self, live_key, start_tm, end_tm):
-        """
-        获取直播会话数据（弹幕统计、高光时刻等）
-        :param live_key: 直播场次key
-        :param start_tm: 开始时间 yyyy-MM-dd HH:MM:SS
-        :param end_tm: 结束时间 yyyy-MM-dd HH:MM:SS
-        """
         result = self._get("/xlive/app-blink/v1/anchorVideo/GetLiveSessionData", {
             "live_key": live_key,
             "start_tm": start_tm,
@@ -548,12 +462,6 @@ class LiveParser:
         }
 
     def start_live(self, room_id, area_v2, platform="pc"):
-        """
-        开始直播（获取推流地址）
-        :param room_id: 自己的直播间ID
-        :param area_v2: 直播分区ID
-        :param platform: pc/pc_link/android_link
-        """
         post_data = {
             "room_id": room_id,
             "area_v2": area_v2,
@@ -577,11 +485,6 @@ class LiveParser:
         }
 
     def stop_live(self, room_id, platform="pc_link"):
-        """
-        关闭直播
-        :param room_id: 自己的直播间ID
-        :param platform: pc_link/android_link
-        """
         post_data = {
             "room_id": room_id,
             "platform": platform,
@@ -590,12 +493,6 @@ class LiveParser:
         return result
 
     def update_room_info(self, room_id, title=None, area_id=None):
-        """
-        更新直播间信息
-        :param room_id: 自己的直播间ID
-        :param title: 新标题（最多40字符）
-        :param area_id: 分区ID
-        """
         post_data = {"room_id": room_id}
         if title:
             post_data["title"] = title[:40]
@@ -605,10 +502,6 @@ class LiveParser:
         return result
 
     def get_area_list(self):
-        """
-        获取全部直播间分区列表
-        :return: 分区列表（父分区 + 子分区）
-        """
         result = self._get("/room/v1/Area/getList")
         if not result["success"]:
             return result
@@ -639,13 +532,6 @@ class LiveParser:
         }
 
     def get_recommend_list(self, platform="web", web_location="333.1007", page=1):
-        """
-        获取主页直播推荐列表
-        :param platform: 平台类型
-        :param web_location: 网页位置代码
-        :param page: 页码（从1开始）
-        :return: 推荐直播间列表
-        """
         result = self._get("/xlive/web-interface/v1/webMain/getMoreRecList", {
             "platform": platform,
             "web_location": web_location,
@@ -679,15 +565,6 @@ class LiveParser:
         }
 
     def get_hot_room_list(self, platform="web", parent_area_id=0, area_id=0, page=1, page_size=30):
-        """
-        获取热门直播间列表
-        :param platform: 平台类型
-        :param parent_area_id: 父分区ID（0表示全部分区）
-        :param area_id: 子分区ID（0表示该父分区全部）
-        :param page: 页码
-        :param page_size: 每页数量
-        :return: 热门直播间列表
-        """
         params = {
             "platform": platform,
             "page": page,

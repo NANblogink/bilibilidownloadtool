@@ -34,18 +34,9 @@ def _unique_paths(paths):
 
 
 def get_runtime_search_dirs():
-    """返回图标搜索目录（按优先级）。
-
-    图标资源按类型归入 assets/ 子目录：
-      assets/icons/    内置图标（logo.ico / logo_alt_kaisui.ico）
-      assets/images/   图片资源（二维码等）
-    同时根目录也保留 logo.ico / logo.png（打包脚本按根目录定位并随 _internal 分发），
-    因此把根与 assets 子目录都纳入搜索以兼容两种位置。
-    """
     roots = []
     if hasattr(sys, "_MEIPASS"):
         roots.append(sys._MEIPASS)
-    # 上级即仓库根
     roots.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     if getattr(sys, "frozen", False):
         exe_dir = os.path.dirname(sys.executable)
@@ -65,7 +56,6 @@ def get_runtime_search_dirs():
 def get_writable_app_dir():
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
-    # 上级即仓库根
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -86,24 +76,13 @@ def resolve_builtin_icon_path(icon_key="default"):
     for base_dir in get_runtime_search_dirs():
         candidate = os.path.join(base_dir, file_name)
         if os.path.exists(candidate):
-            #logo.ico=PNG
-            # 按ICO解析得空白
-            # 校验魔数跳过假ICO
             if file_name.lower().endswith(".ico") and not _is_real_ico(candidate):
                 continue
             return candidate
-    # 无真ICO返回空串
-    # 继续试其它源
-    # 不退回假ICO
     return ""
 
 
 def _is_real_ico(path):
-    """校验文件是否为真正的 ICO（魔数 00 00 01 00）。
-
-    历史缺陷：仓库里的 logo.ico 实际是 PNG 改扩展名，Qt 能正常显示，
-    但 Windows 任务栏/资源管理器按 ICO 解析会显示空白。此函数用于识别。
-    """
     try:
         with open(path, "rb") as f:
             head = f.read(4)

@@ -6,12 +6,6 @@ import _pathsetup
 
 
 def _default_download_dir():
-    """默认下载目录：程序所在目录下的 B站下载。
-
-    注意：本模块位于 core/ 子目录，必须用 project_root() 取项目根，
-    否则默认下载目录会落到 core/B站下载。
-    （打包后该目录只读时，下载设置里可自行改到可写盘。）
-    """
     try:
         if getattr(sys, 'frozen', False):
             base = os.path.dirname(os.path.abspath(sys.executable))
@@ -23,13 +17,6 @@ def _default_download_dir():
 
 
 def _get_app_dir():
-    """返回可写的应用目录（绝对路径）。
-    MSIX 沙箱安装目录只读，先尝试 exe 目录（绿色版可写），不可写则回退用户数据目录。
-    使用绝对路径避免因进程工作目录(cwd)不同导致设置被读写到别处而丢失。
-
-    注意：本模块位于 core/ 子目录，必须用 _pathsetup.project_root() 取项目根，
-    否则配置会落到 core/app_config.json —— 用户原有的根目录配置会被忽略。
-    """
     try:
         if getattr(sys, 'frozen', False):
             exe_dir = os.path.dirname(sys.executable)
@@ -102,17 +89,12 @@ class ConfigLoader:
             "app_settings": {
                 "default_save_path": _default_download_dir(),
                 "last_save_path": "",
-                # 留空自动选优先同盘
-                # 免写满系统盘 C:）
                 "cache_dir": "",
                 "max_threads": 2,
                 "auto_convert_incompatible": False,
                 "hevc_not_supported_ask": True,
                 "add_episode_to_filename": True,
-                # 0不加2为01三00
-                # 便于排序
                 "filename_sequence_digits": 2,
-                # 空则用内置默认命名
                 "filename_template": "",
                 "batch_download_first": False,
                 "filename_add_author": False,
@@ -126,7 +108,9 @@ class ConfigLoader:
                 "emoji_last_save_path": "",
                 "emoji_business": "reply",
                 "audio_last_save_path": "",
-                "show_recording_tray": True
+                "show_recording_tray": True,
+                "ui_style": "classic",
+                "theme": "style-classic"
             }
         }
     def _load_config(self):
@@ -152,12 +136,6 @@ class ConfigLoader:
 
     @staticmethod
     def _migrate_settings(config):
-        """修正历史遗留的错误默认值。
-
-        代码分层后 core/config.py 的 __file__ 指向 core/，曾导致默认下载路径被写成
-        <项目根>/core/B站下载。已存在的配置文件里这个错误值会被保留，
-        这里在加载时纠正为项目根下的 B站下载（用户手动改过的路径不动）。
-        """
         try:
             s = config.get("app_settings")
             if not isinstance(s, dict):
@@ -166,15 +144,11 @@ class ConfigLoader:
             if not cur:
                 s["default_save_path"] = _default_download_dir()
                 return
-            # 仅路径恰为该值才纠正
             norm = os.path.normpath(cur).replace("/", "\\").lower()
             if norm.endswith("\\core\\b站下载"):
                 s["default_save_path"] = _default_download_dir()
                 return
 
-            # 历史配置存已删目录
-            # 父目录缺失无法存
-            # 回落到项目根下
             parent = os.path.dirname(cur)
             if parent and not os.path.isdir(parent):
                 fallback = _default_download_dir()

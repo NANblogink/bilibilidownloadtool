@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""
-证书安装器 - 在新设备上安装 BilibiliDownloader 自签名证书
-
-最终用户双击运行即可：
-1. 以管理员权限安装证书到"受信任根证书颁发机构"
-2. 安装到"受信任发布者"
-3. 安装完成后，该设备运行 BilibiliDownloader.exe 不再报"未知发行者"
-
-证书文件 BilibiliDownloader_dev.cer 需与本程序同目录
-"""
 import os
 import sys
 import ctypes
@@ -28,11 +18,9 @@ def relaunch_as_admin():
     """以管理员权限重新启动自己"""
     params = " ".join(f'"{a}"' for a in sys.argv)
     try:
-        # UAC 提权
         ret = ctypes.windll.shell32.ShellExecuteW(
             None, "runas", sys.executable, params, None, 1  # SW_SHOWNORMAL
         )
-        # 返回值 >32 即成功
         if ret > 32:
             return True
         return False
@@ -41,15 +29,6 @@ def relaunch_as_admin():
 
 
 def find_cert_file():
-    """查找证书文件
-
-    搜索顺序：
-    1. exe 同目录（打包后主程序）
-    2. _internal 目录（PyInstaller --onedir 布局）
-    3. sys._MEIPASS（PyInstaller --onefile 解包临时目录）
-    4. 脚本同目录（开发环境）
-    5. 父目录
-    """
     candidates = []
 
     if getattr(sys, "frozen", False):
@@ -71,27 +50,19 @@ def find_cert_file():
 
 
 def is_cert_installed(cer_path):
-    """检查证书是否已安装到本地计算机的根证书和受信任发布者
-
-    返回 (root_ok: bool, publisher_ok: bool)
-    """
     if sys.platform != "win32":
         return False, False
     try:
-        # 改用-store
-        # 先从证书读SHA1
         import subprocess
         result = subprocess.run(
             ["certutil", "-dump", cer_path],
             capture_output=True, text=True, timeout=10,
             creationflags=0x08000000,
         )
-        # 解析证书指纹
         thumbprint = ""
         for line in result.stdout.split("\n"):
             line = line.strip()
             if "Cert Hash(sha1):" in line:
-                # 形如Cert Hash
                 thumbprint = line.split(":", 1)[1].strip().replace(" ", "")
                 break
         if not thumbprint:
@@ -104,7 +75,6 @@ def is_cert_installed(cer_path):
                     capture_output=True, text=True, timeout=10,
                     creationflags=0x08000000,
                 )
-                # 含指纹即表示已存在
                 return thumbprint.lower() in (r.stdout + r.stderr).lower()
             except Exception:
                 return False
@@ -115,14 +85,6 @@ def is_cert_installed(cer_path):
 
 
 def auto_install_cert(silent=True):
-    """静默自动安装证书（调用方需已是管理员权限）
-
-    参数:
-        silent: True 时不打印任何信息（适合主程序启动时静默安装）
-
-    返回:
-        (success: bool, message: str)
-    """
     if sys.platform != "win32":
         return False, "非Windows平台，跳过证书安装"
 
@@ -133,7 +95,6 @@ def auto_install_cert(silent=True):
     if not cer_path:
         return False, "未找到证书文件 BilibiliDownloader_dev.cer"
 
-    # 先查是否已装
     try:
         root_ok, publisher_ok = is_cert_installed(cer_path)
         if root_ok and publisher_ok:
@@ -160,8 +121,6 @@ def auto_install_cert(silent=True):
 
 def install_cert(cer_path, store_name, store_location="LocalMachine"):
     """用 certutil 安装证书到指定存储区"""
-    # addstore语法
-    # 装到当前用户
     if store_location == "LocalMachine":
         args = ["certutil", "-addstore", "-f", store_name, cer_path]
     else:
@@ -188,7 +147,6 @@ def main():
     print("=" * 60)
     print()
 
-    # 检查管理员权限
     if not is_admin():
         print("[提示] 需要管理员权限来安装证书到系统存储区")
         print("[提示] 正在请求管理员权限...")
@@ -211,7 +169,6 @@ def main():
     print(f"证书文件: {cer_path}")
     print()
 
-    # 装到受信任根机构
     print("[1/2] 安装到受信任根证书颁发机构...")
     ok1, msg1 = install_cert(cer_path, "Root", "LocalMachine")
     if ok1:
@@ -220,7 +177,6 @@ def main():
         print(f"  [失败] {msg1.strip()[:200]}")
         print("  [提示] 请尝试手动双击 BilibiliDownloader_dev.cer 安装")
 
-    # 安装到受信任发布者
     print("[2/2] 安装到受信任发布者...")
     ok2, msg2 = install_cert(cer_path, "TrustedPublisher", "LocalMachine")
     if ok2:

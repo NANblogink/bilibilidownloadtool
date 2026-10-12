@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-"""
-API请求模块
-"""
 
 import time
 import logging
@@ -12,7 +9,6 @@ from wbi_sign import WbiSign
 
 logger = logging.getLogger(__name__)
 
-# 优先orjson退
 import json as _std_json
 try:
     import orjson
@@ -30,7 +26,6 @@ class ApiRequest:
     def __init__(self, session=None):
         if session is None:
             self.session = requests.Session()
-            # 扩大连接池防满
             _adapter = HTTPAdapter(pool_connections=20, pool_maxsize=32, max_retries=0)
             self.session.mount('https://', _adapter)
             self.session.mount('http://', _adapter)
@@ -38,7 +33,7 @@ class ApiRequest:
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
                 'Referer': 'https://www.bilibili.com'
             })
-            self.session.trust_env = False  # 不读代理直连B站
+            self.session.trust_env = False
             self.session.proxies = {}
         else:
             self.session = session

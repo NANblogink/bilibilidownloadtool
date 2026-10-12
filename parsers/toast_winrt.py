@@ -4,8 +4,6 @@ import tempfile
 import subprocess
 import threading
 
-# AUMID同ui.py
-# 须关联开始菜单
 APP_AUMID = "B站视频下载工具"
 _APP_NAME = "B站视频下载工具"
 
@@ -112,7 +110,6 @@ def _shortcut_path():
 
 
 def _launch_target():
-    # 打包exe源码py
     return sys.executable
 
 
@@ -135,7 +132,6 @@ def _app_icon_path():
         tries = [os.path.join(_exe, "logo.ico"),
                  os.path.join(_exe, "_internal", "logo.ico")]
     else:
-        # 根在上级目录
         _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         tries = [os.path.join(_root, "logo.ico"),
                  os.path.join(_root, "assets", "icons", "logo.ico")]
@@ -213,17 +209,6 @@ def register_app_identity():
 
 
 def set_process_app_user_model_id(aumid=None):
-    """把当前进程的 AppUserModelID 设置为应用自己的 AUMID。
-
-    Windows 任务栏按进程 AUMID 决定「图标 / 分组 / 固定到任务栏」的身份：
-    不设置时进程沿用 exe（python.exe / 打包器）的默认 AUMID，任务栏会显示
-    默认或空白图标，且无法正确固定。必须在创建窗口之前调用。
-
-    注意：仅对已有窗口调用 setWindowIcon 不足以修复任务栏图标，
-    进程级 AUMID 才是任务栏身份来源。
-
-    :return: 成功返回 True
-    """
     if not sys.platform.startswith("win"):
         return False
     try:
@@ -237,11 +222,8 @@ def set_process_app_user_model_id(aumid=None):
 
 
 def register_aumid_shortcut():
-    """确保开始菜单里存在带 AUMID 的快捷方式（通知按钮显示的前提）。
-    每次启动都重新写入，避免旧快捷方式缺少 AUMID 导致按钮不显示。"""
     if not sys.platform.startswith("win"):
         return False
-    # AUMID定栏分组
     set_process_app_user_model_id()
     register_app_identity()
     lnk_path = _shortcut_path()

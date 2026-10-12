@@ -1,12 +1,3 @@
-"""
-B站音频（歌曲）API 封装
-功能：歌曲信息查询、TAG、歌词、创作成员、音频流URL获取、收藏/投币状态、音频榜单
-API 文档：
-  https://sessionhu.github.io/bilibili-API-collect/docs/audio/info.html
-  https://sessionhu.github.io/bilibili-API-collect/docs/audio/action.html
-  https://sessionhu.github.io/bilibili-API-collect/docs/audio/musicstream_url.html
-  https://sessionhu.github.io/bilibili-API-collect/docs/audio/rank.html
-"""
 
 import logging
 import requests
@@ -24,7 +15,6 @@ QUALITY_MAP = {
     3: "无损 FLAC（大会员）",
 }
 
-# 音质标识映射
 QUALITY_TYPE_MAP = {
     -1: "试听片段（192K）",
     0: "128K",
@@ -60,7 +50,7 @@ VIP_TYPE_MAP = {
 
 
 class AudioParser:
-    """B站音频（歌曲）API封装"""
+    """B站音频API封装"""
 
     def __init__(self, config=None, cookies=None, csrf_token=""):
         self.config = config
@@ -98,7 +88,6 @@ class AudioParser:
             resp = self.session.get(url, params=params, timeout=timeout)
             resp.raise_for_status()
             data = resp.json()
-            # code为0即成功
             if data.get("code") != 0:
                 error_msg = data.get("msg") or data.get("message") or "未知错误"
                 logger.warning(f"音频API请求失败: {url} -> {error_msg}")
@@ -112,7 +101,7 @@ class AudioParser:
             return {"success": False, "error": f"解析错误: {str(e)}"}
 
     def _post(self, url, data=None, timeout=15):
-        """POST请求（带CSRF）"""
+        """POST请求"""
         try:
             post_data = data or {}
             if self.csrf_token:
@@ -135,20 +124,17 @@ class AudioParser:
 
     @staticmethod
     def parse_auid(raw):
-        """从输入中提取音频auid（支持 au123、纯数字、完整URL）"""
+        """从输入中提取音频auid"""
         if not raw:
             return ""
         raw = str(raw).strip()
-        # au123
         import re
         m = re.search(r'au(\d+)', raw, re.IGNORECASE)
         if m:
             return m.group(1)
-        # URL中的sid参数
         m = re.search(r'[?&]sid=(\d+)', raw)
         if m:
             return m.group(1)
-        # audio/数字
         m = re.search(r'audio/(\d+)', raw)
         if m:
             return m.group(1)
@@ -156,14 +142,8 @@ class AudioParser:
             return raw
         return ""
 
-    # ==================== 歌曲信息 ====================
 
     def get_song_info(self, sid):
-        """
-        查询歌曲基本信息
-        https://www.bilibili.com/audio/music-service-c/web/song/info
-        :param sid: 音频auid
-        """
         url = f"{AUDIO_WEB_BASE}/song/info"
         result = self._get(url, {"sid": sid})
         if not result["success"]:
@@ -205,10 +185,6 @@ class AudioParser:
         }
 
     def get_song_tags(self, sid):
-        """
-        查询歌曲TAG
-        https://www.bilibili.com/audio/music-service-c/web/tag/song
-        """
         url = f"{AUDIO_WEB_BASE}/tag/song"
         result = self._get(url, {"sid": sid})
         if not result["success"]:
@@ -222,10 +198,6 @@ class AudioParser:
         return {"success": True, "data": tags}
 
     def get_song_members(self, sid):
-        """
-        查询歌曲创作成员列表
-        https://www.bilibili.com/audio/music-service-c/web/member/song
-        """
         url = f"{AUDIO_WEB_BASE}/member/song"
         result = self._get(url, {"sid": sid})
         if not result["success"]:
@@ -246,26 +218,14 @@ class AudioParser:
         return {"success": True, "data": members}
 
     def get_song_lyric(self, sid):
-        """
-        获取歌曲歌词（lrc格式）
-        https://www.bilibili.com/audio/music-service-c/web/song/lyric
-        """
         url = f"{AUDIO_WEB_BASE}/song/lyric"
         result = self._get(url, {"sid": sid})
         if not result["success"]:
             return result
-        #data:str
         lyric = result["data"] or ""
         return {"success": True, "data": lyric}
 
     def get_stream_url_web(self, sid, quality=2, privilege=2):
-        """
-        获取音频流URL（web端，仅192K，付费歌曲为30s试听片段）
-        https://www.bilibili.com/audio/music-service-c/web/url
-        :param sid: 音频auid
-        :param quality: 固定2
-        :param privilege: 固定2
-        """
         url = f"{AUDIO_WEB_BASE}/url"
         params = {"sid": sid, "quality": quality, "privilege": privilege}
         result = self._get(url, params)
@@ -288,15 +248,6 @@ class AudioParser:
         }
 
     def get_stream_url_full(self, songid, quality=2, privilege=2, mid=0, platform="web"):
-        """
-        获取音频流URL（可获取付费音频，需登录的大会员账号）
-        https://api.bilibili.com/audio/music-service-c/url
-        :param songid: 音频auid
-        :param quality: 0/1/2/3
-        :param privilege: 必须为2
-        :param mid: 当前用户mid（可为任意值）
-        :param platform: 平台标识
-        """
         url = f"{AUDIO_API_BASE}/url"
         params = {
             "songid": songid,
@@ -338,13 +289,8 @@ class AudioParser:
             },
         }
 
-    # ==================== 收藏 & 投币 ====================
 
     def get_collect_status(self, sid):
-        """
-        查询音频收藏状态（需登录）
-        https://www.bilibili.com/audio/music-service-c/web/collections/songs-coll
-        """
         url = f"{AUDIO_WEB_BASE}/collections/songs-coll"
         result = self._get(url, {"sid": sid})
         if not result["success"]:
@@ -352,10 +298,6 @@ class AudioParser:
         return {"success": True, "data": bool(result["data"])}
 
     def get_coin_num(self, sid):
-        """
-        查询音频投币数（0为未投币，上限为2，需登录）
-        https://www.bilibili.com/audio/music-service-c/web/coin/audio
-        """
         url = f"{AUDIO_WEB_BASE}/coin/audio"
         result = self._get(url, {"sid": sid})
         if not result["success"]:
@@ -363,25 +305,12 @@ class AudioParser:
         return {"success": True, "data": result["data"] or 0}
 
     def add_coin(self, sid, multiply=1):
-        """
-        投币音频（需登录）
-        https://www.bilibili.com/audio/music-service-c/web/coin/add
-        :param sid: 音频auid
-        :param multiply: 投币数量（最大为2）
-        """
         url = f"{AUDIO_WEB_BASE}/coin/add"
         post_data = {"sid": sid, "multiply": multiply}
         return self._post(url, post_data)
 
-    # ==================== 音频榜单 ====================
 
     def get_rank_periods(self, list_type=1):
-        """
-        获取音频榜单每期列表
-        https://api.bilibili.com/x/copyright-music-publicity/toplist/all_period
-        :param list_type: 1=热榜 2=原创榜
-        :return: {年份: [{ID, priod, publish_time}, ...]}
-        """
         url = f"{TOPLIST_API_BASE}/all_period"
         params = {"list_type": list_type}
         if self.csrf_token:
@@ -403,10 +332,6 @@ class AudioParser:
         return {"success": True, "data": periods}
 
     def get_rank_detail(self, list_id):
-        """
-        查询音频榜单单期信息
-        https://api.bilibili.com/x/copyright-music-publicity/toplist/detail
-        """
         url = f"{TOPLIST_API_BASE}/detail"
         params = {"list_id": list_id}
         if self.csrf_token:
@@ -428,10 +353,6 @@ class AudioParser:
         }
 
     def get_rank_music_list(self, list_id):
-        """
-        获取音频榜单单期内容
-        https://api.bilibili.com/x/copyright-music-publicity/toplist/music_list
-        """
         url = f"{TOPLIST_API_BASE}/music_list"
         params = {"list_id": list_id}
         if self.csrf_token:
@@ -465,19 +386,9 @@ class AudioParser:
             })
         return {"success": True, "data": items}
 
-    # ==================== 下载音频流 ====================
 
     def download_stream(self, stream_url, output_path, progress_callback=None,
                         cancel_check=None, referer="https://www.bilibili.com/"):
-        """
-        下载音频流到文件
-        音频流URL要求：User-Agent不为空且不含敏感字串，Referer必须在.bilibili.com下
-        :param stream_url: 音频流URL
-        :param output_path: 输出文件路径
-        :param progress_callback: 回调 (downloaded, total, speed_bytes_per_sec)
-        :param cancel_check: 取消检查函数，返回True则停止下载
-        :return: dict {success, path, error}
-        """
         import time as _time
         try:
             headers = {
@@ -490,7 +401,6 @@ class AudioParser:
             resp.raise_for_status()
 
             total = int(resp.headers.get('content-length', 0))
-            # 分块从Content
             if total == 0 and resp.headers.get('content-range'):
                 try:
                     total = int(resp.headers['content-range'].split('/')[-1])
@@ -499,7 +409,7 @@ class AudioParser:
 
             downloaded = 0
             start_time = _time.time()
-            chunk_size = 1024 * 256  # 256KB
+            chunk_size = 1024 * 256
             with open(output_path, 'wb') as f:
                 for chunk in resp.iter_content(chunk_size=chunk_size):
                     if cancel_check and cancel_check():

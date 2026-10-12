@@ -9,16 +9,14 @@ logger = logging.getLogger(__name__)
 APP_NAME = "B站视频解析工具"
 APP_NAME_EN = "BilibiliDownloader"
 APP_DESCRIPTION = "B站视频解析下载工具"
-APP_VERSION = "V2.2.2"
-VERSION_NUM = "2.2.2"
+APP_VERSION = "V2.2.4"
+VERSION_NUM = "2.2.4"
 APP_AUTHOR = "寒烟似雪"
 APP_AUTHOR_QQ = "2273962061"
 APP_WEBSITE = "https://www.bilidown.cn"
 APP_REPO = "https://github.com/NANblogink/bilibilidownloadtool"
 BETA_QQ_GROUP = "https://jq.qq.com/?_wv=1027&k=714822491"
 
-# 内测包 True
-# 内测包验QQ授权
 IS_BETA_BUILD = False
 
 SHORTCUT_NAME = APP_NAME + APP_VERSION
@@ -43,7 +41,6 @@ def load_version_info():
     if hasattr(sys, '_MEIPASS'):
         candidate_paths.append(os.path.join(sys._MEIPASS, 'version_info.json'))
 
-    # 上级即项目根
     root_dir = _pathsetup.project_root()
     candidate_paths.append(os.path.join(root_dir, 'version_info.json'))
     candidate_paths.append(os.path.join(root_dir, 'config', 'version_info.json'))
@@ -72,13 +69,6 @@ def load_version_info():
 
 
 def is_safe_install_path(path):
-    """校验安装/卸载路径是否安全，防止误删整盘或系统关键目录。
-
-    触发本校验的典型事故：用户在安装时把路径选成驱动器根目录（如 D:\\ 或 D:），
-    该值被写入注册表 InstallPath，卸载时 shutil.rmtree("D:\\") 会递归删除整盘数据。
-
-    返回 (is_safe: bool, reason: str)。安全时 reason 为空字符串。
-    """
     if not path or not str(path).strip():
         return False, "路径为空"
     raw = str(path).strip()
@@ -87,7 +77,6 @@ def is_safe_install_path(path):
     except Exception:
         return False, f"路径无效：{raw}"
 
-    # 1. 拒绝驱动器根目录
     drive, tail = os.path.splitdrive(norm_path)
     if drive and (not tail or tail in (os.sep, '/', '\\')):
         return False, f"禁止使用驱动器根目录作为安装/卸载路径：{drive}"
@@ -101,7 +90,6 @@ def is_safe_install_path(path):
         return False, (f"安装目录名需包含应用标识(Bilibili/哔哩)，"
                        f"当前目录名为：{last_part}")
 
-    # 3. 拒绝系统关键目录
     win_dir = os.environ.get('SystemRoot', r'C:\Windows')
     pf = os.environ.get('ProgramFiles', r'C:\Program Files')
     pf86 = os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)')

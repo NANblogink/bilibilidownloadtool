@@ -16,11 +16,6 @@ API_BASE = "https://www.bilidown.cn/api/v1"
 
 
 def collect_recent_logs(max_bytes=512 * 1024, tail_only=True):
-    """收集最近的日志文本，供错误/崩溃上报附带上下文。
-
-    tail_only=True 时只取文件尾部，避免把整天的日志都传上去。
-    无可读日志时返回空字符串（不返回 None，便于直接拼接）。
-    """
     try:
         from logger_config import LOG_DIR
     except Exception:
@@ -62,15 +57,6 @@ def collect_recent_logs(max_bytes=512 * 1024, tail_only=True):
 
 
 def sanitize_error_path(path):
-    """把出错文件路径脱敏为「相对项目的模块路径」。
-
-    原始路径形如 C:\\Users\\<用户名>\\AppData\\Local\\BilibiliDownloadTool\\core\\downloader.py，
-    直接上报会暴露 Windows 用户名。这里剥掉程序根目录前缀，保留
-    core/downloader.py 这样既有定位价值、又不含隐私的部分。
-
-    依次尝试：项目根目录 -> 打包运行目录 -> 当前工作目录。
-    都不匹配时退回纯文件名，绝不回传完整路径。
-    """
     p = str(path or "").strip()
     if not p:
         return ""
@@ -82,9 +68,7 @@ def sanitize_error_path(path):
     roots = []
     for getter in (
         lambda: __import__("_pathsetup").project_root(),
-        # exe目录即程序根
         lambda: os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False) else "",
-        #PyI解包目录
         lambda: getattr(sys, "_MEIPASS", ""),
         lambda: os.getcwd(),
     ):
@@ -99,11 +83,9 @@ def sanitize_error_path(path):
     for r in roots:
         if low.startswith(r.lower() + "/"):
             rel = norm[len(r) + 1:]
-            # 含用户目录的继续清洗
             m = re.search(r"/(?:Users|home|Documents and Settings)/[^/]+/(.+)$", rel, re.I)
             return (m.group(1) if m else rel)
 
-    # 剥掉用户目录
     m = re.search(r"/(?:Users|Documents and Settings)/[^/]+/(.+)$", norm, re.I)
     if m:
         return m.group(1)
@@ -111,24 +93,21 @@ def sanitize_error_path(path):
     if m:
         return m.group(1)
 
-    # 相对路径保留无隐私
     if not re.match(r"^[A-Za-z]:", norm) and not norm.startswith("/"):
         return norm
 
-    # 兜底：只留文件名
     return os.path.basename(norm) or norm[:80]
 
 
 class CloudService:
-    # 用户可逐项开关
-    CONSENT_INSTALL = "event_install"           # 安装事件上报
-    CONSENT_LAUNCH = "event_launch"             # 启动事件上报
-    CONSENT_PARSE = "event_parse_video"        # 视频解析事件上报
-    CONSENT_DOWNLOAD = "event_download_video"   # 视频下载事件上报
-    CONSENT_CRASH = "crash_report"              # 崩溃日志上报
-    CONSENT_ERROR = "error_report"              # 错误日志上报
-    CONSENT_REMOTE_CONFIG = "remote_config"     # 远程配置读取
-    CONSENT_REMOTE_SCRIPT = "remote_script"     # 远程脚本执行
+    CONSENT_INSTALL = "event_install"
+    CONSENT_LAUNCH = "event_launch"
+    CONSENT_PARSE = "event_parse_video"
+    CONSENT_DOWNLOAD = "event_download_video"
+    CONSENT_CRASH = "crash_report"
+    CONSENT_ERROR = "error_report"
+    CONSENT_REMOTE_CONFIG = "remote_config"
+    CONSENT_REMOTE_SCRIPT = "remote_script"
 
     _DEFAULT_CONSENT = {
         CONSENT_INSTALL: True,
@@ -174,7 +153,6 @@ class CloudService:
         self._is_new_install = False
         self._client_id = self._load_or_create_client_id()
         self._api_token = ""
-        # 用户数据采集同意状态
         self._consent_file = self._get_consent_file_path()
         self._consent = self._load_consent()
         self._consent_notified = self._consent.get("_notified", False)
@@ -225,7 +203,7 @@ class CloudService:
             self._save_consent()
 
     def get_all_consent(self):
-        """返回所有类别的同意状态（副本）"""
+        """返回所有类别的同意状态"""
         return dict(self._consent)
 
     @property
@@ -241,14 +219,6 @@ class CloudService:
 
     @staticmethod
     def _get_client_id_file_paths():
-        """返回设备码所有可能的存放位置（按优先级）。
-
-        多路径的意义：内测用户会反复安装/覆盖安装，如果设备码只落在
-        安装目录（_internal 或 exe 旁），重装或换版本就会连同目录一起被替换，
-        于是每次安装都随机生成一个新的设备码，服务端便把同一台机器
-        当成新设备，内测授权也随之丢失。
-        因此除应用目录外，还要在用户数据目录保留一份，做到跨重装稳定。
-        """
         paths = []
         seen = set()
 
@@ -263,7 +233,6 @@ class CloudService:
                 seen.add(norm)
                 paths.append(p)
 
-        # 1) 用户数据目录最稳
         for base in (os.environ.get('LOCALAPPDATA'), os.environ.get('APPDATA')):
             if base:
                 _add(os.path.join(base, 'BilibiliDownloadTool', 'client_id.txt'))
@@ -272,14 +241,12 @@ class CloudService:
         except Exception:
             pass
 
-        # 2) 应用目录兼容旧版
         try:
             from logger_config import get_app_dir
             _add(os.path.join(get_app_dir(), 'client_id.txt'))
         except Exception:
             pass
 
-        # 3) 兜底：用户主目录
         try:
             _add(os.path.join(os.path.expanduser("~"), "bilidown_client_id.txt"))
         except Exception:
@@ -288,7 +255,7 @@ class CloudService:
 
     @staticmethod
     def _get_client_id_file_path():
-        """主路径（保持向后兼容）：优先用户数据目录。"""
+        """主路径：优先用户数据目录。"""
         return CloudService._get_client_id_file_paths()[0]
 
     @staticmethod
@@ -309,7 +276,6 @@ class CloudService:
             d = os.path.dirname(path)
             if d:
                 os.makedirs(d, exist_ok=True)
-            # 先写临时再改名防半截
             tmp = path + '.tmp'
             with open(tmp, 'w', encoding='utf-8') as f:
                 f.write(cid)
@@ -326,12 +292,6 @@ class CloudService:
 
     @staticmethod
     def _machine_identity():
-        """由本机稳定硬件特征派生一个可复现的标识，作为设备码的最后兜底。
-
-        仅在本地完全没有任何已保存的设备码时使用（例如首次运行且用户目录
-        不可写）。它保证"同一台机器重装后算出的设备码一致"，
-        而不像 uuid4 那样每次安装都不同。
-        """
         import platform
         import hashlib
         parts = []
@@ -343,7 +303,6 @@ class CloudService:
             parts.append(platform.machine() or '')
         except Exception:
             pass
-        # 机器GUID最稳定
         if IS_WINDOWS:
             try:
                 import subprocess
@@ -365,7 +324,6 @@ class CloudService:
                         break
             except Exception:
                 pass
-        # 网卡MAC取首个防抖
         try:
             import uuid as _uuid
             mac = _uuid.getnode()
@@ -382,18 +340,15 @@ class CloudService:
         try:
             paths = self._get_client_id_file_paths()
 
-            # 1) 依次读首个有效
             for p in paths:
                 cid = self._read_client_id_from(p)
                 if cid:
-                    # 回写其它位置同码
                     for other in paths:
                         if other != p and not self._read_client_id_from(other):
                             self._write_client_id_to(other, cid)
                     self._is_new_install = False
                     return cid
 
-            # 无记录用可复现指纹
             cid = None
             machine_id = self._machine_identity()
             if machine_id and len(machine_id) >= 16:
@@ -405,8 +360,6 @@ class CloudService:
             for p in paths:
                 self._write_client_id_to(p, cid)
 
-            # 都恢复不出才算新装
-            # 指纹命中则为重装
             self._is_new_install = machine_id == ""
             return cid
         except Exception as e:
@@ -430,11 +383,6 @@ class CloudService:
 
     @staticmethod
     def collect_env_info():
-        """采集匿名环境信息：系统、分辨率、CPU 核数、内存、编码器可用性。
-
-        仅用于判断兼容性问题（如某类系统上某功能普遍失败），
-        不包含用户名、路径、设备序列号等可识别信息。
-        """
         info = {}
         try:
             import platform as _pf
@@ -469,14 +417,13 @@ class CloudService:
         return info
 
     def report_env(self):
-        """上报一次环境信息（每次启动上报，便于按环境维度下钻失败率）。"""
+        """上报一次环境信息。"""
         try:
             self.report_event("env_info", extra=self.collect_env_info())
         except Exception as e:
             logger.debug(f"环境信息上报失败: {e}")
 
     def report_event(self, event_type, extra=""):
-        # 按事件映射细粒度开关
         consent_map = {
             "install": self.CONSENT_INSTALL,
             "launch": self.CONSENT_LAUNCH,
@@ -493,15 +440,12 @@ class CloudService:
         }
         consent_key = consent_map.get(event_type)
         if consent_key is None:
-            # 未定义事件默认不报
             logger.debug(f"统计上报已跳过（未知事件类型）: {event_type}")
             return
         if not self.is_consent(consent_key):
             logger.debug(f"统计上报已跳过（用户未同意）: {event_type}")
             return
 
-        # extra可str
-        # 只报匿名不含URL
         if isinstance(extra, dict):
             try:
                 _extra = json.dumps(extra, ensure_ascii=False)[:2000]
@@ -581,7 +525,6 @@ class CloudService:
             logger.info(f"当前版本 {self.current_version}({current_parsed}) >= 最新版本 {latest_version_str}({latest_parsed})，无需更新")
             return False
 
-        # 忽略此版本或今日
         try:
             config_file = "app_config.json"
             if os.path.exists(config_file):
@@ -630,7 +573,6 @@ class CloudService:
                 "platform": self.platform,
                 "channel": channel,
             }
-            # 带设备码判内测版
             if self._client_id:
                 params["client_id"] = self._client_id
             resp = self.session.get(
@@ -787,7 +729,6 @@ class CloudService:
                                 pct = int(progress_state["downloaded"] * 100 / total_size)
                                 progress_callback(pct, progress_state["downloaded"], total_size)
                     else:
-                        # 空块则查超时
                         if time.time() - last_data_time > 30:
                             raise Exception(f"分片{chunk_idx}数据传输超时(30s)")
         except Exception as e:
@@ -825,7 +766,6 @@ class CloudService:
                 progress_callback(-1, 0, 0)
                 logger.info(f"[下载] 已发送初始进度回调")
 
-            # 先用HEAD取大小
             total = 0
             try:
                 print(f"[DEBUG下载] 发起HEAD请求...")
@@ -865,7 +805,6 @@ class CloudService:
                         f.write(chunk)
                         downloaded += len(chunk)
                         chunk_count += 1
-                        #每10chunk查
                         if chunk_count % 10 == 0:
                             print(f"[DEBUG下载] 已读取 {chunk_count} 个chunk, 共 {downloaded} bytes")
                         if progress_callback and (downloaded - last_report >= report_interval):
@@ -880,12 +819,10 @@ class CloudService:
                                 logger.info(f"[下载] 进度: {downloaded} bytes (未知总大小)")
                                 progress_callback(-1, downloaded, 0)
 
-            # 完成后校验完整性
             print(f"[DEBUG下载] ========== 下载完成 ==========")
             print(f"[DEBUG下载] 总计: {downloaded} bytes, chunk数: {chunk_count}")
             logger.info(f"[下载] 下载完成, 总计: {downloaded} bytes")
 
-            # 实收等content
             if total > 0 and downloaded < total:
                 pct = downloaded * 100.0 / total
                 print(f"[DEBUG下载] 文件下载不完整: 已下载 {downloaded}/{total} bytes ({pct:.1f}%)")
@@ -931,7 +868,6 @@ class CloudService:
             return
         def _do_report():
             try:
-                # 收集客户端IP
                 ip_address = ""
                 try:
                     import socket
@@ -939,7 +875,6 @@ class CloudService:
                 except Exception:
                     pass
 
-                # 无日志则补最近尾部
                 _log = log_content or collect_recent_logs()
                 payload = {
                     "action": "report_error",
@@ -953,7 +888,7 @@ class CloudService:
                     "error_line": int(error_line) if error_line else 0,
                     "error_file": sanitize_error_path(error_file)[:200],
                     "ip_address": ip_address,
-                    "log_content": str(_log)[:1048576],  # 1MB
+                    "log_content": str(_log)[:1048576],
                 }
                 resp = self.session.post(
                     f"{API_BASE}/stats/",
@@ -974,8 +909,6 @@ class CloudService:
         threading.Thread(target=_do_report, daemon=True).start()
 
     def _find_latest_log_text(self, max_bytes=3 * 1024 * 1024):
-        """读取日志目录中最近写入的日志文件内容（合并拼接，限制总大小）。
-        供云端"远程拉取日志"功能使用。无可读日志时返回 None。"""
         try:
             from logger_config import LOG_DIR
         except Exception:
@@ -995,7 +928,7 @@ class CloudService:
             return None
         if not files:
             return None
-        files.sort(key=lambda x: -x[0])  # 最新在前
+        files.sort(key=lambda x: -x[0])
         parts = []
         total = 0
         for _, p in files:
@@ -1318,7 +1251,7 @@ class CloudService:
             return False
 
     def apply_hotfix(self, hotfix_path):
-        """应用热修复补丁（覆盖到程序目录）"""
+        """应用热修复补丁"""
         try:
             import zipfile
             target_dir = os.path.dirname(os.path.abspath(hotfix_path))
@@ -1357,12 +1290,6 @@ class CloudService:
         return {"in_gray": False}
 
     def check_beta_auth(self, qq_number="", client_id=None):
-        """验证内测QQ号授权
-
-        :param qq_number: 用户输入的QQ号，可为空（首次检查设备是否已绑定）
-        :param client_id: 设备码，为空时使用 self._client_id
-        :return: dict, 包含 authorized / reason / qq_number / is_new_bind / cooldown_remaining
-        """
         cid = client_id or self._client_id
         try:
             resp = self.session.get(
@@ -1513,7 +1440,7 @@ class CloudService:
         return None
 
     def get_device_logs(self, client_id=None, limit=500, offset=0):
-        """远程拉取特定设备码的所有日志（错误+崩溃+事件+日志文件）"""
+        """远程拉取特定设备码的所有日志"""
         cid = client_id or self._client_id
         try:
             resp = self.session.get(
@@ -1534,7 +1461,7 @@ class CloudService:
         return None
 
     def get_full_cloud_status(self):
-        """一次性获取所有云端状态（配置、黑名单、热修复、灰度、紧急公告）"""
+        """一次性获取所有云端状态"""
         result = {
             "config": {},
             "blacklisted": False,

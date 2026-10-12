@@ -1,12 +1,3 @@
-"""
-B站音频（歌曲）功能 Tab 页
-功能：歌曲信息解析、音频流下载、歌词获取、音频榜单浏览
-子页：歌曲解析 / 歌词获取 / 音频榜单
-API 文档：
-  https://sessionhu.github.io/bilibili-API-collect/docs/audio/info.html
-  https://sessionhu.github.io/bilibili-API-collect/docs/audio/musicstream_url.html
-  https://sessionhu.github.io/bilibili-API-collect/docs/audio/rank.html
-"""
 
 import os
 import re
@@ -38,7 +29,6 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# 尝试导入scale
 try:
     from ui import scale, scale_style
 except ImportError:
@@ -47,7 +37,7 @@ except ImportError:
 
 
 class AudioInfoThread(QThread):
-    """查询歌曲信息线程（含TAG、创作成员、收藏/投币状态）"""
+    """查询歌曲信息线程"""
     info_ready = pyqtSignal(dict)
     error_occurred = pyqtSignal(str)
 
@@ -63,7 +53,6 @@ class AudioInfoThread(QThread):
                 self.error_occurred.emit(info.get("error", "查询失败"))
                 return
             data = info["data"]
-            # 并发取TAG与投币
             tags_result = self.parser.get_song_tags(self.sid)
             members_result = self.parser.get_song_members(self.sid)
             collect_result = self.parser.get_collect_status(self.sid)
@@ -109,7 +98,7 @@ class AudioStreamThread(QThread):
 
 class AudioDownloadThread(QThread):
     """音频流下载线程"""
-    progress_updated = pyqtSignal(int, str)  # (百分比, 状态文本)
+    progress_updated = pyqtSignal(int, str)
     download_finished = pyqtSignal(bool, str)
     error_occurred = pyqtSignal(str)
 
@@ -225,9 +214,8 @@ class RankMusicListThread(QThread):
 
 
 class AudioTab(QWidget):
-    """音频（歌曲）功能 Tab 页"""
+    """音频功能 Tab 页"""
 
-    # 线程安全信号
     _info_ready_signal = pyqtSignal(dict)
     _info_error_signal = pyqtSignal(str)
     _stream_ready_signal = pyqtSignal(dict)
@@ -259,17 +247,14 @@ class AudioTab(QWidget):
         self.lyric_thread = None
         self.rank_periods_thread = None
         self.rank_music_thread = None
-        # 当前歌曲信息缓存
         self._current_song = None
         self._current_stream = None
-        # 当前榜单查询状态
         self._current_rank_type = 1
 
         self._init_parser()
         self._init_ui()
         self._init_network()
 
-        # 连接线程安全信号
         self._info_ready_signal.connect(self._on_info_ready)
         self._info_error_signal.connect(self._on_info_error)
         self._stream_ready_signal.connect(self._on_stream_ready)
@@ -282,7 +267,7 @@ class AudioTab(QWidget):
         self._music_list_error_signal.connect(self._on_music_list_error)
 
     def _load_cookie_txt(self):
-        """从 cookie.txt 读取完整登录 cookie（JSON 数组格式）"""
+        """从 cookie.txt 读取完整登录 cookie"""
         cookies = {}
         csrf_token = ""
         cookie_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookie.txt")
@@ -362,7 +347,6 @@ class AudioTab(QWidget):
             dede = cookies.get('DedeUserID', '')
             if dede and str(dede).isdigit():
                 return int(dede)
-        # 兜底从cookie
         cookies, _ = self._load_cookie_txt()
         dede = cookies.get('DedeUserID', '')
         if dede and str(dede).isdigit():
@@ -385,9 +369,9 @@ class AudioTab(QWidget):
             logger.info(f"音频Tab Cookie已刷新，来源={source}, 字段数: {len(cookies)}")
 
     def _init_network(self):
-        """初始化网络管理器（用于加载封面图）"""
+        """初始化网络管理器"""
         self.network_manager = QNetworkAccessManager()
-        self._pending_covers = {}  # reply -> label
+        self._pending_covers = {}
 
     def _init_ui(self):
         """初始化UI"""
@@ -417,7 +401,6 @@ class AudioTab(QWidget):
         self.sub_tabs.addTab(self._create_lyric_tab(), "歌词获取")
         self.sub_tabs.addTab(self._create_rank_tab(), "音频榜单")
 
-        # 切榜单页自动载一期
         self._rank_auto_loaded = False
         self.sub_tabs.currentChanged.connect(self._on_subtab_changed)
 
@@ -462,7 +445,6 @@ class AudioTab(QWidget):
 
         layout.addWidget(input_group)
 
-        # 信息展示区
         info_group = QGroupBox("歌曲信息")
         info_group.setStyleSheet(scale_style(self._GB))
         info_layout = QGridLayout(info_group)
@@ -499,7 +481,6 @@ class AudioTab(QWidget):
             self.info_labels[key] = val_label
             info_layout.addWidget(val_label, row, col + 1)
 
-        # 简介单独一行
         intro_lbl = QLabel("简介:")
         intro_lbl.setStyleSheet(scale_style("font-size: 11px;"))
         info_layout.addWidget(intro_lbl, 7, 1, 1, 4)
@@ -511,7 +492,6 @@ class AudioTab(QWidget):
 
         layout.addWidget(info_group)
 
-        # 音频流获取与下载区
         stream_group = QGroupBox("音频流下载")
         stream_group.setStyleSheet(scale_style(self._GB))
         stream_layout = QVBoxLayout(stream_group)
@@ -525,7 +505,6 @@ class AudioTab(QWidget):
         self.quality_combo.setMinimumWidth(scale(160))
         self.quality_combo.setMinimumHeight(scale(30))
         self.quality_combo.setStyleSheet(scale_style("padding: 2px 6px;"))
-        # 默认填web端192
         self._fill_quality_combo(full=False)
         q_layout.addWidget(self.quality_combo)
 
@@ -620,12 +599,10 @@ class AudioTab(QWidget):
         if full:
             for qn, name in QUALITY_MAP.items():
                 self.quality_combo.addItem(f"{name} (qn={qn})", qn)
-            # 默认选320K
             idx = self.quality_combo.findData(2)
             if idx >= 0:
                 self.quality_combo.setCurrentIndex(idx)
         else:
-            # web端仅192K
             self.quality_combo.addItem("标准 192K (qn=1)", 1)
 
     def _on_full_api_changed(self, state):
@@ -683,7 +660,6 @@ class AudioTab(QWidget):
         layout.setSpacing(scale(10))
         layout.setContentsMargins(scale(12), scale(12), scale(12), scale(12))
 
-        # 榜单类型与期数选择
         sel_group = QGroupBox("选择榜单")
         sel_group.setStyleSheet(scale_style(self._GB))
         sel_layout = QHBoxLayout(sel_group)
@@ -723,7 +699,6 @@ class AudioTab(QWidget):
         sel_layout.addStretch()
         layout.addWidget(sel_group)
 
-        # 榜单内容表格
         list_group = QGroupBox("榜单内容")
         list_group.setStyleSheet(scale_style(self._GB))
         list_layout = QVBoxLayout(list_group)
@@ -786,7 +761,6 @@ class AudioTab(QWidget):
         if not sid:
             QMessageBox.warning(self, "提示", "无法识别音频au号，请输入如 au13598 或 13598")
             return
-        # 自动回填标准化au号
         if raw != sid:
             self.au_input.setText(sid)
 
@@ -796,7 +770,6 @@ class AudioTab(QWidget):
         self._refresh_cookies()
 
         self.info_thread = AudioInfoThread(self.audio_parser, sid)
-        # 通过信号回主线程
         self.info_thread.info_ready.connect(self._info_ready_signal.emit)
         self.info_thread.error_occurred.connect(self._info_error_signal.emit)
         self.info_thread.finished.connect(lambda: self.query_btn.setEnabled(True))
@@ -806,9 +779,7 @@ class AudioTab(QWidget):
         self._current_song = data
         self._display_song_info(data)
         self._set_status(f"查询成功：{data.get('title', '')}")
-        # 成功后启用取流按钮
         self.get_stream_btn.setEnabled(True)
-        # 自动填au并取歌词
         sid = data.get("id")
         if sid:
             try:
@@ -983,7 +954,7 @@ class AudioTab(QWidget):
                 self.config.set_app_setting("audio_last_save_path", path)
 
     def _build_audio_filename(self, song, stream_data):
-        """构造音频文件名（支持自定义模板）"""
+        """构造音频文件名"""
         title = ""
         if song:
             title = song.get("title", "")
@@ -991,15 +962,12 @@ class AudioTab(QWidget):
             title = stream_data.get("title", "")
         if not title:
             title = f"audio_{int(time.time())}"
-        # 根据音质选择扩展名
         type_code = stream_data.get("type", 1) if stream_data else 1
         if type_code == 3:
             ext = ".flac"
         else:
             ext = ".m4a"
-        # 试听片段加标记
         suffix = "_试听" if (stream_data and stream_data.get("is_trial")) else ""
-        # 优先使用自定义模板
         try:
             import filename_template as _ft
         except Exception:
@@ -1024,7 +992,6 @@ class AudioTab(QWidget):
                     return f"{_name}{suffix}{ext}"
             except Exception:
                 pass
-        # 回退原有命名
         safe_title = re.sub(r'[\\/:*?"<>|]', "_", title).strip()
         return f"{safe_title}{suffix}{ext}"
 
@@ -1140,7 +1107,6 @@ class AudioTab(QWidget):
 
     def _on_lyric_error(self, msg):
         self._set_status(f"歌词获取失败: {msg}")
-        # 自动取不弹框
         if not hasattr(self, '_lyric_auto_silent') or not self._lyric_auto_silent:
             QMessageBox.warning(self, "获取失败", msg)
 
@@ -1152,7 +1118,6 @@ class AudioTab(QWidget):
         raw = self.lyric_au_input.text().strip()
         sid = AudioParser.parse_auid(raw) or str(int(time.time()))
         default_name = f"au{sid}_lyric.lrc"
-        # 默认存音频目录
         default_dir = ""
         if self.config:
             default_dir = self.config.get_app_setting("audio_last_save_path", "") or \
@@ -1179,7 +1144,6 @@ class AudioTab(QWidget):
         name = self.sub_tabs.tabText(idx)
         if name == "音频榜单" and not self._rank_auto_loaded:
             self._rank_auto_loaded = True
-            # 延迟触发免抢资源
             QTimer.singleShot(100, self._auto_load_latest_rank)
 
     def _auto_load_latest_rank(self):
@@ -1187,11 +1151,9 @@ class AudioTab(QWidget):
         if not self.audio_parser:
             return
         if self.rank_period_combo.count() > 0:
-            # 有期数直接加载第0项
             self.rank_period_combo.setCurrentIndex(0)
             self._load_rank_music()
             return
-        # 先加载期数再自动加载
         self._rank_auto_load_pending = True
         self._load_rank_periods()
 
@@ -1217,7 +1179,6 @@ class AudioTab(QWidget):
         if not periods:
             self.rank_status.setText("暂无榜单数据")
             return
-        # 按年份与期数倒序
         for year in sorted(periods.keys(), reverse=True):
             year_items = sorted(periods[year], key=lambda x: x.get("period", 0), reverse=True)
             for item in year_items:
@@ -1234,7 +1195,6 @@ class AudioTab(QWidget):
                     label += f" ({pub_str})"
                 self.rank_period_combo.addItem(label, item.get("id"))
         self.rank_status.setText(f"已加载 {self.rank_period_combo.count()} 期榜单，请选择期数后加载内容")
-        # 期数完后载第0项
         if getattr(self, '_rank_auto_load_pending', False):
             self._rank_auto_load_pending = False
             if self.rank_period_combo.count() > 0:
@@ -1265,9 +1225,7 @@ class AudioTab(QWidget):
 
     def _on_music_list_ready(self, items):
         self.rank_table.setRowCount(0)
-        # 保存全量供搜索
         self._rank_all_items = list(items or [])
-        # 重置搜索框防循环
         if hasattr(self, 'rank_search_input'):
             self.rank_search_input.blockSignals(True)
             self.rank_search_input.clear()
@@ -1301,7 +1259,6 @@ class AudioTab(QWidget):
                 if col == 0:
                     cell.setTextAlignment(Qt.AlignCenter)
                 self.rank_table.setItem(row, col, cell)
-            # 存对象供右键菜单
             self.rank_table.item(row, 0).setData(Qt.UserRole, item)
 
     def _filter_rank_table(self):
@@ -1363,7 +1320,6 @@ class AudioTab(QWidget):
             if url:
                 webbrowser.open(url)
         elif action == act_query_audio:
-            # 切歌曲页填入标题
             self.sub_tabs.setCurrentIndex(0)
             self.au_input.setFocus()
             self.au_input.setText(title)

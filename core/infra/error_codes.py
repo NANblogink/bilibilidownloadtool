@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-"""
-错误码定义模块
-"""
 
 ERROR_CODES = {
     

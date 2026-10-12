@@ -1,22 +1,4 @@
 # -*- coding: utf-8 -*-
-"""Python 运行时自动部署（极简引导器专用）。
-
-设计目标：
-  * 用户机器上**没有** Python，也不需要安装 Python；
-  * 首次运行时自动下载官方 embeddable Python（约 8 MB）并部署；
-  * 再把 PyQt5 wheel 装进这个运行时（优先本地内置，其次联网）；
-  * 全程可离线回退（本地内置 wheel / 用户手动放置）。
-
-核心事实（已实测验证）：
-  * python.org 的 embeddable zip 自带 python.exe / pythonw.exe / 全部
-    必要 .pyd（_ssl / _socket / _sqlite3 / _ctypes / _decimal ...）；
-  * 它默认**禁用** site-packages（pythonXY._pth 里 import site 被注释），
-    必须改写该文件才能让安装的 wheel 被导入；
-  * wheel 本质是 zip，直接解压到 Lib/site-packages 即可，
-    **不需要 pip、不需要联网**。
-
-本模块不导入 PyQt5，保持轻量。
-"""
 import os
 import re
 import sys
@@ -27,19 +9,16 @@ import tempfile
 
 # ---------------------------------------------------------------- 常量
 
-# 与wheel cpXY
 PY_VER = "3.10.11"
 PY_TAG = "cp310"          # 校验wheel标签
 PY_SHORT = "310"          # _pth里的XY
 
-#embeddable
 PY_URLS = {
     "win_amd64": "https://www.python.org/ftp/python/{v}/python-{v}-embed-amd64.zip",
     "win32":     "https://www.python.org/ftp/python/{v}/python-{v}-embed-win32.zip",
     "win_arm64": "https://www.python.org/ftp/python/{v}/python-{v}-embed-arm64.zip",
 }
 
-# 备用镜像（官方不通时试）
 PY_MIRRORS = [
     "",  # 官方
     "https://mirrors.aliyun.com/python-release/windows/",
@@ -88,17 +67,6 @@ def _interp_bits():
 
 
 def target_arch_tag():
-    """引导器要部署的 Python/wheel 架构标签。
-
-    注意：必须与**将要运行的**解释器一致。极简引导器自带一个
-    32 位或 64 位的启动器，用户机器架构决定了要下哪一套。
-
-    对 Windows：
-      * 64 位系统 -> win_amd64（最通用，兼容性好）
-      * 32 位系统 -> win32
-      * ARM64 系统 -> 上游无 arm64 embeddable 的 PyQt5，退回 win_amd64
-        （Windows 自带 x64 模拟层）
-    """
     if sys.platform != "win32":
         return None
     bits = _interp_bits()
@@ -106,7 +74,6 @@ def target_arch_tag():
     if bits == 32:
         return "win32"
     if cpu == "arm64":
-        # 无arm64用x64
         return "win_amd64"
     return "win_amd64"
 
@@ -114,11 +81,6 @@ def target_arch_tag():
 # ---------------------------------------------------------------- 路径
 
 def deploy_root(base=None):
-    """运行时部署根目录。
-
-    优先放在程序目录下（便携式，可整目录拷贝）；
-    若程序目录不可写（装在 Program Files），退到 %LOCALAPPDATA%。
-    """
     if base:
         return base
     try:
@@ -223,7 +185,7 @@ def _py_url(arch):
 
 
 def _alt_py_urls(arch):
-    """备用下载地址（官方不通时用）。"""
+    """备用下载地址。"""
     name = "python-%s-embed-%s.zip" % (
         PY_VER, {"win_amd64": "amd64", "win32": "win32",
                  "win_arm64": "arm64"}.get(arch, "amd64"))
@@ -252,10 +214,6 @@ def python_ready(root=None):
 
 
 def deploy_python(root=None, local_zip=None):
-    """下载并部署 embeddable Python。返回 True/False。
-
-    local_zip: 本地已下载的 zip（离线/内置时使用），None 则联网下载。
-    """
     root = root or deploy_root()
     arch = target_arch_tag()
     if not arch:
@@ -294,7 +252,6 @@ def deploy_python(root=None, local_zip=None):
             shutil.rmtree(tmp, ignore_errors=True)
             return False
 
-    # ---- 解压 ----
     _log("  解压 Python 运行时...")
     stage = pyt + ".new"
     shutil.rmtree(stage, ignore_errors=True)
@@ -319,7 +276,6 @@ def deploy_python(root=None, local_zip=None):
     # ---- 启用site-pkgs ----
     _fix_pth(stage)
 
-    # ---- 原子替换 ----
     shutil.rmtree(pyt, ignore_errors=True)
     try:
         os.rename(stage, pyt)
@@ -335,15 +291,6 @@ def deploy_python(root=None, local_zip=None):
 
 
 def _fix_pth(pydir):
-    """让 embeddable Python 启用 site-packages。
-
-    原始 pythonXY._pth 内容形如：
-        python310.zip
-        .
-        #import site
-    其中 import site 被注释，导致 Lib/site-packages 不生效，
-    装好的 PyQt5 无法导入。这里取消注释并显式加入站点目录。
-    """
     try:
         cands = [f for f in os.listdir(pydir) if f.endswith("._pth")]
     except Exception:
@@ -402,7 +349,6 @@ def _arch_ok(platform_field):
     tgt = target_arch_tag()
     if pf == tgt:
         return True
-    # win_amd64也
     return pf == tgt
 
 
@@ -413,7 +359,6 @@ def _pyver_ok(pyver, abi):
     if pv in ("py3", "py2.py3", "any"):
         return True
     if ab == "abi3":
-        # abi3通用
         m = re.match(r"^cp3(\d+)$", pv)
         if not m:
             return False
@@ -451,7 +396,6 @@ def _wheel_score(fn, want_name=None, want_ver=None):
     return s
 
 
-# 需要安装的包
 REQUIRED_PACKAGES = [
     ("PyQt5", "5.15.11"),
     ("PyQt5_Qt5", "5.15.2"),
@@ -460,7 +404,6 @@ REQUIRED_PACKAGES = [
     ("PyQtWebEngine_Qt5", None),
 ]
 
-# simple索引小写
 PKG_INDEX_NAMES = {
     "PyQt5": "pyqt5",
     "PyQt5_Qt5": "pyqt5-qt5",
@@ -471,7 +414,7 @@ PKG_INDEX_NAMES = {
 
 
 def local_wheel_dirs(base=None):
-    """查找本地 wheel 目录（离线优先）。"""
+    """查找本地 wheel 目录。"""
     dirs = []
     roots = []
     try:
@@ -544,6 +487,33 @@ def _fetch_index(prefix):
     return []
 
 
+def _platform_plugin_names():
+    """当前平台 Qt platform 插件的库文件名候选。"""
+    if sys.platform == "win32":
+        return ("qwindows.dll",)
+    if sys.platform == "darwin":
+        return ("libqcocoa.dylib", "libqcocoa.so")
+    return ("libqxcb.so", "libqwayland.so", "libqeglfs.so")
+
+
+def _platform_plugins_ready(sp):
+    names = {n.lower() for n in _platform_plugin_names()}
+    try:
+        for root, _dirs, _files in os.walk(sp):
+            platforms = os.path.join(root, "platforms")
+            if not os.path.isdir(platforms):
+                continue
+            try:
+                present = {f.lower() for f in os.listdir(platforms)}
+            except Exception:
+                continue
+            if names & present:
+                return True
+    except Exception:
+        return False
+    return False
+
+
 def site_packages_ready(root=None):
     """部署的 Python 是否已装好 PyQt5。"""
     exe = python_exe(root)
@@ -555,13 +525,16 @@ def site_packages_ready(root=None):
             [exe, "-c",
              "import PyQt5.QtCore,PyQt5.QtGui,PyQt5.QtWidgets;print('ok')"],
             capture_output=True, text=True, timeout=60)
-        return r.returncode == 0 and "ok" in (r.stdout or "")
+        if not (r.returncode == 0 and "ok" in (r.stdout or "")):
+            return False
     except Exception:
         return False
+    # 平台插件缺失同样无法启动界面，不能算就绪
+    return _platform_plugins_ready(site_packages_dir(root))
 
 
 def _install_wheel_zip(whl_path, sp):
-    """把 wheel（zip）解压到 site-packages，并校验完整性。"""
+    """把 wheel解压到 site-packages，并校验完整性。"""
     os.makedirs(sp, exist_ok=True)
     with zipfile.ZipFile(whl_path) as z:
         bad = z.testzip()
@@ -583,10 +556,6 @@ def _install_wheel_zip(whl_path, sp):
 
 
 def install_site_packages(root=None, local_dir=None):
-    """把 PyQt5 系列包装进部署的 Python。返回 True/False。
-
-    顺序：本地内置 wheel（离线可用）-> 联网镜像。
-    """
     root = root or deploy_root()
     if not python_ready(root):
         _log("  Python 运行时未就位，无法安装依赖。")

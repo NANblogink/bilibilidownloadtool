@@ -1,14 +1,4 @@
 # -*- coding: utf-8 -*-
-"""极简引导器入口。
-
-流程：
-  1. 检查/部署 Python 运行时（首次运行自动下载，约 8 MB）
-  2. 检查/安装 PyQt5（优先本地内置 wheel，可离线）
-  3. 用部署好的 pythonw.exe 启动主程序
-
-这个脚本本身由 PyInstaller 打成很小的 exe（约 5~10 MB），
-**不包含** Python 运行时和 PyQt5，也不要求用户安装任何东西。
-"""
 import os
 import sys
 import traceback
@@ -18,20 +8,18 @@ _HERE = os.path.dirname(os.path.abspath(
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-# 允许源码直跑
 for _p in (os.path.join(_HERE, "core"), _HERE):
     if os.path.isdir(_p) and _p not in sys.path:
         sys.path.insert(0, _p)
 
 import python_deploy as pd  # noqa: E402
 
-APP_ENTRY = "main"          # 主程序模块名
+APP_ENTRY = "main"
 
 
-# ---------------------------------------------------------------- 界面反馈
 
 class _Progress(object):
-    """轻量进度窗口：无 PyQt 时用 Tk（标准库），保证首次运行有反馈。"""
+    """轻量进度窗口：无 PyQt 时用 Tk，保证首次运行有反馈。"""
 
     def __init__(self):
         self.root = None
@@ -104,10 +92,9 @@ def _fatal(msg):
         pass
 
 
-# ---------------------------------------------------------------- 主流程
 
 def _find_local_python_zip():
-    """查找随包内置的 Python 运行时压缩包（完全离线时用）。"""
+    """查找随包内置的 Python 运行时压缩包。"""
     cands = []
     for root in (_HERE, os.path.dirname(_HERE)):
         for sub in ("", "runtime", "python"):
@@ -175,24 +162,13 @@ def main():
 
 
 def _launch(exe, root):
-    """用部署好的解释器启动主程序。
-
-    重要：embeddable Python 存在 `._pth` 文件时进入 isolated 模式，
-    **完全忽略 PYTHONPATH**（实测验证）。因此不能用环境变量传路径，
-    必须：
-      1. 把程序目录写进 `._pth`，或
-      2. 在 -c 代码里显式 sys.path.insert
-    这里两者都做，确保任何布局下都能找到主程序。
-    """
     import subprocess
     app_dir = _HERE
 
-    # 登记._pth长期可见
     _register_app_path(root, app_dir)
 
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
-    # 兜底显式插入
     env["PYTHONPATH"] = os.pathsep.join(
         [app_dir, os.path.join(app_dir, "core")] +
         ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else []))
@@ -223,7 +199,7 @@ def _launch(exe, root):
 
 
 def _register_app_path(root, app_dir):
-    """把程序目录及其 core/ 写入部署运行时的 ._pth（幂等）。"""
+    """把程序目录及其 core/ 写入部署运行时的 ._pth。"""
     try:
         pydir = pd.python_dir(root)
         cands = [f for f in os.listdir(pydir) if f.endswith("._pth")]

@@ -1,8 +1,3 @@
-"""
-B站表情包 API 封装
-功能：表情包列表查询、表情包明细获取
-API 文档：https://sessionhu.github.io/bilibili-API-collect/docs/emoji/list.html
-"""
 
 import logging
 import requests
@@ -33,7 +28,6 @@ class EmojiParser:
         self.csrf_token = csrf_token
         self.session = requests.Session()
 
-        # 浏览器请求头
         self._headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
             'Referer': 'https://www.bilibili.com/',
@@ -86,36 +80,31 @@ class EmojiParser:
             emote_list.append({
                 "id": emote.get("id"),
                 "package_id": emote.get("package_id"),
-                "text": emote.get("text", ""),           # 转义符，如 [微笑]
-                "url": emote.get("url", ""),              # 图片URL
+                "text": emote.get("text", ""),
+                "url": emote.get("url", ""),
                 "mtime": emote.get("mtime", 0),
                 "type": emote.get("type", 1),
                 "type_name": PACKAGE_TYPE_MAP.get(emote.get("type", 1), "未知"),
-                "alias": meta.get("alias", ""),           # 简写名
-                "size": meta.get("size", 1),              # 1小 2大
+                "alias": meta.get("alias", ""),
+                "size": meta.get("size", 1),
             })
         meta = pkg.get("meta", {}) or {}
         flags = pkg.get("flags", {}) or {}
         return {
             "id": pkg.get("id"),
-            "text": pkg.get("text", ""),                  # 表情包名称
-            "url": pkg.get("url", ""),                    # 表情包封面URL
+            "text": pkg.get("text", ""),
+            "url": pkg.get("url", ""),
             "mtime": pkg.get("mtime", 0),
             "type": pkg.get("type", 1),
             "type_name": PACKAGE_TYPE_MAP.get(pkg.get("type", 1), "未知"),
             "meta": meta,
             "flags": flags,
-            "added": flags.get("added", False),           # 是否已添加
+            "added": flags.get("added", False),
             "emote_count": len(emote_list),
             "emote": emote_list,
         }
 
     def get_my_emojis(self, business="reply"):
-        """
-        获取我的表情包列表（需登录）
-        :param business: 使用场景 reply:评论区 dynamic:动态
-        :return: 表情包列表
-        """
         url = "https://api.bilibili.com/x/emote/user/panel/web"
         result = self._get(url, {"business": business})
         if not result["success"]:
@@ -127,12 +116,6 @@ class EmojiParser:
         }
 
     def get_all_emojis(self, business="reply"):
-        """
-        获取所有表情包列表（需登录）
-        返回用户拥有的表情包 + 全部表情包
-        :param business: 使用场景
-        :return: dict {user_packages, all_packages}
-        """
         url = "https://api.bilibili.com/x/emote/setting/panel"
         result = self._get(url, {"business": business})
         if not result["success"]:
@@ -149,12 +132,6 @@ class EmojiParser:
         }
 
     def get_package_detail(self, package_ids, business="reply"):
-        """
-        获取指定的表情包明细（免登录）
-        :param package_ids: 表情包id，可为单个int或列表，多id用逗号分隔
-        :param business: 使用场景
-        :return: 表情包列表
-        """
         if isinstance(package_ids, (list, tuple)):
             ids_str = ",".join(str(i) for i in package_ids)
         else:

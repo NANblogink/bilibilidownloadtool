@@ -83,6 +83,9 @@ upx_tool/
 /Resources/
 /build/
 
+# ==================== 本地预览目录（重建用于人工检查待推送文件，不入库） ====================
+_preview_push/
+
 # ==================== 第三方构建暂存（体积巨大，绝不入库） ====================
 # other/android/.build_stage/ 是 buildozer / python-for-android 的完整构建树，
 # 含 3.7 万+ 文件（第三方 SDK 源码、hostpython、kivy 等），一旦 git add -A 就会把
@@ -119,3 +122,13 @@ cookies.txt
 *.db
 *.db-journal
 *.db-wal
+
+# 主题制作说明文档：仅本地参考，不入库、不随包分发
+themes/主题制作说明.md
+
+# 与程序功能无关（其他平台构建、测试、CI 等）：仅本地保留，不入库、不随包分发
+other/
+.github/
+
+# CHANGELOG.md：仅本地保留，不入库、不随包分发
+CHANGELOG.md

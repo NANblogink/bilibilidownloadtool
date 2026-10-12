@@ -11,9 +11,6 @@ from platform_utils import IS_MACOS, IS_WINDOWS, subprocess_no_window_kwargs
 
 
 def _get_app_dir():
-    """返回可写的应用目录。
-    MSIX 沙箱中安装目录只读，日志若写入 exe 旁会被拒绝访问；
-    因此首选 exe 目录（绿色版通常可写），不可写则回退到用户数据目录。"""
     try:
         if getattr(sys, 'frozen', False):
             exe_dir = os.path.dirname(sys.executable)
@@ -41,8 +38,6 @@ LOG_DIR = os.path.join(_get_app_dir(), 'log')
 
 
 def get_app_dir():
-    """公开的可写应用目录（日志/设置/设备标识均落此）。
-    MSIX 下安装目录只读，此目录会回退到用户数据目录，保证可写且路径稳定。"""
     return _get_app_dir()
 LOG_FORMAT = '%(asctime)s | %(levelname)-7s | %(name)-20s | %(message)s'
 LOG_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
@@ -140,7 +135,6 @@ def get_log_files():
     files = []
     if os.path.exists(LOG_DIR):
         for f in os.listdir(LOG_DIR):
-            # 排除zip防膨胀
             if f.lower().endswith('.zip'):
                 continue
             fp = os.path.join(LOG_DIR, f)
@@ -177,7 +171,6 @@ def clear_old_logs(days=KEEP_DAYS):
                 freed += size
             except Exception:
                 pass
-    # 清理过期zip
     if os.path.exists(LOG_DIR):
         for f in os.listdir(LOG_DIR):
             if not f.lower().endswith('.zip'):
@@ -205,7 +198,6 @@ def package_logs(output_path=None):
         logger.warning("没有可打包的日志文件")
         return None
     
-    # 限制总量防占盘
     max_pack_size = 50 * 1024 * 1024
     files_to_pack = []
     total_size = 0
@@ -315,11 +307,10 @@ def copy_logs_to_clipboard():
 
 
 def _copy_path_to_clipboard(file_path):
-    """将文件路径复制到剪贴板（仅剪切板操作，必须在主线程调用）"""
+    """将文件路径复制到剪贴板"""
     abs_path = os.path.abspath(file_path)
     logger = logging.getLogger(__name__)
 
-    # 方式1 Qt文件URL
     try:
         from PyQt5.QtWidgets import QApplication
         from PyQt5.QtCore import QMimeData, QUrl
@@ -335,7 +326,6 @@ def _copy_path_to_clipboard(file_path):
     except Exception as e:
         logger.debug("QClipboard文件URL复制失败: %s", str(e))
 
-    # 方式2：纯文本路径
     try:
         from PyQt5.QtWidgets import QApplication
         clipboard = QApplication.clipboard()
@@ -345,7 +335,6 @@ def _copy_path_to_clipboard(file_path):
     except Exception as e:
         logger.warning("PyQt5剪贴板操作失败: %s", str(e))
 
-    #PowerShell
     if IS_WINDOWS:
         try:
             import subprocess

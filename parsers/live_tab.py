@@ -1,7 +1,3 @@
-"""
-B站直播功能 Tab 页
-功能：直播间信息查询、直播流录制、回放下载
-"""
 
 import os
 import sys
@@ -35,7 +31,6 @@ except ImportError:
 try:
     from platform_utils import IS_WINDOWS, exe, subprocess_no_window_kwargs, subprocess_low_priority_kwargs
 except ImportError:
-    # 不能硬设IS_WIN
     import sys as _sys
     IS_WINDOWS = _sys.platform == 'win32'
 
@@ -49,7 +44,6 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# 尝试导入scale
 try:
     from ui import scale, scale_style
 except ImportError:
@@ -59,7 +53,6 @@ except ImportError:
 
 def _find_ffmpeg():
     """查找 ffmpeg 可执行文件路径"""
-    # 1. _internal
     if getattr(sys, 'frozen', False) or hasattr(sys, '_MEIPASS'):
         base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else sys._MEIPASS
         for d in [os.path.join(base, '_internal', 'ffmpeg'),
@@ -68,7 +61,6 @@ def _find_ffmpeg():
             p = os.path.join(d, exe('ffmpeg'))
             if os.path.exists(p):
                 return p
-    # 2. 项目根在上一级
     root_dir = _pathsetup.project_root()
     for d in [os.path.join(root_dir, 'ffmpeg', 'bin'),
               os.path.join(root_dir, 'ffmpeg'),
@@ -76,14 +68,13 @@ def _find_ffmpeg():
         p = os.path.join(d, exe('ffmpeg'))
         if os.path.exists(p):
             return p
-    # 3. PATH
     import shutil
     found = shutil.which('ffmpeg')
     return found
 
 
 class LiveRecordThread(QThread):
-    """直播持续录制：每段写临时 .ts，完成后二进制追加到主文件（MPEG-TS 天然支持拼接），最终转 mp4"""
+    """直播持续录制：每段写临时 .ts，完成后二进制追加到主文件，最终转 mp4"""
     status_changed = pyqtSignal(str)
     progress_updated = pyqtSignal(int, str)
     record_finished = pyqtSignal(bool, str)
@@ -98,7 +89,7 @@ class LiveRecordThread(QThread):
         self.duration = duration
         self.url_refresher = url_refresher
         self.room_id = room_id
-        self.content_type = content_type  # 0=视频,1=音频,2=画面
+        self.content_type = content_type
         self._stop_flag = False
         self._pause_flag = False
         self._paused_elapsed = 0
@@ -126,12 +117,10 @@ class LiveRecordThread(QThread):
                     break
                 continue
 
-            # 每段录到临时ts
             temp_path = f"{base}_temp_{self._segment_count:03d}.ts"
             url_expired = self._record_segment(ffmpeg_path, current_url, temp_path)
 
             if self._stop_flag:
-                # 停止时也要合并
                 self._merge_temp(temp_path)
                 break
 
@@ -139,14 +128,11 @@ class LiveRecordThread(QThread):
                 self._merge_temp(temp_path)
                 continue
 
-            # 结束或过期则合并
             self._merge_temp(temp_path)
 
             if not url_expired:
-                # 直播正常结束
                 break
 
-            # URL过期，刷新后继续
             new_url = self._handle_retry(current_url)
             if new_url is None:
                 break
@@ -156,7 +142,6 @@ class LiveRecordThread(QThread):
         if self._stop_flag:
             self.status_changed.emit("录制已停止")
 
-        # ts转mp4
         self._remux_to_target()
         self.record_finished.emit(True, f"录制结束: {self.output_path}")
 
@@ -184,7 +169,6 @@ class LiveRecordThread(QThread):
                     return False
                 cmd += ['-t', str(int(remaining))]
 
-            # 中断后仍可播
             cmd += ['-c', 'copy',
                     '-f', 'mpegts',
                     output_path]
@@ -200,7 +184,6 @@ class LiveRecordThread(QThread):
                 **subprocess_low_priority_kwargs()
             )
 
-            # 非阻塞读取
             q = queue.Queue()
             def reader():
                 try:
@@ -257,7 +240,6 @@ class LiveRecordThread(QThread):
                         logger.warning("[录制] 30秒无输出")
                         break
 
-            # 发q让它写完头尾
             self._graceful_stop()
             return url_expired
 
@@ -319,11 +301,9 @@ class LiveRecordThread(QThread):
 
         try:
             if not os.path.exists(self.ts_path):
-                # 第一段，直接重命名
                 os.rename(temp_path, self.ts_path)
             else:
-                # 后续段二进制追加
-                _MERGE_BUF = 4 * 1024 * 1024  # 4MB缓冲减系统调用
+                _MERGE_BUF = 4 * 1024 * 1024
                 with open(self.ts_path, 'ab') as main_f:
                     with open(temp_path, 'rb') as temp_f:
                         while True:
@@ -347,11 +327,9 @@ class LiveRecordThread(QThread):
             ffmpeg_path = _find_ffmpeg()
             ext = os.path.splitext(self.output_path)[1].lower()
             if self.content_type == 1:
-                # 仅音频：提取音频流
                 cmd = [ffmpeg_path, '-y', '-i', self.ts_path,
                        '-vn', '-c:a', 'copy', self.output_path]
             elif self.content_type == 2:
-                # 仅画面：丢弃音频流
                 cmd = [ffmpeg_path, '-y', '-i', self.ts_path,
                        '-an', '-c:v', 'copy', self.output_path]
             elif ext in ['.mp4']:
@@ -424,8 +402,8 @@ class LiveRecordThread(QThread):
 
 
 class ReplayDownloadThread(QThread):
-    """直播回放下载线程（支持ffmpeg下载和HTTP直连下载）"""
-    progress_updated = pyqtSignal(int, str)  # (百分比, 状态文本)
+    """直播回放下载线程"""
+    progress_updated = pyqtSignal(int, str)
     download_finished = pyqtSignal(bool, str)
     error_occurred = pyqtSignal(str)
 
@@ -434,7 +412,7 @@ class ReplayDownloadThread(QThread):
         self.url = url
         self.output_path = output_path
         self.use_ffmpeg = use_ffmpeg
-        self.content_type = content_type  # 0=视频,1=音频,2=画面
+        self.content_type = content_type
         self._stop_flag = False
 
     def run(self):
@@ -513,10 +491,9 @@ class ReplayDownloadThread(QThread):
             logger.warning(f"[回放] 后处理失败: {e}")
 
     def _download_with_ffmpeg(self):
-        """使用ffmpeg下载（支持m3u8等流媒体链接）"""
+        """使用ffmpeg下载"""
         ffmpeg_path = _find_ffmpeg()
         if not ffmpeg_path or not os.path.exists(ffmpeg_path):
-            # 回退到HTTP下载
             self._download_with_http()
             return
 
@@ -580,11 +557,10 @@ class ReplayDownloadThread(QThread):
 class LiveTab(QWidget):
     """直播功能 Tab 页"""
 
-    # 线程安全信号
     _query_done_signal = pyqtSignal(bool, object)
     _stream_done_signal = pyqtSignal(bool, object)
     _record_error_signal = pyqtSignal(str)
-    _start_record_signal = pyqtSignal(str, str, str, int)  # URL,路径,格式,时长
+    _start_record_signal = pyqtSignal(str, str, str, int)
     _replay_list_signal = pyqtSignal(object)
     _replay_url_signal = pyqtSignal(object, str, str, int)
     _error_signal = pyqtSignal(str)
@@ -594,15 +570,14 @@ class LiveTab(QWidget):
         self.config = config
         self.parent_window = parent
         self.live_parser = None
-        self.record_threads = {}  # task_id到线程
+        self.record_threads = {}
         self._record_task_counter = 0
         self.replay_download_thread = None
-        self._recording_session_id = None  # 当前录制会话ID
+        self._recording_session_id = None
         self._init_parser()
         self._init_ui()
         self._init_network()
 
-        # 连接线程安全信号
         self._query_done_signal.connect(self._on_query_done)
         self._stream_done_signal.connect(self._on_stream_done)
         self._record_error_signal.connect(self._on_record_error_main)
@@ -612,7 +587,7 @@ class LiveTab(QWidget):
         self._error_signal.connect(self._on_error_msg)
 
     def _load_cookie_txt(self):
-        """从 cookie.txt 读取完整登录 cookie（JSON 数组格式）"""
+        """从 cookie.txt 读取完整登录 cookie"""
         cookies = {}
         csrf_token = ""
         cookie_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookie.txt")
@@ -641,7 +616,6 @@ class LiveTab(QWidget):
         csrf_token = ""
         sources = []
 
-        # 以cookie.txt
         file_cookies, file_csrf = self._load_cookie_txt()
         if file_cookies:
             cookies.update(file_cookies)
@@ -649,8 +623,6 @@ class LiveTab(QWidget):
                 csrf_token = file_csrf
             sources.append("cookie.txt")
 
-        # 再合并parser
-        # 保留核心登录凭据
         parent = getattr(self, 'parent_window', None)
         parent_parser = getattr(parent, 'parser', None) if parent else None
         essential_keys = {'SESSDATA', 'bili_jct', 'DedeUserID', 'DedeUserID__ckMd5'}
@@ -663,7 +635,6 @@ class LiveTab(QWidget):
                     csrf_token = v
             sources.append("parent_parser")
 
-        # 兜底试config
         if not cookies and self.config:
             cookie_str = self.config.get_app_setting("cookie", "") or ""
             if cookie_str:
@@ -691,7 +662,7 @@ class LiveTab(QWidget):
         logger.info(f"直播Tab初始化，来源={source}, Cookie字段数: {len(cookies)}")
 
     def _refresh_cookies(self):
-        """刷新直播解析器的Cookie（确保使用最新的登录状态）"""
+        """刷新直播解析器的Cookie"""
         if not self.live_parser:
             return
         cookies, csrf_token, source = self._get_cookies_from_parent()
@@ -700,9 +671,9 @@ class LiveTab(QWidget):
             logger.info(f"直播Tab Cookie已刷新，来源={source}, 字段数: {len(cookies)}")
 
     def _init_network(self):
-        """初始化网络管理器（用于加载封面图）"""
+        """初始化网络管理器"""
         self.network_manager = QNetworkAccessManager()
-        self._pending_covers = {}  # reply -> label
+        self._pending_covers = {}
 
     def _init_ui(self):
         """初始化UI"""
@@ -782,7 +753,6 @@ class LiveTab(QWidget):
 
         layout.addWidget(input_group)
 
-        # 信息展示区
         info_group = QGroupBox("直播间信息")
         info_group.setStyleSheet(scale_style(self._GB))
         info_layout = QGridLayout(info_group)
@@ -816,7 +786,6 @@ class LiveTab(QWidget):
 
         layout.addWidget(info_group)
 
-        # 直播流信息
         stream_group = QGroupBox("直播流")
         stream_group.setStyleSheet(scale_style(self._GB))
         stream_layout = QVBoxLayout(stream_group)
@@ -873,7 +842,6 @@ class LiveTab(QWidget):
         if not raw_input:
             QMessageBox.warning(self, "提示", "请输入房间号")
             return
-        # 兼容完整URL取房号
         match = re.search(r'live\.bilibili\.com/(\d+)', raw_input, re.IGNORECASE)
         room_id = match.group(1) if match else raw_input
         if room_id != raw_input:
@@ -886,12 +854,10 @@ class LiveTab(QWidget):
         self.status_label.setText("正在查询...")
         logger.info(f"开始查询直播间，房间号: {room_id}")
 
-        # 刷新Cookie最新
         self._refresh_cookies()
 
         def worker():
             try:
-                # 取真实房间号
                 init_result = self.live_parser.room_init(room_id)
                 if not init_result["success"]:
                     logger.warning(f"room_init 失败: {init_result.get('error')}")
@@ -900,11 +866,10 @@ class LiveTab(QWidget):
 
                 init_data = init_result["data"]
                 real_room_id = init_data["room_id"]
-                self._room_id = real_room_id  # 保存供播放器刷新
+                self._room_id = real_room_id
                 uid = init_data["uid"]
                 logger.info(f"room_init 成功: 真实房间号={real_room_id}, 主播UID={uid}")
 
-                # 获取房间信息
                 info_result = self.live_parser.get_room_info(real_room_id)
                 if not info_result["success"]:
                     logger.warning(f"get_room_info 失败: {info_result.get('error')}")
@@ -914,7 +879,6 @@ class LiveTab(QWidget):
                 room_data = info_result["data"]
                 logger.info(f"get_room_info 成功: 标题={room_data.get('title')}, 状态={room_data.get('live_status_text')}")
 
-                # 获取主播信息
                 master_result = self.live_parser.get_master_info(uid)
                 if master_result["success"]:
                     master_data = master_result["data"]
@@ -934,7 +898,7 @@ class LiveTab(QWidget):
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_query_done(self, success, data):
-        """查询完成回调（主线程，由信号触发）"""
+        """查询完成回调"""
         logger.info(f"_on_query_done 被调用: success={success}")
         self.query_btn.setEnabled(True)
         if not success:
@@ -945,7 +909,6 @@ class LiveTab(QWidget):
         self._current_room_data = data
 
         try:
-            # 更新信息展示
             for key, label in self.info_labels.items():
                 val = data.get(key, "-")
                 if key == "online" and isinstance(val, (int, float)) and val > 0:
@@ -957,7 +920,6 @@ class LiveTab(QWidget):
             if cover_url:
                 self._load_cover_image(cover_url)
 
-            # 直播中则自动取流
             if data.get("live_status") == 1:
                 self.status_label.setText("直播中！自动获取直播流...")
                 QTimer.singleShot(300, self._get_live_stream)
@@ -968,7 +930,7 @@ class LiveTab(QWidget):
             self.status_label.setText(f"显示失败: {e}")
 
     def _on_error_msg(self, msg):
-        """通用错误消息处理（主线程，由信号触发）"""
+        """通用错误消息处理"""
         self.status_label.setText(msg)
 
     def _load_cover_image(self, url):
@@ -1019,15 +981,13 @@ class LiveTab(QWidget):
         self.get_stream_btn.setEnabled(False)
         self.status_label.setText("获取直播流中...")
 
-        # 刷新Cookie高清
         self._refresh_cookies()
 
         def worker():
             try:
-                # 没选则用最高画质
                 qn = self.quality_combo.currentData()
                 if qn is None:
-                    qn = 10000  # 默认使用原画
+                    qn = 10000
                 logger.info(f"开始获取直播流，房间号: {room_id}, 画质: {qn}")
                 result = self.live_parser.get_live_stream_url(room_id, platform="h5", qn=qn)
                 if not result["success"]:
@@ -1050,7 +1010,6 @@ class LiveTab(QWidget):
                 self.status_label.setText(f"获取失败: {data}")
                 return
 
-            # 回放播放请求
             if isinstance(data, dict) and data.get("for_playback"):
                 url = data.get("stream_url", "")
                 if url:
@@ -1064,22 +1023,18 @@ class LiveTab(QWidget):
                         QMessageBox.information(self, "提示", "播放器未加载，URL已复制到剪贴板")
                 return
 
-            # 更新画质选择
-            # 保存用户之前的选择
             prev_qn = self.quality_combo.currentData()
             self.quality_combo.clear()
             quality_desc = data.get("quality_description", [])
             current_qn_found = False
             for q in quality_desc:
-                qn_val = int(q.get("qn", 0))  # 转为整数
+                qn_val = int(q.get("qn", 0))
                 desc = q.get("desc", "")
                 self.quality_combo.addItem(f"{desc} ({qn_val})", qn_val)
-                # 是之前选的则标记找到
                 if prev_qn is not None and qn_val == prev_qn:
                     current_qn_found = True
                     self.quality_combo.setCurrentIndex(self.quality_combo.count() - 1)
             
-            # 无匹配则用实际画质
             if not current_qn_found:
                 current_qn = data.get("current_qn")
                 if current_qn:
@@ -1088,15 +1043,11 @@ class LiveTab(QWidget):
                             self.quality_combo.setCurrentIndex(i)
                             break
 
-            # 显示流URL
             stream_urls = data.get("stream_urls", [])
             if stream_urls:
-                # V2优先展示HLS
-                # 优先HLS再FLV
                 def _sort_key(u):
                     fmt = u.get("format", "")
                     codec = u.get("codec", "")
-                    # HLS fmp4优先
                     fmt_prio = 2 if "fmp4" in fmt else (1 if "ts" in fmt or "hls" in fmt.lower() else 0)
                     codec_prio = 0 if "avc" in codec or "h264" in codec else 1
                     return (-fmt_prio, -codec_prio)
@@ -1107,11 +1058,9 @@ class LiveTab(QWidget):
                 )
                 self.stream_url_text.setPlainText(url_text)
                 self._current_stream_url = sorted_urls[0]["url"]
-                # 保存实际画质信息
                 self._current_actual_qn = data.get("current_qn")
                 self._current_requested_qn = prev_qn
                 self.status_label.setText("获取成功，自动打开播放器...")
-                # 自动打开流媒体播放器
                 QTimer.singleShot(200, self._play_in_stream_player)
             else:
                 self.stream_url_text.setPlainText("未获取到直播流URL")
@@ -1136,27 +1085,22 @@ class LiveTab(QWidget):
         if not url:
             QMessageBox.warning(self, "提示", "请先获取直播流URL")
             return
-        # 打开播放器弹窗
         parent = self.parent_window
         if parent and hasattr(parent, 'open_stream_player'):
-            # 回调重取最新流URL
             def refresher():
                 try:
                     room_id = getattr(self, '_room_id', '')
                     if not room_id:
                         return None
-                    # 获取用户选择的画质
                     qn = self.quality_combo.currentData()
-                    # 同步取最新流URL
                     result = self.live_parser.get_live_stream_url(room_id, platform="h5", qn=qn)
                     if result.get("success"):
                         urls = result.get("data", {}).get("stream_urls", [])
                         if urls:
-                            # 优先HLS给播放器
                             hls_urls = [u for u in urls if "fmp4" in u.get("format", "") or "ts" in u.get("format", "")]
                             best = hls_urls[0] if hls_urls else urls[0]
                             new_url = best["url"]
-                            self._current_stream_url = new_url  # 更新缓存
+                            self._current_stream_url = new_url
                             return new_url
                     return None
                 except Exception as e:
@@ -1205,7 +1149,6 @@ class LiveTab(QWidget):
 
         settings_layout.addWidget(QLabel("画质:"), 1, 0)
         self.record_quality_combo = QComboBox()
-        # 从高到低与qn一致
         self.record_quality_combo.addItem("杜比", 30000)
         self.record_quality_combo.addItem("4K", 20000)
         self.record_quality_combo.addItem("原画", 10000)
@@ -1213,7 +1156,7 @@ class LiveTab(QWidget):
         self.record_quality_combo.addItem("超清", 250)
         self.record_quality_combo.addItem("高清", 150)
         self.record_quality_combo.addItem("流畅", 80)
-        self.record_quality_combo.setCurrentIndex(2)  # 默认选择原画
+        self.record_quality_combo.setCurrentIndex(2)
         self.record_quality_combo.setMinimumHeight(scale(32))
         self.record_quality_combo.setStyleSheet(scale_style("padding: 2px 6px;"))
         settings_layout.addWidget(self.record_quality_combo, 1, 1)
@@ -1309,7 +1252,7 @@ class LiveTab(QWidget):
             self.save_path_input.setText(path)
 
     def _start_recording(self):
-        """开始录制（持续录制模式，后台进行）"""
+        """开始录制"""
         room_id = self.record_room_input.text().strip()
         if not room_id:
             QMessageBox.warning(self, "提示", "请输入房间号")
@@ -1330,7 +1273,6 @@ class LiveTab(QWidget):
         self.record_status_label.setText("正在获取直播流...")
         self.record_time_label.setText("00:00:00")
 
-        # 刷新Cookie高清
         self._refresh_cookies()
         self.record_progress.setValue(0)
 
@@ -1339,7 +1281,6 @@ class LiveTab(QWidget):
         duration = self.duration_spin.value()
 
         def worker():
-            # 1. 获取真实房间号
             init_result = self.live_parser.room_init(room_id)
             if not init_result["success"]:
                 self._on_record_error(init_result.get("error", "房间号查询失败"))
@@ -1352,7 +1293,6 @@ class LiveTab(QWidget):
                 self._on_record_error("当前未在直播中")
                 return
 
-            # 2. 获取直播流
             platform = "h5" if format_type == "hls" else "web"
             stream_result = self.live_parser.get_live_stream_url(real_room_id, platform=platform, qn=qn)
             if not stream_result["success"]:
@@ -1364,18 +1304,15 @@ class LiveTab(QWidget):
                 self._on_record_error("未获取到直播流URL")
                 return
 
-            # 录制优先选HLS
             hls_urls = [u for u in stream_urls if "fmp4" in u.get("format", "") or "ts" in u.get("format", "")]
             best_url_info = hls_urls[0] if hls_urls else stream_urls[0]
             stream_url = best_url_info["url"]
 
-            # 3. 生成文件名
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             ext = "mp4" if format_type == "hls" else "flv"
             filename = f"live_{room_id}_{timestamp}.{ext}"
             output_path = os.path.join(save_path, filename)
 
-            # 4. 创建URL刷新回调
             def url_refresher():
                 try:
                     result = self.live_parser.get_live_stream_url(real_room_id, platform=platform, qn=qn)
@@ -1390,7 +1327,6 @@ class LiveTab(QWidget):
                     logger.warning(f"[录制] 刷新URL失败: {e}")
                     return None
 
-            # 取标题供托盘
             title = f"直播间 {room_id}"
             try:
                 info_result = self.live_parser.get_room_info(real_room_id)
@@ -1399,20 +1335,18 @@ class LiveTab(QWidget):
             except Exception:
                 pass
 
-            # 存变量供注册托盘
             self._pending_record_info = {
                 "room_id": room_id, "title": title,
                 "output_path": output_path, "stream_url": stream_url,
                 "format_type": format_type, "duration": duration,
             }
 
-            # 开始录制并注册托盘
             self._start_ffmpeg_record(stream_url, output_path, format_type, duration)
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_record_error(self, msg):
-        """录制错误回调（从工作线程调用，通过信号转发到主线程）"""
+        """录制错误回调"""
         self._record_error_signal.emit(msg)
 
     def _on_record_error_main(self, msg):
@@ -1422,16 +1356,14 @@ class LiveTab(QWidget):
         self.record_status_label.setText(f"错误: {msg}")
         self.record_status_label.setStyleSheet(scale_style("font-size: 14px; font-weight: bold; color: #dc3545;"))
         self.status_label.setText(msg)
-        # 清理托盘会话
         self._cleanup_recording_session()
 
     def _start_ffmpeg_record(self, stream_url, output_path, format_type, duration):
-        """启动 ffmpeg 录制（从工作线程调用，通过信号转发到主线程）"""
+        """启动 ffmpeg 录制"""
         self._start_record_signal.emit(stream_url, output_path, format_type, duration)
 
     def _do_start_record(self, stream_url, output_path, format_type, duration):
         """主线程：启动录制线程 + 注册托盘会话 + 发送通知"""
-        # 取后台线程存的信息
         info = getattr(self, '_pending_record_info', {})
         room_id = info.get("room_id", self.record_room_input.text().strip())
         title = info.get("title", f"直播间 {room_id}")
@@ -1460,7 +1392,6 @@ class LiveTab(QWidget):
                 logger.warning(f"[录制] 刷新URL失败: {e}")
                 return None
 
-        # 启动录制线程
         self._record_task_counter += 1
         task_id = self._record_task_counter
         thread = LiveRecordThread(
@@ -1474,10 +1405,8 @@ class LiveTab(QWidget):
         self.record_threads[task_id] = thread
         self._record_start_time = time.time()
 
-        # 注册录播托盘会话
         self._register_recording_to_parent(room_id, title, rec_output_path)
 
-        # 更新UI状态
         self.record_status_label.setText("录制中（后台持续录制）")
         self.record_status_label.setStyleSheet(scale_style("font-size: 14px; font-weight: bold; color: #28a745;"))
 
@@ -1490,13 +1419,11 @@ class LiveTab(QWidget):
             session_id = tray.add_session(room_id=room_id, title=title, output_path=output_path)
             self._recording_session_id = session_id
             logger.info(f"[live_tab] 已注册托盘会话: {session_id}")
-            # 气泡通知用户
             tray.notify(
                 "录播工具",
                 f"正在录制「{title}」\n点击托盘图标可查看状态和控制",
                 QSystemTrayIcon.Information)
         else:
-            # 无录播工具则弹窗
             from PyQt5.QtWidgets import QMessageBox
             QMessageBox.information(
                 self, "提示",
@@ -1504,7 +1431,7 @@ class LiveTab(QWidget):
                 "可通过系统托盘的「录播工具」图标控制。")
 
     def _cleanup_recording_session(self):
-        """清理当前录制会话（从父窗口托盘中移除）"""
+        """清理当前录制会话"""
         sid = self._recording_session_id
         if not sid:
             return
@@ -1521,7 +1448,6 @@ class LiveTab(QWidget):
 
     def _on_record_progress(self, seconds, time_str):
         self.record_time_label.setText(time_str)
-        # 有设定时长则更新进度
         if hasattr(self, '_record_start_time') and self.duration_spin.value() > 0:
             total = self.duration_spin.value()
             pct = min(int(seconds * 100 / total), 100)
@@ -1530,7 +1456,6 @@ class LiveTab(QWidget):
     def _on_record_finished(self, success, msg, task_id=None):
         if task_id:
             self.record_threads.pop(task_id, None)
-        # 无其它任务才更新按钮
         any_recording = any(t.isRunning() for t in self.record_threads.values())
         if not any_recording:
             self.start_record_btn.setEnabled(True)
@@ -1544,11 +1469,10 @@ class LiveTab(QWidget):
             self.record_status_label.setText(msg)
             self.record_status_label.setStyleSheet(scale_style("font-size: 14px; font-weight: bold; color: #dc3545;"))
         self.status_label.setText(msg)
-        # 清理托盘会话
         self._cleanup_recording_session()
 
     def _stop_recording(self):
-        """停止录制（停止所有正在录制的任务）"""
+        """停止录制"""
         any_stopped = False
         for tid, t in list(self.record_threads.items()):
             if t.isRunning():
@@ -1562,7 +1486,7 @@ class LiveTab(QWidget):
             self.record_status_label.setText("正在停止...")
 
     def _pause_recording(self):
-        """暂停/继续录制（对所有录制任务操作）"""
+        """暂停/继续录制"""
         running = [t for t in self.record_threads.values() if t.isRunning()]
         if not running:
             return
@@ -1574,7 +1498,6 @@ class LiveTab(QWidget):
                 "padding: 10px 20px; background-color: #28a745; color: white; border: none; border-radius: 4px; font-size: 14px;"))
             self.record_status_label.setText("已暂停")
             self.record_status_label.setStyleSheet(scale_style("font-size: 14px; font-weight: bold; color: #ffc107;"))
-            # 同步托盘状态
             sid = self._recording_session_id
             parent = self.parent_window
             if sid and parent:
@@ -1589,7 +1512,6 @@ class LiveTab(QWidget):
                 "padding: 10px 20px; background-color: #ffc107; color: #333; border: none; border-radius: 4px; font-size: 14px;"))
             self.record_status_label.setText("录制中（后台持续录制）")
             self.record_status_label.setStyleSheet(scale_style("font-size: 14px; font-weight: bold; color: #28a745;"))
-            # 同步托盘状态
             sid = self._recording_session_id
             parent = self.parent_window
             if sid and parent:
@@ -1758,7 +1680,6 @@ class LiveTab(QWidget):
             QMessageBox.warning(self, "提示", "直播解析器未初始化")
             return
 
-        # 刷新Cookie最新
         self._refresh_cookies()
 
         self.refresh_replay_btn.setEnabled(False)
@@ -1778,10 +1699,8 @@ class LiveTab(QWidget):
             return
 
         replay_list = result["data"]["replay_list"]
-        # 存全量供搜索过滤
         self._replay_all_list = list(replay_list or [])
         self._replay_data = {}
-        # 重置搜索免循环
         if hasattr(self, 'replay_search_input'):
             self.replay_search_input.blockSignals(True)
             self.replay_search_input.clear()
@@ -1814,7 +1733,6 @@ class LiveTab(QWidget):
             replay_id = replay.get("replay_id", "")
             self.replay_table.setItem(i, 4, QTableWidgetItem(str(replay_id)))
 
-            # 操作按钮（下载 + 播放）
             btn_widget = QWidget()
             btn_layout_cell = QHBoxLayout(btn_widget)
             btn_layout_cell.setContentsMargins(scale(2), scale(2), scale(2), scale(2))
@@ -1874,8 +1792,6 @@ class LiveTab(QWidget):
         if not item:
             return
         row = item.row()
-        # 按行号取回放对象
-        # 第4列是回放ID
         id_item = self.replay_table.item(row, 4)
         if not id_item:
             return
@@ -1892,7 +1808,6 @@ class LiveTab(QWidget):
         act_copy_id = menu.addAction("复制回放ID")
         menu.addSeparator()
         act_play = menu.addAction("播放回放")
-        # 仅已完成可下载
         if status == 2:
             act_dl_video = menu.addAction("下载画面")
             act_dl_audio = menu.addAction("下载音频")
@@ -1921,23 +1836,19 @@ class LiveTab(QWidget):
         text = text.strip()
         if not text:
             return None
-        # 纯数字UID
         if text.isdigit():
             return int(text)
-        # 从space链接提取
         import re
         match = re.search(r'space\.bilibili\.com/(\d+)', text)
         if match:
             return int(match.group(1))
-        # 从live链接提取
         match = re.search(r'live\.bilibili\.com/(\d+)', text)
         if match:
             return int(match.group(1))
-        # b23短链暂不处理
         return None
 
     def _load_other_replay(self):
-        """查询他人回放（支持UID数字或主页链接）"""
+        """查询他人回放"""
         from PyQt5.QtWidgets import QInputDialog
         text, ok = QInputDialog.getText(self, "查询他人回放", "请输入主播UID或主页链接:")
         if not ok or not text.strip():
@@ -1948,7 +1859,6 @@ class LiveTab(QWidget):
             QMessageBox.warning(self, "提示", "无法识别输入内容，请输入数字UID或B站主页链接\n例如：https://space.bilibili.com/123456")
             return
 
-        # 刷新Cookie最新
         self._refresh_cookies()
 
         self.load_other_replay_btn.setEnabled(False)
@@ -1970,19 +1880,16 @@ class LiveTab(QWidget):
             QMessageBox.warning(self, "提示", "缺少回放ID或直播key")
             return
 
-        # 查是否已有下载
         if self.replay_download_thread and self.replay_download_thread.isRunning():
             QMessageBox.warning(self, "提示", "已有回放在下载中，请等待完成或取消当前下载")
             return
 
-        # 使用保存路径设置
         save_dir = self.replay_save_path_input.text().strip()
         if not save_dir or not os.path.isdir(save_dir):
             save_dir = os.path.join(os.getcwd(), "回放下载")
             os.makedirs(save_dir, exist_ok=True)
             self.replay_save_path_input.setText(save_dir)
 
-        # 清理文件名非法字符
         safe_title = re.sub(r'[\\/:*?"<>|]', '_', title)
         if content_type == 1:
             ext = "m4a"
@@ -1997,7 +1904,6 @@ class LiveTab(QWidget):
         self.replay_cancel_btn.setEnabled(True)
 
         def worker():
-            # 请求下载链接
             result = self.live_parser.request_replay_download(
                 record_id=replay_id, live_key=live_key)
             self._replay_url_signal.emit(result, save_path, title, content_type)
@@ -2038,7 +1944,6 @@ class LiveTab(QWidget):
                     self._error_signal.emit("未获取到回放播放链接")
                     return
 
-                # 信号在主线程开播放器
                 self._stream_done_signal.emit(True, {"stream_url": download_url, "for_playback": True})
             except Exception as e:
                 self._error_signal.emit(f"获取回放链接失败: {e}")
@@ -2059,7 +1964,6 @@ class LiveTab(QWidget):
             self.replay_dl_status.setText(
                 f"回放正在合成中，预计还需 {wait_sec} 秒，请稍后重试")
             self.replay_cancel_btn.setEnabled(False)
-            # 自动等待重试
             if wait_sec > 0 and wait_sec <= 300:
                 QTimer.singleShot((wait_sec + 5) * 1000, lambda: self._auto_retry_replay(save_path, title))
             return
@@ -2075,7 +1979,6 @@ class LiveTab(QWidget):
             self.replay_cancel_btn.setEnabled(False)
             return
 
-        #m3u8:ffmpeg
         use_ffmpeg = '.m3u8' in download_url or 'm3u8' in download_url.lower()
 
         self.replay_dl_status.setText("开始下载...")
@@ -2086,11 +1989,10 @@ class LiveTab(QWidget):
         self.replay_download_thread.start()
 
     def _auto_retry_replay(self, save_path, title):
-        """自动重试回放下载（合成完成后）"""
+        """自动重试回放下载"""
         if self.replay_download_thread and self.replay_download_thread.isRunning():
-            return  # 已有下载在进行
+            return
         self.replay_dl_status.setText("自动重试获取回放下载链接...")
-        # 提示用户需重新点击
         self.replay_dl_status.setText("回放可能已合成完成，请重新点击下载")
 
     def _on_replay_dl_progress(self, pct, status):
@@ -2125,7 +2027,7 @@ class LiveTab(QWidget):
             self.replay_save_path_input.setText(path)
 
     def cleanup(self):
-        """清理资源（注意：不清理托盘，托盘归父窗口管理）"""
+        """清理资源"""
         for rid, t in self.record_threads.items():
             if t.isRunning():
                 t.stop()

@@ -1,8 +1,4 @@
 #!/usr/bin/env python
-"""
-B站视频解析工具 - 命令行界面
-在GUI无法启动时自动降级使用，也可通过 bilibilidownloadtool 命令手动启动
-"""
 import sys
 import os
 import re
@@ -18,15 +14,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 根在build上一级
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
-import _pathsetup  # noqa: F401,E402  导入即完成子目录注入
+import _pathsetup  # noqa: F401,E402 导入即完成子目录注入
 
 from app_config import APP_NAME, APP_VERSION  # noqa: E402
 
-# 全局解析器实例
 _parser = None
 _config = None
 _fallback_reason = ""
@@ -75,7 +69,7 @@ def sanitize_filename(name):
 
 
 def _logo_to_ascii(width=90):
-    """将logo.png转换为ASCII字符画（8级灰度，保留文字细节）"""
+    """将logo.png转换为ASCII字符画"""
     try:
         from PIL import Image, ImageOps
 
@@ -101,28 +95,22 @@ def _logo_to_ascii(width=90):
 
         img = Image.open(logo_path)
         img = img.convert('L')
-        # 增强对比度，文字更清晰
         img = ImageOps.autocontrast(img, cutoff=2)
-        # 不反转！原图深字浅底
         aspect = img.height / img.width
         new_width = width
-        new_height = int(new_width * aspect * 0.45)  # 0.45为字符高宽比
+        new_height = int(new_width * aspect * 0.45)
         img = img.resize((new_width, new_height), Image.LANCZOS)
 
         pixels = list(img.getdata())
-        # 8级灰度字符表（暗到亮）
-        # 密字符为深色区
         shade_chars = ["@", "%", "#", "*", "+", "=", "-", " "]
         result = []
         for y in range(new_height):
             row = ""
             for x in range(new_width):
                 px = pixels[y * new_width + x]
-                # 0黑255白
-                level = min(int(px / 32), 7)  # 256/8=32 每级
+                level = min(int(px / 32), 7)
                 row += shade_chars[level]
             result.append(row)
-        # 裁掉首尾连续空白行
         while result and not result[-1].strip():
             result.pop()
         while result and not result[0].strip():
@@ -219,7 +207,7 @@ def do_parse():
             print(f"\r  进度: {pct}% - {msg}", end="", flush=True)
 
         result = parser.parse_media(media_type, media_id, False, progress_cb)
-        print()  # 换行
+        print()
 
         if not result.get("success"):
             print(f"  [错误] 解析失败: {result.get('error', '未知错误')}")
@@ -361,7 +349,6 @@ def do_download_video():
             video_urls = play_info.get("video_urls", {})
             quality_desc = play_info.get("quality_desc", "")
             audio_url = play_info.get("audio_url", "")
-            # 取KID（DRM解密用）
             ep_kid = play_info.get("kid")
 
             video_url = ""
@@ -410,14 +397,12 @@ def do_download_video():
                 if merge_video_audio(video_file + ".video.tmp", video_file + ".audio.tmp", video_file):
                     print(f"  [成功] 已保存: {video_file}")
                 else:
-                    # 合并失败，保留视频流
                     try:
                         shutil.move(video_file + ".video.tmp", video_file)
                         print(f"  [提示] 合并失败，仅保存视频流: {video_file}")
                     except Exception:
                         print(f"  [错误] 保存失败")
             else:
-                # 无音频，直接重命名
                 try:
                     shutil.move(video_file + ".video.tmp", video_file)
                     print(f"  [成功] 已保存: {video_file}")
@@ -464,7 +449,6 @@ def merge_video_audio(video_tmp, audio_tmp, output):
 
 def _find_ffmpeg():
     """查找ffmpeg路径"""
-    # _internal目录
     if getattr(sys, 'frozen', False):
         base = os.path.dirname(sys.executable)
         for candidate in [
@@ -474,7 +458,6 @@ def _find_ffmpeg():
             if os.path.exists(candidate):
                 return candidate
 
-    # 2. 源码目录
     for candidate in [
         os.path.join(ROOT_DIR, 'ffmpeg', 'bin', 'ffmpeg.exe'),
         os.path.join(ROOT_DIR, '_internal', 'ffmpeg', 'bin', 'ffmpeg.exe'),
@@ -482,7 +465,6 @@ def _find_ffmpeg():
         if os.path.exists(candidate):
             return candidate
 
-    # 3. PATH
     return shutil.which('ffmpeg')
 
 
@@ -599,7 +581,7 @@ def _save_danmaku_xml(danmaku_list, filepath):
 
 
 def _save_danmaku_ass(danmaku_list, filepath, title=""):
-    """保存弹幕为ASS格式（简化版）"""
+    """保存弹幕为ASS格式"""
     width, height = 1920, 1080
     font_size = 36
     duration = 8.0
@@ -640,15 +622,15 @@ def _save_danmaku_ass(danmaku_list, filepath, title=""):
 
             content = d.get("content", "").replace("\\N", "\\\\N").replace("\n", "\\N")
             mode = d.get("mode", 1)
-            if mode == 4:  # 底部
+            if mode == 4:
                 pos_y = height - 60
                 f.write(f'Dialogue: 2,{start_str},{end_str},Danmaku,,0,0,0,,'
                         f'{{\\pos({width//2},{pos_y})\\c{ass_color}}}{content}\n')
-            elif mode == 5:  # 顶部
+            elif mode == 5:
                 pos_y = 60
                 f.write(f'Dialogue: 2,{start_str},{end_str},Danmaku,,0,0,0,,'
                         f'{{\\pos({width//2},{pos_y})\\c{ass_color}}}{content}\n')
-            else:  # 滚动
+            else:
                 f.write(f'Dialogue: 2,{start_str},{end_str},Danmaku,,0,0,0,,'
                         f'{{\\c{ass_color}}}{content}\n')
 
@@ -682,7 +664,6 @@ def do_download_cover():
             print("  [错误] 未获取到封面链接")
             return
 
-        # 封面加referer
         print(f"  封面链接: {cover_url[:80]}...")
 
         save_path = get_save_path()
@@ -775,7 +756,6 @@ def do_favorites():
             ibvid = item.get("bvid", "")
             if ibvid:
                 print(f"\n  正在解析: {item.get('title')}")
-                # 复用下载逻辑
                 url = f"https://www.bilibili.com/video/{ibvid}"
                 _download_by_url(url)
 
@@ -784,7 +764,7 @@ def do_favorites():
 
 
 def _download_by_url(url):
-    """通过URL直接下载视频（内部使用）"""
+    """通过URL直接下载视频"""
     parser = get_parser()
     if not parser:
         return
