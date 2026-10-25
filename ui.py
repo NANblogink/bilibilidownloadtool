@@ -318,6 +318,270 @@ def _remove_update_files(state):
         pass
 
 
+def _ps_quote(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _shortcut_sync_script(app_dir, exe_path, uninstaller_path, version):
+    home = os.path.expanduser('~')
+    appdata = os.environ.get('APPDATA') or os.path.join(home, 'AppData', 'Roaming')
+    desktop = os.path.join(home, 'Desktop')
+    startmenu = os.path.join(appdata, 'Microsoft', 'Windows', 'Start Menu', 'Programs')
+    ver = str(version or '').strip()
+    if ver and not ver.upper().startswith('V'):
+        ver = 'V' + ver
+    icon_path = os.path.join(app_dir, 'logo.ico')
+    if not os.path.isfile(icon_path):
+        icon_path = exe_path
+    lines = [
+        "$ErrorActionPreference='SilentlyContinue'",
+        '$appDir=' + _ps_quote(app_dir),
+        '$exe=' + _ps_quote(exe_path),
+        '$icon=' + _ps_quote(icon_path),
+        '$uninst=' + _ps_quote(uninstaller_path),
+        '$ver=' + _ps_quote(ver),
+        "$wantApp='%s'+$ver" % APP_NAME,
+        "$wantUn='卸载'+$wantApp",
+        '$dirs=@(%s,%s)' % (_ps_quote(desktop), _ps_quote(startmenu)),
+        'foreach($d in $dirs){',
+        '  if(-not (Test-Path -LiteralPath $d)){continue}',
+        '  $sh=New-Object -ComObject WScript.Shell',
+        '  foreach($f in (Get-ChildItem -LiteralPath $d -Filter *.lnk -File -Recurse)){',
+        '    $s=$sh.CreateShortcut($f.FullName)',
+        '    $t=$s.TargetPath',
+        '    if(-not $t){continue}',
+        '    $td=[IO.Path]::GetDirectoryName($t)',
+        '    if(-not $td){continue}',
+        '    if(-not ($td.Equals($appDir,[StringComparison]::OrdinalIgnoreCase) -or $td.StartsWith($appDir+"\\",[StringComparison]::OrdinalIgnoreCase))){continue}',
+        '    $leaf=[IO.Path]::GetFileName($t)',
+        "    if($leaf -match 'uninstall|卸载'){if(Test-Path -LiteralPath $uninst){$s.TargetPath=$uninst}}",
+        '    elseif(Test-Path -LiteralPath $exe){$s.TargetPath=$exe}',
+        '    $s.WorkingDirectory=$appDir',
+        "    $s.IconLocation=$icon+',0'",
+        '    $s.Save()',
+        '    $base=[IO.Path]::GetFileNameWithoutExtension($f.Name)',
+        '    $newBase=$null',
+        "    if($base -match '^卸载.*V?\\d+(\\.\\d+)*$'){$newBase=$wantUn}",
+        "    elseif($base -match '^%s.*V?\\d+(\\.\\d+)*$'){$newBase=$wantApp}" % APP_NAME,
+        '    if($newBase -and $newBase -ne $base){',
+        '      $fd=[IO.Path]::GetDirectoryName($f.FullName)',
+        "      $dest=Join-Path $fd ($newBase+'.lnk')",
+        '      if(Test-Path -LiteralPath $dest){Remove-Item -LiteralPath $f.FullName -Force}',
+        '      else{Move-Item -LiteralPath $f.FullName -Destination $dest -Force}',
+        '    }',
+        '  }',
+        '  foreach($sub in (Get-ChildItem -LiteralPath $d -Directory)){',
+        "    if($sub.Name -match '^%s.*V?\\d+(\\.\\d+)*$'){" % APP_NAME,
+        '      $dest=Join-Path $d $wantApp',
+        '      if($dest -ieq $sub.FullName){continue}',
+        '      if(Test-Path -LiteralPath $dest){Remove-Item -LiteralPath $sub.FullName -Recurse -Force}',
+        '      else{Move-Item -LiteralPath $sub.FullName -Destination $dest -Force}',
+        '    }',
+        '  }',
+        '}',
+        "Add-Type -Namespace Bdt -Name Shell32 -MemberDefinition '[DllImport(\"shell32.dll\")] public static extern void SHChangeNotify(int e,int f,IntPtr a,IntPtr b);'",
+        '[Bdt.Shell32]::SHChangeNotify(0x08000000,0,[IntPtr]::Zero,[IntPtr]::Zero)',
+    ]
+    return '\r\n'.join(lines) + '\r\n'
+
+
+def _run_shortcut_sync(version):
+    if not IS_WINDOWS or not getattr(sys, 'frozen', False):
+        return False
+    import tempfile
+    app_dir = os.path.dirname(os.path.abspath(sys.executable))
+    exe_path = sys.executable
+    uninstaller_path = os.path.join(app_dir, 'uninstaller.exe')
+    if not os.path.isfile(uninstaller_path):
+        uninstaller_path = ''
+    script_path = os.path.join(tempfile.gettempdir(), 'bdt_shortcut_sync.ps1')
+    try:
+        with open(script_path, 'w', encoding='utf-8-sig') as f:
+            f.write(_shortcut_sync_script(app_dir, exe_path, uninstaller_path, version))
+    except Exception as e:
+        logger.debug(f'快捷方式脚本写入失败: {e}')
+        return False
+    candidates = [
+        os.path.join(os.environ.get('SystemRoot', r'C:\Windows'),
+                     'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+        'powershell.exe',
+    ]
+    for ps in candidates:
+        try:
+            proc = subprocess.run(
+                [ps, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                 '-File', script_path],
+                capture_output=True, timeout=30, **subprocess_no_window_kwargs())
+            if proc.returncode == 0:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _update_uninstall_entry(app_dir, exe_path):
+    try:
+        import winreg
+        key_path = r'Software\Microsoft\Windows\CurrentVersion\Uninstall\BilibiliDownloadTool'
+        try:
+            probe = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path)
+        except Exception:
+            return
+        winreg.CloseKey(probe)
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
+        try:
+            winreg.SetValueEx(key, 'DisplayVersion', 0, winreg.REG_SZ,
+                              str(version_info.get('version') or ''))
+            winreg.SetValueEx(key, 'DisplayIcon', 0, winreg.REG_SZ, exe_path)
+            winreg.SetValueEx(key, 'InstallLocation', 0, winreg.REG_SZ, app_dir)
+            uninst = os.path.join(app_dir, 'uninstaller.exe')
+            if os.path.isfile(uninst):
+                winreg.SetValueEx(key, 'UninstallString', 0, winreg.REG_SZ, '"%s"' % uninst)
+        finally:
+            winreg.CloseKey(key)
+    except Exception:
+        pass
+
+
+def _shortcut_sync_marker():
+    base = os.environ.get('APPDATA') or os.path.join(
+        os.path.expanduser('~'), 'AppData', 'Roaming')
+    return os.path.join(base, 'BilibiliDownloadTool', 'shortcut_sync.txt')
+
+
+def repair_shortcuts_after_update():
+    try:
+        if not IS_WINDOWS or not getattr(sys, 'frozen', False):
+            return
+        version = str(version_info.get('version') or '').strip()
+        if not version:
+            return
+        marker = _shortcut_sync_marker()
+        try:
+            with open(marker, 'r', encoding='utf-8') as f:
+                if f.read().strip() == version:
+                    return
+        except Exception:
+            pass
+        if not _run_shortcut_sync(version):
+            return
+        app_dir = os.path.dirname(os.path.abspath(sys.executable))
+        _update_uninstall_entry(app_dir, sys.executable)
+        try:
+            os.makedirs(os.path.dirname(marker), exist_ok=True)
+            with open(marker, 'w', encoding='utf-8') as f:
+                f.write(version)
+        except Exception:
+            pass
+    except Exception as e:
+        logger.debug(f'同步快捷方式失败: {e}')
+
+
+def _verify_update_package(save_path, update_info):
+    try:
+        if not save_path or not os.path.exists(save_path):
+            return False, '更新包不存在'
+        info = update_info if isinstance(update_info, dict) else {}
+        expected_size = info.get('file_size') or info.get('size')
+        try:
+            expected_size = int(expected_size) if expected_size else 0
+        except Exception:
+            expected_size = 0
+        if expected_size > 0 and os.path.getsize(save_path) != expected_size:
+            return False, '更新包大小与服务器不一致，请重新下载'
+        digest = str(info.get('sha256') or info.get('checksum') or '').strip().lower()
+        if digest:
+            from cloud_service import CloudService
+            if not CloudService().verify_file(save_path, digest):
+                return False, '更新包校验失败，请重新下载'
+        return True, ''
+    except Exception:
+        return True, ''
+
+
+def _build_updater_bat(source_dir, app_dir, temp_dir, old_exe_name, new_exe_name,
+                       keep_files, keep_dirs, extract_dir, save_path, restart_after=True):
+    target_exe = os.path.join(app_dir, new_exe_name)
+    fallback_exe = os.path.join(app_dir, old_exe_name)
+    vi_src = os.path.join(app_dir, "_internal", "version_info.json")
+    vi_dst = os.path.join(app_dir, "version_info.json")
+    state_file = os.path.join(app_dir, "update_download.json")
+    log_file = os.path.join(temp_dir, "update.log")
+    lines = [
+        "@echo off",
+        "chcp 65001 >nul",
+        "setlocal EnableExtensions",
+        'echo [1/5] 等待旧进程退出 >> "%s"' % log_file,
+        "set /a _wait=0",
+        ":waitloop",
+        'tasklist /FI "IMAGENAME eq %s" 2>nul | find /I "%s" >nul'
+        % (old_exe_name, old_exe_name),
+        "if not errorlevel 1 goto waitmore",
+        'tasklist /FI "IMAGENAME eq %s" 2>nul | find /I "%s" >nul'
+        % (new_exe_name, new_exe_name),
+        "if not errorlevel 1 goto waitmore",
+        "goto docopy",
+        ":waitmore",
+        "set /a _wait+=1",
+        "if %_wait% geq 45 goto forcekill",
+        "timeout /t 1 /nobreak >nul",
+        "goto waitloop",
+        ":forcekill",
+        'taskkill /F /IM "%s" >nul 2>&1' % old_exe_name,
+        'taskkill /F /IM "%s" >nul 2>&1' % new_exe_name,
+        "timeout /t 2 /nobreak >nul",
+        ":docopy",
+        'echo [2/5] 复制文件 >> "%s"' % log_file,
+        'robocopy "%s" "%s" /MIR /IS /IT /R:1 /W:1 /XF %s /XD %s /NFL /NDL /NJH /NJS /NP >> "%s" 2>&1'
+        % (source_dir, app_dir, " ".join(keep_files),
+           " ".join('"%s"' % d for d in keep_dirs), log_file),
+        'set "RC=%ERRORLEVEL%"',
+        'if not defined RC set "RC=99"',
+        "if %RC% GEQ 8 goto failed",
+        'if not exist "%s" goto failed' % target_exe,
+        'echo [3/5] 同步版本信息 >> "%s"' % log_file,
+        'if exist "%s" copy /Y "%s" "%s" >nul' % (vi_src, vi_src, vi_dst),
+        'if exist "%s" del /f /q "%s" >nul 2>&1' % (state_file, state_file),
+        'echo [4/5] 清理临时文件 >> "%s"' % log_file,
+        'rd /s /q "%s" >nul 2>&1' % extract_dir,
+        'if exist "%s" del /f /q "%s" >nul 2>&1' % (save_path, save_path),
+        'echo [5/5] 更新完成 >> "%s"' % log_file,
+    ]
+    if restart_after:
+        lines.append('start "" "%s" --restart' % target_exe)
+    lines.extend([
+        "exit /b 0",
+        ":failed",
+        'echo 更新失败，错误码 %%RC%% >> "%s"' % log_file,
+        'if exist "%s" del /f /q "%s" >nul 2>&1' % (state_file, state_file),
+        'if exist "%s" start "" "%s"%s'
+        % (fallback_exe, fallback_exe, ' --restart' if restart_after else ''),
+        "exit /b 1",
+    ])
+    return "\r\n".join(lines) + "\r\n"
+
+
+def _build_setup_launcher_bat(old_exe_name, setup_path):
+    lines = [
+        "@echo off",
+        "chcp 65001 >nul",
+        "setlocal EnableExtensions",
+        "set /a _w=0",
+        ":waitloop",
+        'tasklist /FI "IMAGENAME eq %s" 2>nul | find /I "%s" >nul'
+        % (old_exe_name, old_exe_name),
+        "if errorlevel 1 goto launch",
+        "set /a _w+=1",
+        "if %_w% geq 60 goto launch",
+        "timeout /t 1 /nobreak >nul",
+        "goto waitloop",
+        ":launch",
+        'powershell -NoProfile -NonInteractive -Command "Start-Process -FilePath \'%s\' -Verb RunAs"'
+        % setup_path.replace("'", "''"),
+    ]
+    return "\r\n".join(lines) + "\r\n"
+
+
 def get_app_icon_pixmap(config=None, width=None, height=None):
     icon_path = get_effective_icon_path(config)
     if not icon_path or not os.path.exists(icon_path):
@@ -362,6 +626,18 @@ _COVER_HEADERS = {
     "Referer": "https://www.bilibili.com/",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
 }
+
+def _release_cover_loader(owner, loader):
+    try:
+        loaders = getattr(owner, "cover_loaders", None)
+        if loaders is not None and loader in loaders:
+            loaders.remove(loader)
+    except Exception:
+        pass
+    try:
+        loader.deleteLater()
+    except Exception:
+        pass
 
 def global_exception_hook(exctype, value, tb):
     if exctype == KeyboardInterrupt:
@@ -691,12 +967,11 @@ def scale_font(pt):
     """字号随 DPI 缩放，保证高 DPI 下不糊成一团。"""
     return max(6, int(round(pt * global_dpi_scale * global_ui_shrink)))
 
-from app_config import load_version_info, APP_NAME
+from app_config import load_version_info, APP_NAME, APP_NAME_EN
 
 version_info = load_version_info()
 
 _BASE_STYLE = """
-    /* ==================== 设计令牌 ==================== */
 
     /* 全局 */
     QWidget {
@@ -716,7 +991,6 @@ _BASE_STYLE = """
         font-size: 15px;
     }
 
-    /* ==================== 卡片 / 分组 ==================== */
     QGroupBox {
         background-color: #ffffff;
         border: 1px solid #e6eaf2;
@@ -735,7 +1009,6 @@ _BASE_STYLE = """
         background-color: #ffffff;
     }
 
-    /* ==================== 输入控件 ==================== */
     QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox {
         padding: 8px 11px;
         border: 1px solid #dde3ed;
@@ -785,7 +1058,6 @@ _BASE_STYLE = """
         color: #ffffff;
     }
 
-    /* ==================== 按钮 ==================== */
     QPushButton {
         padding: 9px 18px;
         border: 1px solid transparent;
@@ -845,7 +1117,6 @@ _BASE_STYLE = """
     QPushButton#bilibiliBtn       { background-color: #00a1d6; }
     QPushButton#bilibiliBtn:hover { background-color: #1cb5e8; }
 
-    /* ==================== 标签页 ==================== */
     QTabWidget::pane {
         border: 1px solid #e6eaf2;
         border-radius: 0;
@@ -877,7 +1148,6 @@ _BASE_STYLE = """
     }
     QTabBar::tab:disabled { color: #b0b8c4; background: #f4f6f9; }
 
-    /* ==================== 进度条 ==================== */
     QProgressBar {
         min-height: 10px;
         max-height: 10px;
@@ -892,7 +1162,6 @@ _BASE_STYLE = """
         background-color: #409eff;
     }
 
-    /* ==================== 列表 / 表格 ==================== */
     QListWidget, QTreeWidget, QTableWidget {
         border: 1px solid #e6eaf2;
         border-radius: 0;
@@ -916,7 +1185,6 @@ _BASE_STYLE = """
     }
     QTableWidget::item:selected { background-color: #eef5ff; color: #2563eb; }
 
-    /* ==================== 勾选框 / 单选框 ==================== */
     QCheckBox, QRadioButton { spacing: 8px; color: #374151; }
     QCheckBox::indicator, QRadioButton::indicator { width: 16px; height: 16px; }
     QCheckBox::indicator {
@@ -933,7 +1201,6 @@ _BASE_STYLE = """
     }
     QRadioButton::indicator:checked { background: #409eff; border-color: #409eff; }
 
-    /* ==================== 滚动条 ==================== */
     QScrollBar:vertical {
         background: transparent;
         width: 10px;
@@ -959,7 +1226,6 @@ _BASE_STYLE = """
     QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
     QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 
-    /* ==================== 分割线 / 菜单 ==================== */
     QSplitter::handle { background-color: #e6eaf2; }
     QMenu {
         background-color: #ffffff;
@@ -975,7 +1241,6 @@ _BASE_STYLE = """
     QMenu::item:selected { background-color: #eef5ff; color: #2563eb; }
     QMenu::separator { height: 1px; background: #eef1f6; margin: 5px 8px; }
 
-    /* ==================== 卡片式列表 ==================== */
     .card-view QListWidget::item {
         min-width: 140px;
         margin: 8px;
@@ -1851,7 +2116,6 @@ def install_soft_combobox_behavior():
 
 
 _BASE_STYLE_SB = """
-    /* ==================== 设计令牌 ==================== */
 
     /* 全局 */
     QWidget {
@@ -1871,7 +2135,6 @@ _BASE_STYLE_SB = """
         font-size: 15px;
     }
 
-    /* ==================== 卡片 / 分组 ==================== */
     QGroupBox {
         background-color: transparent;
         border: none;
@@ -1889,7 +2152,6 @@ _BASE_STYLE_SB = """
         background-color: transparent;
     }
 
-    /* ==================== 输入控件 ==================== */
     QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox {
         padding: 8px 12px;
         border: 1px solid $BORDER_STRONG;
@@ -1912,7 +2174,6 @@ _BASE_STYLE_SB = """
         color: $TEXT_DISABLED;
     }
     QComboBox::drop-down { border: none; width: 26px; }
-    /* ==================== 下拉框 ==================== */
     QComboBox {
         background-color: $SURFACE_COMBO;
         border: 1px solid transparent;
@@ -1958,7 +2219,6 @@ _BASE_STYLE_SB = """
         border-left: 3px solid $PINK;
     }
 
-    /* ==================== 按钮 ==================== */
     QPushButton {
         padding: 9px 18px;
         border: 1px solid transparent;
@@ -2030,7 +2290,6 @@ _BASE_STYLE_SB = """
     QPushButton#bilibiliBtn       { background-color: #2f80ed; border-radius: 8px; }
     QPushButton#bilibiliBtn:hover { background-color: #2f80ed; }
 
-    /* ==================== 复选框 ==================== */
     QCheckBox { spacing: 8px; color: $TEXT_SUB; background: transparent; }
     QCheckBox::indicator {
         width: 16px; height: 16px;
@@ -2046,7 +2305,6 @@ _BASE_STYLE_SB = """
     }
     QCheckBox:disabled { color: $TEXT_MUTED; }
 
-    /* ==================== 标签页 ==================== */
     QTabWidget::pane {
         border: 1px solid $BORDER;
         border-radius: 8px;
@@ -2077,7 +2335,6 @@ _BASE_STYLE_SB = """
     }
     QTabBar::tab:disabled { color: $TEXT_MUTED; background: $SURFACE_TAB_INACTIVE; }
 
-    /* ==================== 进度条 ==================== */
     QProgressBar {
         min-height: 10px;
         max-height: 10px;
@@ -2092,7 +2349,6 @@ _BASE_STYLE_SB = """
         background-color: $BRAND;
     }
 
-    /* ==================== 列表 / 表格 ==================== */
     QListWidget, QTreeWidget, QTableWidget {
         border: 1px solid $BORDER;
         border-radius: 12px;
@@ -2128,7 +2384,6 @@ _BASE_STYLE_SB = """
     }
     QTableWidget::item:selected { background-color: $BRAND_LIGHT; color: $BRAND_TEXT; }
 
-    /* ==================== 勾选框 / 单选框 ==================== */
     QCheckBox, QRadioButton { spacing: 8px; color: $TEXT; }
     QCheckBox::indicator, QRadioButton::indicator { width: 16px; height: 16px; }
     QCheckBox::indicator {
@@ -2145,7 +2400,6 @@ _BASE_STYLE_SB = """
     }
     QRadioButton::indicator:checked { background: $BRAND; border-color: $BRAND; }
 
-    /* ==================== 滚动条 ==================== */
     QScrollBar:vertical {
         background: transparent;
         width: 10px;
@@ -2171,7 +2425,6 @@ _BASE_STYLE_SB = """
     QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
     QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 
-    /* ==================== 分割线 / 菜单 ==================== */
     QSplitter::handle { background-color: $BORDER; }
     QMenu {
         background-color: $SURFACE_MENU;
@@ -2187,14 +2440,12 @@ _BASE_STYLE_SB = """
     QMenu::item:selected { background-color: $BRAND_LIGHT; color: $BRAND_TEXT; }
     QMenu::separator { height: 1px; background: $SURFACE_ALT; margin: 5px 8px; }
 
-    /* ==================== 卡片容器 ==================== */
     QWidget#contentCard {
         background-color: $SURFACE;
         border: none;
         border-radius: 12px;
     }
 
-    /* ==================== 左侧主导航卡 ==================== */
     QWidget#navCard {
         background-color: $SURFACE_ALT;
         border: 1px solid $BORDER;
@@ -2203,7 +2454,6 @@ _BASE_STYLE_SB = """
     /* 导航条目：hover / 选中态由 SideNavItem 动态设置内联样式 */
     QWidget#sideNavItem { background: transparent; border: none; border-radius: 8px; }
 
-    /* ==================== 底部极简操作栏 ==================== */
     QWidget#actionBar {
         background-color: $SURFACE_ALT;
         border: none;
@@ -2242,7 +2492,6 @@ _BASE_STYLE_SB = """
                                     stop:0 $GRAD_A, stop:1 $GRAD_B);
     }
 
-    /* ==================== 卡片式列表 ==================== */
     .card-view QListWidget::item {
         min-width: 140px;
         margin: 8px;
@@ -5634,6 +5883,10 @@ class FloatingBall(QWidget):
                         item = self.download_container_layout.takeAt(0)
                         if item.widget():
                             item.widget().deleteLater()
+                    if hasattr(self, 'download_tasks'):
+                        self.download_tasks.clear()
+                    if getattr(self, 'parent', None) is not None and hasattr(self.parent, 'download_tasks'):
+                        self.parent.download_tasks.clear()
                     
                     
                     if hasattr(self, 'pending_global_progress'):
@@ -5719,6 +5972,10 @@ class FloatingBall(QWidget):
                 item = self.download_container_layout.takeAt(0)
                 if item.widget():
                     item.widget().deleteLater()
+            if hasattr(self, 'download_tasks'):
+                self.download_tasks.clear()
+            if getattr(self, 'parent', None) is not None and hasattr(self.parent, 'download_tasks'):
+                self.parent.download_tasks.clear()
             
             
             if hasattr(self, 'pending_global_progress'):
@@ -10181,7 +10438,7 @@ class BetaAuthDialog(QDialog):
         from PyQt5.QtWidgets import QMessageBox
         reply = QMessageBox.question(
             self, "下载正式版",
-            "确定要下载最新正式版吗？\n下载完成后将自动更新。",
+            "确定要下载最新正式版吗？\n下载完成后可立即安装，也可选择退出程序时自动安装。",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         if reply != QMessageBox.Yes:
@@ -10601,6 +10858,16 @@ class UpdateDialog(QDialog):
                     self._update_status("自动下载失败，正在打开浏览器下载...", True)
                     webbrowser.open(download_url)
                     self._status_signal.emit("已打开浏览器下载，请手动安装下载的文件", False)
+                    return
+                ok, why = _verify_update_package(save_path, self.update_info)
+                if not ok:
+                    if self._closing:
+                        return
+                    try:
+                        os.remove(save_path)
+                    except Exception:
+                        pass
+                    self._update_status(why, True)
                     return
                 state = {
                     "target_version": latest_ver,
@@ -11864,6 +12131,32 @@ class _EpMarqueeLabel(QLabel):
             return False
 
 
+class _ElidedTextLabel(QLabel):
+
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self._full_text = text
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+    def setText(self, text):
+        self._full_text = "" if text is None else str(text)
+        super().setText(self._full_text)
+        self.setToolTip(self._full_text)
+
+    def fullText(self):
+        return self._full_text
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        fm = painter.fontMetrics()
+        txt = fm.elidedText(self._full_text, Qt.ElideRight, max(0, self.width() - 2))
+        painter.setPen(self.palette().color(self.foregroundRole()))
+        painter.drawText(self.rect(), int(self.alignment() | Qt.AlignVCenter), txt)
+        painter.end()
+
+
 class EpisodeSelectionDialog(ResizableDialog):
     def __init__(self, parent, episodes, is_bangumi=False, selected_episodes=None, video_info=None):
         super().__init__(parent)
@@ -12211,6 +12504,7 @@ class EpisodeSelectionDialog(ResizableDialog):
                         self.active_loaders += 1
                         loader = CoverLoader(cover_url, index)
                         self.cover_loaders.append(loader)
+                        loader.finished.connect(lambda l=loader: _release_cover_loader(self, l))
                         loader.signals.finished.connect(
                             lambda data, idx, r=_retry: on_cover_loaded(data, idx, r))
                         loader.start()
@@ -12467,6 +12761,7 @@ border-radius: 0;
                         self.active_loaders += 1
                         loader = CoverLoader(cover_url, index)
                         self.cover_loaders.append(loader)
+                        loader.finished.connect(lambda l=loader: _release_cover_loader(self, l))
                         loader.signals.finished.connect(
                             lambda data, idx, r=_retry: on_cover_loaded(data, idx, r))
                         loader.start()
@@ -13154,6 +13449,7 @@ border-radius: 0;
             
             loader = CoverLoader(cover_url)
             self.cover_loaders.append(loader)
+            loader.finished.connect(lambda l=loader: _release_cover_loader(self, l))
             loader.signals.finished.connect(on_cover_loaded)
             loader.start()
 
@@ -15890,8 +16186,9 @@ class BatchDownloadWindow(BaseWindow):
         title_layout.setSpacing(scale(8))
         title_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         
-        title_label = QLabel(f"批量下载 - {self.video_info.get('title', '未知视频')}")
+        title_label = _ElidedTextLabel(f"批量下载 - {self.video_info.get('title', '未知视频')}")
         title_label.setObjectName("titleLabel")
+        title_label.setMinimumWidth(scale(60))
         title_layout.addWidget(title_label, stretch=1)
         
         minimize_btn = QPushButton("_")
@@ -15918,7 +16215,9 @@ class BatchDownloadWindow(BaseWindow):
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll_content = QWidget()
+        scroll_content.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.scroll_layout = QVBoxLayout(scroll_content)
         self.scroll_layout.setSpacing(scale(8))
         self.scroll_area.setWidget(scroll_content)
@@ -15996,7 +16295,8 @@ class BatchDownloadWindow(BaseWindow):
         name_label.setObjectName("epName")
         name_label.setToolTip(ep_tooltip)
         name_label.setFixedHeight(scale(22))
-        name_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        name_label.setMinimumWidth(0)
+        name_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         outer_layout.addWidget(name_label)
 
         row_layout = QHBoxLayout()
@@ -16004,9 +16304,12 @@ class BatchDownloadWindow(BaseWindow):
         row_layout.setSpacing(scale(10))
 
         progress = SegmentedProgressBar(segment_count=4)
-        status = QLabel("等待下载...")
+        progress.setMinimumWidth(scale(140))
+        progress.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        status = _ElidedTextLabel("等待下载...")
         status.setObjectName("epStatus")
         status.setMinimumHeight(scale(20))
+        status.setMinimumWidth(scale(40))
         status.setWordWrap(False)
 
         pause_btn = QPushButton("暂停")
@@ -18444,6 +18747,13 @@ class BilibiliDownloader(BaseWindow):
                 st = _read_update_state()
                 if not ok:
                     return
+                ok, why = _verify_update_package(save_path, update_info)
+                if not ok:
+                    _remove_update_files(st)
+                    _clear_update_state()
+                    if not silent:
+                        run_on_main_thread(lambda: self.show_notification(why, "error"))
+                    return
                 st["downloaded"] = True
                 st["downloaded_at"] = int(_time.time())
                 _save_update_state(st)
@@ -18726,12 +19036,22 @@ class BilibiliDownloader(BaseWindow):
 
     def on_update_package_ready(self, state, auto=False, dialog=None):
         try:
-            if auto:
-                self._run_install_from_state(state)
-                return
             policy = self.config.get_app_setting("update_policy", "ask") if self.config else "ask"
-            if policy == "auto":
-                self._run_install_from_state(state)
+            if auto or policy == "auto":
+                try:
+                    state["apply_on_exit"] = True
+                    _save_update_state(state)
+                except Exception:
+                    pass
+                try:
+                    self.show_notification("更新已下载，将在退出程序时自动安装", "info")
+                except Exception:
+                    pass
+                if dialog is not None:
+                    try:
+                        dialog.accept()
+                    except Exception:
+                        pass
                 return
             self._show_update_ready_prompt(state)
         except Exception as e:
@@ -18745,9 +19065,26 @@ class BilibiliDownloader(BaseWindow):
             status_cb=status_cb,
         )
 
-    def _perform_install(self, save_path, temp_dir, is_exe_update, status_cb=None):
+    def _apply_pending_update_on_exit(self):
+        try:
+            if not IS_WINDOWS:
+                return
+            st = _read_update_state()
+            if not st or not st.get("downloaded") or not st.get("apply_on_exit"):
+                return
+            save_path = st.get("save_path", "")
+            if not save_path or not os.path.exists(save_path):
+                return
+            self._perform_install(save_path, st.get("temp_dir", ""),
+                                  st.get("is_exe_update", False), quiet=True)
+        except Exception as e:
+            logger.debug(f"退出时应用更新失败: {e}")
+
+    def _perform_install(self, save_path, temp_dir, is_exe_update, status_cb=None, quiet=False):
         import zipfile
         def _st(msg, err=False):
+            if quiet:
+                return
             if status_cb:
                 try:
                     status_cb(msg, err)
@@ -18758,18 +19095,35 @@ class BilibiliDownloader(BaseWindow):
             self._clear_update_package_state()
             return
         if is_exe_update:
-            _st("正在启动安装程序...")
+            _st("正在准备安装程序...")
+            old_exe_name = os.path.basename(sys.executable)
+            if not temp_dir:
+                import tempfile
+                temp_dir = tempfile.mkdtemp(prefix='bdt_update_')
+            launcher = os.path.join(temp_dir, "launch_setup.bat")
             try:
-                subprocess.Popen([save_path], **subprocess_no_window_kwargs())
+                with open(launcher, 'w', encoding='utf-8') as f:
+                    f.write(_build_setup_launcher_bat(old_exe_name, save_path))
+                subprocess.Popen(['cmd', '/c', launcher],
+                                 **subprocess_no_window_kwargs())
             except Exception as e:
-                _st(f"启动安装程序失败: {e}", True)
+                _st(f"启动安装程序失败：{e}", True)
                 return
+            if quiet:
+                _clear_update_state()
+                return
+            _st("程序退出后将自动启动安装程序...")
             time.sleep(1)
             QApplication.quit()
             os._exit(0)
             return
         _st("正在解压更新包...")
+        if not temp_dir:
+            import tempfile
+            temp_dir = tempfile.mkdtemp(prefix='bdt_update_')
         extract_dir = os.path.join(temp_dir, "extracted")
+        if os.path.isdir(extract_dir):
+            shutil.rmtree(extract_dir, ignore_errors=True)
         try:
             with zipfile.ZipFile(save_path, 'r') as zf:
                 zf.extractall(extract_dir)
@@ -18777,10 +19131,13 @@ class BilibiliDownloader(BaseWindow):
             _st(f"解压失败：{e}", True)
             return
         source_dir = extract_dir
-        root_items = os.listdir(extract_dir)
+        try:
+            root_items = os.listdir(extract_dir)
+        except Exception:
+            root_items = []
         if len(root_items) == 1:
             single_item = os.path.join(extract_dir, root_items[0])
-            if os.path.isdir(single_item) and os.path.isdir(os.path.join(single_item, '_internal')):
+            if os.path.isdir(single_item) and os.path.basename(single_item).lower() != '_internal':
                 source_dir = single_item
         _st("正在替换文件...")
         if hasattr(sys, 'frozen') or hasattr(sys, '_MEIPASS'):
@@ -18788,70 +19145,107 @@ class BilibiliDownloader(BaseWindow):
         else:
             app_dir = os.path.dirname(os.path.abspath(__file__))
         if IS_WINDOWS:
+            old_exe_name = os.path.basename(sys.executable)
             new_exe_name = None
-            for f in os.listdir(source_dir):
-                if f.endswith('.exe') and 'uninstall' not in f.lower():
-                    new_exe_name = f
-                    break
+            try:
+                for f in os.listdir(source_dir):
+                    if f.lower() == (APP_NAME_EN + '.exe').lower():
+                        new_exe_name = f
+                        break
+            except Exception:
+                pass
             if not new_exe_name:
-                new_exe_name = os.path.basename(sys.executable) if hasattr(sys, 'frozen') else 'main.py'
-            update_script = os.path.join(temp_dir, "updater.bat")
-            # 普通拼接免转义
-            _bat_lines = [
-                "@echo off",
-                "chcp 65001 >nul",
-                "echo 正在更新%s..." % APP_NAME,
-                "",
-                "rem 先等待旧进程真正退出，避免新版本被单实例锁判为程序已启动",
-                "set _wait=0",
-                ":waitloop",
-                'tasklist /FI "IMAGENAME eq %s" 2>nul | find /I "%s" >nul'
-                % (new_exe_name, new_exe_name),
-                "if not errorlevel 1 (",
-                "    set /a _wait+=1",
-                "    if %_wait% geq 60 goto forcestart",
-                "    timeout /t 1 /nobreak >nul",
-                "    goto waitloop",
-                ")",
-                "goto docopy",
-                "",
-                ":forcestart",
-                "echo 旧进程未退出，尝试强制结束...",
-                'taskkill /F /IM "%s" >nul 2>&1' % new_exe_name,
-                "timeout /t 2 /nobreak >nul",
-                "goto docopy",
-                "",
-                ":docopy",
-                "rem 用 /MIR 做镜像式更新：既复制新增/变更的文件，也删除新版包中",
-                "rem 已不存在的旧文件（如旧版本的 *-*.dist-info、改名的 exe/pyd）。",
-                "rem 此前只用 /E /IS /IT，旧文件会一直残留，导致 _internal 里",
-                "rem 新旧依赖混在一起，出现“装了新版却仍加载旧组件”的更新不完整现象。",
-                "rem /XF 排除用户数据文件，避免更新时把用户配置/存档一起删掉。",
-                'robocopy "%s" "%s" /MIR /IS /IT /XF client_id.txt app_config.json data_consent.json download_tasks.json download_history.json cookie.txt cookies.txt browser_env.json cloud_config.json wbi_cache.json beta_bind.json dismissed_announcements.json /XD log logs temp "B站下载" cache /NFL /NDL /NJH /NJS /NP >nul'
-                % (source_dir, app_dir),
-                "rem robocopy 退出码 0-7 均为成功（仅表示有文件被复制/删除）",
-                "if errorlevel 8 (",
-                "    echo 更新失败，错误码 %errorlevel%",
-                "    pause",
-                "    exit /b 1",
-                ")",
-                "",
-                'if exist "%s" (' % os.path.join(app_dir, "_internal", "version_info.json"),
-                '    copy /Y "%s" "%s" >nul'
-                % (os.path.join(app_dir, "_internal", "version_info.json"),
-                   os.path.join(app_dir, "version_info.json")),
-                ")",
-                "",
-                "echo 更新完成，正在启动程序...",
-                'start "" "%s"' % os.path.join(app_dir, new_exe_name),
-                "exit /b 0",
-                "",
+                try:
+                    for f in sorted(os.listdir(source_dir)):
+                        low = f.lower()
+                        if low.endswith('.exe') and 'uninstall' not in low:
+                            new_exe_name = f
+                            break
+                except Exception:
+                    pass
+            if not new_exe_name:
+                _st("更新包中未找到主程序，已取消安装", True)
+                return
+
+            keep_files = [
+                "client_id.txt", "app_config.json", "data_consent.json",
+                "download_tasks.json", "download_history.json", "cookie.txt",
+                "cookies.txt", "browser_env.json", "cloud_config.json",
+                "wbi_cache.json", "beta_bind.json",
+                "dismissed_announcements.json",
             ]
-            script_content = "\r\n".join(_bat_lines)
-            with open(update_script, 'w', encoding='utf-8') as f:
-                f.write(script_content)
+            keep_dirs = ["log", "logs", "temp", "cache", "B站下载"]
+            for extra in ("runtime", "wheels", "pyqt5_runtime"):
+                if (not os.path.isdir(os.path.join(source_dir, extra))
+                        and os.path.isdir(os.path.join(app_dir, extra))):
+                    keep_dirs.append(extra)
+            for extra in ("PyQt5", "wheels", "runtime"):
+                src_sub = os.path.join(source_dir, "_internal", extra)
+                dst_sub = os.path.join(app_dir, "_internal", extra)
+                if not os.path.isdir(src_sub) and os.path.isdir(dst_sub):
+                    keep_dirs.append(extra)
+            keep_dirs = list(dict.fromkeys(keep_dirs))
+
+            update_script = os.path.join(temp_dir, "updater.bat")
+            _bat_content = _build_updater_bat(
+                source_dir, app_dir, temp_dir, old_exe_name, new_exe_name,
+                keep_files, keep_dirs, extract_dir, save_path,
+                restart_after=not quiet)
+            try:
+                with open(update_script, 'w', encoding='utf-8') as f:
+                    f.write(_bat_content)
+            except Exception as e:
+                _st(f"写入更新脚本失败：{e}", True)
+                return
+
+            def _probe_writable(path):
+                probe = os.path.join(path, ".bdt_update_probe")
+                try:
+                    with open(probe, "w") as f:
+                        f.write("1")
+                    os.remove(probe)
+                    return True
+                except Exception:
+                    return False
+
+            if not _probe_writable(app_dir):
+                try:
+                    import ctypes as _ct
+                    _is_admin = bool(_ct.windll.shell32.IsUserAnAdmin())
+                except Exception:
+                    _is_admin = False
+                if _is_admin:
+                    _st("安装目录不可写，无法完成更新，请检查目录权限", True)
+                    return
+                try:
+                    import ctypes as _ct
+                    _ct.windll.shell32.ShellExecuteW.restype = _ct.c_void_p
+                    _cmd_exe = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"),
+                                            "System32", "cmd.exe")
+                    _res = _ct.windll.shell32.ShellExecuteW(
+                        None, "runas", _cmd_exe, '/c "%s"' % update_script, None, 0)
+                    if not _res or int(_res) <= 32:
+                        _st("需要管理员权限才能完成更新，已取消", True)
+                        return
+                except Exception as e:
+                    _st(f"请求管理员权限失败：{e}", True)
+                    return
+                _st("正在以管理员权限完成更新，程序将自动重启...")
+                if quiet:
+                    return
+                time.sleep(1)
+                QApplication.quit()
+                os._exit(0)
+
+            try:
+                subprocess.Popen(['cmd', '/c', update_script],
+                                 **subprocess_no_window_kwargs())
+            except Exception as e:
+                _st(f"启动更新程序失败：{e}", True)
+                return
             _st("更新即将完成，程序将自动重启...")
-            subprocess.Popen(['cmd', '/c', update_script], **subprocess_no_window_kwargs())
+            if quiet:
+                return
         else:
             _keep = {
                 "client_id.txt", "app_config.json", "data_consent.json",
@@ -19001,32 +19395,45 @@ class BilibiliDownloader(BaseWindow):
         b_lyt = QVBoxLayout(body)
         b_lyt.setContentsMargins(scale(22), scale(18), scale(22), scale(18))
         b_lyt.setSpacing(scale(12))
-        txt = QLabel(f"更新包下载已完成（v{latest}），是否现在安装？")
+        txt = QLabel(f"更新包下载已完成（v{latest}），请选择安装方式。")
         txt.setObjectName("urText")
         txt.setWordWrap(True)
         b_lyt.addWidget(txt)
-        sub = QLabel("安装后将自动重启程序。若暂不安装，下次启动时仍会提示。")
+        sub = QLabel("退出时更新：可继续正常使用，关闭程序时自动完成安装。\n立即安装：马上安装并自动重启程序。")
         sub.setObjectName("urSub")
         sub.setWordWrap(True)
         b_lyt.addWidget(sub)
         b_lyt.addStretch(1)
         btn_lyt = QHBoxLayout()
         btn_lyt.setSpacing(scale(10))
-        later_btn = QPushButton("稍后再说")
-        later_btn.setMinimumSize(scale(90), scale(36))
+        later_btn = QPushButton("退出时更新")
+        later_btn.setMinimumSize(scale(104), scale(36))
         later_btn.setCursor(Qt.PointingHandCursor)
+        later_btn.setDefault(True)
         later_btn.setStyleSheet(f"""
-            QPushButton {{ background-color: #ffffff; color: #555555; border: 1px solid #d9d9d9; border-radius: 0; font-size: {scale(13)}px; padding: 0 {scale(18)}px; }}
-            QPushButton:hover {{ border-color: {accent}; color: {accent}; }}
-        """)
-        later_btn.clicked.connect(dlg.reject)
-        btn_lyt.addWidget(later_btn)
-        install_btn = QPushButton("立即安装")
-        install_btn.setMinimumSize(scale(104), scale(36))
-        install_btn.setCursor(Qt.PointingHandCursor)
-        install_btn.setStyleSheet(f"""
             QPushButton {{ background-color: {accent}; color: #ffffff; border: none; border-radius: 0; font-size: {scale(13)}px; font-weight: 500; padding: 0 {scale(20)}px; }}
             QPushButton:hover {{ background-color: #0958d8; }}
+        """)
+        def _defer_update():
+            try:
+                state["apply_on_exit"] = True
+                _save_update_state(state)
+            except Exception:
+                pass
+            dlg.accept()
+            try:
+                self.show_notification("更新已就绪，将在退出程序时自动安装", "info")
+            except Exception:
+                pass
+        later_btn.clicked.connect(_defer_update)
+        btn_lyt.addWidget(later_btn)
+        install_btn = QPushButton("立即安装并重启")
+        install_btn.setMinimumSize(scale(104), scale(36))
+        install_btn.setCursor(Qt.PointingHandCursor)
+        install_btn.setDefault(False)
+        install_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: #ffffff; color: #555555; border: 1px solid #d9d9d9; border-radius: 0; font-size: {scale(13)}px; padding: 0 {scale(18)}px; }}
+            QPushButton:hover {{ border-color: {accent}; color: {accent}; }}
         """)
         def _do_install():
             dlg.accept()
@@ -19047,6 +19454,18 @@ class BilibiliDownloader(BaseWindow):
             if not st:
                 return
             if not st.get("downloaded"):
+                _remove_update_files(st)
+                _clear_update_state()
+                return
+            if st.get("apply_on_exit"):
+                return
+            save_path = st.get("save_path", "")
+            if (not save_path or not os.path.exists(save_path)
+                    or os.path.getsize(save_path) == 0):
+                _clear_update_state()
+                return
+            ok, _why = _verify_update_package(save_path, st.get("update_info") or {})
+            if not ok:
                 _remove_update_files(st)
                 _clear_update_state()
                 return
@@ -19847,6 +20266,7 @@ class BilibiliDownloader(BaseWindow):
         import subprocess
         import json as _json
         script = (
+            "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;"
             "$os=Get-CimInstance Win32_OperatingSystem | Select-Object -First 1;"
             "$cs=Get-CimInstance Win32_ComputerSystem | Select-Object -First 1;"
             "$cpu=Get-CimInstance Win32_Processor | Select-Object -First 1;"
@@ -19865,10 +20285,17 @@ class BilibiliDownloader(BaseWindow):
         try:
             proc = subprocess.run(
                 ["powershell", "-NoProfile", "-Command", script],
-                capture_output=True, text=True, timeout=12,
+                capture_output=True, timeout=12,
                 **subprocess_no_window_kwargs(),
             )
-            line = (proc.stdout or "").strip()
+            raw = proc.stdout or b""
+            line = ""
+            for _enc in ("utf-8-sig", "gbk", "mbcs"):
+                try:
+                    line = raw.decode(_enc).strip()
+                    break
+                except Exception:
+                    line = ""
             if not line:
                 return {}
             data = _json.loads(line)
@@ -25551,8 +25978,9 @@ class BilibiliDownloader(BaseWindow):
                 loader = CoverLoader(cover_url)
                 loader.signals.finished.connect(
                     lambda data, a=_attempt: on_cover_loaded(data, a))
-                loader.start()
                 self.cover_loaders.append(loader)
+                loader.finished.connect(lambda l=loader: _release_cover_loader(self, l))
+                loader.start()
 
             def on_cover_loaded(img_data, attempt=0):
                 try:
@@ -37537,6 +37965,15 @@ class BilibiliDownloader(BaseWindow):
         auto_update_checkbox = self._settings_checkbox(_dlg_ref, "启动时自动检查更新")
         auto_update_checkbox.setChecked(self.config.get_app_setting("auto_check_update", True))
 
+        from config import default_run_as_admin
+        run_as_admin_checkbox = self._settings_checkbox(_dlg_ref, "启动时请求管理员权限")
+        run_as_admin_checkbox.setChecked(bool(self.config.get_app_setting(
+            "run_as_admin", default_run_as_admin())))
+        run_as_admin_checkbox.setToolTip(
+            "勾选：启动时自动以管理员身份运行（默认），避免下载、合并因路径权限不足失败\n"
+            "取消：以普通权限启动，不弹 UAC；遇到权限问题时需右键以管理员身份运行"
+        )
+
         show_speed_checkbox = self._settings_checkbox(_dlg_ref, "显示下载速度")
         show_speed_checkbox.setChecked(self.config.get_app_setting("show_download_speed", True))
 
@@ -37563,6 +38000,7 @@ class BilibiliDownloader(BaseWindow):
 
         other_checkbox_layout = self._settings_checkbox_grid(_dlg_ref, [
             auto_update_checkbox,
+            run_as_admin_checkbox,
             show_speed_checkbox,
             show_float_checkbox,
             show_merge_window_checkbox,
@@ -37581,7 +38019,7 @@ class BilibiliDownloader(BaseWindow):
         update_policy_label.setStyleSheet(scale_style("font-size: 15px; color: #333;"))
         self.update_policy_combo = QComboBox()
         self.update_policy_combo.addItem("通知我来决定是否安装", "ask")
-        self.update_policy_combo.addItem("自动下载安装", "auto")
+        self.update_policy_combo.addItem("自动下载，退出程序时安装", "auto")
         self.update_policy_combo.setMinimumHeight(scale(30))
         self.update_policy_combo.setStyleSheet(scale_style("""
             QComboBox {
@@ -37599,7 +38037,7 @@ class BilibiliDownloader(BaseWindow):
             if self.update_policy_combo.itemData(i) == current_policy:
                 self.update_policy_combo.setCurrentIndex(i)
                 break
-        update_policy_tip = QLabel("自动更新在下载完成后提示重启安装")
+        update_policy_tip = QLabel("自动更新在后台下载，退出程序时完成安装")
         update_policy_tip.setStyleSheet(scale_style("font-size: 15px; color: #909399;"))
         update_policy_row.addWidget(update_policy_label)
         update_policy_row.addWidget(self.update_policy_combo)
@@ -37912,8 +38350,40 @@ class BilibiliDownloader(BaseWindow):
                     dirs.append(d)
             return dirs
 
+        def _get_program_dirs():
+            app_dir = _get_app_dir()
+            if getattr(sys, 'frozen', False):
+                return [app_dir]
+            items = []
+            for name in ("core", "parsers", "assets", "bento4", "ffmpeg", "mpv",
+                         "runtime", "wheels", "Resources", "copyright", "docs"):
+                d = os.path.join(app_dir, name)
+                if os.path.isdir(d):
+                    items.append(d)
+            try:
+                for fn in os.listdir(app_dir):
+                    fp = os.path.join(app_dir, fn)
+                    if os.path.isfile(fp):
+                        items.append(fp)
+            except Exception:
+                pass
+            return items
+
+        def _is_inside(path, parent):
+            try:
+                p = os.path.normcase(os.path.abspath(path))
+                q = os.path.normcase(os.path.abspath(parent))
+                return p == q or p.startswith(q + os.sep)
+            except Exception:
+                return False
+
         def _calc_dir_size(dir_path):
             total = 0
+            if os.path.isfile(dir_path):
+                try:
+                    return os.path.getsize(dir_path)
+                except Exception:
+                    return 0
             try:
                 for root, dirs, files in os.walk(dir_path):
                     for f in files:
@@ -37930,19 +38400,26 @@ class BilibiliDownloader(BaseWindow):
             storage_info_label.setText("正在计算...")
             def _do_refresh():
                 try:
-                    app_dir = _get_app_dir()
-                    app_total = _calc_dir_size(app_dir)
+                    program_dirs = _get_program_dirs()
+                    program_total = 0
+                    for d in program_dirs:
+                        program_total += _calc_dir_size(d)
                     cache_dirs = _get_cache_dirs()
                     cache_total = 0
+                    overlap = 0
                     for d in cache_dirs:
-                        cache_total += _calc_dir_size(d)
-                    app_only = app_total - cache_total
-                    if app_only < 0:
-                        app_only = app_total
+                        size = _calc_dir_size(d)
+                        cache_total += size
+                        for p in program_dirs:
+                            if os.path.isdir(p) and _is_inside(d, p):
+                                overlap += size
+                                break
+                    software_total = max(program_total - overlap, 0)
+                    total_occupied = software_total + cache_total
                     text = (
-                        f"软件大小：{_fmt_size(max(app_only, 0))}\n"
+                        f"软件大小：{_fmt_size(software_total)}\n"
                         f"缓存大小：{_fmt_size(cache_total)}\n"
-                        f"总计占用：{_fmt_size(app_total)}\n"
+                        f"总计占用：{_fmt_size(total_occupied)}\n"
                         f"缓存位置：{_get_effective_cache_dir()}"
                     )
                     run_on_main_thread(lambda: storage_info_label.setText(text))
@@ -39093,6 +39570,12 @@ class BilibiliDownloader(BaseWindow):
             logger.info(f"线程数已修改为：{new_threads}")
             
             self.config.set_app_setting("custom_ui_scale", str(scale_spin.value()))
+            self.config.set_app_setting("run_as_admin", run_as_admin_checkbox.isChecked())
+            try:
+                from config import set_default_run_as_admin
+                set_default_run_as_admin(bool(run_as_admin_checkbox.isChecked()))
+            except Exception:
+                pass
 
             try:
                 _want_max = bool(start_max_checkbox.isChecked())

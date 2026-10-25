@@ -8301,8 +8301,16 @@ class BilibiliParser:
             logger.error(f"网络请求失败：{str(e)}")
             raise Exception(f"网络请求失败：{str(e)}")
         except Exception as e:
-            if "取消" in str(e) or "TASK_PAUSED" in str(e):
+            if "TASK_PAUSED" in str(e):
+                logger.info(f"下载暂停：{str(e)}")
+                raise
+            if "取消" in str(e):
                 logger.info(f"下载中断：{str(e)}")
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except Exception as clean_e:
+                        logger.warning(f"清理临时文件失败：{clean_e}")
                 raise
             logger.error(f"下载错误：{str(e)}")
             if os.path.exists(temp_path):

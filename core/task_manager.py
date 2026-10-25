@@ -2,11 +2,15 @@
 import os
 import json
 import time
+import threading
 from datetime import datetime
 
 class TaskManager:
     def __init__(self):
         self.tasks_file = "download_tasks.json"
+        self._save_lock = threading.RLock()
+        self._progress_lock = threading.Lock()
+        self._flush_timer = None
         self.tasks = self._load_tasks()
 
     def _load_tasks(self):
@@ -43,20 +47,41 @@ class TaskManager:
             return []
 
     def save_tasks(self):
+        with self._save_lock:
+            with self._progress_lock:
+                timer = self._flush_timer
+                self._flush_timer = None
+                if timer is not None:
+                    timer.cancel()
+                return self._write_tasks()
+
+    def _clean(self, obj):
+        if isinstance(obj, dict):
+            return {str(k): self._clean(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [self._clean(item) for item in obj]
+        return obj
+
+    def _write_tasks(self):
+        tmp_file = self.tasks_file + ".tmp"
         try:
-            def _clean(obj):
-                if isinstance(obj, dict):
-                    return {str(k): _clean(v) for k, v in obj.items()}
-                elif isinstance(obj, (list, tuple)):
-                    return [_clean(item) for item in obj]
-                return obj
-            cleaned = _clean(self.tasks)
-            with open(self.tasks_file, 'w', encoding='utf-8') as f:
-                json.dump(cleaned, f, ensure_ascii=False, indent=4)
+            with open(tmp_file, 'w', encoding='utf-8') as f:
+                json.dump(self._clean(self.tasks), f, ensure_ascii=False, indent=4, default=str)
+            os.replace(tmp_file, self.tasks_file)
             return True
         except Exception as e:
             print(f"保存任务文件失败：{str(e)}")
+            try:
+                if os.path.exists(tmp_file):
+                    os.remove(tmp_file)
+            except Exception:
+                pass
             return False
+
+    def _flush_progress(self):
+        with self._progress_lock:
+            self._flush_timer = None
+        self.save_tasks()
 
     def add_task(self, task_info):
         task = {
@@ -78,18 +103,20 @@ class TaskManager:
             "download_danmaku": task_info.get("download_danmaku", False),
             "danmaku_format": task_info.get("danmaku_format", "XML")
         }
-        self.tasks.append(task)
-        self.save_tasks()
+        with self._save_lock:
+            self.tasks.append(task)
+            self.save_tasks()
         return task
 
     def update_task(self, task_id, updates):
-        for task in self.tasks:
-            if task.get("id") == task_id:
-                task.update(updates)
-                task["updated_at"] = datetime.now().isoformat()
-                self.save_tasks()
-                return True
-        return False
+        with self._save_lock:
+            for task in self.tasks:
+                if task.get("id") == task_id:
+                    task.update(updates)
+                    task["updated_at"] = datetime.now().isoformat()
+                    self.save_tasks()
+                    return True
+            return False
 
     def get_task(self, task_id):
         for task in self.tasks:
@@ -104,17 +131,34 @@ class TaskManager:
         return [task for task in self.tasks if task.get("status") == status]
 
     def delete_task(self, task_id):
-        self.tasks = [task for task in self.tasks if task.get("id") != task_id]
-        self.save_tasks()
+        with self._save_lock:
+            self.tasks = [task for task in self.tasks if task.get("id") != task_id]
+            self.save_tasks()
         return True
 
     def clear_completed_tasks(self):
-        self.tasks = [task for task in self.tasks if task.get("status") != "completed"]
-        self.save_tasks()
+        with self._save_lock:
+            self.tasks = [task for task in self.tasks if task.get("status") != "completed"]
+            self.save_tasks()
         return True
 
     def update_task_progress(self, task_id, progress):
-        return self.update_task(task_id, {"progress": progress})
+        with self._progress_lock:
+            found = False
+            for task in self.tasks:
+                if task.get("id") == task_id:
+                    task["progress"] = progress
+                    task["updated_at"] = datetime.now().isoformat()
+                    found = True
+                    break
+            if not found:
+                return False
+            if self._flush_timer is None:
+                timer = threading.Timer(1.0, self._flush_progress)
+                timer.daemon = True
+                self._flush_timer = timer
+                timer.start()
+            return True
 
     def update_task_status(self, task_id, status, error_message="", task_data=None):
         updates = {"status": status}

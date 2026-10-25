@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import gc
 import threading
 import shutil
 from datetime import datetime
@@ -895,7 +896,9 @@ class EpisodeDownloadThread(QThread):
                 pass
 
     _ORPHAN_PATTERNS = ('.m4s', '.decrypted', '.part', '.ts', '.tmp')
-    _ORPHAN_PREFIXES = ('bili_merge_', 'transcode_', 'h264_convert_', '_bili_', 'bili_temp_')
+    _ORPHAN_PREFIXES = ('bili_merge_', 'transcode_', 'h264_convert_', '_bili_',
+                        'bili_temp_', 'temp_', 'decrypt_input_', 'decrypt_output_', 'repro_')
+    _ORPHAN_DIR_PREFIXES = ('repro_', 'bili_temp_', 'transcode_')
 
     @staticmethod
     def cleanup_pending_temp_files(config=None, prefer_dir=None):
@@ -931,14 +934,20 @@ class EpisodeDownloadThread(QThread):
                 for fn in os.listdir(cache_dir):
                     full = os.path.join(cache_dir, fn)
                     try:
+                        low = fn.lower()
+                        if os.path.isdir(full):
+                            if not fn.startswith(DownloadManager._ORPHAN_DIR_PREFIXES):
+                                continue
+                            if now - os.path.getmtime(full) < 600:
+                                continue
+                            shutil.rmtree(full, ignore_errors=True)
+                            continue
                         if not os.path.isfile(full):
                             continue
-                        low = fn.lower()
                         is_orphan = (low.endswith(DownloadManager._ORPHAN_PATTERNS)
                                      or fn.startswith(DownloadManager._ORPHAN_PREFIXES))
                         if not is_orphan:
                             continue
-                        # 跳过10分内防误删
                         if now - os.path.getmtime(full) < 600:
                             continue
                         os.remove(full)
@@ -2181,8 +2190,7 @@ class DownloadManager(QObject):
                 err_msg = "下载已取消"
             logger.error(f"任务{task_id}：第{ep_index+1}集处理失败 - {err_msg}，耗时：{duration_str}")
 
-            if "任务已取消" not in err_msg:
-                self._clean_temp_files(temp_files)
+            self._clean_temp_files(temp_files)
             return False, f"{err_msg}（耗时：{duration_str}）"
 
     def _clean_temp_files(self, temp_files):
@@ -2213,11 +2221,6 @@ class DownloadManager(QObject):
                         f.write(p + "\n")
             except Exception:
                 pass
-
-    @staticmethod
-    def cleanup_pending_temp_files():
-        """启动时调用，清理上次遗留的临时文件"""
-        EpisodeDownloadThread.cleanup_pending_temp_files()
 
     def _convert_subtitle_to_srt(self, subtitle_json):
         """将B站字幕JSON格式转换为SRT格式"""
@@ -3030,6 +3033,10 @@ class DownloadManager(QObject):
             logger.error(f"任务{task_id}：清理任务时发生异常：{str(e)}")
         finally:
             self._mutex.unlock()
+        try:
+            gc.collect()
+        except Exception:
+            pass
 
     def pause_task(self, task_id):
         logger.info(f"暂停任务：{task_id}")

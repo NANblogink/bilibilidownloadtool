@@ -243,7 +243,7 @@ from PyQt5.QtCore import Qt, QTimer
 from ui import BilibiliDownloader, run_on_main_thread
 from bilibili_parser import BilibiliParser
 from downloader import DownloadManager
-from config import ConfigLoader
+from config import ConfigLoader, default_run_as_admin
 from icon_manager import get_effective_icon_path
 from task_manager import TaskManager
 from utils import get_unique_filename
@@ -397,7 +397,16 @@ if __name__ == "__main__":
             if '--elevated' in sys.argv:
                 sys.argv = [a for a in sys.argv if a != '--elevated']
             os.environ.pop('BILIDOWN_ELEVATING', None)
-            if not _already_elevated and not ctypes.windll.shell32.IsUserAnAdmin():
+            _want_admin = True
+            try:
+                _setting = ConfigLoader().get_app_setting("run_as_admin", None)
+                if _setting is None:
+                    _want_admin = default_run_as_admin()
+                else:
+                    _want_admin = bool(_setting)
+            except Exception:
+                _want_admin = True
+            if not _already_elevated and _want_admin and not ctypes.windll.shell32.IsUserAnAdmin():
                 if getattr(sys, 'frozen', False):
                     _base_params = list(sys.argv[1:])
                     _base_params.append('--elevated')
@@ -561,7 +570,7 @@ if __name__ == "__main__":
                 except Exception:
                     pass
 
-            _mutex_name = "Global\\BilibiliDownloader_SingleInstance_v2"
+            _mutex_name = "Local\\BilibiliDownloader_SingleInstance_v2"
             _is_restart = "--restart" in sys.argv or "--restart" in os.environ.get("_BILI_RESTART_ARGV", "")
             _INSTANCE_MUTEX = ctypes.windll.kernel32.CreateMutexW(None, False, _mutex_name)
             _last_error = ctypes.windll.kernel32.GetLastError()
@@ -632,7 +641,7 @@ if __name__ == "__main__":
 
     try:
         from downloader import EpisodeDownloadThread
-        EpisodeDownloadThread.cleanup_pending_temp_files()
+        EpisodeDownloadThread.cleanup_pending_temp_files(ConfigLoader())
     except Exception as e:
         try:
             logger.debug(f"启动清理临时文件失败: {e}")
@@ -886,6 +895,11 @@ if __name__ == "__main__":
                 pass
 
             try:
+                app.aboutToQuit.connect(window._apply_pending_update_on_exit)
+            except Exception:
+                pass
+
+            try:
                 app.processEvents()
                 splash.update_progress(95, "加载完成...")
                 app.processEvents()
@@ -932,6 +946,11 @@ if __name__ == "__main__":
                 except Exception:
                     _fatal_error_exit("启动失败", f"主窗口显示失败，程序即将退出。\n\n{_err[-1500:]}")
             app.processEvents()
+            try:
+                from ui import repair_shortcuts_after_update
+                threading.Thread(target=repair_shortcuts_after_update, daemon=True).start()
+            except Exception:
+                pass
             QTimer.singleShot(100, init_after_ui)
         def ensure_splash_closed():
             import time

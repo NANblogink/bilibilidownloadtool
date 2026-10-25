@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 APP_NAME = "B站视频解析工具"
 APP_NAME_EN = "BilibiliDownloader"
 APP_DESCRIPTION = "B站视频解析下载工具"
-APP_VERSION = "V2.2.4"
-VERSION_NUM = "2.2.4"
+APP_VERSION = "V2.2.5"
+VERSION_NUM = "2.2.5"
 APP_AUTHOR = "寒烟似雪"
 APP_AUTHOR_QQ = "2273962061"
 APP_WEBSITE = "https://www.bilidown.cn"
@@ -68,7 +68,7 @@ def load_version_info():
     }
 
 
-def is_safe_install_path(path):
+def is_safe_install_path(path, require_app_name=True):
     if not path or not str(path).strip():
         return False, "路径为空"
     raw = str(path).strip()
@@ -81,14 +81,14 @@ def is_safe_install_path(path):
     if drive and (not tail or tail in (os.sep, '/', '\\')):
         return False, f"禁止使用驱动器根目录作为安装/卸载路径：{drive}"
 
-    # 末段须含应用标识
-    last_part = os.path.basename(norm_path)
-    if not last_part:
-        return False, f"路径无效：{norm_path}"
-    app_keywords = ('bilibili', '哔哩')
-    if not any(kw.lower() in last_part.lower() for kw in app_keywords):
-        return False, (f"安装目录名需包含应用标识(Bilibili/哔哩)，"
-                       f"当前目录名为：{last_part}")
+    if require_app_name:
+        last_part = os.path.basename(norm_path)
+        if not last_part:
+            return False, f"路径无效：{norm_path}"
+        app_keywords = ('bilibili', '哔哩')
+        if not any(kw.lower() in last_part.lower() for kw in app_keywords):
+            return False, (f"安装目录名需包含应用标识(Bilibili/哔哩)，"
+                           f"当前目录名为：{last_part}")
 
     win_dir = os.environ.get('SystemRoot', r'C:\Windows')
     pf = os.environ.get('ProgramFiles', r'C:\Program Files')
@@ -101,7 +101,13 @@ def is_safe_install_path(path):
             os.path.join(win_dir, 'SysWOW64'),
         ) if p
     }
-    if norm_path.lower() in dangerous:
+    low = norm_path.lower()
+    if low in dangerous:
         return False, f"禁止使用系统关键目录：{norm_path}"
+
+    prefix = low.rstrip('\\') + '\\'
+    for d in dangerous:
+        if d.startswith(prefix):
+            return False, f"不能使用系统目录或个人目录的上级目录：{norm_path}"
 
     return True, ""

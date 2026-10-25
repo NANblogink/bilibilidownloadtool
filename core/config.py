@@ -5,6 +5,32 @@ import sys
 import _pathsetup
 
 
+def default_run_as_admin():
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            r"Software\BilibiliDownloadTool") as key:
+            value, _ = winreg.QueryValueEx(key, "DefaultRunAsAdmin")
+            return str(value) != "0"
+    except Exception:
+        return True
+
+
+def set_default_run_as_admin(enabled):
+    try:
+        import winreg
+        key = winreg.CreateKey(winreg.HKEY_CURRENT_USER,
+                              r"Software\BilibiliDownloadTool")
+        try:
+            winreg.SetValueEx(key, "DefaultRunAsAdmin", 0, winreg.REG_SZ,
+                              "1" if enabled else "0")
+        finally:
+            winreg.CloseKey(key)
+        return True
+    except Exception:
+        return False
+
+
 def _default_download_dir():
     try:
         if getattr(sys, 'frozen', False):

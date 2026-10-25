@@ -20,9 +20,9 @@ PY_URLS = {
 }
 
 PY_MIRRORS = [
-    "",  # 官方
-    "https://mirrors.aliyun.com/python-release/windows/",
+    "https://registry.npmmirror.com/-/binary/python/{v}/",
     "https://mirrors.huaweicloud.com/python/{v}/",
+    "https://mirrors.tuna.tsinghua.edu.cn/python/{v}/",
 ]
 
 MIRROR_SIMPLE = [
@@ -135,6 +135,9 @@ def _download(url, dest, title="", retries=3, timeout=120):
             raise IOError("复制后大小不一致: %s" % os.path.basename(src))
         return dest
 
+    if str(url).lower().startswith("http://"):
+        raise IOError("已拒绝不安全的下载地址: %s" % url)
+
     last = None
     for attempt in range(max(1, retries)):
         if attempt:
@@ -144,6 +147,8 @@ def _download(url, dest, title="", retries=3, timeout=120):
             req = urllib.request.Request(url, headers={"User-Agent":
                 "Mozilla/5.0 BilibiliDownloadTool/2.1"})
             with urllib.request.urlopen(req, timeout=timeout) as r:
+                if not str(r.geturl()).lower().startswith("https://"):
+                    raise IOError("下载被重定向到不安全地址")
                 total = int(r.headers.get("Content-Length") or 0)
                 done = 0
                 lastpct = -1
@@ -185,12 +190,12 @@ def _py_url(arch):
 
 
 def _alt_py_urls(arch):
-    """备用下载地址。"""
+    """国内镜像下载地址（优先）。"""
     name = "python-%s-embed-%s.zip" % (
         PY_VER, {"win_amd64": "amd64", "win32": "win32",
                  "win_arm64": "arm64"}.get(arch, "amd64"))
     out = []
-    for m in PY_MIRRORS[1:]:
+    for m in PY_MIRRORS:
         if "{v}" in m:
             out.append(m.format(v=PY_VER) + name)
         else:
@@ -233,7 +238,7 @@ def deploy_python(root=None, local_zip=None):
         _log("  使用内置 Python 运行时包: %s" % os.path.basename(local_zip))
         tmpzip = local_zip
     else:
-        urls = [_py_url(arch)] + _alt_py_urls(arch)
+        urls = _alt_py_urls(arch) + [_py_url(arch)]
         urls = [u for u in urls if u]
         _log("  下载 Python 运行时 (%.0f MB 左右)..." % 8)
         tmp = tempfile.mkdtemp(prefix="pydl_")
@@ -461,6 +466,15 @@ def _scan_local(directory, want_name):
     return out
 
 
+def _sha256_file(path):
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def _fetch_index(prefix):
     """从镜像取 simple 索引里的 wheel 列表。"""
     import urllib.request
@@ -479,9 +493,13 @@ def _fetch_index(prefix):
             continue
         out = []
         for m in re.finditer(r'href="([^"]+\.whl[^"]*)"', data):
-            href = m.group(1).split("#")[0]
+            raw = m.group(1)
+            href, _, fragment = raw.partition("#")
             fn = href.split("/")[-1]
-            out.append((fn, urljoin(page, href)))
+            sha = ""
+            if fragment.strip().lower().startswith("sha256="):
+                sha = fragment.split("=", 1)[1].strip().lower()
+            out.append((fn, urljoin(page, href), sha))
         if out:
             return out
     return []
@@ -611,21 +629,24 @@ def install_site_packages(root=None, local_dir=None):
                     return False
                 best = None
                 bestsc = -1
-                for fn, url in entries:
+                for fn, url, sha in entries:
                     sc = _wheel_score(fn, prefix, ver)
                     if sc > bestsc:
                         bestsc = sc
-                        best = (fn, url)
+                        best = (fn, url, sha)
                 if not best:
                     _log("    %s: 没有匹配当前架构/版本的 wheel" % prefix)
                     return False
-                fn, url = best
+                fn, url, sha = best
                 dst = os.path.join(tmp, fn)
                 _log("    下载 %s" % fn)
                 try:
                     _download(url, dst, prefix, retries=2)
                 except Exception as e:
                     _log("    下载失败: %s" % e)
+                    return False
+                if sha and _sha256_file(dst) != sha.lower():
+                    _log("    校验失败，已中止: %s" % fn)
                     return False
                 try:
                     _install_wheel_zip(dst, sp)
