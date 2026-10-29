@@ -14,6 +14,9 @@ def _is_msix_environment():
         return False
 
 
+_STARTUP_STATE = {'window_visible': False, 'fatal_dialog': False, 'constructing': False}
+
+
 def _fatal_error_dialog(title, message):
     try:
         from PyQt5.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout,
@@ -140,6 +143,7 @@ def _fatal_error_dialog(title, message):
 
 
 def _fatal_error_exit(title, message):
+    _STARTUP_STATE['fatal_dialog'] = True
     try:
         import traceback as _tb
         _log_path = os.path.join(os.path.expanduser('~'), 'bilidown_startup_error.log')
@@ -148,8 +152,17 @@ def _fatal_error_exit(title, message):
     except Exception:
         pass
     if sys.platform == 'win32':
+        _on_main_thread = True
         try:
-            if not _fatal_error_dialog(title, message):
+            import threading as _th
+            _on_main_thread = _th.get_ident() == _th.main_thread().ident
+        except Exception:
+            pass
+        try:
+            if _on_main_thread and _fatal_error_dialog(title, message):
+                pass
+            else:
+                # 非主线程创建 QDialog 不可靠，改用系统原生弹框
                 import ctypes
                 ctypes.windll.user32.MessageBoxW(None, str(message)[:1800], title, 0x10)
         except Exception:
@@ -854,6 +867,7 @@ if __name__ == "__main__":
         window = None
         def create_main_window():
             global window
+            _STARTUP_STATE['constructing'] = True
             # 主窗口必须创建成功
             try:
                 window = BilibiliDownloader(
@@ -862,7 +876,9 @@ if __name__ == "__main__":
                     download_manager=download_manager[0]
                 )
                 window.parser = parser[0]
+                _STARTUP_STATE['constructing'] = False
             except Exception:
+                _STARTUP_STATE['constructing'] = False
                 import traceback as _tb
                 _err = _tb.format_exc()
                 try:
@@ -946,6 +962,7 @@ if __name__ == "__main__":
                 except Exception:
                     _fatal_error_exit("启动失败", f"主窗口显示失败，程序即将退出。\n\n{_err[-1500:]}")
             app.processEvents()
+            _STARTUP_STATE['window_visible'] = bool(window is not None and window.isVisible())
             try:
                 from ui import repair_shortcuts_after_update
                 threading.Thread(target=repair_shortcuts_after_update, daemon=True).start()
@@ -1355,6 +1372,17 @@ if __name__ == "__main__":
                     injected_at = None
                     continue
 
+                # 启动阶段主线程忙于构建窗口属正常，注入异常会打断启动；
+                # 已弹出致命错误框时同样不再注入，避免掩盖真实错误
+                if not _STARTUP_STATE['window_visible'] or _STARTUP_STATE['fatal_dialog']:
+                    injected_at = None
+                    if elapsed > 30 and int(elapsed) % 30 == 0:
+                        try:
+                            logger.error(f"[卡死检测] 启动阶段主线程已 {int(elapsed)} 秒未响应，暂不注入异常")
+                        except Exception:
+                            pass
+                    continue
+
                 if injected_at is None:
                     injected_at = time.time()
                     try:
@@ -1423,6 +1451,10 @@ if __name__ == "__main__":
                     _visible = False
                 if _visible:
                     return  # 窗口已显示看门狗退役
+                if _STARTUP_STATE['fatal_dialog']:
+                    return  # 已弹出致命错误框，真实原因已在其中显示，不再重复误报
+                if _STARTUP_STATE['constructing']:
+                    continue  # 正在构建主窗口，主线程在加载界面与网络数据，不判定为启动失败
                 if time.time() - _t0 > _deadline:
                     _dumps = []
                     try:
