@@ -115,6 +115,12 @@ def setup_logging():
         fmt=LOG_FORMAT,
         datefmt=LOG_DATE_FORMAT
     ))
+    # 落盘前脱敏：日志随时可能被上报或发给作者，cookie/令牌不该出现在文件里
+    try:
+        from cloud_service import _RedactingFilter
+        file_handler.addFilter(_RedactingFilter())
+    except Exception as _e:
+        logging.getLogger(__name__).warning("日志脱敏过滤器加载失败（不影响记录）: %s", _e)
     root_logger.addHandler(file_handler)
     
     logging.getLogger('PyQt5').setLevel(logging.ERROR)
@@ -189,6 +195,19 @@ def clear_old_logs(days=KEEP_DAYS):
     return removed, freed
 
 
+def _redact_log_text(data):
+    """日志外发前的脱敏（cookie / 令牌 / 本机用户名路径）。
+
+    依赖 cloud_service.redact_sensitive_text；导入失败时原样返回，
+    保证「一键复制日志」在任何环境下都还能用。
+    """
+    try:
+        from cloud_service import redact_sensitive_text
+        return redact_sensitive_text(data)
+    except Exception:
+        return data
+
+
 def package_logs(output_path=None):
     _ensure_log_dir()
     
@@ -217,7 +236,13 @@ def package_logs(output_path=None):
         with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zf:
             for f in files_to_pack:
                 arc_name = os.path.join('logs', f['name'])
-                zf.write(f['path'], arc_name)
+                # 日志会发给作者排查问题，打包前先脱敏，避免把 cookie 带出去
+                try:
+                    with open(f['path'], 'r', encoding='utf-8', errors='replace') as fh:
+                        raw = fh.read()
+                    zf.writestr(arc_name, _redact_log_text(raw))
+                except Exception:
+                    zf.write(f['path'], arc_name)
         
         zip_size = os.path.getsize(output_path)
         logger = logging.getLogger(__name__)

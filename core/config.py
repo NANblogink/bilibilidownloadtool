@@ -134,6 +134,7 @@ class ConfigLoader:
                 "emoji_last_save_path": "",
                 "emoji_business": "reply",
                 "audio_last_save_path": "",
+                "audio_output_format": "m4a",
                 "show_recording_tray": True,
                 "ui_style": "classic",
                 "theme": "style-classic"

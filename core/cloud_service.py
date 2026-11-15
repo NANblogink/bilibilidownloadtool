@@ -14,6 +14,110 @@ logger = logging.getLogger(__name__)
 
 API_BASE = "https://www.bilidown.cn/api/v1"
 
+# 日志里可能出现的敏感信息：[属性名] 与 [登录凭证 key]
+_SENSITIVE_KEYS = (
+    "SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid", "buvid3", "buvid4",
+    "bili_ticket", "bili_ticket_expires", "access_key", "refresh_token", "ac_time_value",
+    "csrf", "csrf_token", "cookie", "cookies", "set-cookie", "authorization",
+    "password", "passwd", "token", "api_token", "secret", "secret_key", "apikey", "api_key",
+)
+_KEY_ALT = "|".join(re.escape(k) for k in _SENSITIVE_KEYS)
+
+# 1) "key=value" / "key: value" / "key": "value"（允许引号与空白）
+_RE_KV = re.compile(
+    r"(?i)(?P<k>[\"']?\b(?:" + _KEY_ALT + r")\b[\"']?\s*[:=]\s*)"
+    r"(?P<v>\"[^\"]*\"|'[^']*'|\{[^\r\n]*\}|[^\s,;&\"'}\]\)]+)")
+# 2) Cookie 请求头那一行：整行替换
+_RE_COOKIE_HEADER = re.compile(r"(?i)(['\"]?cookie['\"]?\s*:\s*)[^\r\n]+")
+# 3) 打包后的登录字典：{'SESSDATA': '...', 'bili_jct': '...'}，上一条规则已覆盖
+# 4) URL 查询串里的敏感参数
+_RE_URL_SECRET = re.compile(r"(?i)([?&](?:" + _KEY_ALT + r")=)[^&\s'\"]+")
+# 绝对路径里的用户名：C:\Users\xxx\ / /home/xxx/
+_RE_USER_HOME = re.compile(r"(?i)([A-Za-z]:[\\/]+(?:Users|Documents and Settings)[\\/]+)([^\\/\s\"']+)")
+# POSIX 路径里的用户目录：/home/xxx/ /Users/xxx/
+_RE_USER_HOME_POSIX = re.compile(r"(?<![\w.-])(/(?:home|Users)/)([^/\s\"']+)")
+
+
+# 相对宽松的「候选敏感词」：只用来决定要不要重建日志记录，真正替换仍走 _RE_KV
+_RE_CANDIDATE = re.compile(r"(?i)(" + _KEY_ALT + r")\s*[:=]")
+
+
+def _looks_secret(value):
+    """判断一段文本里是否疑似有敏感键值对（仅用于触发脱敏，不做替换）。"""
+    try:
+        if isinstance(value, (bytes, bytearray)):
+            value = bytes(value).decode("utf-8", "ignore")
+        if not isinstance(value, str):
+            return False
+        return bool(_RE_CANDIDATE.search(value))
+    except Exception:
+        return False
+
+
+def _mask_value(value):
+    """把值替换为定长掩码，不保留任何原文片段。"""
+    if value is None:
+        return ""
+    text = str(value)
+    if len(text) >= 2 and text[0] in ("'", '"') and text[-1] == text[0]:
+        return f"{text[0]}***已脱敏***{text[0]}"
+    return "***已脱敏***"
+
+
+def redact_sensitive_text(text):
+    """对任意文本做敏感信息脱敏，返回新字符串。
+
+    用于：日志上报、崩溃日志上传、一键复制日志，以及日志落盘前的过滤。
+    只做文本替换，不改动调用方逻辑；失败时原样返回，绝不因脱敏而丢日志。
+    """
+    if not text:
+        return text
+    try:
+        if isinstance(text, (bytes, bytearray)):
+            text = bytes(text).decode("utf-8", "ignore")
+        data = str(text)
+        data = _RE_COOKIE_HEADER.sub(lambda m: m.group(1) + "***已脱敏***", data)
+        data = _RE_URL_SECRET.sub(lambda m: m.group(1) + "***已脱敏***", data)
+        data = _RE_KV.sub(lambda m: m.group("k") + _mask_value(m.group("v")), data)
+        data = _RE_USER_HOME.sub(lambda m: m.group(1) + "***", data)
+        data = _RE_USER_HOME_POSIX.sub(lambda m: m.group(1) + "***", data)
+        return data
+    except Exception as e:
+        logger.debug(f"日志脱敏失败，按原文返回: {e}")
+        return str(text)
+
+
+class _RedactingFilter(logging.Filter):
+    """日志落盘/外发前的最后一道闸：记录内容先脱敏再交给下游 handler。
+
+    只处理带占位符参数或疑似敏感键值对的记录，普通日志原样通过，
+    避免把大量无害日志拼接重排。
+    """
+
+    def filter(self, record):
+        try:
+            msg = record.msg
+            # 惰性 %s 记录：占位符展开后才可能出现 key=value
+            if record.args and isinstance(msg, str) and "%" in msg:
+                try:
+                    if _looks_secret(record.getMessage()):
+                        record.msg = redact_sensitive_text(record.getMessage())
+                        record.args = ()
+                except Exception:
+                    pass
+            elif isinstance(msg, str) and _looks_secret(msg):
+                record.msg = redact_sensitive_text(msg)
+            if record.exc_info:
+                # 异常文本也要脱敏（堆栈里可能夹带请求体或令牌）
+                try:
+                    record.exc_text = redact_sensitive_text(
+                        logging.Formatter().formatException(record.exc_info))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return True
+
 
 def collect_recent_logs(max_bytes=512 * 1024, tail_only=True):
     try:
@@ -866,6 +970,11 @@ class CloudService:
         if not self.is_consent(self.CONSENT_ERROR):
             logger.debug(f"错误上报已跳过（用户未同意）: {error_type}")
             return
+        client_id = self._client_id
+        current_version = self.current_version
+        platform = self.platform
+        api_base = API_BASE
+
         def _do_report():
             try:
                 ip_address = ""
@@ -875,23 +984,25 @@ class CloudService:
                 except Exception:
                     pass
 
-                _log = log_content or collect_recent_logs()
+                # 送上云端的日志必须先脱敏（cookie / 令牌 / 本机用户名路径）
+                _log = redact_sensitive_text(log_content or collect_recent_logs())
                 payload = {
                     "action": "report_error",
                     "error_type": error_type,
-                    "error_message": str(error_message)[:2000],
-                    "error_stack": str(error_stack)[:5000],
-                    "platform": self.platform,
-                    "version": self.current_version,
-                    "client_id": self._client_id,
-                    "extra": json.dumps(extra_data, ensure_ascii=False) if extra_data else "",
+                    "error_message": redact_sensitive_text(str(error_message))[:2000],
+                    "error_stack": redact_sensitive_text(str(error_stack))[:5000],
+                    "platform": platform,
+                    "version": current_version,
+                    "client_id": client_id,
+                    "extra": redact_sensitive_text(
+                        json.dumps(extra_data, ensure_ascii=False)) if extra_data else "",
                     "error_line": int(error_line) if error_line else 0,
                     "error_file": sanitize_error_path(error_file)[:200],
                     "ip_address": ip_address,
                     "log_content": str(_log)[:1048576],
                 }
                 resp = self.session.post(
-                    f"{API_BASE}/stats/",
+                    f"{api_base}/stats/",
                     json=payload,
                     timeout=10,
                 )
@@ -907,118 +1018,6 @@ class CloudService:
                 logger.warning(f"[错误上报] 失败(不影响使用): {e}")
 
         threading.Thread(target=_do_report, daemon=True).start()
-
-    def _find_latest_log_text(self, max_bytes=3 * 1024 * 1024):
-        try:
-            from logger_config import LOG_DIR
-        except Exception:
-            return None
-        if not LOG_DIR or not os.path.isdir(LOG_DIR):
-            return None
-        files = []
-        try:
-            for f in os.listdir(LOG_DIR):
-                p = os.path.join(LOG_DIR, f)
-                if os.path.isfile(p) and (f.endswith(".log") or ".log." in f):
-                    try:
-                        files.append((os.path.getmtime(p), p))
-                    except Exception:
-                        pass
-        except Exception:
-            return None
-        if not files:
-            return None
-        files.sort(key=lambda x: -x[0])
-        parts = []
-        total = 0
-        for _, p in files:
-            try:
-                with open(p, "r", encoding="utf-8", errors="replace") as fh:
-                    data = fh.read()
-            except Exception:
-                continue
-            if total + len(data) <= max_bytes:
-                parts.append(data)
-                total += len(data)
-            else:
-                remain = max_bytes - total
-                if remain > 0:
-                    parts.append(data[-remain:])
-                    total += remain
-                break
-            if total >= max_bytes:
-                break
-        return "\n".join(parts) if parts else None
-
-    def poll_log_pull(self):
-        """检查云端是否对该设备下发了"远程拉取日志"指令，若有则上传最新日志。"""
-        if not self.is_consent(self.CONSENT_ERROR):
-            logger.info("[日志拉取] 已跳过：用户未开启错误日志上报")
-            return False
-        try:
-            resp = self.session.get(
-                f"{API_BASE}/pull/",
-                params={"action": "pending", "client_id": self._client_id},
-                timeout=10,
-            )
-            if resp.status_code != 200:
-                logger.warning(f"[日志拉取] 查询失败：HTTP {resp.status_code}")
-                return False
-            data = resp.json()
-            if data.get("code") != 0:
-                logger.warning(f"[日志拉取] 查询被拒绝：{data.get('message')}")
-                return False
-            task = (data.get("data") or {}).get("task")
-            if not task:
-                return False
-            task_id = task.get("id")
-            code = task.get("task_code") or ""
-            log_text = self._find_latest_log_text()
-            if log_text is None:
-                log_text = "（客户端未找到可用的日志文件）"
-            logger.info(
-                "[日志拉取] 收到任务 task=%s，日志 %d 字节，开始上传",
-                task_id, len(log_text))
-            up = self.session.post(
-                f"{API_BASE}/pull/",
-                data={
-                    "action": "upload",
-                    "client_id": self._client_id,
-                    "task_id": task_id,
-                    "code": code,
-                },
-                files={"file": ("log.txt", log_text.encode("utf-8"), "text/plain")},
-                timeout=30,
-            )
-            if up.status_code != 200:
-                logger.warning(f"[日志拉取] 上传失败：HTTP {up.status_code}")
-                return False
-            try:
-                d = up.json()
-            except Exception:
-                logger.warning("[日志拉取] 上传响应无法解析为 JSON")
-                return False
-            if d.get("code") == 0:
-                logger.info(f"[日志拉取] 上传成功 task={task_id} file={d.get('data', {}).get('file_path')}")
-                return True
-            logger.warning(f"[日志拉取] 上传被拒绝：{d.get('message')}")
-            return False
-        except Exception as e:
-            logger.warning(f"[日志拉取] 请求异常：{e}")
-            return False
-
-    def start_log_pull_loop(self, interval=20):
-        """后台 daemon 线程周期性检查远程拉取日志指令。"""
-        def _loop():
-            while True:
-                try:
-                    self.poll_log_pull()
-                except Exception:
-                    pass
-                time.sleep(interval)
-        t = threading.Thread(target=_loop, daemon=True, name="log-pull-poll")
-        t.start()
-        return t
 
     def get_remote_files(self):
         if not self.is_consent(self.CONSENT_REMOTE_SCRIPT):
@@ -1357,6 +1356,16 @@ class CloudService:
         if not self.is_consent(self.CONSENT_CRASH):
             logger.debug(f"崩溃上报已跳过（用户未同意）: {crash_type}")
             return
+        # 发送前统一脱敏：堆栈里可能夹带请求体、令牌或本机用户名
+        safe_message = redact_sensitive_text(str(crash_message))[:2000]
+        safe_stack = redact_sensitive_text(str(stack_trace))[:8000]
+        safe_sysinfo = redact_sensitive_text(str(system_info))[:4000]
+        safe_file = sanitize_error_path(error_file)[:200]
+        client_id = self._client_id
+        current_version = self.current_version
+        platform = self.platform
+        api_base = API_BASE
+
         def _do_report():
             try:
                 ip_address = ""
@@ -1366,18 +1375,18 @@ class CloudService:
                 except Exception:
                     pass
                 resp = self.session.post(
-                    f"{API_BASE}/crash/",
+                    f"{api_base}/crash/",
                     json={
                         "action": "report",
-                        "client_id": self._client_id,
-                        "version": self.current_version,
-                        "platform": self.platform,
+                        "client_id": client_id,
+                        "version": current_version,
+                        "platform": platform,
                         "crash_type": crash_type,
-                        "crash_message": str(crash_message)[:2000],
-                        "stack_trace": str(stack_trace)[:8000],
-                        "system_info": str(system_info)[:4000],
+                        "crash_message": safe_message,
+                        "stack_trace": safe_stack,
+                        "system_info": safe_sysinfo,
                         "error_line": int(error_line) if error_line else 0,
-                        "error_file": sanitize_error_path(error_file)[:200],
+                        "error_file": safe_file,
                         "ip_address": ip_address,
                     },
                     timeout=5,
@@ -1390,19 +1399,23 @@ class CloudService:
         threading.Thread(target=_do_report, daemon=True).start()
 
     def upload_crash_log(self, log_content, crash_id=None):
-        """上传详细崩溃日志文件"""
+        """上传详细崩溃日志文件（日志内容先脱敏）"""
         if not self.is_consent(self.CONSENT_CRASH):
             logger.debug("崩溃日志上传已跳过（用户未同意）")
             return
+        client_id = self._client_id
+        api_base = API_BASE
+        safe_log = redact_sensitive_text(str(log_content or ""))[:1048576]
+
         def _do_upload():
             try:
                 resp = self.session.post(
-                    f"{API_BASE}/crash/",
+                    f"{api_base}/crash/",
                     json={
                         "action": "upload_log",
-                        "client_id": self._client_id,
+                        "client_id": client_id,
                         "crash_id": crash_id or "",
-                        "log_content": str(log_content)[:1048576],
+                        "log_content": safe_log,
                     },
                     timeout=10,
                 )
@@ -1437,27 +1450,6 @@ class CloudService:
                     return data["data"]
         except Exception as e:
             logger.debug(f"提交反馈失败: {e}")
-        return None
-
-    def get_device_logs(self, client_id=None, limit=500, offset=0):
-        """远程拉取特定设备码的所有日志"""
-        cid = client_id or self._client_id
-        try:
-            resp = self.session.get(
-                f"{API_BASE}/device/",
-                params={
-                    "client_id": cid,
-                    "limit": limit,
-                    "offset": offset,
-                },
-                timeout=15,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                if data.get("code") == 0:
-                    return data["data"]
-        except Exception as e:
-            logger.debug(f"获取设备日志失败: {e}")
         return None
 
     def get_full_cloud_status(self):

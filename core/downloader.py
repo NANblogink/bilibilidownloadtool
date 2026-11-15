@@ -841,7 +841,25 @@ class EpisodeDownloadThread(QThread):
                 if not merge_result:
                     raise Exception(f"合并失败：{merge_error}" if merge_error else "合并失败")
             else:
-                move_file_no_copy(video_path, output_path, logger=logger)
+                # 无音轨：m4s 原始流直接改扩展名会让容器与后缀不符，
+                # 资源管理器里的时长/码率会显示为空，先做一次无损重封装
+                self.progress_updated.emit(self.ep_index, 92, "正在重新封装视频...")
+                _pack_ok, _pack_err = False, ""
+                try:
+                    _pack_ok, _pack_err = self.parser.finalize_video_output(
+                        video_path, output_path, 'mp4')
+                except Exception as _pack_e:
+                    _pack_ok, _pack_err = False, str(_pack_e)
+                if _pack_ok:
+                    try:
+                        os.remove(video_path)
+                    except Exception:
+                        pass
+                else:
+                    if _pack_err:
+                        logger.warning(f"线程{self.ep_index}：无声视频封装未完成"
+                                       f"（{_pack_err}），回退为直接改扩展名")
+                    move_file_no_copy(video_path, output_path, logger=logger)
 
             if not os.path.exists(output_path):
                 from utils import verify_and_ensure_save
@@ -1170,7 +1188,7 @@ class DownloadManager(QObject):
         download_subtitle = download_params.get('download_subtitle', False)
         danmaku_format = download_params.get('danmaku_format', 'XML')
         video_format = download_params.get('video_format', 'mp4')
-        audio_format = download_params.get('audio_format', 'mp3')
+        audio_format = download_params.get('audio_format', 'm4a')
 
         task_info = {
             "id": task_id,
@@ -1293,7 +1311,7 @@ class DownloadManager(QObject):
         download_danmaku = download_params.get('download_danmaku', False)
         danmaku_format = download_params.get('danmaku_format', 'XML')
         video_format = download_params.get('video_format', 'mp4')
-        audio_format = download_params.get('audio_format', 'mp3')
+        audio_format = download_params.get('audio_format', 'm4a')
         
         logger.info(f"收到下载请求，任务ID：{task_id}，集数：{len(episodes)}，视频下载：{download_video}，弹幕下载：{download_danmaku}，弹幕格式：{danmaku_format}，视频格式：{video_format}，音频格式：{audio_format}")
 
@@ -1855,7 +1873,7 @@ class DownloadManager(QObject):
                     if not audio_path:
                         return False, "音频下载失败"
                     temp_files.append(audio_path)
-                    audio_format = task_info.get('audio_format', 'mp3')
+                    audio_format = task_info.get('audio_format', 'm4a')
                     _audio_quality = task_info.get('audio_quality', 30280)
                     if _audio_quality in (30251, 30250) and audio_format.lower() in ('mp3', 'aac', 'ogg', 'm4a'):
                         audio_format = 'flac'
@@ -1863,8 +1881,30 @@ class DownloadManager(QObject):
                     output_path = os.path.join(task_info['save_path'],
                                                f"{_audio_name or clean_title}.{audio_format}")
                     output_path = get_unique_filename(output_path)
-                    move_file_no_copy(audio_path, output_path, logger=logger)
-                    temp_files.remove(audio_path)  # 已移出不再清理
+                    # m4s 原始流必须经 ffmpeg 封装/转码后再交付，否则扩展名与容器不符：
+                    # 资源管理器属性里时长/比特率全空，部分播放器也打不开
+                    self.episode_progress_updated.emit(task_id, ep_index, 99, "正在封装音频...")
+                    _packed, _pack_err = False, ""
+                    _audio_parser = task_info.get('parser')
+                    if _audio_parser is not None:
+                        try:
+                            _packed, _pack_err = _audio_parser.finalize_audio_output(
+                                audio_path, output_path, audio_format, _audio_quality)
+                        except Exception as _pack_e:
+                            _packed, _pack_err = False, str(_pack_e)
+                    if _packed:
+                        try:
+                            os.remove(audio_path)
+                        except Exception as _rm_e:
+                            logger.debug(f"任务{task_id}：清理音频临时文件失败：{_rm_e}")
+                    else:
+                        logger.warning(f"任务{task_id}：音频封装未完成"
+                                       f"（{_pack_err or '未知原因'}），回退为直接改扩展名")
+                        move_file_no_copy(audio_path, output_path, logger=logger)
+                    try:
+                        temp_files.remove(audio_path)  # 已移出/已清理，不再纳入临时清理
+                    except ValueError:
+                        pass
                     self.episode_progress_updated.emit(task_id, ep_index, 100, "音频下载完成")
                     logger.info(f"任务{task_id}：第{ep_index+1}集音频下载完成：{output_path}")
 
@@ -1877,8 +1917,29 @@ class DownloadManager(QObject):
                     output_path = os.path.join(task_info['save_path'],
                                                f"{_video_name or clean_title}.{video_format}")
                     output_path = get_unique_filename(output_path)
-                    move_file_no_copy(video_path, output_path, logger=logger)
-                    temp_files.remove(video_path)  # 已移出不再清理
+                    # 同上：无声视频同样要重新封装，保证容器与后缀一致、moov 前置
+                    self.episode_progress_updated.emit(task_id, ep_index, 99, "正在重新封装视频...")
+                    _packed_v, _pack_err_v = False, ""
+                    _video_parser = task_info.get('parser')
+                    if _video_parser is not None:
+                        try:
+                            _packed_v, _pack_err_v = _video_parser.finalize_video_output(
+                                video_path, output_path, video_format)
+                        except Exception as _pack_ev:
+                            _packed_v, _pack_err_v = False, str(_pack_ev)
+                    if _packed_v:
+                        try:
+                            os.remove(video_path)
+                        except Exception as _rm_ev:
+                            logger.debug(f"任务{task_id}：清理视频临时文件失败：{_rm_ev}")
+                    else:
+                        logger.warning(f"任务{task_id}：无声视频封装未完成"
+                                       f"（{_pack_err_v or '未知原因'}），回退为直接改扩展名")
+                        move_file_no_copy(video_path, output_path, logger=logger)
+                    try:
+                        temp_files.remove(video_path)
+                    except ValueError:
+                        pass
                     self.episode_progress_updated.emit(task_id, ep_index, 100, "视频下载完成（无声）")
                     logger.info(f"任务{task_id}：第{ep_index+1}集视频下载完成（无声）：{output_path}")
 
@@ -1994,7 +2055,25 @@ class DownloadManager(QObject):
                                 if not merge_result:
                                     raise Exception(f"合并失败：{merge_error}" if merge_error else "合并失败")
                             else:
-                                move_file_no_copy(video_path, output_path, logger=logger)
+                                # 无音轨（content_type=0 且无音频流）：同样先重封装
+                                self.episode_progress_updated.emit(
+                                    task_id, ep_index, 92, "正在重新封装视频...")
+                                _pack_ok, _pack_err = False, ""
+                                try:
+                                    _pack_ok, _pack_err = task_info['parser'].finalize_video_output(
+                                        video_path, output_path, video_format)
+                                except Exception as _pack_e:
+                                    _pack_ok, _pack_err = False, str(_pack_e)
+                                if _pack_ok:
+                                    try:
+                                        os.remove(video_path)
+                                    except Exception:
+                                        pass
+                                else:
+                                    if _pack_err:
+                                        logger.warning(f"任务{task_id}：无声视频封装未完成"
+                                                       f"（{_pack_err}），回退为直接改扩展名")
+                                    move_file_no_copy(video_path, output_path, logger=logger)
 
                             if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
                                 from utils import verify_and_ensure_save

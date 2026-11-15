@@ -6422,7 +6422,7 @@ class FloatingBall(QWidget):
                 "download_content_type": download_content_type,  # 0有声1音频2无声
                 "download_danmaku": download_danmaku,
                 "video_format": _config.get_app_setting("video_output_format", "mp4") if _config else "mp4",
-                "audio_format": _config.get_app_setting("audio_output_format", "mp3") if _config else "mp3",
+                "audio_format": _config.get_app_setting("audio_output_format", "m4a") if _config else "m4a",
                 "audio_quality": _config.get_app_setting("audio_quality", 30280) if _config else 30280,
                 "danmaku_format": _config.get_app_setting("danmaku_output_format", "xml").upper() if _config else "XML"
             }
@@ -7868,6 +7868,13 @@ class BaseWindow(QMainWindow):
 class VideoToolWindow(BaseWindow):
     """视频转换工具窗口"""
 
+    # 可导入的媒体后缀：下载历史里既可能是视频，也可能是「仅音频」产物
+    VIDEO_EXTS = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.ts'}
+    AUDIO_EXTS = {'.mp3', '.m4a', '.flac', '.wav', '.aac', '.ogg', '.opus'}
+    MEDIA_EXTS = VIDEO_EXTS | AUDIO_EXTS
+    MEDIA_FILTER = ("媒体文件 (*.mp4 *.mkv *.avi *.mov *.wmv *.flv *.webm *.ts "
+                    "*.mp3 *.m4a *.flac *.wav *.aac *.ogg *.opus);;所有文件 (*)")
+
     conversion_finished = pyqtSignal(str, bool)  # 文件路径, 是否成功
     add_log_signal = pyqtSignal(str)  # 跨线程日志信号
 
@@ -8630,8 +8637,7 @@ class VideoToolWindow(BaseWindow):
 
     def _add_files_dialog(self):
         file_paths, _ = QFileDialog.getOpenFileNames(
-            self, "选择视频文件", "",
-            "视频文件 (*.mp4 *.mkv *.avi *.mov *.wmv *.flv *.webm *.ts);;所有文件 (*)"
+            self, "选择媒体文件", "", self.MEDIA_FILTER
         )
         for path in file_paths:
             self._add_file(path)
@@ -8676,7 +8682,7 @@ class VideoToolWindow(BaseWindow):
                                 fp = os.path.join(save_path, f)
                                 if (os.path.isfile(fp) and
                                     os.path.splitext(f)[1].lower() in
-                                    {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.ts'} and
+                                    self.MEDIA_EXTS and
                                     fp not in history_files):
                                     history_files.append(fp)
                         except Exception:
@@ -8699,7 +8705,7 @@ class VideoToolWindow(BaseWindow):
                                 fp = os.path.join(path, f)
                                 if (os.path.isfile(fp) and
                                     os.path.splitext(f)[1].lower() in
-                                    {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.ts'} and
+                                    self.MEDIA_EXTS and
                                     fp not in history_files):
                                     history_files.append(fp)
                         except Exception:
@@ -8727,7 +8733,7 @@ class VideoToolWindow(BaseWindow):
                         fp = os.path.join(d, f)
                         if (os.path.isfile(fp) and
                             os.path.splitext(f)[1].lower() in
-                            {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.ts'} and
+                            self.MEDIA_EXTS and
                             fp not in history_files):
                             history_files.append(fp)
                 except PermissionError:
@@ -8780,8 +8786,7 @@ class VideoToolWindow(BaseWindow):
 
     def _add_file(self, path):
         ext = os.path.splitext(path)[1].lower()
-        supported_exts = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.ts'}
-        if ext not in supported_exts:
+        if ext not in self.MEDIA_EXTS:
             self._log(f"不支持的文件格式: {ext}")
             QMessageBox.warning(self, "警告", f"不支持的文件格式: {ext}")
             return
@@ -8812,15 +8817,18 @@ class VideoToolWindow(BaseWindow):
             'size': 0,
             'duration': 0,
             'format_name': '',
+            'format_bitrate': 0,
             'video_codec': '',
             'video_width': 0,
             'video_height': 0,
             'video_framerate': 0,
             'video_bitrate': 0,
+            'video_bitrate_from_stream': False,
             'audio_codec': '',
             'audio_sample_rate': 0,
             'audio_channels': 0,
             'audio_bitrate': 0,
+            'audio_bitrate_estimated': False,
             'streams': []
         }
 
@@ -8835,31 +8843,54 @@ class VideoToolWindow(BaseWindow):
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                        **subprocess_no_window_kwargs())
             stdout, stderr = process.communicate(timeout=30)
-            data = json.loads(stdout.decode('utf-8', errors='ignore'))
+            data = json.loads(stdout.decode('utf-8', errors='ignore') or '{}')
 
-            fmt = data.get('format', {})
-            info['duration'] = float(fmt.get('duration', 0))
-            info['format_name'] = fmt.get('format_name', '')
-            info['video_bitrate'] = int(fmt.get('bit_rate', 0))
+            fmt = data.get('format', {}) or {}
+            # ffprobe 在 JSON 里可能给出 "N/A" 之类的字符串，统一走安全转换，
+            # 否则一个字段解析失败会抛异常被外层吞掉，导致整个信息面板变空
+            info['duration'] = self._safe_float(fmt.get('duration'))
+            info['format_name'] = fmt.get('format_name', '') or ''
+            info['format_bitrate'] = self._safe_int(fmt.get('bit_rate'))
+            # 容器总码率先作为兜底，取到流级码率后会被覆盖
+            info['video_bitrate'] = info['format_bitrate']
 
-            for stream in data.get('streams', []):
+            for stream in (data.get('streams') or []):
+                if not isinstance(stream, dict):
+                    continue
                 info['streams'].append(stream)
                 codec_type = stream.get('codec_type', '')
-                if codec_type == 'video' and not info['video_codec']:
-                    info['video_codec'] = stream.get('codec_name', '')
-                    info['video_width'] = stream.get('width', 0)
-                    info['video_height'] = stream.get('height', 0)
-                    fr_str = stream.get('r_frame_rate', '0/1')
-                    parts = fr_str.split('/')
-                    if len(parts) == 2 and int(parts[1]) != 0:
-                        info['video_framerate'] = round(int(parts[0]) / int(parts[1]), 2)
-                    elif '/' not in fr_str:
-                        info['video_framerate'] = float(fr_str)
-                elif codec_type == 'audio' and not info['audio_codec']:
-                    info['audio_codec'] = stream.get('codec_name', '')
-                    info['audio_sample_rate'] = int(stream.get('sample_rate', 0))
-                    info['audio_channels'] = stream.get('channels', 0)
-                    info['audio_bitrate'] = int(stream.get('bit_rate', 0))
+                try:
+                    if codec_type == 'video' and not info['video_codec']:
+                        info['video_codec'] = stream.get('codec_name', '') or ''
+                        info['video_width'] = self._safe_int(stream.get('width'))
+                        info['video_height'] = self._safe_int(stream.get('height'))
+                        fps = self._parse_framerate(stream.get('r_frame_rate'))
+                        if fps <= 0:
+                            fps = self._parse_framerate(stream.get('avg_frame_rate'))
+                        info['video_framerate'] = fps
+                        stream_br = self._safe_int(stream.get('bit_rate'))
+                        if stream_br > 0:
+                            # 流级码率才是真正的视频码率，容器码率含音频
+                            info['video_bitrate'] = stream_br
+                            info['video_bitrate_from_stream'] = True
+                    elif codec_type == 'audio' and not info['audio_codec']:
+                        info['audio_codec'] = stream.get('codec_name', '') or ''
+                        info['audio_sample_rate'] = self._safe_int(stream.get('sample_rate'))
+                        info['audio_channels'] = self._safe_int(stream.get('channels'))
+                        info['audio_bitrate'] = self._safe_int(stream.get('bit_rate'))
+                except Exception as stream_err:
+                    logger.debug(f"解析流信息失败（不影响其它字段）: {stream_err}")
+
+            # 部分容器/编码不写音频流码率：纯音频文件用 大小×8/时长 估算，
+            # 避免界面上「音频比特率」永远是 N/A
+            if (info['audio_codec'] and not info['video_codec']
+                    and info['audio_bitrate'] <= 0
+                    and info['duration'] > 0 and info['size'] > 0):
+                estimated = int(info['size'] * 8 / info['duration'])
+                if estimated > 0:
+                    info['audio_bitrate'] = estimated
+                    info['audio_bitrate_estimated'] = True
+                    logger.info(f"音频码率按文件大小与时长估算：{estimated} bps（{path}）")
         except FileNotFoundError:
             logger.warning(f"ffprobe 未找到: {ffprobe_path}")
             self._log(f"警告: ffprobe 未找到，无法读取详细文件信息")
@@ -8873,26 +8904,96 @@ class VideoToolWindow(BaseWindow):
 
         return info
 
+    @staticmethod
+    def _safe_int(value, default=0):
+        """容错取整：ffprobe 可能返回 "N/A"，直接 int() 会打断整个解析流程"""
+        try:
+            if value is None or isinstance(value, bool):
+                return default
+            if isinstance(value, (int, float)):
+                return int(value)
+            text = str(value).strip()
+            if not text or text.upper() in ('N/A', 'UNKNOWN', 'NONE'):
+                return default
+            return int(float(text))
+        except Exception:
+            return default
+
+    @staticmethod
+    def _safe_float(value, default=0.0):
+        try:
+            if value is None or isinstance(value, bool):
+                return default
+            if isinstance(value, (int, float)):
+                return float(value)
+            text = str(value).strip()
+            if not text or text.upper() in ('N/A', 'UNKNOWN', 'NONE'):
+                return default
+            return float(text)
+        except Exception:
+            return default
+
+    @staticmethod
+    def _parse_framerate(value):
+        """把 '30000/1001' 这类分数字符串转成帧率，异常返回 0.0"""
+        try:
+            text = str(value or '').strip()
+            if not text or text.upper() in ('N/A', '0/0'):
+                return 0.0
+            if '/' in text:
+                num, den = text.split('/', 1)
+                den_f = float(den)
+                if den_f == 0:
+                    return 0.0
+                return round(float(num) / den_f, 2)
+            return round(float(text), 2)
+        except Exception:
+            return 0.0
+
     def _show_file_info(self, file_info):
         lines = []
         lines.append(f"文件名: {file_info['filename']}")
         lines.append(f"大小: {self._format_size(file_info['size'])}")
         lines.append(f"时长: {self._format_duration(file_info['duration'])}")
-        lines.append(f"容器格式: {file_info['format_name']}")
-        lines.append("-" * 35)
+        lines.append(f"容器格式: {file_info['format_name'] or '未知'}")
+
         if file_info['video_codec']:
+            lines.append("-" * 35)
             lines.append(f"视频编码: {file_info['video_codec']}")
             lines.append(f"分辨率: {file_info['video_width']}x{file_info['video_height']}")
             lines.append(f"帧率: {file_info['video_framerate']} fps")
-            vbr = f"{file_info['video_bitrate'] // 1000} kbps" if file_info['video_bitrate'] else "N/A"
-            lines.append(f"视频码率: {vbr}")
+            if file_info['video_bitrate']:
+                vbr = f"{file_info['video_bitrate'] // 1000} kbps"
+                if not file_info.get('video_bitrate_from_stream'):
+                    vbr += "（容器总码率，含音频）"
+                lines.append(f"视频码率: {vbr}")
+            else:
+                lines.append("视频码率: 未知")
+
         if file_info['audio_codec']:
             lines.append("-" * 35)
             lines.append(f"音频编码: {file_info['audio_codec']}")
-            lines.append(f"采样率: {file_info['audio_sample_rate']} Hz")
-            lines.append(f"声道数: {file_info['audio_channels']}")
-            abr = f"{file_info['audio_bitrate'] // 1000} kbps" if file_info['audio_bitrate'] else "N/A"
-            lines.append(f"音频比特率: {abr}")
+            _sr = file_info['audio_sample_rate']
+            lines.append(f"采样率: {_sr} Hz" if _sr else "采样率: 未知")
+            _ch = file_info['audio_channels']
+            if _ch == 1:
+                lines.append("声道数: 1（单声道）")
+            elif _ch == 2:
+                lines.append("声道数: 2（立体声）")
+            elif _ch > 2:
+                lines.append(f"声道数: {_ch}")
+            else:
+                lines.append("声道数: 未知")
+            if file_info['audio_bitrate']:
+                abr = f"{file_info['audio_bitrate'] // 1000} kbps"
+                if file_info.get('audio_bitrate_estimated'):
+                    abr += "（按大小与时长估算）"
+                lines.append(f"音频比特率: {abr}")
+            else:
+                lines.append("音频比特率: 未知")
+        elif not file_info['video_codec']:
+            lines.append("-" * 35)
+            lines.append("未识别到音视频流：文件可能不完整、受保护或格式不受支持")
 
         self.info_table.setPlainText("\n".join(lines))
 
@@ -14426,7 +14527,7 @@ class TaskManagerWindow(BaseWindow):
             "download_danmaku": task.get("download_danmaku", False),
             "danmaku_format": task.get("danmaku_format", "XML"),
             "video_format": task.get("video_format", self.config.get_app_setting("video_output_format", "mp4")),
-            "audio_format": task.get("audio_format", self.config.get_app_setting("audio_output_format", "mp3")),
+            "audio_format": task.get("audio_format", self.config.get_app_setting("audio_output_format", "m4a")),
             "audio_quality": task.get("audio_quality", self.config.get_app_setting("audio_quality", 30280))
         }
 
@@ -15866,7 +15967,7 @@ class TaskManagerWindow(BaseWindow):
             "download_danmaku": task.get("download_danmaku", False),
             "danmaku_format": task.get("danmaku_format", "XML"),
             "video_format": task.get("video_format", self.config.get_app_setting("video_output_format", "mp4")),
-            "audio_format": task.get("audio_format", self.config.get_app_setting("audio_output_format", "mp3")),
+            "audio_format": task.get("audio_format", self.config.get_app_setting("audio_output_format", "m4a")),
             "audio_quality": task.get("audio_quality", self.config.get_app_setting("audio_quality", 30280))
         }
 
@@ -17262,10 +17363,6 @@ class BilibiliDownloader(BaseWindow):
 
         from cloud_service import CloudService
         self.cloud_service = CloudService(version_info.get("version"))
-        try:
-            self.cloud_service.start_log_pull_loop(interval=20)
-        except Exception:
-            pass
         from download_history import DownloadHistory
         self.download_history = DownloadHistory()
         QTimer.singleShot(1500, self._show_data_consent_notice)
@@ -26660,7 +26757,7 @@ class BilibiliDownloader(BaseWindow):
                 "download_subtitle": download_subtitle,
                 "download_content_type": content_type if content_type is not None else (0 if download_video else 1),
                 "video_format": self.config.get_app_setting("video_output_format", "mp4"),
-                "audio_format": self.config.get_app_setting("audio_output_format", "mp3"),
+                "audio_format": self.config.get_app_setting("audio_output_format", "m4a"),
                 "audio_quality": audio_quality
             }
 
@@ -29453,7 +29550,7 @@ class BilibiliDownloader(BaseWindow):
         danmaku_format = self.danmaku_format_combo.currentText() if hasattr(self, 'danmaku_format_combo') else 'XML'
 
         video_format = self.config.get_app_setting("video_output_format", "mp4")
-        audio_format = self.config.get_app_setting("audio_output_format", "mp3")
+        audio_format = self.config.get_app_setting("audio_output_format", "m4a")
         logger.info(f"视频格式：{video_format}, 音频格式：{audio_format}")
 
         logger.info(f"弹幕设置：{download_danmaku}, 格式：{danmaku_format}")
@@ -31078,7 +31175,7 @@ class BilibiliDownloader(BaseWindow):
             "download_subtitle": download_subtitle,
             "download_content_type": download_content_type,
             "video_format": self.config.get_app_setting("video_output_format", "mp4"),
-            "audio_format": self.config.get_app_setting("audio_output_format", "mp3"),
+            "audio_format": self.config.get_app_setting("audio_output_format", "m4a"),
             "audio_quality": audio_quality
         }
 
@@ -31307,7 +31404,7 @@ class BilibiliDownloader(BaseWindow):
             "download_subtitle": download_subtitle,
             "download_content_type": content_type if content_type is not None else (0 if download_video else 1),
             "video_format": self.config.get_app_setting("video_output_format", "mp4"),
-            "audio_format": self.config.get_app_setting("audio_output_format", "mp3"),
+            "audio_format": self.config.get_app_setting("audio_output_format", "m4a"),
             "audio_quality": audio_quality
         }
 
@@ -33551,7 +33648,7 @@ class BilibiliDownloader(BaseWindow):
                             "download_danmaku": False,
                             "danmaku_format": "XML",
                             "video_format": self.config.get_app_setting("video_output_format", "mp4"),
-                            "audio_format": self.config.get_app_setting("audio_output_format", "mp3"),
+                            "audio_format": self.config.get_app_setting("audio_output_format", "m4a"),
                             "audio_quality": self.config.get_app_setting("audio_quality", 30280)
                         }
 
@@ -33742,7 +33839,7 @@ class BilibiliDownloader(BaseWindow):
 
             default_qn = self.config.get_app_setting("default_quality", 80)
             video_format = self.config.get_app_setting("video_output_format", "mp4")
-            audio_format = self.config.get_app_setting("audio_output_format", "mp3")
+            audio_format = self.config.get_app_setting("audio_output_format", "m4a")
             audio_quality = self.config.get_app_setting("audio_quality", 30280)
             download_danmaku = False
             if hasattr(self, 'danmaku_checkbox'):

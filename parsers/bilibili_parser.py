@@ -10349,6 +10349,270 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             return False, f"音视频合并失败：{str(e)}"
 
 
+    # ============ 单流产物封装（仅音频 / 仅视频 / 无声视频） ============
+    #
+    # B站 DASH 下载得到的是 .m4s（fMP4 分片），HLS 场景是 .ts。历史上仅音频/仅视频
+    # 成品直接用 move_file_no_copy 改扩展名，容器与后缀不一致，导致：
+    #   1. 资源管理器「属性 → 详细信息」中时长、比特率、音频格式等全部为空
+    #      （Windows 按扩展名挑解析器，MP4 内容套 .mp3 后缀直接解析失败）；
+    #   2. 部分播放器与手机按后缀判断格式后无法播放。
+    # 所以产出成品前必须过一遍 ffmpeg：能 copy 就 copy，必须换编码才转码。
+
+    # 音质设置 → MP3/转码目标码率
+    _AUDIO_TARGET_BITRATE = {
+        100010: '320k',
+        30280: '192k',
+        100009: '192k',
+        30232: '128k',
+        100008: '128k',
+        30216: '64k',
+    }
+
+    def _resolve_ffmpeg_exec(self):
+        """返回可用的 ffmpeg 路径（绝对路径），找不到时返回空串。"""
+        ffmpeg_exec = getattr(self, 'ffmpeg_local', None)
+        if not ffmpeg_exec or not os.path.exists(ffmpeg_exec):
+            ffmpeg_exec = shutil.which('ffmpeg')
+        if not ffmpeg_exec or not os.path.exists(ffmpeg_exec):
+            return ''
+        return os.path.normpath(ffmpeg_exec)
+
+    def _probe_streams(self, media_path, show_format=False):
+        """调用 ffprobe 读取流信息，返回 (streams, format)；失败返回 ([], {})。"""
+        try:
+            ffmpeg_exec = self._resolve_ffmpeg_exec()
+            ffprobe_exec = ''
+            if ffmpeg_exec:
+                candidate = os.path.join(os.path.dirname(ffmpeg_exec), exe('ffprobe'))
+                if os.path.exists(candidate):
+                    ffprobe_exec = os.path.normpath(candidate)
+            if not ffprobe_exec:
+                ffprobe_exec = shutil.which('ffprobe') or ''
+            if not ffprobe_exec or not os.path.exists(ffprobe_exec):
+                return [], {}
+            cmd = [ffprobe_exec, '-v', 'quiet', '-print_format', 'json', '-show_streams']
+            if show_format:
+                cmd.append('-show_format')
+            cmd.append(media_path)
+            result = subprocess.run(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL, shell=False,
+                **subprocess_no_window_kwargs(), timeout=30
+            )
+            if result.returncode != 0:
+                return [], {}
+            data = json.loads(result.stdout.decode('utf-8', errors='ignore') or '{}')
+            return (data.get('streams') or []), (data.get('format') or {})
+        except Exception as e:
+            logger.debug(f"探测媒体信息失败：{e}")
+        return [], {}
+
+    def _probe_stream_codec(self, media_path, want='audio'):
+        """读取首个音频/视频流的编码名（小写），失败返回空串。"""
+        for stream in self._probe_streams(media_path)[0]:
+            if stream.get('codec_type') == want:
+                return (stream.get('codec_name') or '').lower()
+        return ''
+
+    def _probe_duration(self, media_path):
+        """读取容器时长（秒），取不到返回 0。"""
+        try:
+            fmt = self._probe_streams(media_path, show_format=True)[1]
+            value = fmt.get('duration')
+            if value is None:
+                return 0.0
+            text = str(value).strip()
+            if not text or text.upper() in ('N/A', 'UNKNOWN', 'NONE'):
+                return 0.0
+            return float(text)
+        except Exception:
+            return 0.0
+
+    def _pack_stream(self, src_path, dst_path, args, desc='媒体', require_duration=False):
+        """用 ffmpeg 把 src_path 按 args 封装/转码到 dst_path。
+
+        输出路径含非 ASCII 字符时先写安全临时文件，成功后再零拷贝移动
+        （与 merge_media 的处理方式一致，避免 ffmpeg 在中文路径上失败）。
+        require_duration=True 时，输出缺少总时长信息也算失败——FLAC 之类的
+        容器若拿不到总时长，资源管理器属性里的时长/码率依旧是空。
+        返回 (成功?, 错误信息)；失败时由调用方回退为「直接改扩展名」。
+        """
+        temp_out = None
+
+        def _cleanup_temp():
+            if temp_out and os.path.exists(temp_out):
+                try:
+                    os.remove(temp_out)
+                except Exception:
+                    pass
+
+        try:
+            if not src_path or not os.path.exists(src_path):
+                return False, "源文件不存在"
+            if os.path.getsize(src_path) < 1024:
+                return False, "源文件过小，可能未下载完整"
+
+            ffmpeg_exec = self._resolve_ffmpeg_exec()
+            if not ffmpeg_exec:
+                return False, "未找到 ffmpeg"
+
+            work_out = dst_path
+            dst_dir = os.path.dirname(os.path.abspath(dst_path))
+            if has_non_ascii(dst_path) or has_non_ascii(dst_dir):
+                try:
+                    safe_dir = get_safe_temp_dir(
+                        os.path.dirname(os.path.abspath(__file__)), "temp",
+                        cache_dir=None, prefer_dir=dst_dir)
+                except Exception:
+                    safe_dir = getattr(self, 'safe_temp_dir', '') or dst_dir
+                if not safe_dir:
+                    safe_dir = dst_dir
+                ext = os.path.splitext(dst_path)[1] or '.tmp'
+                temp_out = os.path.join(
+                    safe_dir, f"bili_pack_{int(time.time() * 1000) % 100000000}{ext}")
+                work_out = temp_out
+
+            cmd = [ffmpeg_exec, '-loglevel', 'error', '-y', '-i', src_path] \
+                + list(args) + [work_out]
+            logger.info(f"{desc}封装：{os.path.basename(src_path)} -> {os.path.basename(dst_path)}"
+                        f"，命令={' '.join(cmd)}")
+            result = subprocess.run(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL, shell=False,
+                **subprocess_no_window_kwargs(), timeout=7200
+            )
+            if (result.returncode != 0 or not os.path.exists(work_out)
+                    or os.path.getsize(work_out) < 1024):
+                err = (result.stderr or b'').decode('utf-8', errors='ignore').strip()[:300]
+                _cleanup_temp()
+                return False, f"ffmpeg 返回码={result.returncode}：{err or '输出文件无效'}"
+
+            if require_duration and self._probe_duration(work_out) <= 0:
+                _cleanup_temp()
+                return False, "输出文件缺少总时长信息"
+
+            if temp_out:
+                if os.path.exists(dst_path):
+                    try:
+                        os.remove(dst_path)
+                    except Exception:
+                        pass
+                move_file_no_copy(temp_out, dst_path, logger=logger)
+                temp_out = None
+            logger.info(f"{desc}封装完成：{dst_path}（{os.path.getsize(dst_path)} 字节）")
+            return True, ''
+        except subprocess.TimeoutExpired:
+            _cleanup_temp()
+            return False, "ffmpeg 处理超时"
+        except Exception as e:
+            _cleanup_temp()
+            logger.error(f"{desc}封装异常：{e}", exc_info=True)
+            return False, str(e)
+
+    def finalize_audio_output(self, src_path, dst_path, audio_format='m4a', audio_quality=None):
+        """把仅音频下载得到的原始流（.m4s/.ts）封装成真正的音频文件。
+
+        返回 (成功?, 错误信息)。失败时调用方应回退为直接改扩展名，保证下载不中断。
+        """
+        try:
+            fmt = (audio_format or 'm4a').strip().lower().lstrip('.')
+            if fmt in ('mp4', 'm4b', 'm4r'):
+                fmt = 'm4a'
+            elif fmt == 'mpeg':
+                fmt = 'mp3'
+            bitrate = self._AUDIO_TARGET_BITRATE.get(audio_quality, '192k')
+            audio_stream = {}
+            for _stream in self._probe_streams(src_path)[0]:
+                if _stream.get('codec_type') == 'audio':
+                    audio_stream = _stream
+                    break
+            src_codec = (audio_stream.get('codec_name') or '').lower()
+            src_sample_fmt = (audio_stream.get('sample_fmt') or '').lower()
+            try:
+                src_bits = int(audio_stream.get('bits_per_raw_sample') or 0)
+            except Exception:
+                src_bits = 0
+            # 只有「无损源且位深高于 16bit」才需要保位深；有损源按 16bit 处理即可，
+            # 否则 AAC/杜比转出来的 WAV、FLAC 会白白翻倍体积
+            _hires = (src_codec in ('flac', 'alac')
+                      and (src_bits > 16 or src_sample_fmt in ('s32', 's32p', 's64', 's64p')))
+            _s32_args = ['-sample_fmt', 's32'] if _hires else []
+            logger.info(f"仅音频封装：源编码={src_codec or '未知'}，采样格式={src_sample_fmt or '未知'}"
+                        f"，位深={src_bits or '未知'}，目标格式={fmt}，"
+                        f"音质设置={audio_quality}（目标码率={bitrate}）")
+
+            if fmt == 'm4a':
+                # 无损转封装：AAC/FLAC/EC-3 原样搬进 MP4
+                args = ['-vn', '-c:a', 'copy', '-movflags', '+faststart', '-f', 'mp4']
+            elif fmt == 'mp3':
+                if src_codec == 'mp3':
+                    args = ['-vn', '-c:a', 'copy', '-f', 'mp3']
+                else:
+                    # 必须是 MP3 编码，否则 Windows 属性与播放器都不认这个 .mp3
+                    args = ['-vn', '-c:a', 'libmp3lame', '-b:a', bitrate, '-ac', '2',
+                            '-id3v2_version', '3', '-write_xing', '1', '-f', 'mp3']
+            elif fmt == 'flac':
+                if src_codec == 'flac':
+                    # 先尝试无损 copy；碎片化 MP4 源 copy 出来的 FLAC 会丢总时长，
+                    # 那样资源管理器属性里时长/码率还是空，所以校验后再决定是否转码
+                    ok, err = self._pack_stream(
+                        src_path, dst_path, ['-vn', '-c:a', 'copy', '-f', 'flac'],
+                        desc='音频', require_duration=True)
+                    if ok:
+                        return True, ''
+                    logger.info(f"FLAC 无损封装不可用（{err}），改为转码以补齐时长信息")
+                    if os.path.exists(dst_path):
+                        try:
+                            os.remove(dst_path)
+                        except Exception:
+                            pass
+                    args = ['-vn', '-c:a', 'flac', '-compression_level', '8'] + _s32_args
+                else:
+                    # Hi-Res 以外的杜比/普通音轨要真转码才能进 FLAC 容器
+                    args = ['-vn', '-c:a', 'flac', '-compression_level', '8'] + _s32_args
+            elif fmt == 'aac':
+                if src_codec == 'aac':
+                    args = ['-vn', '-c:a', 'copy', '-f', 'adts']
+                else:
+                    args = ['-vn', '-c:a', 'aac', '-b:a', bitrate, '-f', 'adts']
+            elif fmt in ('wav', 'pcm'):
+                args = ['-vn', '-c:a', 'pcm_s24le' if _hires else 'pcm_s16le', '-f', 'wav']
+            elif fmt == 'ogg':
+                args = ['-vn', '-c:a', 'libvorbis', '-q:a', '6', '-f', 'ogg']
+            elif fmt == 'opus':
+                args = ['-vn', '-c:a', 'libopus', '-b:a', bitrate]
+            else:
+                return False, f"不支持的目标音频格式：{fmt}"
+            # mp3/m4a/flac/wav 的时长与码率是资源管理器属性的关键字段，必须校验；
+            # aac/ogg 这类裸流格式本身就不保证带总时长，不用它当失败判据
+            require_duration = fmt in ('mp3', 'm4a', 'flac', 'wav')
+            return self._pack_stream(src_path, dst_path, args, desc='音频',
+                                     require_duration=require_duration)
+        except Exception as e:
+            logger.error(f"音频封装异常：{e}", exc_info=True)
+            return False, str(e)
+
+    def finalize_video_output(self, src_path, dst_path, video_format='mp4'):
+        """把仅视频/无声下载得到的原始流封装成真正的视频文件（默认只 copy）。
+
+        返回 (成功?, 错误信息)。失败时调用方应回退为直接改扩展名。
+        """
+        try:
+            fmt = (video_format or 'mp4').strip().lower().lstrip('.')
+            if fmt in ('mp4', 'm4v'):
+                args = ['-c', 'copy', '-movflags', '+faststart', '-f', 'mp4']
+            elif fmt == 'mov':
+                args = ['-c', 'copy', '-movflags', '+faststart', '-f', 'mov']
+            elif fmt == 'ts':
+                args = ['-c', 'copy', '-f', 'mpegts']
+            else:
+                # 其余容器交给 ffmpeg 按扩展名推断，失败则由调用方回退改名
+                args = ['-c', 'copy']
+            return self._pack_stream(src_path, dst_path, args, desc='视频')
+        except Exception as e:
+            logger.error(f"视频封装异常：{e}", exc_info=True)
+            return False, str(e)
+
 
     @staticmethod
     def _sanitize_filename(filename):
