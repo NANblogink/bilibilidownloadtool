@@ -1,0 +1,1594 @@
+
+import os
+import io
+import re
+import json
+import logging
+import threading
+
+import sip
+import requests
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, pyqtProperty, QSize, QUrl, QTimer, QEasingCurve, QPropertyAnimation, QRect
+from PyQt5.QtGui import QPixmap, QIcon, QImage, QColor, QPainter, QLinearGradient, QBrush
+from PyQt5.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
+    QComboBox, QProgressBar, QGroupBox, QScrollArea,
+    QFileDialog, QMessageBox, QSplitter, QTabWidget,
+    QListWidget, QListWidgetItem, QSizePolicy, QFrame, QGraphicsOpacityEffect
+)
+from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
+
+try:
+    from PIL import Image as PILImage
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+
+try:
+    from emoji_parser import EmojiParser, PACKAGE_TYPE_MAP, BUSINESS_MAP
+except ImportError:
+    EmojiParser = None
+
+logger = logging.getLogger(__name__)
+
+try:
+    from ui import scale, scale_style
+except ImportError:
+    def scale(v): return int(v)
+    def scale_style(s): return re.sub(r'(\d+)px', lambda m: str(int(m.group(1))) + 'px', s)
+
+
+ROLE_PACKAGE = Qt.UserRole + 1
+ROLE_EMOTE = Qt.UserRole + 1
+ROLE_THUMB_URL = Qt.UserRole + 2
+ROLE_THUMB_LOADED = Qt.UserRole + 3
+
+
+def safe_load_pixmap(data):
+    if not data:
+        return QPixmap()
+    if HAS_PIL:
+        try:
+            im = PILImage.open(io.BytesIO(data))
+            im.load()
+            buf = io.BytesIO()
+            if im.mode not in ("RGBA", "RGB"):
+                im = im.convert("RGBA")
+            im.save(buf, format="PNG", optimize=False)
+            img = QImage.fromData(buf.getvalue())
+            if not img.isNull():
+                return QPixmap.fromImage(img)
+        except Exception as e:
+            logger.warning(f"Pillow 处理图片失败，回退直接加载: {e}")
+    img = QImage.fromData(data)
+    if img.isNull():
+        return QPixmap()
+    return QPixmap.fromImage(img)
+
+
+class SkeletonWidget(QWidget):
+    progressChanged = pyqtSignal(float)
+
+    def __init__(self, parent=None, kind="list", rows=8, cols=6):
+        super().__init__(parent)
+        self._progress = 0.0
+        self._kind = kind
+        self._rows = rows
+        self._cols = cols
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
+        self.setAutoFillBackground(False)
+        self._shimmer = QPropertyAnimation(self, b"progress", self)
+        self._shimmer.setDuration(1400)
+        self._shimmer.setStartValue(0.0)
+        self._shimmer.setEndValue(1.0)
+        self._shimmer.setLoopCount(-1)
+        self._shimmer.setEasingCurve(QEasingCurve.InOutQuad)
+        self._fade_anim = None
+        self._opacity_effect = QGraphicsOpacityEffect(self)
+        self._opacity_effect.setOpacity(1.0)
+        self.setGraphicsEffect(self._opacity_effect)
+
+    def get_progress(self):
+        return self._progress
+
+    def set_progress(self, v):
+        self._progress = float(v)
+        self.update()
+
+    progress = pyqtProperty(float, get_progress, set_progress, notify=progressChanged)
+
+    def start_shimmer(self):
+        self._shimmer.start()
+
+    def fade_out_and_delete(self):
+        """淡出后自动销毁"""
+        self._shimmer.stop()
+        self._fade_anim = QPropertyAnimation(self._opacity_effect, b"opacity", self)
+        self._fade_anim.setDuration(250)
+        self._fade_anim.setStartValue(1.0)
+        self._fade_anim.setEndValue(0.0)
+        self._fade_anim.finished.connect(self.deleteLater)
+        self._fade_anim.start()
+
+    def _rounded(self, painter, x, y, w, h, r):
+        """画圆角矩形"""
+        from PyQt5.QtGui import QPainterPath
+        path = QPainterPath()
+        path.addRoundedRect(float(x), float(y), float(w), float(h), float(r), float(r))
+        painter.fillPath(path, QBrush(QColor("#eef0f3")))
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        w = self.width()
+        h = self.height()
+        if w <= 0 or h <= 0:
+            return
+        painter.fillRect(0, 0, w, h, QColor(255, 255, 255, 235))
+
+        gap = scale(8)
+
+        if self._kind == "list":
+            row_h = scale(52)
+            row_gap = scale(6)
+            y = gap
+            for i in range(self._rows):
+                if y + row_h > h - gap:
+                    break
+                self._rounded(painter, gap, y, scale(44), scale(44), scale(6))
+                tx = gap + scale(44) + scale(10)
+                self._rounded(painter, tx, y + scale(8), w - tx - scale(12), scale(10), scale(4))
+                self._rounded(painter, tx, y + scale(26), scale(60), scale(8), scale(4))
+                y += row_h + row_gap
+        else:
+            card = scale(88)
+            card_gap = scale(10)
+            cy = gap
+            for r in range(self._rows):
+                cx = gap
+                for c in range(self._cols):
+                    if cx + card > w - gap:
+                        break
+                    if cy + card > h - gap:
+                        break
+                    self._rounded(painter, cx, cy, card, card, scale(8))
+                    cx += card + card_gap
+                cy += card + card_gap
+
+        band_w = max(w, h) * 0.35
+        diag = (w + h)
+        offset = self._progress * (diag + band_w) - band_w
+        grad = QLinearGradient(offset, 0, offset + band_w, 0)
+        c0 = QColor(255, 255, 255, 0)
+        c1 = QColor(255, 255, 255, 90)
+        grad.setColorAt(0.0, c0)
+        grad.setColorAt(0.5, c1)
+        grad.setColorAt(1.0, c0)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(grad))
+        from PyQt5.QtGui import QPolygonF
+        from PyQt5.QtCore import QPointF
+        shear = h * 0.5
+        poly = QPolygonF([
+            QPointF(offset, 0),
+            QPointF(offset + band_w, 0),
+            QPointF(offset + band_w - shear, h),
+            QPointF(offset - shear, h),
+        ])
+        painter.drawPolygon(poly)
+
+
+class EmojiDownloadThread(QThread):
+    """表情包图片批量下载线程"""
+    progress_updated = pyqtSignal(int, int, str)
+    one_finished = pyqtSignal(str, bool, str)
+    all_finished = pyqtSignal(int, int)
+    error_occurred = pyqtSignal(str)
+
+    def __init__(self, emotes, save_dir, package_name="", overwrite=False):
+        super().__init__()
+        self.emotes = emotes or []
+        self.save_dir = save_dir
+        self.package_name = package_name or "表情包"
+        self.overwrite = overwrite
+        self._stop_flag = False
+
+    def run(self):
+        safe_name = self._sanitize_filename(self.package_name)
+        target_dir = os.path.join(self.save_dir, safe_name)
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+        except Exception as e:
+            self.error_occurred.emit(f"创建目录失败: {e}")
+            return
+
+        total = len(self.emotes)
+        success = 0
+        fail = 0
+        for i, emote in enumerate(self.emotes):
+            if self._stop_flag:
+                break
+            text = emote.get("text", "") or f"emote_{i}"
+            url = emote.get("url", "")
+            self.progress_updated.emit(i, total, text)
+            if not url:
+                self.one_finished.emit(text, False, "URL为空")
+                fail += 1
+                continue
+            ext = self._get_ext_from_url(url)
+            filename = self._sanitize_filename(text) + ext
+            filepath = os.path.join(target_dir, filename)
+            try:
+                if os.path.exists(filepath) and not self.overwrite:
+                    self.one_finished.emit(text, True, filepath)
+                    success += 1
+                    continue
+                ok, err = self._download_one(url, filepath)
+                if ok:
+                    self.one_finished.emit(text, True, filepath)
+                    success += 1
+                else:
+                    self.one_finished.emit(text, False, err)
+                    fail += 1
+            except Exception as e:
+                self.one_finished.emit(text, False, str(e))
+                fail += 1
+        self.progress_updated.emit(total, total, "")
+        self.all_finished.emit(success, fail)
+
+    def _download_one(self, url, filepath):
+        """下载单张图片，返回 (ok, error)"""
+        try:
+            resp = requests.get(url, timeout=15, stream=True,
+                                headers={"User-Agent": "Mozilla/5.0"})
+            resp.raise_for_status()
+            with open(filepath, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    if self._stop_flag:
+                        return False, "已取消"
+                    if chunk:
+                        f.write(chunk)
+            return True, ""
+        except Exception as e:
+            return False, str(e)
+
+    @staticmethod
+    def _get_ext_from_url(url):
+        """从URL推断扩展名"""
+        lower = url.lower().split("?")[0]
+        for ext in (".gif", ".png", ".webp", ".jpg", ".jpeg"):
+            if lower.endswith(ext):
+                return ext
+        return ".png"
+
+    @staticmethod
+    def _sanitize_filename(name):
+        """清理文件名中的非法字符"""
+        if not name:
+            return "未命名"
+        illegal = '\\/:*?"<>|'
+        for ch in illegal:
+            name = name.replace(ch, "_")
+        name = name.strip().rstrip(".")
+        return name or "未命名"
+
+    def stop(self):
+        self._stop_flag = True
+
+
+class EmojiTab(QWidget):
+    """表情包功能 Tab 页"""
+
+    _list_loaded_signal = pyqtSignal(str, bool, object, str)
+    _detail_loaded_signal = pyqtSignal(str, int, bool, object, str)
+    _error_signal = pyqtSignal(str)
+
+    def __init__(self, config=None, parent=None):
+        super().__init__(parent)
+        self.config = config
+        self.parent_window = parent
+        self.emoji_parser = None
+        self.download_thread = None
+        self._subtabs = {}
+        self._current_packages = {}
+        self._loading_detail_ids = set()
+
+        self._init_parser()
+        self._init_ui()
+        self._init_network()
+
+        self._list_loaded_signal.connect(self._on_list_loaded)
+        self._detail_loaded_signal.connect(self._on_detail_loaded)
+        self._error_signal.connect(self._on_error_msg)
+
+        self._auto_loaded_keys = set()
+        self._first_show_pending = True
+
+    def showEvent(self, event):
+        """首次显示时自动加载列表型子tab"""
+        super().showEvent(event)
+        if self._first_show_pending:
+            self._first_show_pending = False
+            QTimer.singleShot(100, self._auto_load_all_tabs)
+
+    def _auto_load_all_tabs(self):
+        if "my" in self._subtabs and self.emoji_parser and "my" not in self._auto_loaded_keys:
+            idx = self.sub_tabs.indexOf(self._subtabs["my"]["page"])
+            if idx >= 0:
+                self.sub_tabs.setCurrentIndex(idx)
+            self._load_list("my")
+
+    def _load_cookie_txt(self):
+        """从 cookie.txt 读取完整登录 cookie"""
+        cookies = {}
+        csrf_token = ""
+        cookie_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookie.txt")
+        if not os.path.exists(cookie_path):
+            cookie_path = os.path.join(os.getcwd(), "cookie.txt")
+        if os.path.exists(cookie_path):
+            try:
+                with open(cookie_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                if isinstance(data, list):
+                    for item in data:
+                        if isinstance(item, dict) and "name" in item and "value" in item:
+                            name = item["name"].strip()
+                            value = item["value"]
+                            if name:
+                                cookies[name] = value
+                                if name == 'bili_jct':
+                                    csrf_token = value
+            except Exception as e:
+                logger.warning(f"读取 cookie.txt 失败: {e}")
+        return cookies, csrf_token
+
+    def _get_cookies_from_parent(self):
+        """合并主窗口 parser 与 cookie.txt 的 cookie，确保登录态完整"""
+        cookies = {}
+        csrf_token = ""
+        sources = []
+
+        file_cookies, file_csrf = self._load_cookie_txt()
+        if file_cookies:
+            cookies.update(file_cookies)
+            if file_csrf:
+                csrf_token = file_csrf
+            sources.append("cookie.txt")
+
+        parent = getattr(self, 'parent_window', None)
+        parent_parser = getattr(parent, 'parser', None) if parent else None
+        essential_keys = {'SESSDATA', 'bili_jct', 'DedeUserID', 'DedeUserID__ckMd5'}
+        if parent_parser and hasattr(parent_parser, 'cookies') and parent_parser.cookies:
+            for k, v in parent_parser.cookies.items():
+                if k in essential_keys and k in file_cookies and file_cookies[k]:
+                    continue
+                cookies[k] = v
+                if k == 'bili_jct':
+                    csrf_token = v
+            sources.append("parent_parser")
+
+        if not cookies and self.config:
+            cookie_str = self.config.get_app_setting("cookie", "") or ""
+            if cookie_str:
+                for pair in cookie_str.split(';'):
+                    pair = pair.strip()
+                    if '=' in pair:
+                        k, v = pair.split('=', 1)
+                        k = k.strip()
+                        v = v.strip()
+                        if k:
+                            cookies[k] = v
+                            if k == 'bili_jct':
+                                csrf_token = v
+                if cookies:
+                    sources.append("config")
+
+        return cookies, csrf_token, "+".join(sources) if sources else "none"
+
+    def _init_parser(self):
+        if EmojiParser is None:
+            return
+        cookies, csrf_token, source = self._get_cookies_from_parent()
+        self.emoji_parser = EmojiParser(config=self.config, cookies=cookies, csrf_token=csrf_token)
+        logger.info(f"表情包Tab初始化，Cookie来源={source}, 字段数: {len(cookies)}")
+
+    def _refresh_cookies(self):
+        if not self.emoji_parser:
+            return
+        cookies, csrf_token, source = self._get_cookies_from_parent()
+        if cookies:
+            self.emoji_parser.update_cookies(cookies, csrf_token)
+            logger.info(f"表情包Tab Cookie已刷新，来源={source}, 字段数: {len(cookies)}")
+
+    def _has_login(self):
+        """判断是否有登录态"""
+        cookies, _, _ = self._get_cookies_from_parent()
+        return bool(cookies.get("SESSDATA"))
+
+    def _init_network(self):
+        """初始化网络管理器"""
+        self.network_manager = QNetworkAccessManager()
+        self._pending_thumbs = {}
+
+    def _abort_pending_thumbs(self, only_for_lists=None):
+        if only_for_lists is None:
+            targets = list(self._pending_thumbs.items())
+            self._pending_thumbs.clear()
+        else:
+            targets = []
+            for reply, (item, url) in list(self._pending_thumbs.items()):
+                try:
+                    if sip.isdeleted(item):
+                        targets.append((reply, item))
+                        self._pending_thumbs.pop(reply, None)
+                        continue
+                    lw = item.listWidget()
+                    if lw in only_for_lists:
+                        targets.append((reply, item))
+                        self._pending_thumbs.pop(reply, None)
+                except Exception:
+                    targets.append((reply, None))
+                    self._pending_thumbs.pop(reply, None)
+        for reply, item in targets:
+            try:
+                if not sip.isdeleted(reply):
+                    reply.abort()
+                    reply.deleteLater()
+            except Exception:
+                pass
+            if item is not None and not sip.isdeleted(item):
+                try:
+                    item.setData(ROLE_THUMB_LOADED, False)
+                except Exception:
+                    pass
+
+    _GB = """
+        QGroupBox {
+            font-size: 12px; font-weight: 600; color: #555;
+            border: 1px solid #e0e4ea; border-radius: 6px;
+            margin-top: 12px; padding: 8px;
+        }
+        QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; }
+    """
+
+    def _init_ui(self):
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(scale(2))
+        main_layout.setContentsMargins(scale(0), scale(0), scale(0), scale(0))
+
+        self.sub_tabs = QTabWidget()
+        self.sub_tabs.setStyleSheet(scale_style("""
+            QTabWidget { background-color: white; }
+            QTabBar { background-color: #f8f9fa; border-bottom: 1px solid #dee2e6; }
+            QTabBar::tab {
+                background-color: #f8f9fa; color: #6c757d;
+                padding: 6px 16px; border: 1px solid #dee2e6; border-bottom: none;
+                border-top-left-radius: 4px; border-top-right-radius: 4px;
+                margin-right: 2px; font-size: 12px;
+            }
+            QTabBar::tab:hover { background-color: #e9ecef; color: #495057; }
+            QTabBar::tab:selected { background-color: white; color: #2563eb; border-color: #409eff; border-bottom-color: white; }
+            QTabWidget::pane {
+                background-color: white; border: 1px solid #dee2e6; border-top: none;
+                border-radius: 0 0 4px 4px; padding: 0px;
+            }
+        """))
+
+        self._create_emoji_subtab("my", "我的表情包", needs_login=True, mode="my")
+        self._create_emoji_subtab("all", "所有表情包", needs_login=True, mode="all")
+        self._create_emoji_subtab("byid", "按ID查询", needs_login=False, mode="byid")
+
+        main_layout.addWidget(self.sub_tabs)
+
+        self.status_label = QLabel("就绪")
+        self.status_label.setStyleSheet(scale_style("font-size: 11px; color: #6c757d; padding: 1px;"))
+        main_layout.addWidget(self.status_label)
+
+    def _create_emoji_subtab(self, key, title, needs_login, mode):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setSpacing(scale(6))
+        layout.setContentsMargins(scale(8), scale(8), scale(8), scale(8))
+
+        toolbar = QHBoxLayout()
+        toolbar.setSpacing(scale(6))
+
+        if mode == "byid":
+            toolbar.addWidget(QLabel("表情包ID:"))
+            id_input = QLineEdit()
+            id_input.setPlaceholderText("输入表情包ID，多个用逗号分隔")
+            id_input.setMinimumHeight(scale(28))
+            id_input.setStyleSheet(scale_style("padding: 4px 8px;"))
+            id_input.returnPressed.connect(lambda: self._load_byid(key))
+            toolbar.addWidget(id_input, stretch=1)
+            self._subtabs.setdefault(key, {})["id_input"] = id_input
+
+            query_btn = QPushButton("查询")
+            query_btn.setStyleSheet(scale_style(
+                "padding: 6px 16px; background-color: #00a1d6; color: white; border: none; border-radius: 4px; font-size: 12px;"))
+            query_btn.setMinimumHeight(scale(28))
+            query_btn.clicked.connect(lambda: self._load_byid(key))
+            toolbar.addWidget(query_btn)
+        else:
+            refresh_btn = QPushButton("刷新列表")
+            refresh_btn.setStyleSheet(scale_style(
+                "padding: 6px 16px; background-color: #00a1d6; color: white; border: none; border-radius: 4px; font-size: 12px;"))
+            refresh_btn.setMinimumHeight(scale(28))
+            refresh_btn.clicked.connect(lambda: self._load_list(key))
+            toolbar.addWidget(refresh_btn)
+
+            toolbar.addWidget(QLabel("场景:"))
+            biz_combo = QComboBox()
+            biz_combo.addItem("评论区", "reply")
+            biz_combo.addItem("动态", "dynamic")
+            biz_combo.setMinimumHeight(scale(28))
+            biz_combo.setStyleSheet(scale_style("padding: 4px 8px;"))
+            if self.config:
+                last_biz = self.config.get_app_setting("emoji_business", "reply")
+                idx = biz_combo.findData(last_biz)
+                if idx >= 0:
+                    biz_combo.setCurrentIndex(idx)
+            biz_combo.currentIndexChanged.connect(
+                lambda i, k=key: self._on_business_changed(k))
+            toolbar.addWidget(biz_combo)
+            self._subtabs.setdefault(key, {})["biz_combo"] = biz_combo
+
+            if needs_login:
+                login_label = QLabel()
+                login_label.setStyleSheet(scale_style("font-size: 11px; color: #6c757d;"))
+                toolbar.addWidget(login_label)
+                self._subtabs.setdefault(key, {})["login_label"] = login_label
+
+        toolbar.addStretch()
+        layout.addLayout(toolbar)
+
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setChildrenCollapsible(False)
+
+        left_container = QWidget()
+        left_layout = QVBoxLayout(left_container)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(scale(4))
+        pkg_search_input = QLineEdit()
+        pkg_search_input.setPlaceholderText("搜索表情包...")
+        pkg_search_input.setMinimumHeight(scale(26))
+        pkg_search_input.setStyleSheet(scale_style("padding: 2px 6px;"))
+        pkg_search_input.textChanged.connect(lambda _, k=key: self._filter_pkg_list(k))
+        left_layout.addWidget(pkg_search_input)
+        self._subtabs.setdefault(key, {})["pkg_search_input"] = pkg_search_input
+
+        pkg_list = QListWidget()
+        pkg_list.setIconSize(QSize(scale(48), scale(48)))
+        pkg_list.setStyleSheet(scale_style("""
+            QListWidget { background-color: white; border: 1px solid #e0e4ea; border-radius: 4px; font-size: 12px; }
+            QListWidget::item { padding: 6px 8px; border-bottom: 1px solid #f0f0f0; }
+            QListWidget::item:selected { background-color: #e6f4ff; color: #00a1d6; }
+        """))
+        pkg_list.itemClicked.connect(lambda item, k=key: self._on_package_selected(k, item))
+        pkg_list.setMinimumWidth(scale(200))
+        pkg_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        pkg_list.customContextMenuRequested.connect(lambda pos, k=key: self._show_pkg_context_menu(k, pos))
+        left_layout.addWidget(pkg_list)
+        splitter.addWidget(left_container)
+        self._subtabs.setdefault(key, {})["pkg_list"] = pkg_list
+
+        right_container = QWidget()
+        right_layout = QVBoxLayout(right_container)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(scale(4))
+        emote_search_input = QLineEdit()
+        emote_search_input.setPlaceholderText("搜索表情...")
+        emote_search_input.setMinimumHeight(scale(26))
+        emote_search_input.setStyleSheet(scale_style("padding: 2px 6px;"))
+        emote_search_input.textChanged.connect(lambda _, k=key: self._filter_emote_grid(k))
+        right_layout.addWidget(emote_search_input)
+        self._subtabs.setdefault(key, {})["emote_search_input"] = emote_search_input
+
+        emote_grid = QListWidget()
+        emote_grid.setViewMode(QListWidget.IconMode)
+        emote_grid.setIconSize(QSize(scale(72), scale(72)))
+        emote_grid.setResizeMode(QListWidget.Adjust)
+        emote_grid.setMovement(QListWidget.Static)
+        emote_grid.setSelectionMode(QListWidget.ExtendedSelection)
+        emote_grid.setWrapping(True)
+        emote_grid.setSpacing(scale(6))
+        emote_grid.setStyleSheet(scale_style("""
+            QListWidget { background-color: #fafbfc; border: 1px solid #e0e4ea; border-radius: 4px; }
+            QListWidget::item { background-color: white; border: 1px solid #e0e4ea; border-radius: 4px; padding: 4px; }
+            QListWidget::item:selected { background-color: #e6f4ff; border-color: #00a1d6; }
+        """))
+        emote_grid.setToolTip("点击选择表情，支持Ctrl/Shift多选")
+        emote_grid.setContextMenuPolicy(Qt.CustomContextMenu)
+        emote_grid.customContextMenuRequested.connect(lambda pos, k=key: self._show_emote_context_menu(k, pos))
+        right_layout.addWidget(emote_grid)
+        splitter.addWidget(right_container)
+        self._subtabs.setdefault(key, {})["emote_grid"] = emote_grid
+
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 3)
+        splitter.setSizes([scale(220), scale(600)])
+        layout.addWidget(splitter, stretch=1)
+        self._subtabs.setdefault(key, {})["splitter"] = splitter
+
+        info_label = QLabel("请选择一个表情包")
+        info_label.setStyleSheet(scale_style("font-size: 11px; color: #6c757d; padding: 2px;"))
+        layout.addWidget(info_label)
+        self._subtabs.setdefault(key, {})["info_label"] = info_label
+
+        dl_bar = QHBoxLayout()
+        dl_bar.setSpacing(scale(6))
+
+        dl_bar.addWidget(QLabel("保存到:"))
+        path_input = QLineEdit()
+        path_input.setMinimumHeight(scale(28))
+        path_input.setStyleSheet(scale_style("padding: 4px 8px;"))
+        if self.config:
+            last_path = self.config.get_app_setting("emoji_last_save_path", "") or \
+                        self.config.get_app_setting("default_save_path", "")
+            path_input.setText(last_path)
+        self._subtabs.setdefault(key, {})["path_input"] = path_input
+        dl_bar.addWidget(path_input, stretch=1)
+
+        browse_btn = QPushButton("浏览")
+        browse_btn.setStyleSheet(scale_style(
+            "padding: 6px 12px; background-color: #f0f2f5; color: #333; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 12px;"))
+        browse_btn.setMinimumHeight(scale(28))
+        browse_btn.clicked.connect(lambda _, k=key: self._browse_save_path(k))
+        dl_bar.addWidget(browse_btn)
+
+        select_all_btn = QPushButton("全选")
+        select_all_btn.setStyleSheet(scale_style(
+            "padding: 6px 12px; background-color: #f0f2f5; color: #333; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 12px;"))
+        select_all_btn.setMinimumHeight(scale(28))
+        select_all_btn.clicked.connect(lambda _, k=key: self._select_all(k, True))
+        dl_bar.addWidget(select_all_btn)
+
+        deselect_btn = QPushButton("全不选")
+        deselect_btn.setStyleSheet(scale_style(
+            "padding: 6px 12px; background-color: #f0f2f5; color: #333; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 12px;"))
+        deselect_btn.setMinimumHeight(scale(28))
+        deselect_btn.clicked.connect(lambda _, k=key: self._select_all(k, False))
+        dl_bar.addWidget(deselect_btn)
+
+        dl_selected_btn = QPushButton("下载选中")
+        dl_selected_btn.setStyleSheet(scale_style(
+            "padding: 6px 16px; background-color: #52c41a; color: white; border: none; border-radius: 4px; font-size: 12px; font-weight: 500;"))
+        dl_selected_btn.setMinimumHeight(scale(28))
+        dl_selected_btn.clicked.connect(lambda _, k=key: self._download_selected(k))
+        dl_bar.addWidget(dl_selected_btn)
+        self._subtabs.setdefault(key, {})["dl_selected_btn"] = dl_selected_btn
+
+        dl_all_btn = QPushButton("下载整包")
+        dl_all_btn.setStyleSheet(scale_style(
+            "padding: 6px 16px; background-color: #00a1d6; color: white; border: none; border-radius: 4px; font-size: 12px; font-weight: 500;"))
+        dl_all_btn.setMinimumHeight(scale(28))
+        dl_all_btn.clicked.connect(lambda _, k=key: self._download_whole(k))
+        dl_bar.addWidget(dl_all_btn)
+        self._subtabs.setdefault(key, {})["dl_all_btn"] = dl_all_btn
+
+        cancel_btn = QPushButton("取消")
+        cancel_btn.setStyleSheet(scale_style(
+            "padding: 6px 12px; background-color: #f56c6c; color: white; border: none; border-radius: 4px; font-size: 12px;"))
+        cancel_btn.setMinimumHeight(scale(28))
+        cancel_btn.setEnabled(False)
+        cancel_btn.clicked.connect(self._cancel_download)
+        dl_bar.addWidget(cancel_btn)
+        self._subtabs.setdefault(key, {})["cancel_btn"] = cancel_btn
+
+        layout.addLayout(dl_bar)
+
+        progress = QProgressBar()
+        progress.setValue(0)
+        progress.setTextVisible(True)
+        progress.setStyleSheet(scale_style("""
+            QProgressBar { background-color: #f0f2f5; border: 1px solid #d9d9d9; border-radius: 4px; text-align: center; font-size: 11px; height: 18px; }
+            QProgressBar::chunk { background-color: #00a1d6; border-radius: 3px; }
+        """))
+        layout.addWidget(progress)
+        self._subtabs.setdefault(key, {})["progress"] = progress
+
+        self._subtabs[key]["mode"] = mode
+        self._subtabs[key]["needs_login"] = needs_login
+        self._subtabs[key]["page"] = page
+        self._subtabs[key]["packages"] = []
+        self._subtabs[key]["current_pkg"] = None
+
+        self.sub_tabs.addTab(page, title)
+
+        if needs_login:
+            self._update_login_status(key)
+
+    def _update_login_status(self, key):
+        """更新登录状态标签"""
+        sub = self._subtabs.get(key, {})
+        label = sub.get("login_label")
+        if not label:
+            return
+        if self._has_login():
+            label.setText("已登录")
+            label.setStyleSheet(scale_style("font-size: 11px; color: #52c41a;"))
+        else:
+            label.setText("未登录(仅免费)")
+            label.setStyleSheet(scale_style("font-size: 11px; color: #faad14;"))
+
+    def _get_business(self, key):
+        sub = self._subtabs.get(key, {})
+        combo = sub.get("biz_combo")
+        if combo:
+            return combo.currentData() or "reply"
+        return "reply"
+
+    def _on_business_changed(self, key):
+        """业务场景切换，保存配置"""
+        biz = self._get_business(key)
+        if self.config:
+            self.config.set_app_setting("emoji_business", biz)
+        sub = self._subtabs.get(key, {})
+        sub.get("pkg_list").clear()
+        sub.get("emote_grid").clear()
+        sub["packages"] = []
+        sub["current_pkg"] = None
+        self._hide_skeleton(key)
+        sub.get("info_label").setText("请选择一个表情包")
+
+    def _show_skeleton(self, key, count=8, cover="all"):
+        sub = self._subtabs.get(key, {})
+        if not sub:
+            return
+        pkg_list = sub.get("pkg_list")
+        emote_grid = sub.get("emote_grid")
+
+        def _make(host, kind, rows, cols):
+            """在 host 上创建/替换骨架屏，返回新 widget"""
+            old_key = "skeleton_left" if kind == "list" else "skeleton_right"
+            old = sub.get(old_key)
+            if old is not None:
+                try:
+                    old.deleteLater()
+                except Exception:
+                    pass
+            if not host:
+                return None
+            skel = SkeletonWidget(host, kind=kind, rows=rows, cols=cols)
+            skel.setGeometry(host.rect())
+            skel.raise_()
+            skel.show()
+            skel.start_shimmer()
+            host.installEventFilter(self)
+            sub[old_key] = skel
+            return skel
+
+        if cover in ("all", "left"):
+            _make(pkg_list, "list", rows=count, cols=6)
+        if cover in ("all", "right"):
+            _make(emote_grid, "grid", rows=3, cols=6)
+        sub.get("info_label").setText("加载中...")
+
+    def eventFilter(self, obj, event):
+        """跟踪 host大小变化，同步对应骨架屏几何"""
+        from PyQt5.QtCore import QEvent
+        if event.type() == QEvent.Resize:
+            for sub in self._subtabs.values():
+                for skel in (sub.get("skeleton_left"), sub.get("skeleton_right")):
+                    if skel is None or sip.isdeleted(skel):
+                        continue
+                    if skel.parent() is obj:
+                        try:
+                            skel.setGeometry(obj.rect())
+                        except Exception:
+                            pass
+                        break
+        return super().eventFilter(obj, event)
+
+    def _hide_skeleton(self, key, cover="all"):
+        sub = self._subtabs.get(key, {})
+        if not sub:
+            return
+        keys = []
+        if cover in ("all", "left"):
+            keys.append("skeleton_left")
+        if cover in ("all", "right"):
+            keys.append("skeleton_right")
+        for sk in keys:
+            skel = sub.get(sk)
+            if skel is not None:
+                sub[sk] = None
+                try:
+                    if not sip.isdeleted(skel):
+                        skel.hide()
+                        skel.fade_out_and_delete()
+                except Exception:
+                    try:
+                        skel.hide()
+                        skel.deleteLater()
+                    except Exception:
+                        pass
+
+    def _load_list(self, key):
+        """加载表情包列表"""
+        if not self.emoji_parser:
+            self._error_signal.emit("解析器未初始化")
+            return
+        sub = self._subtabs.get(key, {})
+        mode = sub.get("mode")
+        biz = self._get_business(key)
+        self._refresh_cookies()
+        self._auto_loaded_keys.add(key)
+        self._abort_pending_thumbs(only_for_lists=[sub.get("pkg_list"), sub.get("emote_grid")])
+        self._set_status(f"正在加载{sub_tabs_title(key)}...")
+        self._show_skeleton(key, count=8)
+        pkg_list = sub.get("pkg_list")
+        if pkg_list is not None:
+            pkg_list.setEnabled(False)
+
+        def worker():
+            try:
+                if mode == "my":
+                    result = self.emoji_parser.get_my_emojis(business=biz)
+                    if result["success"]:
+                        self._list_loaded_signal.emit(key, True, result["data"], "")
+                    else:
+                        self._list_loaded_signal.emit(key, False, None, result.get("error", "未知错误"))
+                elif mode == "all":
+                    result = self.emoji_parser.get_all_emojis(business=biz)
+                    if result["success"]:
+                        self._list_loaded_signal.emit(key, True, result["data"], "")
+                    else:
+                        self._list_loaded_signal.emit(key, False, None, result.get("error", "未知错误"))
+            except Exception as e:
+                self._list_loaded_signal.emit(key, False, None, str(e))
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+
+    def _load_byid(self, key):
+        """按ID查询表情包明细"""
+        if not self.emoji_parser:
+            self._error_signal.emit("解析器未初始化")
+            return
+        sub = self._subtabs.get(key, {})
+        id_input = sub.get("id_input")
+        raw = id_input.text().strip()
+        if not raw:
+            QMessageBox.warning(self, "提示", "请输入表情包ID")
+            return
+        ids = []
+        for part in raw.split(","):
+            part = part.strip()
+            if part:
+                try:
+                    ids.append(int(part))
+                except ValueError:
+                    pass
+        if not ids:
+            QMessageBox.warning(self, "提示", "ID格式不正确")
+            return
+        biz = self._get_business(key)
+        self._refresh_cookies()
+        self._abort_pending_thumbs(only_for_lists=[sub.get("pkg_list"), sub.get("emote_grid")])
+        self._set_status("正在查询表情包...")
+        self._show_skeleton(key, count=min(len(ids), 6) or 4)
+        sub.get("pkg_list").setEnabled(False)
+
+        def worker():
+            try:
+                result = self.emoji_parser.get_package_detail(ids, business=biz)
+                if result["success"]:
+                    self._list_loaded_signal.emit(key, True, result["data"], "")
+                else:
+                    self._list_loaded_signal.emit(key, False, None, result.get("error", "未知错误"))
+            except Exception as e:
+                self._list_loaded_signal.emit(key, False, None, str(e))
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+
+    def _on_list_loaded(self, key, success, data, error):
+        """列表加载完成回调"""
+        sub = self._subtabs.get(key, {})
+        if not sub:
+            return
+        pkg_list = sub.get("pkg_list")
+        emote_grid = sub.get("emote_grid")
+        info_label = sub.get("info_label")
+        if pkg_list is None or emote_grid is None:
+            return
+        pkg_list.setEnabled(True)
+        pkg_list.clear()
+        emote_grid.clear()
+        sub["packages"] = []
+        sub["current_pkg"] = None
+        self._hide_skeleton(key)
+
+        if not success:
+            self._set_status(f"加载失败: {error}")
+            if info_label is not None:
+                info_label.setText(f"加载失败: {error}")
+            return
+
+        packages = []
+        mode = sub.get("mode")
+        if mode == "all" and isinstance(data, dict):
+            seen_ids = set()
+            for p in data.get("user_packages", []):
+                p = dict(p)
+                p["added"] = True
+                p["_source"] = "已拥有"
+                packages.append(p)
+                if p.get("id") is not None:
+                    seen_ids.add(p["id"])
+            for p in data.get("all_packages", []):
+                if p.get("id") in seen_ids:
+                    continue
+                p = dict(p)
+                p["_source"] = "可添加"
+                packages.append(p)
+        elif isinstance(data, list):
+            for p in data:
+                p = dict(p)
+                if "_source" not in p:
+                    p["_source"] = ""
+                packages.append(p)
+
+        packages = [p for p in packages
+                    if p.get("id") != 99999999 and p.get("text") != "收藏"]
+
+        sub["packages"] = packages
+        search_input = sub.get("pkg_search_input")
+        if search_input is not None:
+            search_input.blockSignals(True)
+            search_input.clear()
+            search_input.blockSignals(False)
+        self._populate_pkg_list(key, packages)
+
+        sb = pkg_list.verticalScrollBar()
+        if not getattr(sb, "_thumb_loader_connected", False):
+            sb.valueChanged.connect(lambda _: self._load_visible_pkg_thumbs(key))
+            sb._thumb_loader_connected = True
+        QTimer.singleShot(50, lambda: self._load_visible_pkg_thumbs(key))
+
+        self._set_status(f"共加载 {len(packages)} 个表情包")
+        if info_label is not None:
+            info_label.setText(f"共 {len(packages)} 个表情包，请选择查看详情")
+
+        if packages and pkg_list.count() > 0:
+            first_item = pkg_list.item(0)
+            if first_item is not None:
+                pkg_list.setCurrentItem(first_item)
+                self._on_package_selected(key, first_item)
+
+        if key == "my" and "all" in self._subtabs and "all" not in self._auto_loaded_keys:
+            QTimer.singleShot(150, lambda: self._auto_load_tab("all"))
+
+    def _auto_load_tab(self, key):
+        """自动加载指定子tab"""
+        if key in self._auto_loaded_keys:
+            return
+        if key in self._subtabs and self.emoji_parser:
+            self._load_list(key)
+
+    def _populate_pkg_list(self, key, packages):
+        """填充左侧表情包列表"""
+        sub = self._subtabs.get(key, {})
+        pkg_list = sub.get("pkg_list")
+        if pkg_list is None:
+            return
+        self._abort_pending_thumbs(only_for_lists=[pkg_list])
+        pkg_list.clear()
+        for pkg in packages:
+            item = QListWidgetItem()
+            title = pkg.get("text", "未命名")
+            count = pkg.get("emote_count", 0)
+            source_tag = pkg.get("_source", "")
+            suffix = f" [{source_tag}]" if source_tag else ""
+            count_text = f"{count}个" if count > 0 else "待加载"
+            item.setText(f"{title}  ({count_text}){suffix}")
+            item.setData(ROLE_PACKAGE, pkg)
+            item.setData(ROLE_THUMB_URL, pkg.get("url", ""))
+            item.setData(ROLE_THUMB_LOADED, False)
+            pkg_list.addItem(item)
+        QTimer.singleShot(50, lambda: self._load_visible_pkg_thumbs(key))
+
+    def _filter_pkg_list(self, key):
+        """按搜索关键词过滤左侧表情包列表"""
+        sub = self._subtabs.get(key, {})
+        all_pkgs = sub.get("packages", []) or []
+        search_input = sub.get("pkg_search_input")
+        if search_input is None:
+            return
+        keyword = search_input.text().strip().lower()
+        if not keyword:
+            self._populate_pkg_list(key, all_pkgs)
+            info_label = sub.get("info_label")
+            if info_label is not None:
+                info_label.setText(f"共 {len(all_pkgs)} 个表情包，请选择查看详情")
+            return
+        filtered = []
+        for pkg in all_pkgs:
+            text = (pkg.get("text", "") or "").lower()
+            type_name = (pkg.get("type_name", "") or "").lower()
+            if keyword in text or keyword in type_name:
+                filtered.append(pkg)
+        self._populate_pkg_list(key, filtered)
+        info_label = sub.get("info_label")
+        if info_label is not None:
+            info_label.setText(f"过滤结果：{len(filtered)} / {len(all_pkgs)} 个表情包")
+
+    def _show_pkg_context_menu(self, key, pos):
+        """表情包列表右键菜单"""
+        from PyQt5.QtWidgets import QApplication, QMenu
+        sub = self._subtabs.get(key, {})
+        pkg_list = sub.get("pkg_list")
+        if pkg_list is None:
+            return
+        item = pkg_list.itemAt(pos)
+        if item is None:
+            return
+        pkg = item.data(ROLE_PACKAGE)
+        if not pkg:
+            return
+        menu = QMenu(self)
+        title = pkg.get("text", "")
+        pkg_id = pkg.get("id", "")
+        cover_url = pkg.get("url", "")
+
+        act_select = menu.addAction("选中此表情包")
+        act_copy_title = menu.addAction("复制表情包名称")
+        if pkg_id:
+            act_copy_id = menu.addAction("复制表情包ID")
+        else:
+            act_copy_id = None
+        if cover_url:
+            act_copy_cover = menu.addAction("复制封面URL")
+            act_open_cover = menu.addAction("在浏览器打开封面")
+        else:
+            act_copy_cover = None
+            act_open_cover = None
+        menu.addSeparator()
+        emotes = pkg.get("emote", []) or []
+        if emotes:
+            act_download = menu.addAction("下载整个表情包")
+        else:
+            act_download = None
+
+        action = menu.exec_(pkg_list.viewport().mapToGlobal(pos))
+        if action == act_select:
+            pkg_list.setCurrentItem(item)
+            self._on_package_selected(key, item)
+        elif action == act_copy_title:
+            QApplication.clipboard().setText(title)
+            self._set_status("已复制表情包名称")
+        elif act_copy_id is not None and action == act_copy_id:
+            QApplication.clipboard().setText(str(pkg_id))
+            self._set_status(f"已复制ID: {pkg_id}")
+        elif act_copy_cover is not None and action == act_copy_cover:
+            QApplication.clipboard().setText(cover_url)
+            self._set_status("已复制封面URL")
+        elif act_open_cover is not None and action == act_open_cover:
+            import webbrowser
+            webbrowser.open(cover_url)
+        elif act_download is not None and action == act_download:
+            pkg_list.setCurrentItem(item)
+            self._on_package_selected(key, item)
+            self._download_whole(key)
+
+    def _show_emote_context_menu(self, key, pos):
+        """表情网格右键菜单"""
+        from PyQt5.QtWidgets import QApplication, QMenu
+        sub = self._subtabs.get(key, {})
+        grid = sub.get("emote_grid")
+        if grid is None:
+            return
+        item = grid.itemAt(pos)
+        if item is None:
+            return
+        emote = item.data(ROLE_EMOTE)
+        if not emote:
+            return
+        menu = QMenu(self)
+        text = emote.get("text", "")
+        url = emote.get("url", "")
+        alias = emote.get("alias", "")
+        type_name = emote.get("type_name", "")
+
+        act_copy_text = menu.addAction("复制表情文字")
+        if url:
+            act_copy_url = menu.addAction("复制图片URL")
+            act_open = menu.addAction("在浏览器打开图片")
+        else:
+            act_copy_url = None
+            act_open = None
+        menu.addSeparator()
+        act_download_one = menu.addAction("下载此表情")
+        act_download_selected = menu.addAction("下载选中表情")
+
+        action = menu.exec_(grid.viewport().mapToGlobal(pos))
+        if action == act_copy_text:
+            QApplication.clipboard().setText(text)
+            self._set_status("已复制表情文字")
+        elif act_copy_url is not None and action == act_copy_url:
+            QApplication.clipboard().setText(url)
+            self._set_status("已复制图片URL")
+        elif act_open is not None and action == act_open:
+            import webbrowser
+            webbrowser.open(url)
+        elif action == act_download_one:
+            grid.clearSelection()
+            item.setSelected(True)
+            self._download_selected(key)
+        elif action == act_download_selected:
+            self._download_selected(key)
+
+    def _load_visible_pkg_thumbs(self, key, _retry_count=0):
+        sub = self._subtabs.get(key, {})
+        if not sub:
+            return
+        pkg_list = sub.get("pkg_list")
+        if pkg_list is None:
+            return
+
+        viewport = pkg_list.viewport()
+        vp_h = viewport.height()
+        total = pkg_list.count()
+
+        visible_items = []
+        viewport_ready = vp_h > 0
+
+        if viewport_ready:
+            for i in range(total):
+                item = pkg_list.item(i)
+                if item is None:
+                    continue
+                try:
+                    rect = pkg_list.visualItemRect(item)
+                    if rect.top() < vp_h and rect.bottom() > 0:
+                        visible_items.append(item)
+                except Exception:
+                    continue
+
+        fallback_used = False
+        if not visible_items and total > 0:
+            fallback_used = True
+            fallback_n = min(20, total)
+            for i in range(fallback_n):
+                item = pkg_list.item(i)
+                if item is not None:
+                    visible_items.append(item)
+
+        visible_set = set(id(i) for i in visible_items)
+        for item in visible_items:
+            try:
+                if sip.isdeleted(item):
+                    continue
+                if item.data(ROLE_THUMB_LOADED):
+                    continue
+                url = item.data(ROLE_THUMB_URL) or ""
+                if not url:
+                    item.setData(ROLE_THUMB_LOADED, True)
+                    continue
+                item.setData(ROLE_THUMB_LOADED, True)
+                self._load_pkg_thumb(item, url)
+            except Exception:
+                continue
+
+        if not fallback_used:
+            to_abort = []
+            for reply, (item, url) in self._pending_thumbs.items():
+                try:
+                    if sip.isdeleted(item) or id(item) not in visible_set:
+                        if item.listWidget() is pkg_list:
+                            to_abort.append((reply, item))
+                except Exception:
+                    to_abort.append((reply, None))
+            for reply, item in to_abort:
+                try:
+                    if not sip.isdeleted(reply):
+                        reply.abort()
+                        reply.deleteLater()
+                except Exception:
+                    pass
+                self._pending_thumbs.pop(reply, None)
+                if item is not None and not sip.isdeleted(item):
+                    try:
+                        item.setData(ROLE_THUMB_LOADED, False)
+                    except Exception:
+                        pass
+
+        if fallback_used and _retry_count < 3:
+            QTimer.singleShot(150, lambda: self._load_visible_pkg_thumbs(key, _retry_count + 1))
+
+    def _load_pkg_thumb(self, item, url):
+        """异步加载表情包封面缩略图"""
+        if not url:
+            return
+        try:
+            reply = self.network_manager.get(QNetworkRequest(QUrl(url)))
+            self._pending_thumbs[reply] = (item, url)
+            import weakref
+            reply_ref = weakref.ref(reply)
+            reply.finished.connect(lambda: self._on_thumb_loaded(reply_ref()))
+        except Exception as e:
+            logger.warning(f"加载封面失败: {e}")
+
+    def _on_thumb_loaded(self, reply):
+        """缩略图加载完成"""
+        if reply is None or sip.isdeleted(reply):
+            return
+        info = self._pending_thumbs.pop(reply, None)
+        if not info:
+            try:
+                reply.deleteLater()
+            except RuntimeError:
+                pass
+            return
+        item, url = info
+        try:
+            if sip.isdeleted(item):
+                return
+            if reply.error() == QNetworkReply.NoError:
+                data = reply.readAll()
+                pixmap = safe_load_pixmap(bytes(data))
+                if not pixmap.isNull():
+                    icon = QIcon(pixmap.scaled(
+                        scale(48), scale(48), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                    item.setIcon(icon)
+        except Exception as e:
+            logger.warning(f"缩略图显示失败: {e}")
+        finally:
+            try:
+                reply.deleteLater()
+            except RuntimeError:
+                pass
+
+    def _on_package_selected(self, key, item):
+        pkg = item.data(ROLE_PACKAGE)
+        if not pkg:
+            return
+        sub = self._subtabs.get(key, {})
+        sub["current_pkg"] = pkg
+        grid = sub.get("emote_grid")
+        if grid is None:
+            return
+        self._abort_pending_thumbs(only_for_lists=[grid])
+        grid.clear()
+
+        emotes = pkg.get("emote", []) or []
+        if emotes or pkg.get("emote_loaded"):
+            self._render_emote_grid(key, pkg, emotes)
+            return
+
+        pkg_id = pkg.get("id")
+        if pkg_id is None:
+            info_label = sub.get("info_label")
+            if info_label is not None:
+                info_label.setText("该表情包无法获取明细")
+            return
+        if pkg_id in self._loading_detail_ids:
+            info_label = sub.get("info_label")
+            if info_label is not None:
+                info_label.setText("正在加载明细...")
+            return
+        self._show_skeleton(key, count=0, cover="right")
+        self._load_package_detail(key, pkg_id)
+
+    def _load_package_detail(self, key, pkg_id):
+        """后台线程拉取单个表情包明细"""
+        if not self.emoji_parser:
+            return
+        biz = self._get_business(key)
+        self._loading_detail_ids.add(pkg_id)
+        self._set_status(f"正在加载表情包明细 (id={pkg_id})...")
+
+        def worker():
+            try:
+                result = self.emoji_parser.get_package_detail(pkg_id, business=biz)
+                if result["success"]:
+                    pkgs = result["data"]
+                    emote_list = pkgs[0].get("emote", []) if pkgs else []
+                    self._detail_loaded_signal.emit(key, pkg_id, True, emote_list, "")
+                else:
+                    self._detail_loaded_signal.emit(key, pkg_id, False, None, result.get("error", "未知错误"))
+            except Exception as e:
+                self._detail_loaded_signal.emit(key, pkg_id, False, None, str(e))
+            finally:
+                self._loading_detail_ids.discard(pkg_id)
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+
+    def _on_detail_loaded(self, key, pkg_id, success, emote_list, error):
+        """单个表情包明细加载完成"""
+        sub = self._subtabs.get(key, {})
+        if not sub:
+            return
+        self._hide_skeleton(key, cover="right")
+        pkg = sub.get("current_pkg")
+        if not pkg or pkg.get("id") != pkg_id:
+            return
+        if not success:
+            self._set_status(f"加载明细失败: {error}")
+            info_label = sub.get("info_label")
+            if info_label is not None:
+                info_label.setText(f"加载明细失败: {error}")
+            return
+        pkg["emote"] = emote_list or []
+        pkg["emote_count"] = len(emote_list or [])
+        pkg["emote_loaded"] = True
+        self._render_emote_grid(key, pkg, emote_list or [])
+
+    def _render_emote_grid(self, key, pkg, emotes):
+        """渲染表情网格"""
+        sub = self._subtabs.get(key, {})
+        grid = sub.get("emote_grid")
+        if grid is None:
+            return
+        sub["current_emotes"] = list(emotes or [])
+        search_input = sub.get("emote_search_input")
+        if search_input is not None:
+            search_input.blockSignals(True)
+            search_input.clear()
+            search_input.blockSignals(False)
+        self._populate_emote_grid(key, pkg, emotes or [])
+
+    def _populate_emote_grid(self, key, pkg, emotes):
+        """填充表情网格"""
+        sub = self._subtabs.get(key, {})
+        grid = sub.get("emote_grid")
+        if grid is None:
+            return
+        info_label = sub.get("info_label")
+        self._hide_skeleton(key, cover="right")
+        self._abort_pending_thumbs(only_for_lists=[grid])
+        grid.clear()
+        title = pkg.get("text", "未命名") if pkg else ""
+        type_name = pkg.get("type_name", "") if pkg else ""
+        source_tag = pkg.get("_source", "") if pkg else ""
+        suffix = f" [{source_tag}]" if source_tag else ""
+        if not emotes:
+            hint = QListWidgetItem("该表情包暂无可用表情（可能为特殊收藏夹）")
+            hint.setFlags(Qt.NoItemFlags)
+            hint.setTextAlignment(Qt.AlignCenter)
+            grid.addItem(hint)
+            if info_label is not None:
+                info_label.setText(f"当前: {title}  共 0 个表情  类型: {type_name}{suffix}")
+            self._set_status(f"{title} 无可用表情")
+            return
+        for emote in emotes:
+            gi = QListWidgetItem()
+            text = emote.get("text", "")
+            gi.setText(text)
+            gi.setToolTip(f"{text}\n{emote.get('alias', '')}\n{emote.get('type_name', '')}")
+            gi.setData(ROLE_EMOTE, emote)
+            gi.setSizeHint(QSize(scale(88), scale(88)))
+            self._load_emote_thumb(gi, emote.get("url", ""))
+            grid.addItem(gi)
+        count = len(emotes)
+        if info_label is not None:
+            info_label.setText(f"当前: {title}  共 {count} 个表情  类型: {type_name}{suffix}")
+        self._set_status(f"已加载 {title} 的 {count} 个表情")
+
+    def _filter_emote_grid(self, key):
+        """按搜索关键词过滤表情网格"""
+        sub = self._subtabs.get(key, {})
+        all_emotes = sub.get("current_emotes", []) or []
+        pkg = sub.get("current_pkg")
+        search_input = sub.get("emote_search_input")
+        if search_input is None or not pkg:
+            return
+        keyword = search_input.text().strip().lower()
+        if not keyword:
+            self._populate_emote_grid(key, pkg, all_emotes)
+            return
+        filtered = []
+        for emote in all_emotes:
+            text = (emote.get("text", "") or "").lower()
+            alias = (emote.get("alias", "") or "").lower()
+            type_name = (emote.get("type_name", "") or "").lower()
+            if keyword in text or keyword in alias or keyword in type_name:
+                filtered.append(emote)
+        self._populate_emote_grid(key, pkg, filtered)
+        info_label = sub.get("info_label")
+        if info_label is not None:
+            info_label.setText(f"过滤结果：{len(filtered)} / {len(all_emotes)} 个表情")
+
+    def _load_emote_thumb(self, item, url):
+        """异步加载表情缩略图"""
+        if not url:
+            return
+        try:
+            reply = self.network_manager.get(QNetworkRequest(QUrl(url)))
+            self._pending_thumbs[reply] = (item, url)
+            reply.finished.connect(lambda: self._on_emote_thumb_loaded(reply))
+        except Exception as e:
+            logger.warning(f"加载表情图失败: {e}")
+
+    def _on_emote_thumb_loaded(self, reply):
+        info = self._pending_thumbs.pop(reply, None)
+        if not info:
+            reply.deleteLater()
+            return
+        item, url = info
+        try:
+            if sip.isdeleted(item):
+                return
+            if reply.error() == QNetworkReply.NoError:
+                data = reply.readAll()
+                pixmap = safe_load_pixmap(bytes(data))
+                if not pixmap.isNull():
+                    icon = QIcon(pixmap.scaled(
+                        scale(64), scale(64), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                    item.setIcon(icon)
+        except Exception as e:
+            logger.warning(f"表情图显示失败: {e}")
+        finally:
+            reply.deleteLater()
+
+    def _browse_save_path(self, key):
+        sub = self._subtabs.get(key, {})
+        path_input = sub.get("path_input")
+        cur = path_input.text() or ""
+        dest = QFileDialog.getExistingDirectory(self, "选择保存路径", cur)
+        if dest:
+            path_input.setText(dest)
+            if self.config:
+                self.config.set_app_setting("emoji_last_save_path", dest)
+
+    def _select_all(self, key, select):
+        sub = self._subtabs.get(key, {})
+        grid = sub.get("emote_grid")
+        if select:
+            grid.selectAll()
+        else:
+            grid.clearSelection()
+
+    def _get_selected_emotes(self, key):
+        """获取当前选中的表情对象列表"""
+        sub = self._subtabs.get(key, {})
+        grid = sub.get("emote_grid")
+        emotes = []
+        for item in grid.selectedItems():
+            e = item.data(ROLE_EMOTE)
+            if e:
+                emotes.append(e)
+        return emotes
+
+    def _start_download(self, key, emotes, package_name):
+        """启动下载"""
+        if not emotes:
+            QMessageBox.warning(self, "提示", "没有可下载的表情")
+            return
+        sub = self._subtabs.get(key, {})
+        save_dir = sub.get("path_input").text().strip()
+        if not save_dir:
+            QMessageBox.warning(self, "提示", "请选择保存路径")
+            return
+        if not os.path.isdir(save_dir):
+            try:
+                os.makedirs(save_dir, exist_ok=True)
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"无法创建目录: {e}")
+                return
+
+        if self.download_thread and self.download_thread.isRunning():
+            QMessageBox.warning(self, "提示", "当前有下载任务正在执行")
+            return
+
+        progress = sub.get("progress")
+        progress.setValue(0)
+        progress.setFormat(f"0/{len(emotes)}")
+        sub.get("cancel_btn").setEnabled(True)
+        sub.get("dl_selected_btn").setEnabled(False)
+        sub.get("dl_all_btn").setEnabled(False)
+        self._set_status(f"开始下载 {package_name} 的 {len(emotes)} 个表情...")
+
+        self.download_thread = EmojiDownloadThread(emotes, save_dir, package_name, overwrite=False)
+        self._dl_active_key = key
+        self.download_thread.progress_updated.connect(self._on_dl_progress)
+        self.download_thread.one_finished.connect(self._on_dl_one)
+        self.download_thread.all_finished.connect(self._on_dl_all)
+        self.download_thread.error_occurred.connect(self._on_dl_error)
+        self.download_thread.start()
+
+    def _download_selected(self, key):
+        """下载选中的表情"""
+        emotes = self._get_selected_emotes(key)
+        if not emotes:
+            QMessageBox.information(self, "提示", "请先在右侧网格中选择表情")
+            return
+        sub = self._subtabs.get(key, {})
+        pkg = sub.get("current_pkg")
+        pkg_name = pkg.get("text", "表情包") if pkg else "表情包"
+        self._start_download(key, emotes, pkg_name)
+
+    def _download_whole(self, key):
+        """下载整个表情包"""
+        sub = self._subtabs.get(key, {})
+        pkg = sub.get("current_pkg")
+        if not pkg:
+            QMessageBox.information(self, "提示", "请先在左侧选择一个表情包")
+            return
+        emotes = pkg.get("emote", []) or []
+        if not emotes:
+            QMessageBox.information(self, "提示", "该表情包没有表情数据")
+            return
+        self._start_download(key, emotes, pkg.get("text", "表情包"))
+
+    def _cancel_download(self):
+        if self.download_thread and self.download_thread.isRunning():
+            self.download_thread.stop()
+            self._set_status("正在取消下载...")
+        else:
+            self._reset_dl_buttons()
+
+    def _reset_dl_buttons(self):
+        key = getattr(self, "_dl_active_key", None)
+        if not key:
+            return
+        sub = self._subtabs.get(key, {})
+        sub.get("cancel_btn").setEnabled(False)
+        sub.get("dl_selected_btn").setEnabled(True)
+        sub.get("dl_all_btn").setEnabled(True)
+
+    def _on_dl_progress(self, done, total, current):
+        key = getattr(self, "_dl_active_key", None)
+        if not key:
+            return
+        sub = self._subtabs.get(key, {})
+        progress = sub.get("progress")
+        pct = int(done * 100 / total) if total else 0
+        progress.setValue(pct)
+        progress.setFormat(f"{done}/{total}")
+        if current:
+            self._set_status(f"下载中 ({done}/{total}): {current}")
+
+    def _on_dl_one(self, name, ok, info):
+        if not ok:
+            logger.warning(f"表情下载失败: {name} -> {info}")
+
+    def _on_dl_all(self, success, fail):
+        key = getattr(self, "_dl_active_key", None)
+        self._reset_dl_buttons()
+        msg = f"下载完成: 成功 {success} 个, 失败 {fail} 个"
+        self._set_status(msg)
+        if key:
+            sub = self._subtabs.get(key, {})
+            progress = sub.get("progress")
+            progress.setValue(100)
+            progress.setFormat(f"{success}/{success + fail}")
+        QMessageBox.information(self, "完成", msg)
+
+    def _on_dl_error(self, err):
+        self._reset_dl_buttons()
+        self._set_status(f"下载错误: {err}")
+        QMessageBox.critical(self, "错误", f"下载错误: {err}")
+
+    def _set_status(self, msg):
+        self.status_label.setText(msg)
+
+    def _on_error_msg(self, msg):
+        self._set_status(f"错误: {msg}")
+        QMessageBox.warning(self, "提示", msg)
+
+    def cleanup(self):
+        """资源清理"""
+        try:
+            if self.download_thread and self.download_thread.isRunning():
+                self.download_thread.stop()
+                self.download_thread.wait(2000)
+        except Exception:
+            pass
+        try:
+            for key, sub in self._subtabs.items():
+                for sk in ("skeleton_left", "skeleton_right"):
+                    skel = sub.get(sk)
+                    if skel is not None:
+                        sub[sk] = None
+                        if not sip.isdeleted(skel):
+                            skel.deleteLater()
+        except Exception:
+            pass
+
+
+def sub_tabs_title(key):
+    """子tab标题映射"""
+    return {"my": "我的表情包", "all": "所有表情包", "byid": "按ID查询"}.get(key, "表情包")

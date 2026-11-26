@@ -1,0 +1,42 @@
+B站视频解析下载工具 · 第三方组件许可说明
+============================================
+
+本仓库自身代码以 MIT License 发布（见 LICENSE）。但程序随包分发或运行时依赖
+以下第三方组件，它们适用各自的许可条款，并不适用 MIT。分发本程序的二进制包
+（含安装包、便携版、绿色版）时，请同时遵守下列组件的许可义务。
+
+
+1. FFmpeg —— tools.tar.xz 内 ffmpeg/bin/ffmpeg.exe、ffprobe.exe、ffplay.exe
+   上游：https://ffmpeg.org/
+   许可：以 LGPL-2.1-or-later 为基础；本项目分发的 Windows 构建包含 libx264、
+         libx265 等 GPL 组件，整体按 GPL-2.0-or-later 分发。
+   义务：随附许可证副本；向接收者提供对应源码的获取方式（含构建配置）。
+   源码：https://ffmpeg.org/download.html
+
+
+2. mpv —— tools.tar.xz 内 mpv/mpv.exe
+   上游：https://mpv.io/
+   许可：GPL-2.0-or-later（部分文件为 LGPL）。
+   义务：随附许可证副本，并向接收者提供源码获取方式。
+   源码：https://github.com/mpv-player/mpv
+
+
+3. Bento4 —— tools.tar.xz 内 bento4/bin/
+   上游：https://www.bento4.com/
+   许可：GPL-2.0 或商业授权（双授权，二选一）。
+   义务：以 GPL 分发时随附许可证并提供源码；商业分发需另行购买授权。
+
+
+4. PyQt5 / PyQtWebEngine / PyQt5-sip —— requirements.txt（pip 安装）
+   上游：https://riverbankcomputing.com/software/pyqt/
+   许可：PyQt5 与 PyQtWebEngine 为 GPL-3.0 或商业授权（双授权）；
+         PyQt5-sip 适用 SIP 许可（BSD 风格）。
+   义务：以 GPL-3.0 分发整个衍生程序，或向 Riverbank 购买商业授权；
+         闭源分发本程序时必须取得商业授权。
+
+
+说明
+----
+- 以上为常见条款摘要，最终以各项目官方许可文本为准。
+- 本项目不修改上述组件的源代码，仅按原样分发或通过 pip 安装。
+- 如需上述组件的完整源码位置或构建脚本，请通过项目仓库 issue 联系作者。
