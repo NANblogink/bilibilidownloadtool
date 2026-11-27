@@ -1,0 +1,10923 @@
+import os
+import re
+import json
+import time
+import shutil
+import subprocess
+import logging
+import random
+import base64
+import asyncio
+import hashlib
+import hmac
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from Crypto.Cipher import AES
+from Crypto.PublicKey import RSA
+import logging
+from Crypto.Cipher import PKCS1_OAEP
+from Crypto.Hash import SHA1
+from wbi_sign import WbiSign
+from api_request import ApiRequest
+from video_parser import VideoParser
+import requests
+from platform_utils import IS_MACOS, IS_WINDOWS, exe, subprocess_no_window_kwargs, subprocess_low_priority_kwargs, hide_file, get_bento4_sdk_dirname, has_non_ascii, to_short_path, get_safe_temp_dir, run_no_window, move_file_no_copy, link_or_copy
+
+try:
+    from tool_manager import get_tool_manager
+except ImportError:
+    get_tool_manager = None
+
+logger = logging.getLogger(__name__)
+
+
+def _curl_ca_path():
+    try:
+        import certifi
+        cache_dir = get_safe_temp_dir(None, "curl_ca")
+        dst = os.path.join(cache_dir, "cacert.pem")
+        src = certifi.where()
+        if not os.path.isfile(dst) or os.path.getsize(dst) != os.path.getsize(src):
+            shutil.copyfile(src, dst)
+        return dst
+    except Exception:
+        return True
+
+
+import json as std_json
+JSONDecodeError = std_json.JSONDecodeError
+try:
+    import orjson
+    if hasattr(orjson, 'loads') and hasattr(orjson, 'dumps'):
+        json = orjson
+        if hasattr(orjson, 'JSONDecodeError'):
+            JSONDecodeError = orjson.JSONDecodeError
+        logger.debug("使用orjson库进行JSON解析")
+    else:
+        import json
+        logger.debug("orjson库关键函数缺失，使用标准json模块")
+except ImportError:
+    import json
+    logger.debug("orjson库导入失败，使用标准json模块")
+
+
+def _json_dumps(obj, ensure_ascii=False, indent=None):
+    if json is std_json:
+        return std_json.dumps(obj, ensure_ascii=ensure_ascii, indent=indent)
+    opts = orjson.OPT_INDENT_2 if indent else None
+    return orjson.dumps(obj, option=opts).decode('utf-8')
+
+
+_QUALITY_VIDEO_BITRATE_BPS = {
+    6: 150000,      # 240P
+    16: 300000,     # 360P
+    32: 600000,     # 480P
+    64: 1200000,    # 720P
+    74: 1800000,    # 720P60 高帧率
+    80: 1800000,    # 1080P
+    100: 1800000,   # 1080P 智能修复
+    112: 3000000,   # 1080P+
+    116: 3500000,   # 1080P60 高帧率
+    120: 6000000,   # 4K
+    125: 5000000,   # 4K 高码率
+    126: 6000000,   # 杜比视界
+    127: 15000000,  # 8K
+}
+_DEFAULT_VIDEO_BITRATE_BPS = 900000   # 未知画质兜底
+_DEFAULT_AUDIO_BITRATE_BPS = 128000   # 标准音质 128K
+
+
+def estimate_download_size_mb(total_sec, qn=None,
+                              video_bandwidth=None, audio_bandwidth=None,
+                              episode_count=0):
+    try:
+        total_sec = int(total_sec or 0)
+    except (TypeError, ValueError):
+        total_sec = 0
+
+    if total_sec <= 0:
+        return max(0, int(episode_count or 0)) * 200
+
+    v_bps = 0
+    if isinstance(video_bandwidth, dict) and video_bandwidth:
+        _sel = None
+        try:
+            if qn:
+                _sel = int(qn)
+        except (TypeError, ValueError):
+            _sel = None
+        if _sel and _sel in video_bandwidth:
+            try:
+                v_bps = int(video_bandwidth.get(_sel) or 0)
+            except (TypeError, ValueError):
+                v_bps = 0
+        if v_bps <= 0:
+            # 未指定/自动 => 取最高画质
+            _vals = []
+            for _v in video_bandwidth.values():
+                try:
+                    _iv = int(_v)
+                except (TypeError, ValueError):
+                    continue
+                if _iv > 0:
+                    _vals.append(_iv)
+            if _vals:
+                v_bps = max(_vals)
+    if v_bps <= 0:
+        try:
+            v_bps = _QUALITY_VIDEO_BITRATE_BPS.get(int(qn), _DEFAULT_VIDEO_BITRATE_BPS)
+        except (TypeError, ValueError):
+            v_bps = _DEFAULT_VIDEO_BITRATE_BPS
+
+    a_bps = 0
+    try:
+        a_bps = int(audio_bandwidth or 0)
+    except (TypeError, ValueError):
+        a_bps = 0
+    if a_bps <= 0:
+        a_bps = _DEFAULT_AUDIO_BITRATE_BPS
+
+    total_bytes = total_sec * (v_bps + a_bps) / 8.0
+    return int(total_bytes / (1024 * 1024))
+
+
+KID_REGEX = {
+    'bilidrm_uri': re.compile(r'uri:bili://([0-9a-f]{32})', re.IGNORECASE),
+    'url_param': re.compile(r'kid=([0-9a-fA-F]{32})')
+}
+
+KID_CACHE = {}
+KID_CACHE_EXPIRY = 3600  # 1小时
+# 多线程并发访问保护
+KID_CACHE_LOCK = threading.Lock()
+
+# DRM缓存防重请求
+DRM_KEY_CACHE = {}
+DRM_KEY_CACHE_EXPIRY = 3600  # DRM密钥有效期较长
+# 多线程并发访问保护
+DRM_KEY_CACHE_LOCK = threading.Lock()
+
+
+def _decode_subprocess_output(data):
+    if not data:
+        return ''
+    for encoding in ('gbk', 'utf-8'):
+        try:
+            return data.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return data.decode('utf-8', errors='replace')
+
+
+class SimpleBiliDRM:
+    # DRM请求超时秒数
+    _REQUEST_TIMEOUT = 15
+
+    def __init__(self):
+        self._key = self.generate_random_bytes(16)
+        self._iv = self.generate_random_bytes(16)
+        self._public_key = None
+        self.session = None
+        
+        self.api_url = "http://bvc-drm.bilivideo.com/bilidrm"
+        self.pub_key_url = "http://bvc-drm.bilivideo.com/cer/bilidrm_pub.key"
+
+    async def __aenter__(self):
+        import aiohttp
+        try:
+            self.session = aiohttp.ClientSession(headers={
+                'origin': 'https://www.bilibili.com',
+                'referer': 'https://www.bilibili.com/',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+                'Content-Type': 'application/json'
+            })
+            self._public_key = await self.get_public_key()
+            if not self._public_key or len(self._public_key) < 64:
+                raise Exception(f"公钥获取失败或格式无效（长度={len(self._public_key) if self._public_key else 0}）")
+            return self
+        except Exception:
+            if self.session and not self.session.closed:
+                await self.session.close()
+            raise
+
+    async def __aexit__(self, *args):
+        if self.session and not self.session.closed:
+            await self.session.close()
+
+    @staticmethod
+    def generate_random_bytes(length):
+        return os.urandom(length)
+
+    async def get_public_key(self):
+        import aiohttp
+        try:
+            async with self.session.get(self.pub_key_url, timeout=aiohttp.ClientTimeout(total=self._REQUEST_TIMEOUT)) as resp:
+                if resp.status != 200:
+                    raise Exception(f"获取公钥失败，HTTP状态码: {resp.status}")
+                public_key = await resp.read()
+                return public_key
+        except asyncio.TimeoutError:
+            raise Exception(f"获取公钥超时（{self._REQUEST_TIMEOUT}秒）")
+        except aiohttp.ClientError as e:
+            raise Exception(f"获取公钥网络错误: {str(e)}")
+
+    def encrypt_kid(self, kid):
+        aes_ecb = AES.new(self._key, AES.MODE_ECB)
+        enc_kid = aes_ecb.encrypt(kid[:16])
+        
+        salt = bytes([0x1b, 0xf7, 0xf5, 0x3f, 0x5d, 0x5d, 0x5a, 0x1f, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x20])
+        kid_bytes = salt + enc_kid + kid[16:]
+        
+        aes_cbc = AES.new(self._key, AES.MODE_CBC, self._iv)
+        encrypted_kid = aes_cbc.encrypt(kid_bytes)
+        return encrypted_kid
+
+    def encrypt_key(self):
+        if not self._public_key:
+            raise Exception("公钥未初始化，无法加密密钥")
+        public_key = RSA.import_key(self._public_key)
+        cipher_rsa = PKCS1_OAEP.new(public_key, hashAlgo=SHA1)
+        encrypted = cipher_rsa.encrypt(self._key)
+        return encrypted
+
+    @staticmethod
+    def _normalize_kid(kid):
+        if isinstance(kid, str):
+            if len(kid) == 32 and all(c in '0123456789abcdefABCDEF' for c in kid):
+                return kid.encode('ascii')
+            kid_bytes = kid.encode('utf-8')
+        elif isinstance(kid, (bytes, bytearray)):
+            kid_bytes = bytes(kid)
+            if len(kid_bytes) == 16:
+                return kid_bytes.hex().encode('ascii')
+        else:
+            kid_bytes = str(kid).encode('utf-8')
+
+        if len(kid_bytes) > 32:
+            return kid_bytes[:32]
+        if len(kid_bytes) < 32:
+            return kid_bytes.ljust(32, b'\x00')
+        return kid_bytes
+
+    def encrypt_spc(self, kid):
+        content_key_ctx = self.encrypt_kid(kid)
+        sha_digest = hashlib.sha1(self._public_key).digest()
+        
+        timestamp = int(time.time())
+        
+        spc_data = (
+            b'bilibili' +
+            bytes([0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]) +
+            timestamp.to_bytes(4, 'big') +
+            self._iv +
+            self.encrypt_key() +
+            sha_digest +
+            len(content_key_ctx).to_bytes(4, 'big') +
+            content_key_ctx
+        )
+        
+        spc_b64 = base64.b64encode(spc_data).decode()
+        return spc_b64
+
+    async def get_key(self, kid):
+        kid_bytes = self._normalize_kid(kid)
+
+        cache_key = kid_bytes.decode('ascii', errors='ignore').lower()
+        if not cache_key or not all(c in '0123456789abcdef' for c in cache_key):
+            logger.warning(f"KID规范化后非合法hex，跳过缓存：{cache_key!r}")
+            cache_key = None
+
+        # 读缓存加锁防并发
+        if cache_key is not None:
+            with DRM_KEY_CACHE_LOCK:
+                if cache_key in DRM_KEY_CACHE:
+                    cached_key, timestamp = DRM_KEY_CACHE[cache_key]
+                    if time.time() - timestamp < DRM_KEY_CACHE_EXPIRY:
+                        logger.info(f"从缓存中获取DRM密钥: {cached_key}（KID={cache_key}）")
+                        return cached_key
+                    else:
+                        del DRM_KEY_CACHE[cache_key]
+
+        spc = self.encrypt_spc(kid_bytes)
+
+        payload = {"spc": spc}
+
+        try:
+            import aiohttp
+            try:
+                async with self.session.post(self.api_url, json=payload,
+                                             timeout=aiohttp.ClientTimeout(total=self._REQUEST_TIMEOUT)) as resp:
+                    response_text = await resp.text()
+                    logger.debug(f"DRM API响应: {response_text}")
+
+                    if resp.status != 200:
+                        logger.error(f"DRM API请求失败，状态码: {resp.status}")
+                        raise Exception(f"DRM API请求失败，状态码: {resp.status}")
+
+                    try:
+                        response = json.loads(response_text)
+                    except Exception as e:
+                        logger.error(f"解析DRM API响应失败: {str(e)}")
+                        raise Exception(f"解析DRM API响应失败: {str(e)}")
+            except asyncio.TimeoutError:
+                raise Exception(f"DRM API请求超时（{self._REQUEST_TIMEOUT}秒）")
+            except aiohttp.ClientError as e:
+                raise Exception(f"DRM API网络错误: {str(e)}")
+
+            ckc = response.get("ckc")
+            if not ckc:
+                logger.error(f"响应中未找到ckc字段，响应内容: {response}")
+                ckc = response.get("data", {}).get("ckc")
+                if not ckc:
+                    raise Exception(f"响应中未找到ckc字段，响应: {response}")
+
+            ckc_bytes = base64.b64decode(ckc)
+
+            _MIN_CKC_LEN = 52
+            if len(ckc_bytes) < _MIN_CKC_LEN:
+                raise Exception(f"ckc响应过短: {len(ckc_bytes)}字节（最小需要{_MIN_CKC_LEN}字节）")
+
+            offset = 12
+            offset += 4  # time_bytes
+            iv = ckc_bytes[offset:offset+16]
+            offset += 16
+            data_len = int.from_bytes(ckc_bytes[offset:offset+4], 'big')
+            offset += 4
+
+            if data_len <= 0 or data_len > 65536:
+                raise Exception(f"ckc数据长度异常: {data_len}")
+            if offset + data_len > len(ckc_bytes):
+                raise Exception(f"ckc数据长度{data_len}超出实际数据范围(offset={offset}, 总长={len(ckc_bytes)})")
+
+            data = ckc_bytes[offset:offset+data_len]
+
+            if len(data) == 0 or len(data) % 16 != 0:
+                raise Exception(f"ckc数据长度{len(data)}不是16的倍数，无法CBC解密")
+
+            aes_cbc = AES.new(self._key, AES.MODE_CBC, iv)
+            decrypted = aes_cbc.decrypt(data)
+
+            aes_ecb = AES.new(self._key, AES.MODE_ECB)
+            final_key = aes_ecb.decrypt(decrypted[-16:])
+
+            result_key = final_key.hex()
+            logger.info(f"成功获取DRM密钥: {result_key}")
+
+            if cache_key is not None:
+                with DRM_KEY_CACHE_LOCK:
+                    DRM_KEY_CACHE[cache_key] = (result_key, time.time())
+                    current_time = time.time()
+                    expired_keys = [k for k, (_, ts) in DRM_KEY_CACHE.items()
+                                  if current_time - ts >= DRM_KEY_CACHE_EXPIRY]
+                    for k in expired_keys:
+                        del DRM_KEY_CACHE[k]
+
+            return result_key
+        except Exception as e:
+            logger.error(f"获取DRM密钥失败: {str(e)}")
+            raise
+
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
+
+try:
+    import browser_cookie3
+except ImportError:
+    browser_cookie3 = None
+
+
+
+from error_codes import ERROR_CODES
+
+
+
+
+class _ThreadSafeBrowserSession:
+
+    def __init__(self, session):
+        object.__setattr__(self, '_session', session)
+        object.__setattr__(self, '_lock', threading.RLock())
+
+    def get(self, *args, **kwargs):
+        with self._lock:
+            return self._session.get(*args, **kwargs)
+
+    def post(self, *args, **kwargs):
+        with self._lock:
+            return self._session.post(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._session, name)
+
+    def __setattr__(self, name, value):
+        if name in ('_session', '_lock'):
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self._session, name, value)
+
+
+class BilibiliParser:
+    def _create_browser_session(self):
+        try:
+            from curl_cffi import requests as _cr
+            _s = _cr.Session(impersonate='chrome', verify=_curl_ca_path())
+            return _ThreadSafeBrowserSession(_s)
+        except Exception as _e:
+            logger.warning(f"curl_cffi 不可用，回退 requests: {_e}")
+            return requests.Session()
+
+    def __init__(self, config, cookie_path="cookie.txt"):
+        self.config = config
+        self.cookies = {}
+        self.csrf_token = ""
+        self.session = self._create_browser_session()
+        self.user_info = None
+        self.hevc_supported = False
+        
+        self.wbi_sign = WbiSign()
+        self.api_request = ApiRequest(self.session)
+        self.video_parser = VideoParser()
+
+        import sys
+        if getattr(sys, 'frozen', False):
+            self.current_dir = os.path.dirname(sys.executable)
+        elif hasattr(sys, '_MEIPASS'):
+            self.current_dir = sys._MEIPASS
+        else:
+            self.current_dir = os.path.dirname(os.path.abspath(__file__))
+
+        _pref_cache_dir = ""
+        _pref_download_dir = ""
+        try:
+            if config is not None:
+                _pref_cache_dir = (config.get_app_setting("cache_dir", "") or "").strip()
+                _pref_download_dir = (config.get_app_setting("default_save_path", "") or "").strip()
+        except Exception:
+            pass
+        self.safe_temp_dir = get_safe_temp_dir(
+            self.current_dir, "temp",
+            cache_dir=_pref_cache_dir or None,
+            prefer_dir=_pref_download_dir or None,
+        )
+        logger.info(f"临时/缓存目录: {self.safe_temp_dir}")
+        
+        if hasattr(sys, '_MEIPASS'):
+            self.cookie_path = os.path.join(os.getcwd(), cookie_path)
+        else:
+            self.cookie_path = os.path.join(self.current_dir, cookie_path)
+        
+        self.tool_manager = None
+        self.using_system_tools = False
+        if get_tool_manager is not None:
+            try:
+                self.tool_manager = get_tool_manager()
+                tool_status = self.tool_manager.check_tools_installed()
+                if tool_status['ffmpeg_exists'] and tool_status['bento4_exists']:
+                    self.ffmpeg_local = tool_status['ffmpeg_path']
+                    self.bento4_dir = tool_status['bento4_path'].replace(os.sep + exe('mp4decrypt'), '')
+                    self.using_system_tools = True
+                    logger.info(f"使用已安装的工具: FFmpeg={self.ffmpeg_local}, Bento4={self.bento4_dir}")
+                else:
+                    self._setup_old_paths()
+            except Exception as e:
+                logger.warning(f"工具管理器初始化失败: {str(e)}, 使用旧逻辑")
+                self._setup_old_paths()
+        else:
+            self._setup_old_paths()
+
+        self._session_ready = threading.Event()
+        self._init_session_lightweight()
+        threading.Thread(target=self._init_session_network, daemon=True).start()
+    
+    def _wait_session_ready(self, timeout=None):
+        """等待session网络初始化完成"""
+        if not self._session_ready.is_set():
+            logger.debug("等待session网络初始化...")
+            self._session_ready.wait(timeout=timeout)
+    
+    def _init_session_lightweight(self):
+        """轻量级session初始化"""
+        headers = self.config.get_headers()
+        self.session.headers.clear()
+        self.session.headers.update(headers)
+        
+        self.cookies = self._load_cookies()
+        logger.info(f"从文件加载的cookie字段：{sorted(self.cookies.keys())}")
+        self._apply_cookies_to_session(self.cookies, clear_first=True)
+        
+        self.csrf_token = self.cookies.get('bili_jct', '')
+        if self.csrf_token:
+            self.session.headers.update({'X-CSRF-Token': self.csrf_token})
+        
+        self.session.proxies = {}  # 强制禁用代理
+        self.session.trust_env = False  # 不读代理直连
+
+        self.load_browser_env()
+
+        self._load_cached_wbi_keys()
+        threading.Thread(target=self._update_wbi_keys, daemon=True).start()
+        
+        if 'bili_ticket' not in self.cookies:
+            def _gen_ticket():
+                try:
+                    time.sleep(3)
+                    self._generate_bili_ticket()
+                except Exception as e:
+                    logger.warning(f"预生成bili_ticket失败: {e}")
+            threading.Thread(target=_gen_ticket, daemon=True).start()
+    
+    def _init_session_network(self):
+        """session网络初始化，在后台线程中执行"""
+        try:
+            _need_server_buvid3 = True
+            for key in self.session.cookies.keys():
+                val = self.session.cookies.get(key, '')
+                if key == 'buvid3' and val and not val.startswith('XY'):
+                    _need_server_buvid3 = False
+                    break
+            
+            if _need_server_buvid3:
+                try:
+                    logger.info("_init_session: 正在从bilibili.com获取服务端签发的buvid3...")
+                    _init_headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+                    }
+                    _init_resp = self.session.get('https://www.bilibili.com', headers=_init_headers, timeout=10, allow_redirects=True)
+                    if _init_resp.cookies:
+                        self.session.cookies.update(_init_resp.cookies)
+                    for k, v in dict(self.session.cookies).items():
+                        if 'buvid' in k.lower():
+                            logger.info(f"  获取到服务端cookie字段: {k} (值长度 {len(str(v))})")
+                except Exception as e:
+                    logger.warning(f"_init_session: 获取服务端buvid3失败: {e}")
+
+            _has_sid = False
+            for key in self.session.cookies.keys():
+                if key == 'sid':
+                    _has_sid = True
+                    break
+            if not _has_sid:
+                try:
+                    logger.info("_init_session: 正在从passport获取sid...")
+                    _init_headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+                    }
+                    _passport_resp = self.session.get('https://passport.bilibili.com/login', headers=_init_headers, timeout=10, allow_redirects=True)
+                    if _passport_resp.cookies:
+                        self.session.cookies.update(_passport_resp.cookies)
+                        for k, v in dict(_passport_resp.cookies).items():
+                            logger.info(f"  获取到passport cookie字段: {k} (值长度 {len(str(v))})")
+                except Exception as e:
+                    logger.warning(f"_init_session: 获取sid失败: {e}")
+            
+            logger.info(f"session cookie字段：{sorted(self.session.cookies.keys())}")
+            
+            try:
+                _img_key, _ = self.wbi_sign.get_wbi_keys()
+                if not _img_key or _img_key == 'img_key':
+                    logger.info("WBI密钥为无效默认值，正在同步获取...")
+                    if self._get_wbi_keys():
+                        self._save_wbi_keys()
+                        logger.info("WBI密钥同步获取成功")
+            except Exception as e:
+                logger.warning(f"同步获取WBI密钥失败: {e}")
+        finally:
+            self._session_ready.set()
+            if self.cookies:
+                def verify_cookie_in_thread():
+                    try:
+                        success, msg = self.verify_cookie()
+                        if not success:
+                            logger.warning(f"Cookie有效性检查：{msg}")
+                        else:
+                            logger.debug(f"Cookie有效性检查：{msg}")
+                    except Exception as e:
+                        logger.error(f"Cookie有效性检查失败：{str(e)}")
+                
+                thread = threading.Thread(target=verify_cookie_in_thread)
+                thread.daemon = True
+                thread.start()
+    
+    def _setup_old_paths(self):
+        """使用旧的路径设置逻辑"""
+        import sys
+        if hasattr(sys, '_MEIPASS'):
+            self.bento4_dir = os.path.join(self.current_dir, 'bento4', 'bin')
+        else:
+            self.bento4_dir = os.path.join(self.current_dir, 'bento4', get_bento4_sdk_dirname(), 'bin')
+        
+        self.ffmpeg_local = os.path.join(self.current_dir, 'ffmpeg', 'bin', exe('ffmpeg'))
+        
+        self._check_and_fix_paths()
+    
+    def _check_and_fix_paths(self):
+        """检查必要工具是否存在，尝试多个可能的路径"""
+        import sys
+        
+        exe_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else None
+        
+        possible_bento4_paths = []
+        if exe_dir:
+            _internal_dir = os.path.join(exe_dir, '_internal')
+            possible_bento4_paths.append(os.path.join(_internal_dir, 'bento4', get_bento4_sdk_dirname(), 'bin'))
+            possible_bento4_paths.append(os.path.join(_internal_dir, 'bento4', 'bin'))
+            possible_bento4_paths.append(os.path.join(exe_dir, 'bento4', get_bento4_sdk_dirname(), 'bin'))
+            possible_bento4_paths.append(os.path.join(exe_dir, 'bento4', 'bin'))
+        if hasattr(sys, '_MEIPASS'):
+            possible_bento4_paths.append(os.path.join(sys._MEIPASS, 'bento4', 'bin'))
+            possible_bento4_paths.append(os.path.join(sys._MEIPASS, 'bento4', get_bento4_sdk_dirname(), 'bin'))
+        possible_bento4_paths.append(self.bento4_dir)
+        possible_bento4_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', 'bin'))
+        possible_bento4_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bento4', get_bento4_sdk_dirname(), 'bin'))
+        possible_bento4_paths.append(os.path.join(os.getcwd(), 'bento4', 'bin'))
+        possible_bento4_paths.append(os.path.join(os.getcwd(), 'bento4', get_bento4_sdk_dirname(), 'bin'))
+        
+        found_bento4 = False
+        for path in possible_bento4_paths:
+            test_path = os.path.join(path, exe('mp4decrypt'))
+            if os.path.exists(test_path):
+                self.bento4_dir = path
+                found_bento4 = True
+                logger.info(f"找到Bento4工具：{path}")
+                break
+        
+        if not found_bento4:
+            logger.warning("未找到Bento4工具，解密功能可能无法正常工作")
+        
+        possible_ffmpeg_paths = []
+        if exe_dir:
+            _internal_dir = os.path.join(exe_dir, '_internal')
+            possible_ffmpeg_paths.append(os.path.join(_internal_dir, 'ffmpeg', 'bin', exe('ffmpeg')))
+            possible_ffmpeg_paths.append(os.path.join(exe_dir, 'ffmpeg', 'bin', exe('ffmpeg')))
+        if hasattr(sys, '_MEIPASS'):
+            possible_ffmpeg_paths.append(os.path.join(sys._MEIPASS, 'ffmpeg', 'bin', exe('ffmpeg')))
+        possible_ffmpeg_paths.append(self.ffmpeg_local)
+        possible_ffmpeg_paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ffmpeg', 'bin', exe('ffmpeg')))
+        possible_ffmpeg_paths.append(os.path.join(os.getcwd(), 'ffmpeg', 'bin', exe('ffmpeg')))
+        
+        found_ffmpeg = False
+        for path in possible_ffmpeg_paths:
+            if os.path.exists(path):
+                self.ffmpeg_local = path
+                found_ffmpeg = True
+                logger.info(f"找到FFmpeg工具：{path}")
+                break
+        
+        if not found_ffmpeg:
+            logger.warning("未找到FFmpeg工具，视频处理功能可能无法正常工作")
+    
+    def check_tools_exist(self):
+        """检查所有必要工具是否存在，返回状态字典"""
+        status = {
+            'ffmpeg': {
+                'exists': os.path.exists(self.ffmpeg_local),
+                'path': self.ffmpeg_local
+            },
+            'mp4decrypt': {
+                'exists': os.path.exists(os.path.join(self.bento4_dir, exe('mp4decrypt'))),
+                'path': os.path.join(self.bento4_dir, exe('mp4decrypt'))
+            },
+            'bento4_dir': {
+                'exists': os.path.exists(self.bento4_dir),
+                'path': self.bento4_dir
+            }
+        }
+        return status
+
+    def _init_session(self):
+        """完整的session初始化"""
+        self._session_ready.clear()
+        self._init_session_lightweight()
+        self._init_session_network()
+    
+    def _get_wbi_keys(self):
+        try:
+            url = "https://api.bilibili.com/x/web-interface/nav"
+            success, data = self._api_request(url, timeout=10, use_wbi=False)
+            if not success:
+                logger.warning(f"获取 Wbi 密钥失败：{data['error']}，使用缓存密钥")
+                img_key, sub_key = self.wbi_sign.get_wbi_keys()
+                return img_key and sub_key
+            
+            wbi_data = data.get('data', {}).get('wbi_img', {})
+            img_url = wbi_data.get('img_url', '')
+            sub_url = wbi_data.get('sub_url', '')
+            
+            if not img_url or not sub_url:
+                logger.warning("获取 Wbi 密钥失败：未找到密钥信息，使用缓存密钥")
+                img_key, sub_key = self.wbi_sign.get_wbi_keys()
+                return img_key and sub_key
+            
+            
+            img_key = img_url.split('/')[-1].split('.')[0]
+            sub_key = sub_url.split('/')[-1].split('.')[0]
+            self.wbi_sign.set_wbi_keys(img_key, sub_key)
+            logger.debug(f"获取 Wbi 密钥成功：img_key={img_key}, sub_key={sub_key}")
+            self._save_wbi_keys()
+            return True
+        except Exception as e:
+            logger.error(f"获取 Wbi 密钥失败：{str(e)}，使用缓存密钥")
+            img_key, sub_key = self.wbi_sign.get_wbi_keys()
+            return img_key and sub_key
+    
+    def _load_cached_wbi_keys(self):
+        try:
+            cache_file = 'wbi_cache.json'
+            if os.path.exists(cache_file):
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    cache_data = std_json.load(f)
+                img_key = cache_data.get('wbi_img_key', '')
+                sub_key = cache_data.get('wbi_sub_key', '')
+                if img_key and sub_key and img_key != 'img_key' and sub_key != 'sub_key':
+                    self.wbi_sign.set_wbi_keys(img_key, sub_key)
+                    logger.debug(f"从缓存加载Wbi密钥成功：img_key={img_key[:8]}..., sub_key={sub_key[:8]}...")
+                else:
+                    logger.warning(f"缓存中的WBI密钥为无效默认值，将重新获取")
+        except Exception as e:
+            logger.error(f"加载Wbi缓存失败：{str(e)}")
+    
+    def _save_wbi_keys(self):
+        try:
+            img_key, sub_key = self.wbi_sign.get_wbi_keys()
+            if not img_key or not sub_key or img_key == 'img_key' or sub_key == 'sub_key':
+                logger.warning("WBI密钥为无效默认值，跳过保存")
+                return
+            cache_file = 'wbi_cache.json'
+            cache_data = {
+                'wbi_img_key': img_key,
+                'wbi_sub_key': sub_key,
+                'wbi_update_time': time.time()
+            }
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                std_json.dump(cache_data, f, ensure_ascii=False, indent=2)
+            logger.debug("Wbi密钥保存到缓存成功")
+        except Exception as e:
+            logger.error(f"保存Wbi缓存失败：{str(e)}")
+    
+    def _update_wbi_keys(self):
+        import threading
+        
+        def update_once():
+            try:
+                _img_key, _ = self.wbi_sign.get_wbi_keys()
+                need_update = (
+                    time.time() - self.wbi_sign.wbi_update_time > 86400
+                    or not _img_key
+                    or _img_key == 'img_key'  # 无效默认值
+                )
+                if need_update:
+                    if self._get_wbi_keys():
+                        self._save_wbi_keys()
+            except Exception as e:
+                logger.error(f"更新Wbi密钥失败：{str(e)}")
+        
+        threading.Thread(target=update_once, daemon=True).start()
+        
+        while True:
+            time.sleep(3600)
+            threading.Thread(target=update_once, daemon=True).start()  
+    
+    def _generate_wbi_sign(self, params, with_dm_params=True):
+        return self.wbi_sign._generate_wbi_sign(params, with_dm_params=with_dm_params)
+    
+    def _generate_bili_ticket(self):
+        try:
+            timestamp = int(time.time())
+            key = "XgwSnGZ1p"
+            message = f"ts{timestamp}"
+            hexsign = hmac.new(key.encode('utf-8'), message.encode('utf-8'), hashlib.sha256).hexdigest()
+            
+            params = {
+                "key_id": "ec02",
+                "hexsign": hexsign,
+                "context[ts]": str(timestamp),
+                "csrf": self.csrf_token if self.csrf_token else ''
+            }
+            
+            url = "https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Referer': 'https://www.bilibili.com/',
+                'Accept': 'application/json, text/plain, */*'
+            }
+            
+            response = self.session.post(url, params=params, headers=headers, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            if data.get('code') == 0:
+                ticket = data.get('data', {}).get('ticket', '')
+                if ticket:
+                    logger.debug("生成 bili_ticket 成功")
+                    self.cookies['bili_ticket'] = ticket
+                    self.session.cookies.update({'bili_ticket': ticket})
+                    
+                    nav_data = data.get('data', {}).get('nav', {})
+                    if nav_data:
+                        img_url = nav_data.get('img', '')
+                        sub_url = nav_data.get('sub', '')
+                        if img_url and sub_url:
+                            img_key = img_url.rsplit('/', 1)[-1].split('.')[0]
+                            sub_key = sub_url.rsplit('/', 1)[-1].split('.')[0]
+                            if hasattr(self, 'wbi_sign') and self.wbi_sign:
+                                self.wbi_sign.set_wbi_keys(img_key, sub_key)
+                                logger.debug(f"从bili_ticket响应更新WBI密钥: img={img_key[:8]}..., sub={sub_key[:8]}...")
+                    return ticket
+            
+            logger.error(f"生成 bili_ticket 失败：{data.get('code')}: {data.get('message', '未知错误')}")
+            return None
+        except Exception as e:
+            logger.error(f"生成 bili_ticket 失败：{str(e)}")
+            return None
+    
+    def _get_v_voucher(self, url, params=None):
+        return None
+    
+    def _handle_v_voucher(self, v_voucher):
+        try:
+            if not v_voucher:
+                return None
+            
+            logger.info(f"处理 v_voucher: {v_voucher[:30]}...")
+            
+            register_url = "https://api.bilibili.com/x/gaia-vgate/v1/register"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Referer': 'https://www.bilibili.com/',
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+            
+            register_data = {
+                'csrf': self.csrf_token if self.csrf_token else '',
+                'v_voucher': v_voucher
+            }
+            
+            resp = self.session.post(register_url, data=register_data, headers=headers, timeout=15)
+            resp.raise_for_status()
+            result = resp.json()
+            
+            if result.get('code') != 0:
+                logger.warning(f"v_voucher register 失败: {result.get('message', '未知错误')}")
+                return None
+            
+            data = result.get('data', {})
+            captcha_type = data.get('type', '')
+            token = data.get('token', '')
+            
+            if captcha_type == 'geetest':
+                geetest = data.get('geetest')
+                if not geetest:
+                    logger.warning("v_voucher geetest 数据为空，该风控无法通过 captcha 解除")
+                    return None
+                
+                gt = geetest.get('gt', '')
+                challenge = geetest.get('challenge', '')
+                
+                logger.info(f"v_voucher 需要极验验证，gt={gt[:16]}..., challenge={challenge[:16]}...")
+                
+                if hasattr(self, 'v_voucher_callback') and self.v_voucher_callback:
+                    captcha_result = self.v_voucher_callback({
+                        'type': 'geetest',
+                        'gt': gt,
+                        'challenge': challenge,
+                        'token': token
+                    })
+                    
+                    if captcha_result and isinstance(captcha_result, dict):
+                        validate_val = captcha_result.get('validate', '')
+                        seccode_val = captcha_result.get('seccode', '')
+                        
+                        if validate_val and seccode_val:
+                            validate_url = "https://api.bilibili.com/x/gaia-vgate/v1/validate"
+                            validate_data = {
+                                'csrf': self.csrf_token if self.csrf_token else '',
+                                'challenge': challenge,
+                                'token': token,
+                                'validate': validate_val,
+                                'seccode': seccode_val
+                            }
+                            
+                            resp2 = self.session.post(validate_url, data=validate_data, headers=headers, timeout=15)
+                            resp2.raise_for_status()
+                            validate_result = resp2.json()
+                            
+                            if validate_result.get('code') == 0:
+                                grisk_id = validate_result.get('data', {}).get('grisk_id', '')
+                                if grisk_id:
+                                    logger.info(f"v_voucher 验证成功，获取 grisk_id: {grisk_id[:16]}...")
+                                    self.cookies['x-bili-gaia-vtoken'] = grisk_id
+                                    self.session.cookies.update({'x-bili-gaia-vtoken': grisk_id})
+                                    return grisk_id
+                            else:
+                                logger.warning(f"v_voucher validate 失败: {validate_result.get('message', '未知错误')}")
+                else:
+                    logger.warning("v_voucher 需要极验验证，但未设置回调函数，无法自动处理")
+            else:
+                logger.warning(f"v_voucher 验证类型不支持: {captcha_type}")
+            
+            return None
+        except Exception as e:
+            logger.error(f"处理 v_voucher 失败：{str(e)}")
+            return None
+
+    def _load_cookies(self):
+        cookies = {}
+
+        if os.path.exists(self.cookie_path):
+            try:
+                with open(self.cookie_path, 'r', encoding='utf-8') as f:
+                    cookie_data = std_json.load(f)
+
+                if isinstance(cookie_data, list):
+                    if len(cookie_data) > 0 and 'name' in cookie_data[0] and 'value' in cookie_data[0]:
+                        for item in cookie_data:
+                            name = item.get('name', '')
+                            value = item.get('value', '')
+                            if self._is_valid_cookie_kv(name, value):
+                                cookies[name.strip()] = value.strip()
+                            elif name:  # 有key但验证失败
+                                logger.warning(f"加载到无效cookie被跳过: key={str(name)[:30]}..., value长度={len(str(value))}")
+                    else:
+                        for item in cookie_data:
+                            if isinstance(item, dict) and 'name' in item and 'value' in item:
+                                name = item['name']
+                                value = item['value']
+                                if self._is_valid_cookie_kv(name, value):
+                                    cookies[name.strip()] = value.strip()
+                if cookies:
+                    return cookies
+            except Exception as e:
+                print(f"本地Cookie加载失败：{str(e)}")
+
+        return cookies
+
+
+    COOKIE_DOMAIN = ".bilibili.com"
+
+    def _apply_cookies_to_session(self, cookies, clear_first=True):
+        if not isinstance(cookies, dict) or not cookies:
+            return 0
+        if clear_first:
+            self.session.cookies.clear()
+        applied = 0
+        for k, v in cookies.items():
+            if not k or v is None or not isinstance(k, str):
+                continue
+            try:
+                self.session.cookies.set(k, str(v), domain=self.COOKIE_DOMAIN)
+                applied += 1
+            except Exception:
+                try:
+                    self.session.cookies.update({k: str(v)})
+                    applied += 1
+                except Exception:
+                    pass
+        return applied
+
+    LOGIN_COOKIE_KEYS = ('DedeUserID', 'DedeUserID__ckMd5', 'SESSDATA', 'bili_jct', 'sid', 'buvid3')
+
+    def _harvest_login_cookies(self, resp, login_data):
+        def _pick(d):
+            return {k: v for k, v in (d or {}).items()
+                    if k in self.LOGIN_COOKIE_KEYS and v}
+
+        try:
+            got = _pick({c.name: c.value for c in resp.cookies})
+            if got:
+                logger.info(f"登录cookie来源1(resp.cookies): {list(got.keys())}")
+                return got
+        except Exception:
+            pass
+
+        try:
+            cd_url = (login_data or {}).get('url') or ''
+            if cd_url:
+                from urllib.parse import urlparse, parse_qs
+                params = parse_qs(urlparse(cd_url).query, keep_blank_values=True)
+                got = _pick({k: v[0] for k, v in params.items() if v})
+                if got:
+                    logger.info(f"登录cookie来源2(crossDomain URL): {list(got.keys())}")
+                    return got
+        except Exception as e:
+            logger.warning(f"解析 crossDomain URL 失败: {e}")
+
+        try:
+            raw = resp.headers.get('set-cookie') or resp.headers.get('Set-Cookie') or ''
+            parsed = {}
+            for part in re.split(r',\s*(?=[A-Za-z0-9_\-]+=)', raw):
+                head = part.split(';', 1)[0].strip()
+                if '=' in head:
+                    k, v = head.split('=', 1)
+                    if k.strip() in self.LOGIN_COOKIE_KEYS and v.strip():
+                        parsed[k.strip()] = v.strip()
+            if parsed:
+                logger.info(f"登录cookie来源3(Set-Cookie 头): {list(parsed.keys())}")
+                return parsed
+        except Exception as e:
+            logger.warning(f"解析 Set-Cookie 头失败: {e}")
+
+        try:
+            got = _pick(self.session.cookies.get_dict() or {})
+            if got:
+                logger.info(f"登录cookie来源4(会话 jar): {list(got.keys())}")
+                return got
+        except Exception:
+            pass
+
+        logger.error(
+            "登录成功但四个来源均未取到 cookie。诊断：data.code=%r, data.url=%r, "
+            "set-cookie=%r, jar=%r, status_code=%r",
+            (login_data or {}).get('code'), ((login_data or {}).get('url') or '')[:120],
+            (resp.headers.get('set-cookie') or '')[:200],
+            list((self.session.cookies.get_dict() or {}).keys()),
+            getattr(resp, 'status_code', None),
+        )
+        return {}
+
+    def _finalize_login(self, cookies):
+        ok = self.save_cookies(cookies)
+        if not ok:
+            logger.warning("登录 cookie 保存失败，登录态可能无法持久化")
+
+        try:
+            self._wait_session_ready(timeout=10)
+        except Exception:
+            pass
+
+        user_info = {}
+        for attempt in range(3):
+            try:
+                user_info = self.get_user_info(force_refresh=True) or {}
+            except Exception as e:
+                logger.warning(f"登录后获取用户信息异常（第{attempt + 1}次）：{e}")
+                user_info = {}
+            if user_info.get('success'):
+                break
+            # cookie延迟重试
+            time.sleep(0.6 + attempt * 0.4)
+
+        logger.info(
+            "登录收尾：save_cookies=%s, isLogin=%s, uname=%s, cookies=%s",
+            ok, user_info.get('success'), user_info.get('uname', ''),
+            list(cookies.keys()) if isinstance(cookies, dict) else type(cookies).__name__,
+        )
+        if not user_info.get('success'):
+            logger.warning(f"登录后仍显示未登录：{user_info.get('msg', '')}")
+        return user_info
+
+    def save_cookies(self, cookies):
+        try:
+            if isinstance(cookies, str):
+                try:
+                    cookies = json.loads(cookies.strip())
+                except Exception:
+                    cookies = self._parse_cookie_text(cookies)
+
+            if isinstance(cookies, list) and len(cookies) > 0 and isinstance(cookies[0], dict):
+                cookie_dict = {}
+                for item in cookies:
+                    if 'name' in item and 'value' in item:
+                        cookie_dict[item['name'].strip()] = item['value'].strip()
+                cookies = cookie_dict
+
+            if not isinstance(cookies, dict):
+                raise ValueError("Cookie格式不支持")
+
+            cookies = {k: v for k, v in cookies.items() if self._is_valid_cookie_kv(k, v)}
+            if not cookies:
+                raise ValueError("没有有效的cookie可保存（所有cookie数据均未通过验证）")
+
+            cookie_list = [{'name': k, 'value': v} for k, v in cookies.items()]
+            with open(self.cookie_path, 'w', encoding='utf-8') as f:
+                std_json.dump(cookie_list, f, ensure_ascii=False, indent=2)
+
+            self.cookies = cookies
+            self._apply_cookies_to_session(cookies, clear_first=True)
+            self.csrf_token = cookies.get('bili_jct', '')
+            if self.csrf_token:
+                self.session.headers.update({'X-CSRF-Token': self.csrf_token})
+
+            self.user_info = None
+            with self._api_cache_lock:
+                self._api_cache.clear()
+            return True
+        except Exception as e:
+            print(f"Cookie保存失败：{str(e)}")
+            return False
+
+    def _browser_env_path(self):
+        return os.path.join(os.path.dirname(self.cookie_path), "browser_env.json")
+
+    def save_browser_env(self, cookies_dict, user_agent=None, extra_headers=None):
+        """保存验证通过的 WebEngine 完整浏览器环境，下次请求时复用同一套指纹。"""
+        try:
+            import json as _json
+            env = {
+                "ua": user_agent or "",
+                "cookies": dict(cookies_dict) if isinstance(cookies_dict, dict) else {},
+                "headers": dict(extra_headers) if isinstance(extra_headers, dict) else {},
+            }
+            with open(self._browser_env_path(), 'w', encoding='utf-8') as f:
+                _json.dump(env, f, ensure_ascii=False, indent=2)
+            logger.info(f"浏览器环境已保存：cookie_keys={list(env['cookies'].keys())}, ua={env['ua'][:40]}...")
+            return True
+        except Exception as e:
+            logger.error(f"保存浏览器环境失败：{e}")
+            return False
+
+    def load_browser_env(self):
+        """加载浏览器环境并注入到当前 session，使 requests 伪装成验证过的浏览器。"""
+        try:
+            p = self._browser_env_path()
+            if not os.path.exists(p):
+                return False
+            import json as _json
+            with open(p, 'r', encoding='utf-8') as f:
+                env = _json.load(f)
+            if env.get('ua'):
+                self.session.headers['User-Agent'] = env['ua']
+            if env.get('headers'):
+                for k, v in env['headers'].items():
+                    if k and v and k.lower() not in ('host', 'content-length', 'connection'):
+                        self.session.headers[k] = v
+            cookies = env.get('cookies') or {}
+            if cookies:
+                self._apply_cookies_to_session(cookies, clear_first=False)
+                for k, v in cookies.items():
+                    if k and v and isinstance(k, str) and isinstance(v, str):
+                        self.cookies[k] = v
+                if cookies.get('bili_jct'):
+                    self.csrf_token = cookies['bili_jct']
+                    self.session.headers['X-CSRF-Token'] = self.csrf_token
+                logger.info(f"浏览器环境已注入：{len(cookies)} cookies, ua={self.session.headers.get('User-Agent', '')[:40]}...")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"加载浏览器环境失败：{e}")
+            return False
+
+    def _is_valid_cookie_kv(self, key, value):
+        """检查cookie键值对是否有效，过滤被日志等数据污染的脏数据"""
+        if not isinstance(key, str) or not isinstance(value, str):
+            return False
+        # 键名须英文数字下划线
+        if not key or len(key) > 100 or not re.match(r'^[a-zA-Z0-9_]+$', key):
+            return False
+        if '\n' in value or '\r' in value or '| DEBUG' in value or '| INFO' in value or '| WARNING' in value or '| ERROR' in value:
+            return False
+        if len(value) > 1000:
+            return False
+        if value.startswith('{') or value.startswith('['):
+            return False
+        return True
+
+    def _parse_cookie_text(self, cookie_text):
+        cookie_dict = {}
+        if not cookie_text.strip():
+            return cookie_dict
+
+        text = cookie_text.strip()
+
+        if '| DEBUG' in text or '| INFO' in text or '| WARNING' in text or '| ERROR' in text or 'Login poll response' in text:
+            logger.warning(f"Cookie文本包含日志数据污染，已忽略。文本前50字符: {text[:50]}")
+            return cookie_dict
+
+        if (text.startswith('{') and text.endswith('}')) or (text.startswith('[') and text.endswith(']')):
+            try:
+                import ast
+                parsed = ast.literal_eval(text)
+                if isinstance(parsed, dict):
+                    for k, v in parsed.items():
+                        if self._is_valid_cookie_kv(k, v):
+                            cookie_dict[k.strip()] = v.strip()
+                    if cookie_dict:
+                        logger.info(f"通过ast.literal_eval解析到{len(cookie_dict)}个cookie")
+                        return cookie_dict
+                elif isinstance(parsed, list) and len(parsed) > 0 and isinstance(parsed[0], dict):
+                    for item in parsed:
+                        if isinstance(item, dict) and 'name' in item and 'value' in item:
+                            if self._is_valid_cookie_kv(item['name'], item['value']):
+                                cookie_dict[item['name'].strip()] = item['value'].strip()
+                    if cookie_dict:
+                        logger.info(f"通过ast.literal_eval(list)解析到{len(cookie_dict)}个cookie")
+                        return cookie_dict
+            except Exception:
+                pass
+
+            import re
+            dict_pattern = re.compile(r"['\"](\w+)['\"]\s*:\s*['\"]([^'\"]*)['\"]")
+            matches = dict_pattern.findall(text)
+            if matches:
+                for k, v in matches:
+                    if self._is_valid_cookie_kv(k, v):
+                        cookie_dict[k] = v
+                if cookie_dict:
+                    logger.info(f"通过正则提取到{len(cookie_dict)}个cookie(dict格式)")
+                    return cookie_dict
+
+        pairs = [pair.strip() for pair in text.split(';') if pair.strip()]
+        for pair in pairs:
+            if '=' in pair:
+                key, value = pair.split('=', 1)
+                if self._is_valid_cookie_kv(key.strip(), value.strip()):
+                    cookie_dict[key.strip()] = value.strip()
+        return cookie_dict
+
+    _api_cache = {}
+    _cache_expiry = 300
+    _cache_max_size = 100
+    # 多线程并发访问保护
+    _api_cache_lock = threading.Lock()
+    
+    def _api_request(self, url, timeout=None, max_retries=None, use_wbi=False, params=None, use_cache=True, extra_headers=None, with_dm_params=True):
+        try:
+            # 读配置的超时与重试
+            if timeout is None:
+                timeout = self.config.get_app_setting("network_timeout", 15) if self.config else 15
+                try:
+                    timeout = int(timeout)
+                except (ValueError, TypeError):
+                    timeout = 15
+            if max_retries is None:
+                max_retries = self.config.get_app_setting("max_retry", 3) if self.config else 3
+                try:
+                    max_retries = int(max_retries)
+                except (ValueError, TypeError):
+                    max_retries = 3
+
+            if not url or not isinstance(url, str):
+                return False, {"error": "无效的API请求地址"}
+            
+            cache_key = self._generate_cache_key(url, params, use_wbi)
+            
+            if use_cache:
+                cached_data = self._get_cached_data(cache_key)
+                if cached_data:
+                    return True, cached_data
+            
+            _BROWSER_HEADERS = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Referer': 'https://www.bilibili.com/',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Origin': 'https://www.bilibili.com',
+                'Connection': 'keep-alive',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-site',
+                'Sec-Ch-Ua': '"Not A(Brand";v="8", "Chromium";v="129", "Google Chrome";v="129"',
+                'Sec-Ch-Ua-Mobile': '?0',
+                'Sec-Ch-Ua-Platform': '"Windows"',
+            }
+
+            for retry in range(max_retries):
+                try:
+                    if params:
+                        import urllib.parse
+                        url_parts = list(urllib.parse.urlparse(url))
+                        query = dict(urllib.parse.parse_qsl(url_parts[4]))
+                        
+                        query.pop('wts', None)
+                        query.pop('w_rid', None)
+
+                        for key, value in params.items():
+                            if key not in query:
+                                query[key] = value
+
+                        if use_wbi:
+                            signed_params = self._generate_wbi_sign(query, with_dm_params=with_dm_params)
+                            query = signed_params
+
+                        url_parts[4] = urllib.parse.urlencode(query, quote_via=urllib.parse.quote)
+                        url = urllib.parse.urlunparse(url_parts)
+
+                    logger.debug(f"发送API请求: {url}")
+
+                    if not hasattr(self, 'session') or self.session is None:
+                        self.session = requests.Session()
+                        self.session.trust_env = False
+                        self.session.headers.update(_BROWSER_HEADERS)
+                    else:
+                        for k, v in _BROWSER_HEADERS.items():
+                            if k not in self.session.headers or not self.session.headers[k]:
+                                self.session.headers[k] = v
+                    
+                    self._enforce_request_interval()
+
+                    if extra_headers:
+                        self.session.headers.update(extra_headers)
+
+                    resp = self.session.get(url, timeout=timeout, proxies={}, allow_redirects=True, stream=False)
+
+                    if resp.cookies:
+                        self.session.cookies.update(resp.cookies)
+
+                    if resp.status_code != 200:
+                        logger.debug(f"API请求失败，状态码: {resp.status_code}, URL: {url}")
+                        if resp.status_code == 412:
+                            logger.warning("触发412风控（请求频率过高），等待后重试")
+                            time.sleep(5 + retry * 5)
+                            if retry < max_retries - 1:
+                                continue
+                            return False, {"error": "请求频率过高，请稍后再试"}
+                        if resp.status_code == 429:
+                            logger.warning("触发429限流，等待后重试")
+                            time.sleep(3 + retry * 3)
+                            if retry < max_retries - 1:
+                                continue
+                            return False, {"error": "请求过于频繁，请稍后再试"}
+                        return False, {"error": f"请求错误（code={resp.status_code}）"}
+
+                    content = resp.text.strip()
+                    
+                    if content.startswith('!'):
+                        start_index = content.find('{')
+                        if start_index != -1:
+                            content = content[start_index:]
+                    
+                    try:
+                        data = json.loads(content)
+                        
+                        code = data.get('code', 0)
+                        if code != 0:
+                            if code in ERROR_CODES:
+                                error_message = ERROR_CODES[code]
+                            else:
+                                error_message = data.get('message', '未知错误')
+                            
+                            if code == -403 or code == 403:
+                                if not self.cookies or 'SESSDATA' not in self.cookies:
+                                    return False, {"error": "访问权限不足，请先登录"}
+                                logger.warning(f"403权限不足，尝试刷新cookie后重试: {error_message}")
+                                if retry < max_retries - 1:
+                                    time.sleep(1 + retry)
+                                    continue
+                                return False, {"error": "访问权限不足，请确认登录状态"}
+                            
+                            elif code == -352:
+                                logger.warning(f"风控校验失败(-352)：{error_message}，尝试自动处理")
+                                v_voucher = data.get('data', {}).get('v_voucher', '')
+                                if not v_voucher:
+                                    v_voucher = resp.headers.get('x-bili-gaia-vvoucher', '')
+                                if v_voucher:
+                                    logger.info(f"从风控响应获取到 v_voucher: {v_voucher[:30]}...")
+                                    grisk_id = self._handle_v_voucher(v_voucher)
+                                    if grisk_id:
+                                        if params is None:
+                                            params = {}
+                                        params['gaia_vtoken'] = grisk_id
+                                else:
+                                    self._generate_bili_ticket()
+                                if retry < max_retries - 1:
+                                    time.sleep(2 + retry)
+                                    continue
+                                return False, {"error": f"风控校验失败，请稍后再试（code=-352）"}
+
+                            elif code == -799:
+                                logger.warning(f"请求过于频繁(-799)：{error_message}")
+                                wait_time = 8 * (2 ** retry) + random.randint(1, 5)
+                                logger.info(f"-799重试等待{wait_time}秒...")
+                                time.sleep(wait_time)
+                                if retry < max_retries - 1:
+                                    continue
+                                return False, {"error": "请求过于频繁，请稍后再试"}
+
+                            elif code == -509:
+                                logger.warning(f"请求频率限制(-509)：{error_message}")
+                                wait_time = 5 * (2 ** retry) + random.randint(1, 3)
+                                logger.info(f"-509重试等待{wait_time}秒...")
+                                time.sleep(wait_time)
+                                if retry < max_retries - 1:
+                                    continue
+                                return False, {"error": "请求频率限制，请稍后再试"}
+
+                            return False, {"error": f"API返回错误：{error_message}（code={code}）"}
+                        
+                        self._cache_api_response(cache_key, data)
+                        return True, data
+                    except JSONDecodeError as e:
+                        logger.debug(f"JSON解析错误: {str(e)}")
+                        if resp.status_code == 403:
+                            return False, {"error": "访问权限不足"}
+                        if "访问权限不足" in content:
+                            return False, {"error": "访问权限不足"}
+                        if not content:
+                            return False, {"error": "访问权限不足"}
+                        return False, {"error": "API返回的不是JSON格式数据"}
+                except Exception as e:
+                    error_msg = str(e)
+                    if "Timeout" in error_msg:
+                        if retry < max_retries - 1:
+                            time.sleep(1 + retry * 0.5)
+                            continue
+                        return False, {"error": "API请求超时，请检查网络连接"}
+                    elif "RequestException" in error_msg:
+                        if retry < max_retries - 1:
+                            time.sleep(1 + retry * 0.5)
+                            continue
+                        if "ProxyError" in error_msg:
+                            return False, {"error": "代理错误，请检查网络设置"}
+                        elif "ConnectionError" in error_msg:
+                            return False, {"error": "连接错误，请检查网络连接"}
+                        else:
+                            return False, {"error": f"网络请求失败：{error_msg}"}
+                    else:
+                        if retry < max_retries - 1:
+                            time.sleep(1 + retry * 0.5)
+                            continue
+                        return False, {"error": f"API请求发生未知错误：{str(e)}"}
+        except Exception as e:
+            return False, {"error": f"API请求发生未知错误：{str(e)}"}
+    
+    def _generate_cache_key(self, url, params, use_wbi):
+        import hashlib
+        key_parts = [url]
+        if params:
+            sorted_params = sorted(params.items())
+            key_parts.extend([f"{k}={v}" for k, v in sorted_params])
+        if use_wbi:
+            key_parts.append("wbi=True")
+        return hashlib.md5("|".join(key_parts).encode()).hexdigest()
+
+    _last_request_time = 0.0
+    _min_request_interval = 0.3
+    _interval_lock = threading.Lock()
+
+    def _enforce_request_interval(self):
+        # 加锁保证多线程并发解析时仍维持全局请求间隔，避免瞬时突发触发风控
+        with self._interval_lock:
+            now = time.time()
+            elapsed = now - self._last_request_time
+            if elapsed < self._min_request_interval:
+                time.sleep(self._min_request_interval - elapsed)
+            self._last_request_time = time.time()
+    
+    def _get_cached_data(self, cache_key):
+        with self._api_cache_lock:
+            if cache_key in self._api_cache:
+                cached = self._api_cache[cache_key]
+                if time.time() - cached['timestamp'] < self._cache_expiry:
+                    logger.debug(f"使用缓存的API响应: {cache_key}")
+                    return cached['data']
+                else:
+                    del self._api_cache[cache_key]  # 缓存过期
+        return None
+
+    def _cache_api_response(self, cache_key, data):
+        with self._api_cache_lock:
+            if len(self._api_cache) >= self._cache_max_size:
+                self._clean_expired_cache_locked()
+                if len(self._api_cache) >= self._cache_max_size:
+                    oldest_key = min(self._api_cache, key=lambda k: self._api_cache[k]['timestamp'])
+                    del self._api_cache[oldest_key]
+            self._api_cache[cache_key] = {
+                'data': data,
+                'timestamp': time.time()
+            }
+
+    def _clean_expired_cache(self):
+        with self._api_cache_lock:
+            self._clean_expired_cache_locked()
+
+    def _clean_expired_cache_locked(self):
+        # 调用方须已持有缓存锁
+        current_time = time.time()
+        expired_keys = [key for key, cached in self._api_cache.items()
+                      if current_time - cached['timestamp'] >= self._cache_expiry]
+        for key in expired_keys:
+            del self._api_cache[key]
+        if expired_keys:
+            logger.debug(f"清理了 {len(expired_keys)} 个过期缓存")
+
+    def verify_cookie(self):
+        if not self.cookies:
+            return False, "未加载任何Cookie"
+
+        required_cookies = ['SESSDATA']
+        missing = [ck for ck in required_cookies if ck not in self.cookies]
+        if missing:
+            return False, f"缺少关键Cookie：{','.join(missing)}（登录必需）"
+
+        api_url = self.config.get_api_url("login_status_api")
+        if not api_url:
+            return False, "配置错误：未找到用户信息API地址"
+
+        _max_retry = self.config.get_app_setting("max_retry", 3) if self.config else 3
+        try:
+            _max_retry = int(_max_retry)
+        except (ValueError, TypeError):
+            _max_retry = 3
+        success, result = self._api_request(api_url, timeout=10, max_retries=_max_retry, use_cache=False)
+        if not success:
+            return False, f"API请求失败：{result['error']}"
+
+        code = result.get('code', -1)
+        if code != 0:
+            msg = result.get('message', '未知错误')
+            return False, f"API返回错误：{msg}（code={code}）"
+
+        data = result.get('data', {})
+        is_login = data.get('isLogin', False)
+        if not is_login:
+            return False, "Cookie失效或未登录"
+
+        uname = data.get('uname', '未知用户')
+        mid = data.get('mid', '未知ID')
+        vip_status = data.get('vipStatus', 0)
+        vip_text = "会员" if vip_status == 1 else "普通用户"
+        return True, f"登录成功！用户：{uname}（ID：{mid}）| {vip_text}"
+
+    def get_qrcode(self):
+        try:
+            self._strip_login_cookies_from_session()
+        except Exception:
+            pass
+
+        try:
+            url = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Referer': 'https://www.bilibili.com/',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Cache-Control': 'no-cache',
+                'Origin': 'https://www.bilibili.com',
+                'Connection': 'keep-alive',
+                'Pragma': 'no-cache'
+            }
+            
+            self.session.headers.update(headers)
+            
+            logger.info(f"发送请求到：{url}")
+            
+            resp = self.session.get(url, timeout=15, proxies={}, allow_redirects=True)
+            
+            if resp.cookies:
+                self.session.cookies.update(resp.cookies)
+                logger.debug(f"获取二维码更新会话cookies字段：{sorted(resp.cookies.keys())}")
+            
+            logger.info(f"获取二维码API响应状态码：{resp.status_code}")
+            
+            content = resp.text
+            if not content or content.strip() == '':
+                if resp.content:
+                    try:
+                        content = resp.content.decode('utf-8')
+                    except Exception:
+                        pass
+                if not content or content.strip() == '':
+                    raise Exception("获取二维码失败：响应内容为空")
+            
+            if resp.status_code != 200:
+                raise Exception(f"获取二维码失败：HTTP {resp.status_code}")
+            
+            try:
+                data = json.loads(content)
+                logger.info(f"解析后的JSON数据：{data}")
+            except JSONDecodeError as e:
+                content = content.strip()
+                if content.startswith('!'):
+                    start_index = content.find('{')
+                    if start_index != -1:
+                        content = content[start_index:]
+                try:
+                    data = json.loads(content)
+                    logger.info(f"清理后解析的JSON数据：{data}")
+                except JSONDecodeError as e:
+                    raise Exception(f"获取二维码失败：JSON解析错误：{str(e)}")
+            
+            code = data.get('code', 0)
+            if code != 0:
+                message = data.get('message', '未知错误')
+                raise Exception(f"获取二维码失败：{message}（code={code}）")
+            
+            qrcode_data = data.get('data', {})
+            qrcode_url = qrcode_data.get('url', '')
+            qrcode_key = qrcode_data.get('qrcode_key', '')
+            
+            if not qrcode_url or not qrcode_key:
+                raise Exception("获取二维码信息失败")
+            
+            return {
+                "success": True,
+                "url": qrcode_url,
+                "qrcode_key": qrcode_key
+            }
+        except ImportError as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"缺少brotli库：{str(e)}")
+            
+            url = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Referer': 'https://www.bilibili.com/',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Cache-Control': 'no-cache',
+                'Origin': 'https://www.bilibili.com',
+                'Connection': 'keep-alive',
+                'Pragma': 'no-cache'
+            }
+            
+            try:
+                self.session.headers.update(headers)
+                resp = self.session.get(url, timeout=15, proxies={}, allow_redirects=True)
+                
+                if resp.cookies:
+                    self.session.cookies.update(resp.cookies)
+                    logger.debug(f"获取二维码更新会话cookies字段(no brotli)：{sorted(resp.cookies.keys())}")
+                
+                if resp.status_code != 200:
+                    raise Exception(f"获取二维码失败：HTTP {resp.status_code}")
+                
+                try:
+                    data = resp.json()
+                except JSONDecodeError:
+                    content = resp.text.strip()
+                    if content.startswith('!'):
+                        start_index = content.find('{')
+                        if start_index != -1:
+                            content = content[start_index:]
+                    data = json.loads(content)
+                
+                code = data.get('code', 0)
+                if code != 0:
+                    message = data.get('message', '未知错误')
+                    raise Exception(f"获取二维码失败：{message}（code={code}）")
+                
+                qrcode_data = data.get('data', {})
+                qrcode_url = qrcode_data.get('url', '')
+                qrcode_key = qrcode_data.get('qrcode_key', '')
+                
+                if not qrcode_url or not qrcode_key:
+                    raise Exception("获取二维码信息失败")
+                
+                return {
+                    "success": True,
+                    "url": qrcode_url,
+                    "qrcode_key": qrcode_key
+                }
+            except Exception as e:
+                logger.error(f"获取二维码失败：{str(e)}")
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
+        except Exception as e:
+            import traceback
+            logger.error(f"获取二维码失败：{str(e)}")
+            logger.error(traceback.format_exc())
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def poll_login_status(self, qrcode_key):
+        try:
+            url = f"https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key={qrcode_key}"
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Referer': 'https://www.bilibili.com/',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Accept-Encoding': 'gzip, deflate',
+                'Cache-Control': 'no-cache',
+                'Origin': 'https://www.bilibili.com',
+                'Connection': 'keep-alive',
+                'Pragma': 'no-cache',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-site'
+            }
+            
+            self.session.headers.update(headers)
+            resp = self.session.get(url, timeout=10, proxies={}, allow_redirects=True)
+            
+            if resp.cookies:
+                self.session.cookies.update(resp.cookies)
+                logger.debug(f"轮询更新会话cookies字段：{sorted(resp.cookies.keys())}")
+            
+            if resp.status_code != 200:
+                raise Exception(f"轮询登录状态失败：HTTP {resp.status_code}")
+            
+            content = resp.text
+            
+            if not content or content.strip() == '':
+                raise Exception("轮询登录状态失败：响应内容为空")
+            
+            try:
+                data = json.loads(content)
+            except JSONDecodeError:
+                content = content.strip()
+                if content.startswith('!'):
+                    start_index = content.find('{')
+                    if start_index != -1:
+                        content = content[start_index:]
+                try:
+                    data = json.loads(content)
+                except JSONDecodeError as e:
+                    raise Exception(f"轮询登录状态失败：JSON解析错误：{str(e)}")
+            
+            code = data.get('code', 0)
+            message = data.get('message', '')
+            login_data = data.get('data', {})
+            
+            logger.debug(f"Login poll response: code={code}, message={message}, data={login_data}")
+            
+            if "风险" in message or "验证" in message:
+                risk_url = login_data.get('url', '')
+                logger.debug(f"Risk detected: message={message}, url={risk_url}")
+                return {
+                    "success": False,
+                    "status": message,
+                    "code": code,
+                    "url": risk_url,
+                    "risk": True
+                }
+            
+            login_code = login_data.get('code', code)
+            login_message = login_data.get('message', message)
+            
+            if login_code in ERROR_CODES:
+                return {
+                    "success": False,
+                    "status": ERROR_CODES[login_code],
+                    "code": login_code
+                }
+            elif login_code != 0:
+                return {
+                    "success": False,
+                    "status": login_message or "未知状态",
+                    "code": login_code
+                }
+            
+            cookies = self._harvest_login_cookies(resp, login_data)
+
+            if cookies:
+                user_info = self._finalize_login(cookies)
+                return {
+                    "success": True,
+                    "status": "登录成功",
+                    "user_info": user_info
+                }
+            raise Exception("登录成功但未获取到cookie（已尝试 resp.cookies / crossDomain URL / Set-Cookie 头 / 会话缓存）")
+        except ImportError as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"缺少brotli库：{str(e)}")
+            
+            url = f"https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key={qrcode_key}"
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Referer': 'https://www.bilibili.com/',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Cache-Control': 'no-cache',
+                'Origin': 'https://www.bilibili.com',
+                'Connection': 'keep-alive',
+                'Pragma': 'no-cache',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-site'
+            }
+            
+            try:
+                self.session.headers.update(headers)
+                resp = self.session.get(url, timeout=10, proxies={}, allow_redirects=True)
+                
+                if resp.cookies:
+                    self.session.cookies.update(resp.cookies)
+                    logger.debug(f"轮询更新会话cookies字段(no brotli)：{sorted(resp.cookies.keys())}")
+                
+                if resp.status_code != 200:
+                    raise Exception(f"轮询登录状态失败：HTTP {resp.status_code}")
+                
+                data = resp.json()
+                code = data.get('code', 0)
+                message = data.get('message', '')
+                login_data = data.get('data', {})
+                
+                logger.debug(f"Login poll response (no brotli): code={code}, message={message}, data={login_data}")
+                
+                if "风险" in message or "验证" in message:
+                    risk_url = login_data.get('url', '')
+                    logger.debug(f"Risk detected (no brotli): message={message}, url={risk_url}")
+                    return {
+                        "success": False,
+                        "status": message,
+                        "code": code,
+                        "url": risk_url,
+                        "risk": True
+                    }
+                
+                login_code = login_data.get('code', code)
+                login_message = login_data.get('message', message)
+                
+                if login_code in ERROR_CODES:
+                    return {
+                        "success": False,
+                        "status": ERROR_CODES[login_code],
+                        "code": login_code
+                    }
+                elif login_code != 0:
+                    return {
+                        "success": False,
+                        "status": login_message or "未知状态",
+                        "code": login_code
+                    }
+                
+                cookies = self._harvest_login_cookies(resp, login_data)
+                
+                if cookies:
+                    user_info = self._finalize_login(cookies)
+                    return {
+                        "success": True,
+                        "status": "登录成功",
+                        "user_info": user_info
+                    }
+                raise Exception("登录成功但未获取到cookie（已尝试 resp.cookies / crossDomain URL / Set-Cookie 头 / 会话缓存）")
+            except Exception as e:
+                logger.error(f"轮询登录状态失败：{str(e)}")
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def get_user_info(self, force_refresh=False):
+        if not force_refresh and self.user_info and self.user_info['success']:
+            return self.user_info
+
+        api_url = self.config.get_api_url("login_status_api")
+        if not api_url:
+            return {"success": False, "msg": "配置错误：未找到用户信息API地址", "is_vip": False}
+
+        success, result = self._api_request(api_url, use_cache=not force_refresh)
+        if not success:
+            return {"success": False, "msg": f"获取用户信息失败：{result['error']}", "is_vip": False}
+
+        code = result.get('code', -1)
+        if code != 0:
+            msg = result.get('message', '未知错误')
+            return {"success": False, "msg": f"API返回错误：{msg}（code={code}）", "is_vip": False}
+
+        data = result.get('data', {})
+        is_login = data.get('isLogin', False)
+        if not is_login:
+            return {"success": False, "msg": "未登录或Cookie失效", "is_vip": False}
+
+        self.user_info = {
+            "success": True,
+            "uname": data.get('uname', '未知用户'),
+            "mid": str(data.get('mid', '未知ID')),
+            "is_vip": data.get('vipStatus', 0) == 1,
+            "vip_type": data.get('vipType', 0),
+            "level": data.get('level_info', {}).get('current_level', 0),
+            "face": data.get('face', ''),
+            "msg": f"登录用户：{data.get('uname', '未知用户')} | 等级{data.get('level_info', {}).get('current_level', 0)} | {'会员' if data.get('vipStatus') == 1 else '普通用户'}"
+        }
+        return self.user_info
+    
+    def get_user_detail(self):
+        try:
+            user_info = self.get_user_info()
+            if not user_info.get("success"):
+                return {"success": False, "error": "未登录或Cookie失效"}
+            
+            mid = user_info.get("mid", "")
+            if not mid:
+                return {"success": False, "error": "获取用户ID失败"}
+            
+            basic_user_detail = {
+                "success": True,
+                "mid": user_info.get("mid", ""),
+                "name": user_info.get("uname", "未知用户"),
+                "sex": "保密",
+                "face": user_info.get("face", ""),
+                "sign": "无签名",
+                "level": user_info.get("level", 0),
+                "coins": 0,
+                "vip": {"status": 1 if user_info.get("is_vip") else 0, "type": user_info.get("vip_type", 0)},
+                "is_senior_member": 0,
+                "jointime": 0
+            }
+            
+            url = f"https://api.bilibili.com/x/space/acc/info"
+            params = {
+                "mid": mid
+            }
+            
+            logger.info(f"当前session cookie字段: {sorted(self.session.cookies.keys())}")
+            
+            logger.info(f"尝试获取用户详细信息，URL: {url}, params: {params}")
+            success, result = self._api_request(url, use_wbi=False, params=params)
+            logger.info(f"API请求结果 - success: {success}, result: {result}")
+            
+            if not success:
+                logger.debug(f"获取用户详细信息失败：{result.get('error', '未知错误')}，使用基本信息")
+                return basic_user_detail
+            
+            code = result.get('code', -1)
+            if code != 0:
+                msg = result.get('message', '未知错误')
+                logger.debug(f"API返回错误：{msg}（code={code}），使用基本信息")
+                return basic_user_detail
+            
+            data = result.get('data', {})
+            
+            user_detail = {
+                "success": True,
+                "mid": data.get('mid', user_info.get("mid", "")),
+                "name": data.get('name', user_info.get("uname", "未知用户")),
+                "sex": data.get('sex', '保密'),
+                "face": data.get('face', user_info.get("face", "")),
+                "sign": data.get('sign', '无签名'),
+                "level": data.get('level', user_info.get("level", 0)),
+                "coins": data.get('coins', 0),
+                "vip": data.get('vip', {"status": 1 if user_info.get("is_vip") else 0, "type": user_info.get("vip_type", 0)}),
+                "is_senior_member": data.get('is_senior_member', 0),
+                "jointime": data.get('jointime', 0)
+            }
+            
+            logger.debug(f"获取到的用户详细信息：{user_detail}")
+            
+            return user_detail
+        except Exception as e:
+            logger.debug(f"获取用户详细信息失败：{str(e)}，使用基本信息")
+            if 'user_info' not in locals():
+                user_info = self.get_user_info()
+            return {
+                "success": True,
+                "mid": user_info.get("mid", ""),
+                "name": user_info.get("uname", "未知用户"),
+                "sex": "保密",
+                "face": user_info.get("face", ""),
+                "sign": "无签名",
+                "level": user_info.get("level", 0),
+                "coins": 0,
+                "vip": {"status": 1 if user_info.get("is_vip") else 0, "type": user_info.get("vip_type", 0)},
+                "is_senior_member": 0,
+                "jointime": 0
+            }
+    
+    def get_space_info(self, mid):
+        try:
+            url = f"https://api.bilibili.com/x/web-interface/card"
+            params = {
+                "mid": mid
+            }
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Referer': f'https://space.bilibili.com/{mid}',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Connection': 'keep-alive',
+                'Cache-Control': 'no-cache'
+            }
+            
+            session = requests.Session()
+            session.headers.update(headers)
+            session.proxies = {}
+            session.trust_env = False
+
+            logger.info(f"尝试获取UP主信息，URL: {url}, params: {params}")
+            response = session.get(url, params=params, timeout=15, allow_redirects=True)
+            logger.info(f"API响应状态码: {response.status_code}")
+            
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    logger.info(f"API响应: {data}")
+                    if data.get('code') == 0:
+                        card_data = data.get('data', {}).get('card', {})
+                        if card_data:
+                            logger.info(f"获取UP主信息成功: {card_data.get('name')}")
+                            level_info = card_data.get('level_info', {})
+                            current_level = level_info.get('current_level', 0)
+                            return {
+                                "success": True,
+                                "mid": mid,
+                                "name": card_data.get('name', ''),
+                                "face": card_data.get('face', ''),
+                                "sign": card_data.get('sign', ''),
+                                "level": current_level,
+                                "sex": card_data.get('sex', ''),
+                                "birthday": card_data.get('birthday', ''),
+                                "coins": card_data.get('coins', 0),
+                                "fans_badge": card_data.get('fans_badge', False),
+                                "official": card_data.get('official', {})
+                            }
+                except Exception as json_e:
+                    logger.error(f"解析JSON失败: {str(json_e)}")
+            
+            logger.info("尝试使用备用API端点")
+            url2 = f"https://api.bilibili.com/x/relation/stat"
+            params2 = {
+                "vmid": mid
+            }
+            
+            response2 = session.get(url2, params=params2, timeout=15, allow_redirects=True)
+            logger.info(f"备用API响应状态码: {response2.status_code}")
+            
+            if response2.status_code == 200:
+                try:
+                    data2 = response2.json()
+                    logger.info(f"备用API响应: {data2}")
+                    if data2.get('code') == 0:
+                        return {
+                            "success": True,
+                            "mid": mid,
+                            "name": f"UP主{mid}",
+                            "face": "",
+                            "sign": "",
+                            "level": 0,
+                            "sex": "",
+                            "birthday": "",
+                            "coins": 0,
+                            "fans_badge": False,
+                            "official": {}
+                        }
+                except Exception as json_e2:
+                    logger.error(f"解析备用API JSON失败: {str(json_e2)}")
+            
+            logger.info("所有API都失败，返回固定信息")
+            return {
+                "success": True,
+                "mid": mid,
+                "name": f"UP主{mid}",
+                "face": "",
+                "sign": "",
+                "level": 0,
+                "sex": "",
+                "birthday": "",
+                "coins": 0,
+                "fans_badge": False,
+                "official": {}
+            }
+        except Exception as e:
+            logger.error(f"获取UP主空间信息异常：{str(e)}")
+            return {
+                "success": True,
+                "mid": mid,
+                "name": f"UP主{mid}",
+                "face": "",
+                "sign": "",
+                "level": 0,
+                "sex": "",
+                "birthday": "",
+                "coins": 0,
+                "fans_badge": False,
+                "official": {}
+            }
+    
+    @staticmethod
+    def _format_duration(seconds):
+        """将秒数转换为 MM:SS 或 HH:MM:SS"""
+        try:
+            seconds = int(seconds)
+            if seconds < 0:
+                return "00:00"
+            hours = seconds // 3600
+            minutes = (seconds % 3600) // 60
+            secs = seconds % 60
+            if hours > 0:
+                return f"{hours}:{minutes:02d}:{secs:02d}"
+            return f"{minutes:02d}:{secs:02d}"
+        except Exception:
+            return "00:00"
+
+    def _parse_space_video_item(self, item):
+        """将 Web 接口返回的单个视频对象转换为统一字典"""
+        return {
+            "aid": item.get('aid', ''),
+            "bvid": item.get('bvid', ''),
+            "title": item.get('title', ''),
+            "pic": item.get('pic', ''),
+            "description": item.get('description', ''),
+            "created": item.get('created', 0),
+            "length": item.get('length', ''),
+            "play": item.get('play', 0),
+            "video_review": item.get('video_review', 0),
+            "review": item.get('review', 0),
+            "favorites": item.get('favorites', 0),
+            "author": item.get('author', ''),
+            "mid": item.get('mid', '')
+        }
+
+    def _parse_app_space_video_item(self, item, mid):
+        """将 APP 接口返回的单个视频对象转换为统一字典"""
+        return {
+            "aid": item.get('param', ''),
+            "bvid": item.get('bvid', ''),
+            "title": item.get('title', ''),
+            "pic": item.get('cover', ''),
+            "description": item.get('subtitle', ''),
+            "created": item.get('ctime', 0),
+            "length": self._format_duration(item.get('duration', 0)),
+            "play": item.get('play', 0),
+            "video_review": item.get('danmaku', 0),
+            "review": 0,
+            "favorites": 0,
+            "author": item.get('author', ''),
+            "mid": mid
+        }
+
+    def _request_space_videos_web(self, mid, page, ps, use_wbi=True):
+        """请求 Web 端单页空间视频，返回 (success, data/error)"""
+        url = "https://api.bilibili.com/x/space/wbi/arc/search" if use_wbi else "https://api.bilibili.com/x/space/arc/search"
+        params = {
+            "mid": mid,
+            "ps": ps,
+            "pn": page,
+            "tid": 0,
+            "keyword": "",
+            "order": "pubdate",
+            "platform": "web",
+            "order_avoided": "true",
+            "special_type": ""
+        }
+        extra_headers = {'Referer': f'https://space.bilibili.com/{mid}/video'}
+        return self._api_request(url, use_wbi=use_wbi, params=params, timeout=15, extra_headers=extra_headers)
+
+    def _request_space_videos_app(self, mid, ps=30, aid=None, order="pubdate"):
+        """请求 APP 端空间视频，返回 (success, data/error)"""
+        url = "https://app.biliapi.com/x/v2/space/archive/cursor"
+        params = {
+            "vmid": mid,
+            "ps": ps,
+            "order": order,
+            "mobi_app": "web",
+            "platform": "web",
+            "pn": 1,
+            "pn_policy": 1,
+            "c_locale": "zh_CN",
+            "s_locale": "zh_CN"
+        }
+        if aid:
+            params["aid"] = aid
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+            'Referer': f'https://space.bilibili.com/{mid}',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Origin': 'https://space.bilibili.com'
+        }
+
+        try:
+            resp = self.session.get(url, params=params, headers=headers, timeout=15, proxies={})
+            if resp.status_code != 200:
+                return False, {"error": f"HTTP {resp.status_code}"}
+            data = resp.json()
+            if data.get('code') != 0:
+                return False, {"error": data.get('message', f"code={data.get('code')}")}
+            return True, data
+        except Exception as e:
+            return False, {"error": str(e)}
+
+    def _load_space_videos_app(self, mid, ps=30, load_all=False, cancel_check=None, progress_callback=None):
+        """使用 APP 接口加载空间视频"""
+        all_videos = []
+        total = 0
+        aid = None
+        has_next = True
+        page = 1
+
+        while has_next:
+            if cancel_check and cancel_check():
+                logger.info("用户取消加载更多视频")
+                if progress_callback:
+                    progress_callback("已取消加载")
+                break
+
+            if progress_callback and (load_all or page > 1):
+                progress_callback(f"正在加载第 {page} 页 ({len(all_videos)}/{total if total else '?'} 个)...")
+
+            success, data = self._request_space_videos_app(mid, ps=ps, aid=aid)
+            if not success:
+                logger.warning(f"APP 接口第 {page} 页加载失败：{data.get('error')}")
+                break
+
+            video_data = data.get('data', {}) or {}
+            items = video_data.get('item', [])
+            if not total:
+                total = video_data.get('count', 0)
+
+            for item in items:
+                all_videos.append(self._parse_app_space_video_item(item, mid))
+
+            has_next = video_data.get('has_next', False)
+            if items and has_next:
+                aid = items[-1].get('param')
+            else:
+                has_next = False
+
+            page += 1
+
+            if not load_all:
+                break
+
+        return all_videos, total
+
+    def get_space_videos(self, mid, page=1, ps=30, load_all=False, cancel_check=None, progress_callback=None):
+        try:
+            logger.info(f"获取UP主作品列表，mid: {mid}, page: {page}, load_all: {load_all}")
+
+            logger.info("尝试使用 Web WBI 接口获取作品列表")
+            success, data = self._request_space_videos_web(mid, page, ps, use_wbi=True)
+            if not success:
+                logger.info(f"WBI 接口获取失败：{data.get('error')}，尝试非 WBI Web 接口")
+                time.sleep(0.3)
+                success, data = self._request_space_videos_web(mid, page, ps, use_wbi=False)
+
+            # Web失败回退APP
+            if not success:
+                logger.info(f"Web 接口获取失败，回退到 APP 接口：{data.get('error')}")
+                time.sleep(0.3)
+                app_videos, app_total = self._load_space_videos_app(
+                    mid, ps=ps, load_all=load_all,
+                    cancel_check=cancel_check, progress_callback=progress_callback
+                )
+                if app_videos:
+                    logger.info(f"APP 接口获取成功，共 {len(app_videos)} 个视频，总计 {app_total}")
+                    return {
+                        "success": True,
+                        "videos": app_videos,
+                        "page": page,
+                        "ps": ps,
+                        "total": app_total
+                    }
+
+            if not success:
+                logger.error(f"获取作品列表失败：{data.get('error')}")
+                return {"success": False, "error": data.get('error', '无法获取作品列表')}
+
+            video_data = data.get('data', {}) or {}
+            items = video_data.get('list', {}).get('vlist', []) if video_data else []
+            total = (video_data.get('page', {}) or {}).get('count', 0) if video_data else 0
+
+            all_videos = [self._parse_space_video_item(item) for item in items]
+            logger.info(f"Web 接口第 {page} 页加载完成，本页 {len(all_videos)} 个，总计 {total} 个")
+
+            if load_all and total > ps * page:
+                import math
+                total_pages = math.ceil(total / ps)
+                if progress_callback:
+                    progress_callback(f"共 {total} 个视频，开始加载全部...")
+
+                for p in range(page + 1, total_pages + 1):
+                    if cancel_check and cancel_check():
+                        logger.info("用户取消加载更多视频")
+                        if progress_callback:
+                            progress_callback("已取消加载")
+                        break
+
+                    if progress_callback:
+                        progress_callback(f"正在加载第 {p}/{total_pages} 页 ({len(all_videos)}/{total} 个)...")
+
+                    p_success, p_data = self._request_space_videos_web(mid, p, ps, use_wbi=True)
+                    if not p_success:
+                        p_success, p_data = self._request_space_videos_web(mid, p, ps, use_wbi=False)
+
+                    if p_success:
+                        p_video_data = p_data.get('data', {}) or {}
+                        p_items = p_video_data.get('list', {}).get('vlist', []) if p_video_data else []
+                        all_videos.extend(self._parse_space_video_item(item) for item in p_items)
+                        logger.info(f"已加载第 {p}/{total_pages} 页，累计 {len(all_videos)} 个视频")
+                    else:
+                        logger.warning(f"加载第 {p} 页失败：{p_data.get('error')}，跳过")
+
+                if progress_callback:
+                    progress_callback(f"加载完成！共 {len(all_videos)} 个视频")
+
+            return {
+                "success": True,
+                "videos": all_videos,
+                "page": page,
+                "ps": ps,
+                "total": total
+            }
+        except Exception as e:
+            logger.error(f"获取UP主作品列表异常：{str(e)}")
+            return {"success": False, "error": f"获取作品列表失败：{str(e)}"}
+
+    def get_space_videos_page(self, mid, page=1, ps=30):
+        """单独加载指定页的空间视频，供 UI 按需加载更多使用"""
+        success, data = self._request_space_videos_web(mid, page, ps, use_wbi=True)
+        if not success:
+            success, data = self._request_space_videos_web(mid, page, ps, use_wbi=False)
+
+        if not success:
+            return {"success": False, "error": data.get('error', '无法获取作品列表')}
+
+        video_data = data.get('data', {}) or {}
+        items = video_data.get('list', {}).get('vlist', []) if video_data else []
+        total = (video_data.get('page', {}) or {}).get('count', 0) if video_data else 0
+        return {
+            "success": True,
+            "videos": [self._parse_space_video_item(item) for item in items],
+            "page": page,
+            "ps": ps,
+            "total": total
+        }
+
+    def check_hevc_support(self):
+        try:
+            ffmpeg_exec = self.ffmpeg_local if self.ffmpeg_local and os.path.exists(self.ffmpeg_local) else shutil.which('ffmpeg')
+            if not ffmpeg_exec or not os.path.exists(ffmpeg_exec):
+                self.hevc_supported = False
+                return False
+
+            cmd = [ffmpeg_exec, '-codecs']
+            result = run_no_window(cmd, timeout=10, text=False)
+            output = result.stdout.decode('utf-8', errors='replace')
+            self.hevc_supported = 'hevc' in output.lower() and 'decoder' in output.lower()
+            return self.hevc_supported
+        except Exception as e:
+            print(f"HEVC支持检测失败：{str(e)}")
+            self.hevc_supported = False
+            return False
+
+    def install_hevc(self, progress_callback=None):
+        try:
+            import os
+            import subprocess
+
+            hevc_appx = os.path.join(_pathsetup.project_root(), "hevc安装.Appx")
+
+            if not os.path.exists(hevc_appx):
+                return False, f"未找到HEVC安装文件：{hevc_appx}"
+
+            if not progress_callback:
+                def empty_progress(p):
+                    pass
+                progress_callback = empty_progress
+
+            progress_callback(10)
+
+            try:
+                result = subprocess.run(
+                    ["powershell", "-Command", f"Add-AppxPackage -Path '{hevc_appx}'"],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                    **subprocess_no_window_kwargs()
+                )
+
+                progress_callback(100)
+
+                if result.returncode == 0:
+                    return True, "HEVC扩展安装成功"
+                else:
+                    error_msg = result.stderr if result.stderr else result.stdout
+                    if "已安装" in error_msg or "already installed" in error_msg.lower():
+                        return True, "HEVC扩展已安装"
+                    return False, f"安装失败：{error_msg}"
+            except subprocess.TimeoutExpired:
+                return False, "HEVC扩展安装超时"
+            except Exception as e:
+                return False, f"安装异常：{str(e)}"
+
+        except Exception as e:
+            print(f"HEVC扩展安装失败：{str(e)}")
+            return False, str(e)
+
+    def check_video_codec_compatible(self, video_path):
+        try:
+            import json
+            import subprocess
+
+            if has_non_ascii(video_path):
+                short_path = to_short_path(video_path)
+                if short_path != video_path:
+                    video_path = short_path
+
+            ffprobe_path = None
+            ffmpeg_dir = os.path.dirname(self.ffmpeg_local)
+            if ffmpeg_dir:
+                candidate = os.path.join(ffmpeg_dir, exe('ffprobe'))
+                if os.path.exists(candidate):
+                    ffprobe_path = os.path.normpath(candidate)
+            if not ffprobe_path:
+                ffprobe_path = shutil.which('ffprobe')
+                if ffprobe_path:
+                    ffprobe_path = os.path.normpath(ffprobe_path)
+
+            if not ffprobe_path:
+                return {"compatible": True, "codec": "unknown", "reason": "无法检测编码"}
+
+            cmd = [ffprobe_path, '-v', 'quiet', '-print_format', 'json', '-show_streams', video_path]
+            result = run_no_window(cmd, timeout=30, text=True)
+
+            if result.returncode != 0:
+                return {"compatible": True, "codec": "unknown", "reason": "检测失败"}
+
+            data = json.loads(result.stdout)
+            for stream in data.get('streams', []):
+                if stream.get('codec_type') == 'video':
+                    codec_name = stream.get('codec_name', '')
+                    codec_long_name = stream.get('codec_long_name', '')
+
+                    incompatible_codecs = ['av1', 'hevc', 'h265']
+                    if codec_name in incompatible_codecs:
+                        return {
+                            "compatible": False,
+                            "codec": codec_name,
+                            "reason": f"当前视频使用{codec_long_name}编码，部分播放器可能无法直接播放"
+                        }
+                    return {"compatible": True, "codec": codec_name, "reason": ""}
+
+            return {"compatible": True, "codec": "unknown", "reason": ""}
+        except Exception as e:
+            print(f"视频兼容性检测失败：{str(e)}")
+            return {"compatible": True, "codec": "unknown", "reason": str(e)}
+
+    def _transcode_to_codec(self, input_path, output_path, target_codecid, ffmpeg_exec, progress_callback=None):
+        import subprocess
+        import tempfile
+        import shutil
+
+        codec_params = {
+            7: {'encoder': 'libx264', 'name': 'H.264(AVC)', 'extra': []},
+            12: {'encoder': 'libx265', 'name': 'H.265(HEVC)', 'extra': ['-tag:v', 'hvc1']},
+            13: {'encoder': 'libaom-av1', 'name': 'AV1', 'extra': ['-cpu-used', '4', '-row-mt', '1']},
+        }
+        
+        params = codec_params.get(target_codecid)
+        if not params:
+            logger.warning(f"不支持的转码目标编码: {target_codecid}")
+            return False
+
+        source_bitrate = self._get_video_bitrate(input_path, ffmpeg_exec)
+        adaptive_crf = self._get_adaptive_crf(source_bitrate)
+        codec_name = params['name']
+
+        actual_input = to_short_path(input_path) if has_non_ascii(input_path) else input_path
+        if actual_input != input_path:
+            logger.info(f"[转码] 输入文件使用8.3短路径：{actual_input}")
+
+        if has_non_ascii(output_path):
+            _tr_temp_dir = get_safe_temp_dir(
+                os.path.dirname(os.path.abspath(__file__)), "temp",
+                cache_dir=None,
+                prefer_dir=os.path.dirname(os.path.abspath(output_path)),
+            ) or self.safe_temp_dir
+            temp_output = os.path.join(_tr_temp_dir, f"transcode_{os.getpid()}_{int(time.time() * 1000) % 100000000}.mp4")
+            need_move_output = True
+        else:
+            temp_output = output_path + '.transcoding.tmp'
+            need_move_output = False
+        
+        cmd = [
+            ffmpeg_exec,
+            '-i', actual_input,
+            '-c:v', params['encoder'],
+            '-preset', 'medium',
+            '-crf', str(adaptive_crf),
+            *params['extra'],
+            '-c:a', 'copy',
+            '-y',
+            temp_output
+        ]
+        
+        logger.info(f"[转码] 开始转换到 {codec_name}: CRF={adaptive_crf}, 命令长度={len(cmd)}")
+        
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                **subprocess_low_priority_kwargs()
+            )
+
+            total_duration = 0
+            for line in process.stderr:
+                line_str = line.decode('utf-8', errors='ignore').strip()
+                if 'Duration:' in line_str:
+                    parts = line_str.split()
+                    for i, p in enumerate(parts):
+                        if p == 'Duration:' and i + 1 < len(parts):
+                            time_str = parts[i + 1]
+                            h, m, s = time_str.split(':')
+                            total_duration = int(h) * 3600 + int(m) * 60 + float(s)
+                            break
+                elif 'time=' in line_str and total_duration > 0 and progress_callback:
+                    time_match = line_str.split('time=')[1].split()[0]
+                    try:
+                        h, m, s = time_str = time_match.split(':')
+                        current_time = int(h) * 3600 + int(m) * 60 + float(s)
+                        progress = min(current_time / total_duration * 100, 100)
+                        progress_callback(progress)
+                    except (ValueError, IndexError):
+                        pass
+            
+            process.wait(timeout=3600)
+            
+            if process.returncode != 0:
+                error_out = process.stderr.read().decode('utf-8', errors='ignore')
+                logger.error(f"[转码] 失败 (exit code={process.returncode}): {error_out[-500:]}")
+                if os.path.exists(temp_output):
+                    os.remove(temp_output)
+                return False
+            
+            if os.path.exists(temp_output):
+                move_file_no_copy(temp_output, output_path, logger=logger)
+            
+            logger.info(f"[转码] 成功转换为 {codec_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"[转码] 异常: {e}")
+            if os.path.exists(temp_output):
+                try:
+                    os.remove(temp_output)
+                except Exception:
+                    pass
+            return False
+
+    def convert_video_to_h264(self, input_path, output_path, progress_callback=None):
+        try:
+            import subprocess
+
+            ffmpeg_path = self.ffmpeg_local
+            if not ffmpeg_path or not os.path.exists(ffmpeg_path):
+                ffmpeg_path = shutil.which('ffmpeg')
+            if ffmpeg_path:
+                ffmpeg_path = os.path.normpath(ffmpeg_path)
+
+            if not ffmpeg_path:
+                return False, "未找到FFmpeg"
+
+            if not progress_callback:
+                def empty_progress(p):
+                    pass
+                progress_callback = empty_progress
+
+            video_bitrate = self._get_video_bitrate(input_path, ffmpeg_path)
+            adaptive_crf = self._get_adaptive_crf(video_bitrate)
+
+            actual_input = to_short_path(input_path) if has_non_ascii(input_path) else input_path
+            if has_non_ascii(output_path):
+                actual_output = os.path.join(self.safe_temp_dir, f"h264_convert_{os.getpid()}_{int(time.time() * 1000) % 100000000}.mp4")
+                need_move_output = True
+            else:
+                actual_output = output_path
+                need_move_output = False
+
+            cmd = [
+                ffmpeg_path,
+                '-i', actual_input,
+                '-c:v', 'libx264',
+                '-preset', 'medium',
+                '-crf', str(adaptive_crf),
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                '-y',
+                actual_output
+            ]
+
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                **subprocess_low_priority_kwargs()
+            )
+
+            for line in process.stdout:
+                try:
+                    decoded_line = line.decode('utf-8', errors='replace')
+                    if 'frame=' in decoded_line:
+                        import re
+                        match = re.search(r'frame=\s*(\d+)', decoded_line)
+                        if match:
+                            frame_num = int(match.group(1))
+                            progress = min(int(frame_num / 100), 99)
+                            progress_callback(progress)
+                except Exception:
+                    pass
+
+            process.wait()
+
+            if need_move_output and os.path.exists(actual_output) and os.path.getsize(actual_output) > 0:
+                try:
+                    # 同盘原子移动免双写
+                    move_file_no_copy(actual_output, output_path, logger=logger)
+                except Exception as e:
+                    logger.error(f"[H264转换] 移动临时文件失败: {e}")
+                    return False, f"移动文件失败: {str(e)}"
+
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                progress_callback(100)
+                return True, "转换成功"
+            else:
+                return False, "转换失败"
+
+        except Exception as e:
+            print(f"视频转换失败：{str(e)}")
+            return False, str(e)
+
+    def av2bv(self, aid):
+        return self.video_parser.av2bv(aid)
+
+    def bv2av(self, bvid):
+        return self.video_parser.bv2av(bvid)
+
+    def parse_media_url(self, url):
+        self._wait_session_ready()
+        return self.video_parser.parse_media_url(url)
+            
+    def get_captcha(self):
+        try:
+            url = "https://passport.bilibili.com/x/passport-login/captcha?source=main_web"
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            _has_valid_buvid3 = False
+            for key in self.session.cookies.keys():
+                val = self.session.cookies.get(key, '')
+                if key == 'buvid3' and val and not val.startswith('XY'):
+                    _has_valid_buvid3 = True
+                    break
+            if not _has_valid_buvid3:
+                logger.info("get_captcha: session缺少服务端签发的buvid3，正在获取...")
+                try:
+                    _init_headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+                    }
+                    _init_resp = self.session.get('https://www.bilibili.com', headers=_init_headers, timeout=10, allow_redirects=True)
+                    if _init_resp.cookies:
+                        self.session.cookies.update(_init_resp.cookies)
+                        logger.info(f"get_captcha: 从bilibili.com获取到{len(_init_resp.cookies)}个cookie")
+                    
+                    _pre_resp = self.session.get('https://passport.bilibili.com/login', headers=_init_headers, timeout=10, allow_redirects=True)
+                    if _pre_resp.cookies:
+                        self.session.cookies.update(_pre_resp.cookies)
+                        logger.info(f"get_captcha: 从passport获取到{len(_pre_resp.cookies)}个cookie")
+                except Exception as _e:
+                    logger.warning(f"get_captcha: 初始化cookie失败: {_e}")
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Referer': 'https://www.bilibili.com/',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Cache-Control': 'no-cache',
+                'Origin': 'https://www.bilibili.com',
+                'Connection': 'keep-alive',
+                'Pragma': 'no-cache'
+            }
+            
+            
+            self.session.headers.update(headers)
+            
+            logger.info(f"发送请求到：{url}")
+            resp = self.session.get(url, timeout=10)
+            
+            
+            if resp.cookies:
+                self.session.cookies.update(resp.cookies)
+                logger.debug(f"更新会话cookies字段：{sorted(resp.cookies.keys())}")
+            
+            if resp.status_code != 200:
+                raise Exception(f"获取验证码失败：HTTP {resp.status_code}")
+            
+            data = resp.json()
+            code = data.get('code', 0)
+            if code != 0:
+                message = data.get('message', '未知错误')
+                raise Exception(f"获取验证码失败：{message}")
+            
+            captcha_data = data.get('data', {})
+            token = captcha_data.get('token', '')
+            geetest = captcha_data.get('geetest', {})
+            gt = geetest.get('gt', '')
+            challenge = geetest.get('challenge', '')
+            
+            if not token or not gt or not challenge:
+                raise Exception("获取验证码参数失败")
+            
+            return {
+                "success": True,
+                "token": token,
+                "gt": gt,
+                "challenge": challenge
+            }
+        except Exception as e:
+            logger.error(f"获取验证码失败：{str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+            
+    def get_login_key(self):
+        try:
+            url = "https://passport.bilibili.com/x/passport-login/web/key"
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Referer': 'https://www.bilibili.com/',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Cache-Control': 'no-cache',
+                'Origin': 'https://www.bilibili.com',
+                'Connection': 'keep-alive',
+                'Pragma': 'no-cache'
+            }
+            
+            
+            self.session.headers.update(headers)
+            
+            logger.info(f"发送请求到：{url}")
+            resp = self.session.get(url, timeout=10)
+            
+            if resp.status_code != 200:
+                raise Exception(f"获取登录公钥失败：HTTP {resp.status_code}")
+            
+            data = resp.json()
+            code = data.get('code', 0)
+            if code != 0:
+                message = data.get('message', '未知错误')
+                raise Exception(f"获取登录公钥失败：{message}")
+            
+            key_data = data.get('data', {})
+            hash = key_data.get('hash', '')
+            key = key_data.get('key', '')
+            
+            if not hash or not key:
+                raise Exception("获取登录公钥和盐失败")
+            
+            return {
+                "success": True,
+                "hash": hash,
+                "key": key
+            }
+        except Exception as e:
+            logger.error(f"获取登录公钥失败：{str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+            
+    def _strip_login_cookies_from_session(self):
+        try:
+            login_keys = ('SESSDATA', 'bili_jct', 'DedeUserID', 'DedeUserID__ckMd5', 'sid')
+            for k in list(self.session.cookies.keys()):
+                if k in login_keys:
+                    self.session.cookies.pop(k, None)
+            for k in login_keys:
+                if k in self.cookies:
+                    del self.cookies[k]
+            if 'X-CSRF-Token' in self.session.headers:
+                del self.session.headers['X-CSRF-Token']
+            logger.debug("登录前已剔除残留登录态 cookie")
+        except Exception as e:
+            logger.warning(f"剔除登录态 cookie 失败: {e}")
+
+    def _load_device_fingerprint_only(self):
+        try:
+            p = self._browser_env_path()
+            if not os.path.exists(p):
+                return False
+            import json as _json
+            with open(p, 'r', encoding='utf-8') as f:
+                env = _json.load(f)
+            ua = env.get('ua') or ''
+            headers = env.get('headers') or {}
+            cookies = env.get('cookies') or {}
+
+            fp_cookies = {}
+            fp_prefixes = ('buvid', '_uuid', 'sid', 'b_nut', 'buvid4', 'buvid_fp', 'Current-QN', 'b_lsid', 'buvid3')
+            for k, v in cookies.items():
+                if (k and v and isinstance(k, str) and isinstance(v, str)
+                        and k not in ('SESSDATA', 'bili_jct', 'DedeUserID', 'DedeUserID__ckMd5', 'sid')
+                        and (k.startswith('buvid') or k in ('_uuid',) or k in fp_cookies or k in ('b_nut', 'b_lsid', 'Current-QN'))
+                        or k in fp_prefixes):
+                    fp_cookies[k] = v
+
+            if ua:
+                self.session.headers['User-Agent'] = ua
+            if headers:
+                for k, v in headers.items():
+                    if k and v and k.lower() not in ('host', 'content-length', 'connection', 'cookie', 'x-csrf-token'):
+                        self.session.headers[k] = v
+            if fp_cookies:
+                for k, v in fp_cookies.items():
+                    self.session.cookies.set(k, v, domain='.bilibili.com')
+                logger.info(f"已复用已验证设备指纹：{list(fp_cookies.keys())}, ua={ua[:40]}")
+                return True
+            return bool(ua)
+        except Exception as e:
+            logger.error(f"加载设备指纹失败: {e}")
+            return False
+
+    def warmup_before_login(self):
+        try:
+            self._strip_login_cookies_from_session()
+
+            if self._load_device_fingerprint_only():
+                try:
+                    self.session.get("https://api.bilibili.com/x/web-interface/nav", timeout=10)
+                except Exception as e:
+                    logger.warning(f"warmup 复用环境刷新失败: {e}")
+                got = list(self.session.cookies.get_dict().keys())
+                logger.info(f"warmup 复用已验证设备指纹，session cookie keys: {got}")
+                return True
+
+            warmup_ua = (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+            )
+            warmup_headers = {
+                "User-Agent": warmup_ua,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "zh-CN,zh;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache",
+                "Upgrade-Insecure-Requests": "1",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+            }
+            self.session.headers.update(warmup_headers)
+
+            try:
+                self.session.get("https://www.bilibili.com/", timeout=10, allow_redirects=True)
+            except Exception as e:
+                logger.warning(f"warmup 访问首页失败: {e}")
+
+            try:
+                self.session.get("https://passport.bilibili.com/login", timeout=10, allow_redirects=True)
+            except Exception as e:
+                logger.warning(f"warmup 访问 passport 失败: {e}")
+
+            try:
+                self.session.get("https://api.bilibili.com/x/web-interface/nav", timeout=10)
+            except Exception as e:
+                logger.warning(f"warmup 访问 nav 失败: {e}")
+
+            got = list(self.session.cookies.get_dict().keys())
+            logger.info(f"warmup 完成，当前 session cookie keys: {got}")
+
+            self.save_browser_env(self.session.cookies.get_dict(), user_agent=warmup_ua, extra_headers=warmup_headers)
+            return True
+        except Exception as e:
+            logger.error(f"warmup_before_login 失败：{e}")
+            return False
+
+    def login_with_password(self, username, password, token, challenge, validate):
+        try:
+
+            self.warmup_before_login()
+
+            key_result = self.get_login_key()
+            if not key_result.get("success"):
+                return key_result
+            
+            hash = key_result.get("hash")
+            public_key = key_result.get("key")
+            
+            
+            import rsa
+            import base64
+            
+            
+            password_str = hash + password
+            password_bytes = password_str.encode('utf-8')
+            
+            
+            public_key_obj = rsa.PublicKey.load_pkcs1_openssl_pem(public_key.encode('utf-8'))
+            
+            
+            encrypted_password = rsa.encrypt(password_bytes, public_key_obj)
+            encrypted_password_base64 = base64.b64encode(encrypted_password).decode('utf-8')
+            
+            
+            url = "https://passport.bilibili.com/x/passport-login/web/login"
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            
+            _current_ua = self.session.headers.get('User-Agent') or 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+            headers = {
+                'User-Agent': _current_ua,
+                'Referer': 'https://www.bilibili.com/',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Cache-Control': 'no-cache',
+                'Origin': 'https://www.bilibili.com',
+                'Connection': 'keep-alive',
+                'Pragma': 'no-cache',
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+            
+            data = {
+                'username': username,
+                'password': encrypted_password_base64,
+                'keep': 0,
+                'source': 'main_web',
+                'token': token,
+                'challenge': challenge,
+                'validate': validate,
+                'seccode': f"{validate}|jordan"
+            }
+            
+            
+            self.session.headers.update(headers)
+            
+            logger.info(f"发送登录请求到：{url}")
+            logger.info(f"登录参数：{data}")
+            
+            resp = self.session.post(url, data=data, timeout=10)
+            
+            if resp.status_code != 200:
+                raise Exception(f"登录失败：HTTP {resp.status_code}")
+            
+            
+            try:
+                login_data = resp.json()
+            except JSONDecodeError:
+                
+                content = resp.text.strip()
+                if content.startswith('!'):
+                    start_index = content.find('{')
+                    if start_index != -1:
+                        content = content[start_index:]
+                login_data = json.loads(content)
+            except Exception as e:
+                logger.error(f"解析登录响应失败：{str(e)}")
+                return {
+                    "success": False,
+                    "error": f"解析登录响应失败：{str(e)}"
+                }
+            
+            
+            if not isinstance(login_data, dict):
+                logger.error(f"登录响应格式错误：{login_data}")
+                return {
+                    "success": False,
+                    "error": "登录响应格式错误"
+                }
+            
+            code = login_data.get('code', 0)
+            message = login_data.get('message', '')
+            data = login_data.get('data', {})
+            
+            if not isinstance(data, dict):
+                data = {}
+            url = data.get('url', '')
+            
+            
+            logger.info(f"Login response: code={code}, message={message}, data={data}")
+            logger.info(f"完整登录响应：{login_data}")
+            
+            
+            data_data = data.get('data', {})
+            data_message = data_data.get('message', '') if isinstance(data_data, dict) else ''
+            status_val = data.get('status', 0)
+            if "risk" in url or "verify" in url or "环境存在风险" in message or "环境存在风险" in data_message or status_val == 2:
+                risk_message = data_message or message or "登录存在风险，需要验证"
+                if risk_message == "OK" or not risk_message:
+                    risk_message = "登录存在风险，需要验证"
+                logger.info(f"Risk detected in login response: message={risk_message}, url={url}, status={status_val}")
+                tmp_token = ''
+                if url:
+                    import re as _re
+                    m = _re.search(r'tmp_token=([a-f0-9]+)', url)
+                    if m:
+                        tmp_token = m.group(1)
+                        logger.info(f"Extracted tmp_token: {tmp_token[:20]}...")
+                    else:
+                        from urllib.parse import urlparse, parse_qs
+                        try:
+                            parsed = urlparse(url)
+                            qs = parse_qs(parsed.query)
+                            if 'tmp_token' in qs:
+                                tmp_token = qs['tmp_token'][0]
+                                logger.info(f"Extracted tmp_token from URL params: {tmp_token[:20]}...")
+                        except Exception:
+                            pass
+                return {
+                    "success": False,
+                    "error": risk_message,
+                    "status": risk_message,
+                    "code": code,
+                    "url": url,
+                    "tmp_token": tmp_token,
+                    "risk": True
+                }
+            
+            if code != 0:
+                logger.error(f"登录失败：code={code}, message={message}")
+                
+                if message == "OK" or not message:
+                    
+                    if code in ERROR_CODES:
+                        error_message = f"登录失败：{ERROR_CODES[code]}（错误码：{code}）"
+                    else:
+                        error_message = f"登录失败（错误码：{code}）"
+                else:
+                    error_message = f"登录失败：{message}"
+                return {
+                    "success": False,
+                    "error": error_message,
+                    "code": code
+                }
+            
+            
+            cookies = resp.cookies.get_dict()
+            logger.info(f"获取到的cookie字段：{sorted(cookies.keys())}")
+            
+            
+            if cookies:
+                cookie_str = '; '.join([f'{k}={v}' for k, v in cookies.items()])
+                self.save_cookies(cookie_str)
+            else:
+                
+                session_cookies = self.session.cookies.get_dict()
+                if session_cookies:
+                    logger.info(f"从会话中获取到的cookie字段：{sorted(session_cookies.keys())}")
+                    cookie_str = '; '.join([f'{k}={v}' for k, v in session_cookies.items()])
+                    self.save_cookies(cookie_str)
+                else:
+                    
+                    data = login_data.get('data', {})
+                    url = data.get('url', '')
+                    if url:
+                        logger.info("从登录响应的 url 中提取 cookie（URL 已隐藏，含凭据）")
+                        
+                        import re
+                        cookie_params = re.findall(r'(DedeUserID|DedeUserID__ckMd5|SESSDATA|bili_jct)=([^&]+)', url)
+                        if cookie_params:
+                            cookie_dict = dict(cookie_params)
+                            logger.info(f"从 url 中提取到的 cookie 字段：{sorted(cookie_dict.keys())}")
+                            cookie_str = '; '.join([f'{k}={v}' for k, v in cookie_dict.items()])
+                            self.save_cookies(cookie_str)
+            
+            
+            data = login_data.get('data', {})
+            sso_url = data.get('url', '')
+            if sso_url:
+                logger.info("处理 SSO 登录跳转（URL 已隐藏，含凭据）")
+                
+                try:
+                    sso_resp = self.session.get(sso_url, timeout=10, allow_redirects=True)
+                    logger.info(f"SSO 跳转响应状态码：{sso_resp.status_code}")
+                    
+                    sso_cookies = sso_resp.cookies.get_dict()
+                    if sso_cookies:
+                        logger.info(f"从 SSO 跳转中获取到的 cookie 字段：{sorted(sso_cookies.keys())}")
+                        cookie_str = '; '.join([f'{k}={v}' for k, v in sso_cookies.items()])
+                        self.save_cookies(cookie_str)
+                except Exception as e:
+                    logger.warning(f"SSO 跳转处理失败：{str(e)}")
+            
+            
+            self._init_session()
+            
+            
+            user_info = self.get_user_info()
+            
+            return {
+                "success": True,
+                "user_info": user_info,
+                "data": login_data.get('data', {})
+            }
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"账号密码登录失败：{str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+            
+    def get_country_list(self):
+        try:
+            url = "https://passport.bilibili.com/web/generic/country/list"
+            import requests
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Referer': 'https://www.bilibili.com/',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Cache-Control': 'no-cache',
+                'Origin': 'https://www.bilibili.com',
+                'Connection': 'keep-alive',
+                'Pragma': 'no-cache'
+            }
+            
+            session = requests.Session()
+            session.headers.update(headers)
+            session.proxies = {}  # 强制禁用代理
+            session.trust_env = False
+
+            resp = session.get(url, timeout=10, proxies={})
+            if resp.status_code != 200:
+                raise Exception(f"获取国际冠字码失败：HTTP {resp.status_code}")
+            
+            data = resp.json()
+            code = data.get('code', 0)
+            if code != 0:
+                message = data.get('message', '未知错误')
+                raise Exception(f"获取国际冠字码失败：{message}")
+            
+            
+            result = []
+            country_data = data.get('data', {})
+            
+            
+            common_countries = country_data.get('common', [])
+            other_countries = country_data.get('others', [])
+            
+            
+            for country in common_countries:
+                result.append({
+                    'cid': country.get('country_id'),
+                    'name': country.get('cname'),
+                    'code': country.get('country_id')
+                })
+            
+            
+            for country in other_countries:
+                result.append({
+                    'cid': country.get('country_id'),
+                    'name': country.get('cname'),
+                    'code': country.get('country_id')
+                })
+            
+            return result
+        except Exception as e:
+            logger.error(f"获取国际冠字码失败：{str(e)}")
+            return []
+    
+    def send_sms_code(self, cid, tel, token, challenge, validate):
+        try:
+            url = "https://passport.bilibili.com/x/passport-login/web/sms/send"
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            _has_valid_buvid3 = False
+            for key in self.session.cookies.keys():
+                val = self.session.cookies.get(key, '')
+                if key == 'buvid3' and val and not val.startswith('XY'):
+                    _has_valid_buvid3 = True
+                    break
+            
+            if not _has_valid_buvid3:
+                logger.info("send_sms_code: session缺少服务端签发的buvid3，正在获取...")
+                try:
+                    _init_headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+                    }
+                    _init_resp = self.session.get('https://www.bilibili.com', headers=_init_headers, timeout=10, allow_redirects=True)
+                    if _init_resp.cookies:
+                        self.session.cookies.update(_init_resp.cookies)
+                    logger.info(f"send_sms_code: 访问bilibili.com后session有{len(self.session.cookies)}个cookie")
+                    for k, v in dict(self.session.cookies).items():
+                        if 'buvid' in k.lower():
+                            logger.info(f"  {k}={v[:30]}...")
+                except Exception as _e:
+                    logger.warning(f"send_sms_code: 获取buvid3失败: {_e}")
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Referer': 'https://www.bilibili.com/',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Cache-Control': 'no-cache',
+                'Origin': 'https://www.bilibili.com',
+                'Connection': 'keep-alive',
+                'Pragma': 'no-cache',
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+            
+            data = {
+                'cid': cid,
+                'tel': tel,
+                'source': 'main_web',
+                'token': token,
+                'challenge': challenge,
+                'validate': validate,
+                'seccode': f"{validate}|jordan"
+            }
+            
+            logger.info(f"发送短信验证码请求到：{url} (web端API) [V2-FIX]")
+            logger.info(f"send_sms_code: session cookie字段 = {sorted(self.session.cookies.keys())}")
+            _masked_tel = (tel[:3] + "****" + tel[-4:]) if isinstance(tel, str) and len(tel) >= 7 else "***"
+            logger.info(f"send_sms_code: >>> CID={cid} <<<, tel={_masked_tel}")
+            
+            self.session.headers.update(headers)
+            
+            resp = self.session.post(url, data=data, timeout=10)
+            
+            logger.info(f"send_sms_code: 请求发送完毕，响应状态={resp.status_code}")
+            logger.info(f"send_sms_code: 请求时是否携带Cookie头={'是' if resp.request.headers.get('Cookie') else '否'}")
+            
+            if resp.cookies:
+                self.session.cookies.update(resp.cookies)
+                logger.debug(f"更新会话cookies字段：{sorted(resp.cookies.keys())}")
+            
+            if resp.status_code != 200:
+                raise Exception(f"发送短信验证码失败：HTTP {resp.status_code}")
+            
+            content = resp.text.strip()
+            logger.debug(f"发送短信验证码响应：{content}")
+            
+            try:
+                sms_data = resp.json()
+            except JSONDecodeError:
+                if content.startswith('!'):
+                    start_index = content.find('{')
+                    if start_index != -1:
+                        content = content[start_index:]
+                sms_data = json.loads(content)
+            
+            code = sms_data.get('code', 0)
+            message = sms_data.get('message', '未知错误')
+            logger.debug(f"发送短信验证码响应代码：{code}，消息：{message}")
+            
+            if code != 0:
+                if message == "OK" or not message:
+                    if code in ERROR_CODES:
+                        error_message = f"发送短信验证码失败：{ERROR_CODES[code]}（错误码：{code}）"
+                    else:
+                        error_message = f"发送短信验证码失败（错误码：{code}）"
+                else:
+                    error_message = f"发送短信验证码失败：{message}"
+                raise Exception(error_message)
+            
+            logger.debug("发送短信验证码成功")
+            
+            return {
+                "success": True,
+                "data": sms_data.get('data', {})
+            }
+        except Exception as e:
+            logger.error(f"发送短信验证码失败：{str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+            
+    def login_with_sms(self, cid, tel, code, captcha_key):
+        try:
+            url = "https://passport.bilibili.com/x/passport-login/web/login/sms"
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Referer': 'https://www.bilibili.com/',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Cache-Control': 'no-cache',
+                'Origin': 'https://www.bilibili.com',
+                'Connection': 'keep-alive',
+                'Pragma': 'no-cache',
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+            
+            data = {
+                'cid': str(cid),
+                'tel': tel,
+                'code': code,
+                'source': 'main_web',
+                'captcha_key': captcha_key,
+                'go_url': 'https://www.bilibili.com',
+                'keep': True
+            }
+            
+            self.session.headers.update(headers)
+            
+            logger.info(f"发送短信验证码验证请求到：{url} (web端API)")
+            
+            resp = self.session.post(url, data=data, timeout=10)
+            
+            if resp.cookies:
+                self.session.cookies.update(resp.cookies)
+                logger.debug(f"更新会话cookies字段：{sorted(resp.cookies.keys())}")
+            
+            if resp.status_code != 200:
+                raise Exception(f"短信验证码验证失败：HTTP {resp.status_code}")
+            
+            content = resp.text.strip()
+            logger.debug(f"短信验证码验证响应：{content}")
+            
+            try:
+                verify_data = resp.json()
+            except JSONDecodeError:
+                if content.startswith('!'):
+                    start_index = content.find('{')
+                    if start_index != -1:
+                        content = content[start_index:]
+                verify_data = json.loads(content)
+            
+            code_resp = verify_data.get('code', 0)
+            message = verify_data.get('message', '未知错误')
+            logger.debug(f"短信验证码验证响应代码：{code_resp}，消息：{message}")
+            
+            data = verify_data.get('data', {})
+            if not isinstance(data, dict):
+                data = {}
+            risk_url = data.get('url', '')
+            
+            if "risk" in risk_url or "verify" in risk_url or "环境存在风险" in message:
+                risk_message = message or "登录存在风险，需要验证"
+                logger.debug(f"Risk detected in SMS login: message={risk_message}, url={risk_url}")
+                return {
+                    "success": False,
+                    "error": risk_message,
+                    "status": risk_message,
+                    "code": code_resp,
+                    "url": risk_url,
+                    "risk": True
+                }
+            
+            if code_resp != 0:
+                error_message = f"短信验证码验证失败：{message}（错误码：{code_resp}）"
+                raise Exception(error_message)
+            
+            cookies = resp.cookies.get_dict()
+            logger.info(f"获取到的cookie字段：{sorted(cookies.keys())}")
+            
+            if cookies:
+                cookie_str = '; '.join([f'{k}={v}' for k, v in cookies.items()])
+                self.save_cookies(cookie_str)
+            else:
+                session_cookies = self.session.cookies.get_dict()
+                if session_cookies:
+                    logger.info(f"从会话中获取到的cookie字段：{sorted(session_cookies.keys())}")
+                    cookie_str = '; '.join([f'{k}={v}' for k, v in session_cookies.items()])
+                    self.save_cookies(cookie_str)
+            
+            
+            self._init_session()
+            
+            
+            user_info = self.get_user_info()
+            
+            return {
+                "success": True,
+                "user_info": user_info,
+                "data": verify_data.get('data', {})
+            }
+        except Exception as e:
+            logger.error(f"短信登录失败：{str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def verify_risk_sms(self, tmp_token, cid, tel, code, captcha_key):
+        try:
+            url = "https://passport.bilibili.com/x/passport-login/web/login/verify_sms"
+            import logging
+            logger = logging.getLogger(__name__)
+
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Referer': 'https://www.bilibili.com/',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Cache-Control': 'no-cache',
+                'Origin': 'https://www.bilibili.com',
+                'Connection': 'keep-alive',
+                'Pragma': 'no-cache',
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+
+            data = {
+                'tmp_token': tmp_token,
+                'cid': str(cid),
+                'tel': tel,
+                'code': code,
+                'source': 'main_web',
+                'captcha_key': captcha_key
+            }
+
+            self.session.headers.update(headers)
+
+            logger.info(f"发送风控验证请求到：{url}")
+            logger.info(f"verify_risk_sms: tmp_token={tmp_token[:20]}..., cid={cid}, tel={tel}")
+
+            resp = self.session.post(url, data=data, timeout=10)
+
+            if resp.cookies:
+                self.session.cookies.update(resp.cookies)
+                logger.debug(f"更新会话cookies字段：{sorted(resp.cookies.keys())}")
+
+            if resp.status_code != 200:
+                raise Exception(f"风控验证失败：HTTP {resp.status_code}")
+
+            content = resp.text.strip()
+            logger.debug(f"风控验证响应：{content}")
+
+            try:
+                verify_data = resp.json()
+            except JSONDecodeError:
+                if content.startswith('!'):
+                    start_index = content.find('{')
+                    if start_index != -1:
+                        content = content[start_index:]
+                verify_data = json.loads(content)
+
+            code_resp = verify_data.get('code', 0)
+            message = verify_data.get('message', '未知错误')
+            logger.info(f"风控验证响应代码：{code_resp}，消息：{message}")
+
+            if code_resp != 0:
+                error_message = f"风控验证失败：{message}（错误码：{code_resp}）"
+                raise Exception(error_message)
+
+            cookies = resp.cookies.get_dict()
+            logger.info(f"风控验证获取到的cookie字段：{sorted(cookies.keys())}")
+
+            if cookies:
+                cookie_str = '; '.join([f'{k}={v}' for k, v in cookies.items()])
+                self.save_cookies(cookie_str)
+            else:
+                session_cookies = self.session.cookies.get_dict()
+                if session_cookies:
+                    logger.info(f"从会话中获取到的cookie字段：{sorted(session_cookies.keys())}")
+                    cookie_str = '; '.join([f'{k}={v}' for k, v in session_cookies.items()])
+                    self.save_cookies(cookie_str)
+                else:
+                    data_inner = verify_data.get('data', {})
+                    url_inner = data_inner.get('url', '') if isinstance(data_inner, dict) else ''
+                    if url_inner:
+                        logger.info("从风控验证响应的 url 中提取 cookie（URL 已隐藏，含凭据）")
+                        import re
+                        cookie_params = re.findall(r'(DedeUserID|DedeUserID__ckMd5|SESSDATA|bili_jct)=([^&]+)', url_inner)
+                        if cookie_params:
+                            cookie_dict = dict(cookie_params)
+                            logger.info(f"从 url 中提取到的 cookie 字段：{sorted(cookie_dict.keys())}")
+                            cookie_str = '; '.join([f'{k}={v}' for k, v in cookie_dict.items()])
+                            self.save_cookies(cookie_str)
+
+            data_inner = verify_data.get('data', {})
+            sso_url = data_inner.get('url', '') if isinstance(data_inner, dict) else ''
+            if sso_url:
+                logger.info(f"处理风控验证 SSO 跳转：{sso_url}")
+                try:
+                    sso_resp = self.session.get(sso_url, timeout=10, allow_redirects=True)
+                    logger.info(f"SSO 跳转响应状态码：{sso_resp.status_code}")
+                    sso_cookies = sso_resp.cookies.get_dict()
+                    if sso_cookies:
+                        logger.info(f"从 SSO 跳转中获取到的 cookie 字段：{sorted(sso_cookies.keys())}")
+                        cookie_str = '; '.join([f'{k}={v}' for k, v in sso_cookies.items()])
+                        self.save_cookies(cookie_str)
+                except Exception as e:
+                    logger.warning(f"SSO 跳转处理失败：{str(e)}")
+
+            self._init_session()
+
+            user_info = self.get_user_info()
+
+            return {
+                "success": True,
+                "user_info": user_info,
+                "data": verify_data.get('data', {})
+            }
+        except Exception as e:
+            logger.error(f"风控验证失败：{str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    @staticmethod
+    def parse_episode_range(spec):
+        if spec is None:
+            return None, ""
+        s = str(spec).strip()
+        if not s:
+            return None, ""
+        # 兼容中文逗号、顿号、空格
+        for ch in ('，', '、', ' ', ';', '；'):
+            s = s.replace(ch, ',')
+        picked = set()
+        try:
+            for part in s.split(','):
+                part = part.strip()
+                if not part:
+                    continue
+                if '-' in part:
+                    a, b = part.split('-', 1)
+                    a, b = int(a.strip()), int(b.strip())
+                    if a > b:
+                        a, b = b, a
+                    if b - a > 2000:
+                        return None, f"范围过大：{part}"
+                    picked.update(range(a, b + 1))
+                else:
+                    picked.add(int(part))
+        except Exception:
+            return None, f"无法识别的集数格式：{spec}（示例：1-5,8,10-12）"
+        return (picked or None), ""
+
+    @staticmethod
+    def _ep_number(ep):
+        """从剧集字典中取出用于范围匹配的集号。"""
+        for key in ('ep_index', 'index', 'ep', 'page'):
+            val = ep.get(key)
+            if isinstance(val, int):
+                return val
+            if isinstance(val, str):
+                m = re.search(r'(\d+)', val)
+                if m:
+                    return int(m.group(1))
+        return None
+
+    def _fetch_play_info_with_retry(self, media_type, task, is_tv_mode, retries):
+        """按重试次数获取单集播放信息。"""
+        play_info = None
+        for retry_idx in range(retries + 1):
+            play_info = self._get_play_info(
+                media_type,
+                task.get('bvid', ''),
+                task.get('cid', ''),
+                is_tv_mode,
+                season_id=task.get('season_id'),
+                ep_id=task.get('ep_id'),
+            )
+            if play_info and play_info.get('success'):
+                return play_info
+            if retry_idx < retries:
+                time.sleep(1 + retry_idx * 0.5)
+        return play_info
+
+    def _prefetch_play_infos(self, media_type, tasks, is_tv_mode, retries=1,
+                             cancel_check=None, progress_callback=None,
+                             progress_base=40, progress_span=60,
+                             total_for_progress=None, phase_text="正在处理"):
+        results = {}
+        cancelled = False
+        total = len(tasks)
+        if total == 0:
+            return results, cancelled
+
+        # 预热登录态，避免并发首请求重复触发 nav
+        try:
+            self.get_user_info()
+        except Exception:
+            pass
+
+        future_map = {}
+        executor = ThreadPoolExecutor(max_workers=min(8, total))
+        try:
+            for task in tasks:
+                fut = executor.submit(
+                    self._fetch_play_info_with_retry,
+                    media_type, task, is_tv_mode, retries)
+                future_map[fut] = task
+            done = 0
+            for fut in as_completed(future_map):
+                task = future_map[fut]
+                idx = task.get('index')
+                if cancel_check and cancel_check():
+                    cancelled = True
+                    break
+                try:
+                    results[idx] = fut.result()
+                except Exception as e:
+                    logger.warning(f"获取第{idx + 1}集播放信息失败：{str(e)}")
+                    results[idx] = None
+                done += 1
+                if progress_callback:
+                    denom = total_for_progress or total
+                    progress = progress_base + (done * progress_span) // max(1, denom)
+                    progress_callback(progress, f"{phase_text}第{idx + 1}/{denom}集...")
+        except Exception as e:
+            logger.warning(f"并发预取播放信息异常：{str(e)}")
+        finally:
+            if cancelled:
+                # 用户停止：取消尚未启动的任务，避免停止后仍继续发请求
+                try:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                except TypeError:
+                    executor.shutdown(wait=False)
+            else:
+                executor.shutdown(wait=True)
+        return results, cancelled
+
+    def _build_access_notice(self, media_type, is_charging, info, episodes, play_ok):
+        """依据B站返回的门槛字段（会员标记/课程价格与购买状态/充电标志）判断不可下载内容。"""
+        notices = []
+        info = info or {}
+        episodes = episodes or []
+        denied = [ep for ep in episodes if isinstance(ep, dict) and ep.get('permission_denied')]
+
+        if media_type == "video":
+            if is_charging and denied:
+                notices.append(f"该视频为充电专属，当前账号未完成充电，其中{len(denied)}集不可下载")
+            elif is_charging and not play_ok:
+                notices.append("该视频为充电专属，当前账号尚未为该UP主充电")
+            elif not play_ok:
+                rights = info.get('rights') or {}
+                if rights.get('arc_pay') or rights.get('ugc_pay'):
+                    notices.append("该视频为付费内容，当前账号未购买")
+        elif media_type == "bangumi":
+            vip_eps = [ep for ep in episodes
+                       if ep.get('access_label') == "大会员" or ep.get('status') == 13]
+            try:
+                is_vip = bool((self.get_user_info() or {}).get('is_vip'))
+            except Exception:
+                is_vip = False
+            if vip_eps and not is_vip:
+                notices.append(f"{len(vip_eps)}集为大会员专享，当前账号无有效大会员")
+            payment = info.get('payment') or {}
+            user_status = info.get('user_status') or {}
+            price = payment.get('price') or ''
+            try:
+                _paid_price = float(str(price).replace('元', '').strip() or 0) > 0
+            except Exception:
+                _paid_price = bool(price)
+            if _paid_price and not (user_status.get('pay') or user_status.get('pay_pack_paid')):
+                notices.append(f"该番剧为付费内容（{price}元），当前账号未购买")
+        elif media_type == "cheese":
+            payment = info.get('payment') or {}
+            user_status = info.get('user_status') or {}
+            price = payment.get('price') or payment.get('price_format') or ''
+            paid = False
+            try:
+                paid = float(str(price).replace('元', '').strip() or 0) > 0
+            except Exception:
+                paid = bool(price)
+            if paid and not user_status.get('payed'):
+                free_count = sum(1 for ep in episodes if ep.get('status') == 1)
+                text = f"该课程为付费课程（{price}元），当前账号未购买"
+                if free_count:
+                    text += f"，仅前{free_count}集可试看"
+                notices.append(text)
+
+        if denied and not notices:
+            notices.append(f"其中{len(denied)}集当前账号无下载权限")
+        return ("包含不可下载内容：" + "；".join(notices)) if notices else ""
+
+    def parse_media(self, media_type, media_id, is_tv_mode=False, progress_callback=None, permission_denied_retries=1, cancel_check=None, episode_page=None, max_episodes=200, parse_mode=None, episode_range=None):
+        self._wait_session_ready()
+        ep_filter, _range_err = self.parse_episode_range(episode_range)
+        if _range_err:
+            return {"success": False, "error": _range_err}
+        if ep_filter:
+            logger.info(f"集数范围过滤已启用：{sorted(ep_filter)[:50]}{'...' if len(ep_filter) > 50 else ''}")
+        load_collection = parse_mode not in ("video_only", "page_only")
+        force_full_collection = parse_mode == "collection"
+        pp = f" (指定P{episode_page})" if episode_page else ""
+        logger.info(f"开始解析媒体信息: 类型={media_type}, ID={media_id}{pp}")
+        try:
+            if cancel_check and cancel_check():
+                return {"success": False, "error": "解析已取消", "cancelled": True}
+
+            bvid = None
+            title = ""
+            cid = ""
+            collection = []
+            bangumi_info = None
+            cheese_info = None
+            season_title = ""
+            cover = ""
+            desc = ""
+            is_charging_content = False
+
+            if progress_callback:
+                progress_callback(10, "正在解析媒体类型...")
+
+            if media_type == "space":
+                return {
+                    "success": False,
+                    "error": "space类型需要在UI层通过show_space_videos处理，请使用主界面解析UP主主页链接"
+                }
+
+            if media_type == "space_list":
+                return {
+                    "success": False,
+                    "error": "space_list类型需要在UI层通过show_space_videos处理，请使用主界面解析合集/系列链接"
+                }
+
+            if media_type == "av":
+                try:
+                    if progress_callback:
+                        progress_callback(12, "正在获取视频信息...")
+                    av_data = self._get_av_info(media_id)
+                    logger.info(f"获取AV数据成功")
+                    
+                    is_bangumi = False
+                    
+                    if 'season_id' in av_data and av_data['season_id'] > 0:
+                        
+                        is_bangumi = True
+                        logger.info(f"发现season_id: {av_data['season_id']}")
+                    elif 'is_chargeable_season' in av_data and av_data['is_chargeable_season']:
+                        
+                        is_bangumi = True
+                        logger.info(f"发现is_chargeable_season: {av_data['is_chargeable_season']}")
+                    elif 'redirect_url' in av_data and 'bangumi' in av_data['redirect_url']:
+                        
+                        is_bangumi = True
+                        logger.info(f"发现redirect_url: {av_data['redirect_url']}")
+                    
+                    logger.info(f"是否为番剧: {is_bangumi}")
+                    
+                    if is_bangumi:
+                        
+                        media_type = "bangumi"
+                        logger.info("转换为番剧处理")
+                        
+                        
+                        if 'redirect_url' in av_data and 'bangumi' in av_data['redirect_url']:
+                            redirect_url = av_data['redirect_url']
+                            logger.info(f"发现番剧重定向链接: {redirect_url}")
+                            
+                            redirect_parse = self.parse_media_url(redirect_url)
+                            logger.info(f"重定向链接解析结果: {redirect_parse}")
+                            if redirect_parse['type'] == 'bangumi' and redirect_parse['id']:
+                                bangumi_id = redirect_parse['id']
+                                logger.info(f"获取到的番剧ID: {bangumi_id}")
+                                try:
+                                    
+                                    logger.info(f"尝试获取番剧信息，ID: {bangumi_id}")
+                                    if progress_callback:
+                                        progress_callback(20, "正在获取番剧信息...")
+                                    bangumi_full_info = self._get_bangumi_full_info(bangumi_id)
+                                    if not bangumi_full_info.get('episodes'):
+                                        raise Exception("番剧未返回任何剧集")
+                                    logger.info(f"番剧信息获取成功")
+                                    bangumi_info = bangumi_full_info
+                                    season_title = bangumi_full_info['season_title']
+                                    first_ep = bangumi_full_info['episodes'][0]
+                                    bvid = first_ep['bvid']
+                                    cid = first_ep['cid']
+                                    first_ep_title = first_ep.get('ep_title', f"第1集")
+                                    title = self._sanitize_filename(f"{season_title}_{first_ep_title}")
+                                    logger.info(f"番剧信息获取成功: {season_title}")
+                                    
+                                    media_id = bangumi_id
+                                    
+                                    pass
+                                except Exception as e:
+                                    logger.error(f"使用重定向链接获取番剧信息失败: {str(e)}")
+                                    
+                                    media_type = "video"
+                                    bvid = av_data['bvid']
+                                    cid = av_data['cid']
+                                    title = self._sanitize_filename(av_data['title'])
+                                    collection = self._get_collection_info(bvid, progress_callback=progress_callback)
+                                    logger.info(f"回退为普通视频处理: {title}")
+                        else:
+                            
+                            season_id = av_data.get('season_id', '')
+                            if not season_id:
+                                
+                                season_id = av_data.get('season', {}).get('season_id', '')
+                            if season_id:
+                                try:
+                                    
+                                    if progress_callback:
+                                        progress_callback(20, "正在获取番剧信息...")
+                                    bangumi_full_info = self._get_bangumi_full_info(season_id)
+                                    bangumi_info = bangumi_full_info
+                                    season_title = bangumi_full_info['season_title']
+                                    first_ep = bangumi_full_info['episodes'][0]
+                                    bvid = first_ep['bvid']
+                                    cid = first_ep['cid']
+                                    first_ep_title = first_ep.get('ep_title', f"第1集")
+                                    title = self._sanitize_filename(f"{season_title}_{first_ep_title}")
+                                    logger.info(f"使用season_id获取番剧信息成功: {season_title}")
+                                except Exception as e:
+                                    logger.error(f"使用season_id获取番剧信息失败: {str(e)}")
+                                    
+                                    media_type = "video"
+                                    bvid = av_data['bvid']
+                                    cid = av_data['cid']
+                                    title = self._sanitize_filename(av_data['title'])
+                                    collection = self._get_collection_info(bvid, progress_callback=progress_callback)
+                                    logger.info(f"回退为普通视频处理: {title}")
+                            else:
+                                
+                                media_type = "video"
+                                bvid = av_data['bvid']
+                                cid = av_data['cid']
+                                title = self._sanitize_filename(av_data['title'])
+                                collection = self._get_collection_info(bvid, progress_callback=progress_callback)
+                    else:
+                        
+                        media_type = "video"
+                        bvid = av_data['bvid']
+                        cid = av_data['cid']
+                        title = self._sanitize_filename(av_data['title'])
+                        
+                        collection = self._get_collection_info(bvid, progress_callback=progress_callback)
+                except Exception as e:
+                    logger.error(f"AV信息获取失败: {str(e)}")
+                    if not self.cookies:
+                        logger.info("未登录，可能需要登录才能访问此视频")
+                        return {
+                            "success": False,
+                            "error": "视频可能需要登录才能访问，请先登录"
+                        }
+                    logger.info("尝试使用课程API解析此AV号...")
+                    try:
+                        if progress_callback:
+                            progress_callback(15, "尝试使用课程API解析...")
+                        cheese_info = self._get_cheese_full_info(media_id)
+                        if cheese_info and cheese_info.get('success', True):
+                            logger.info("使用课程API解析成功！")
+                            media_type = "cheese"
+                            season_title = cheese_info['season_title']
+                            first_ep = cheese_info['episodes'][0]
+                            bvid = first_ep.get('bvid', '') or ''
+                            aid = first_ep.get('aid', '') or ''
+                            cid = first_ep['cid']
+                            first_ep_title = first_ep.get('ep_title', f"第1集")
+                            title = self._sanitize_filename(f"{season_title}_{first_ep_title}")
+                            collection = cheese_info['episodes']
+                        else:
+                            logger.error("课程API解析也失败")
+                            logger.info("尝试使用其他API端点...")
+                            api_endpoints = [
+                                ("https://api.bilibili.com/x/web-interface/view", {"aid": media_id}),
+                                ("https://api.bilibili.com/x/web-interface/view/detail", {"aid": media_id}),
+                                ("https://api.bilibili.com/x/web-interface/view?jsonp=jsonp", {"aid": media_id}),
+                                ("https://api.bilibili.com/x/player/pagelist", {"aid": media_id})
+                            ]
+                            
+                            success = False
+                            for url, params in api_endpoints:
+                                try:
+                                    logger.info(f"尝试API: {url} with params: {params}")
+                                    success, api_data = self._api_request(url, params=params)
+                                    if success and api_data.get('code') == 0:
+                                        data = api_data.get('data', {})
+                                        if 'View' in data:
+                                            view = data['View']
+                                        elif 'list' in data:
+                                            view = data
+                                        else:
+                                            view = data
+                                        
+                                        if view and (view.get('bvid') or view.get('title')):
+                                            logger.info(f"使用{url} API解析成功！")
+                                            media_type = "video"
+                                            bvid = view.get('bvid', media_id)
+                                            cid = view.get('cid', 0)
+                                            title = self._sanitize_filename(view.get('title', '未知视频'))
+                                            collection = self._get_collection_info(bvid, progress_callback=progress_callback)
+                                            success = True
+                                            break
+                                except Exception as e3:
+                                    logger.error(f"API {url} 解析失败: {str(e3)}")
+                            
+                            if not success:
+                                return {
+                                    "success": False,
+                                    "error": "视频不存在或已被删除（或需要登录）"
+                                }
+                    except Exception as e2:
+                        logger.error(f"课程API解析失败: {str(e2)}")
+                        return {
+                            "success": False,
+                            "error": "视频不存在或已被删除（或需要登录）"
+                        }
+
+            elif media_type == "sponsor":
+
+                media_type = "video"
+                bvid = media_id
+                cid = self._get_cid(media_type, bvid)
+                video_info = self._get_video_main_info(bvid)
+                title = self._sanitize_filename(video_info['title'])
+                collection = self._get_collection_info(bvid, progress_callback=progress_callback)
+                is_charging_content = True
+                logger.info(f"充电视频处理: {title}")
+
+            if media_type == "video":
+                if not bvid:
+                    bvid = media_id
+                if not cid:
+                    if progress_callback:
+                        progress_callback(15, "正在获取视频分P信息...")
+                    cid = self._get_cid(media_type, bvid)
+                if not title or not collection:
+                    if progress_callback:
+                        progress_callback(16, "正在获取视频详情...")
+                    video_info = self._get_video_main_info(bvid)
+                    if not title:
+                        title = self._sanitize_filename(video_info['title'])
+
+                    redirect_url = video_info.get('redirect_url', '') if video_info else ''
+                    is_upower_exclusive = bool(video_info.get('is_upower_exclusive', False)) if video_info else False
+                    is_upower_play = bool(video_info.get('is_upower_play', False)) if video_info else False
+
+                    if redirect_url and not is_charging_content:
+                        logger.info(f"检测到 redirect_url，跳转番剧/影视解析: {redirect_url}")
+                        try:
+                            redirect_media = self.parse_media_url(redirect_url)
+                            if redirect_media.get('type') in ('bangumi', 'cheese'):
+                                return self.parse_media(
+                                    redirect_media['type'], redirect_media['id'],
+                                    is_tv_mode=is_tv_mode, progress_callback=progress_callback,
+                                    permission_denied_retries=permission_denied_retries,
+                                    cancel_check=cancel_check)
+                        except Exception as e:
+                            logger.warning(f"redirect_url 跳转失败: {e}")
+
+                    if is_upower_exclusive or is_upower_play:
+                        is_charging_content = True
+                        logger.info(f"API字段识别为充电专属视频: is_upower_exclusive={is_upower_exclusive}, is_upower_play={is_upower_play}")
+
+
+                    is_interact = False
+                    interact_info = None
+                    if 'interaction' in video_info:
+                        is_interact = True
+                        interact_info = video_info['interaction']
+                        logger.info("检测到互动视频")
+                    
+                    elif 'is_stein_gate' in video_info and video_info['is_stein_gate']:
+                        is_interact = True
+                        interact_info = {"is_stein_gate": True}
+                        logger.info("通过is_stein_gate字段检测到互动视频")
+                    
+                    elif 'stein_guide_cid' in video_info and video_info['stein_guide_cid']:
+                        is_interact = True
+                        interact_info = {"stein_guide_cid": video_info['stein_guide_cid']}
+                        logger.info(f"通过stein_guide_cid字段检测到互动视频：{video_info['stein_guide_cid']}")
+                    
+                    if not load_collection:
+                        pages = video_info.get('pages', [])
+                        if parse_mode == "page_only" and episode_page and pages and len(pages) >= episode_page:
+                            target = pages[episode_page - 1]
+                            cid = target.get('cid', cid)
+                            collection = [{
+                                "page": target.get('page', episode_page),
+                                "cid": cid,
+                                "bvid": bvid,
+                                "title": self._resolve_page_title(target.get('part'), episode_page, video_info.get('title', ''), multi=len(pages) > 1),
+                                "duration": target.get('duration', 0),
+                                "duration_str": self._format_duration(target.get('duration', 0)),
+                                "cover": video_info.get('pic', '')
+                            }]
+                            logger.info(f"page_only模式：仅解析P{episode_page}，跳过合集加载")
+                        if not collection and pages:
+                            for page in pages:
+                                duration = page.get('duration', 0)
+                                collection.append({
+                                    "page": page.get('page', 0),
+                                    "cid": page.get('cid', 0),
+                                    "title": self._resolve_page_title(page.get('part'), page.get('page'), video_info.get('title', ''), multi=len(pages) > 1),
+                                    "duration": duration,
+                                    "duration_str": self._format_duration(duration)
+                                })
+                            logger.info(f"跳过合集加载，使用当前视频分P，共{len(collection)}集")
+                            if parse_mode == "page_only" and episode_page:
+                                filtered = [c for c in collection if c.get('page') == episode_page]
+                                if filtered:
+                                    collection = filtered
+                                    logger.info(f"page_only过滤：仅保留P{episode_page}")
+                    elif episode_page is not None and not collection:
+                        pages = video_info.get('pages', [])
+                        has_ugc = 'ugc_season' in video_info
+                        if pages and len(pages) >= episode_page and not has_ugc:
+                            target = pages[episode_page - 1]
+                            cid = target.get('cid', cid)
+                            collection = [{
+                                "page": target.get('page', episode_page),
+                                "cid": cid,
+                                "bvid": bvid,
+                                "title": self._resolve_page_title(target.get('part'), episode_page, video_info.get('title', ''), multi=len(pages) > 1),
+                                "duration": target.get('duration', 0),
+                                "duration_str": self._format_duration(target.get('duration', 0)),
+                                "cover": video_info.get('pic', '')
+                            }]
+                            logger.info(f"指定P快速路径：仅解析P{episode_page}，跳过合集加载")
+                        elif has_ugc:
+                            logger.info(f"视频属于合集，指定P将加载合集并限制最大{max_episodes}集")
+                    
+                    if not collection:
+                        if load_collection:
+                            _collection_max = max_episodes if episode_page else None
+                            collection = self._get_collection_info(bvid, max_items=_collection_max, progress_callback=progress_callback)
+                        logger.info(f"从API获取合集信息，共{len(collection)}集")
+                        
+                        if parse_mode != "video_only" and len(collection) <= 1:
+                            logger.info("合集信息只有1集，尝试查找视频所属系列...")
+                            # 复用mid免重请求
+                            _owner_mid = None
+                            if video_info and video_info.get('owner'):
+                                _owner_mid = video_info.get('owner', {}).get('mid')
+                            series_collection = self._get_series_info(bvid, mid=_owner_mid)
+                            if len(series_collection) > 1:
+                                collection = series_collection
+                                logger.info(f"找到系列，共{len(collection)}集")
+                        
+                        if not collection and 'pages' in video_info:
+                            for page in video_info['pages']:
+                                duration = page.get('duration', 0)
+                                collection.append({
+                                    "page": page.get('page', 0),
+                                    "cid": page.get('cid', 0),
+                                    "title": self._resolve_page_title(page.get('part'), page.get('page'), video_info.get('title', ''), multi=len(video_info['pages']) > 1),
+                                    "duration": duration,
+                                    "duration_str": self._format_duration(duration)
+                                })
+                            logger.info(f"从video_info获取分P信息，共{len(collection)}集")
+                    
+                    if episode_page is not None and len(collection) > 1 and parse_mode != "video_only" and 'ugc_season' not in video_info:
+                        orig_count = len(collection)
+                        filtered = [c for c in collection if c.get('page') == episode_page]
+                        if filtered:
+                            collection = filtered
+                            logger.info(f"指定分P过滤：从{orig_count}集中筛选出P{episode_page}")
+                        else:
+                            logger.warning(f"指定分P{episode_page}未在合集中找到，保留全部{orig_count}集")
+                    
+                    
+                    if is_interact and interact_info:
+                        graph_version = interact_info.get('graph_version')
+                        if graph_version:
+                            try:
+                                interact_data = self._get_interact_video_info(bvid, graph_version)
+                                logger.info("获取到互动视频信息")
+                                
+                                if 'story_list' in interact_data:
+                                    interact_modules = []
+                                    for module in interact_data['story_list']:
+                                        interact_modules.append({
+                                            "module_id": module.get('node_id', ''),
+                                            "edge_id": module.get('edge_id', ''),
+                                            "title": module.get('title', ''),
+                                            "cid": module.get('cid', ''),
+                                            "cover": module.get('cover', '')
+                                        })
+                                    
+                                    collection.extend(interact_modules)
+                                    logger.info(f"添加互动视频模块，共{len(interact_modules)}个")
+                            except Exception as e:
+                                logger.error(f"获取互动视频模块信息失败：{str(e)}")
+                logger.info(f"视频信息处理完成: {title}")
+
+            elif media_type == "bangumi":
+                if progress_callback:
+                    progress_callback(20, "正在获取番剧信息...")
+                bangumi_full_info = self._get_bangumi_full_info(media_id)
+                if not bangumi_full_info.get('success'):
+                    raise Exception(bangumi_full_info.get('error') or "番剧信息获取失败")
+                if not bangumi_full_info.get('episodes'):
+                    raise Exception(
+                        "未能解析到任何剧集（可能原因：该番剧仅限港澳台/需大会员、"
+                        "或链接指向的是分P而非番剧）。请确认链接后在设置中切换线路重试。"
+                    )
+                bangumi_info = bangumi_full_info
+                season_title = bangumi_full_info['season_title']
+                first_ep = bangumi_full_info['episodes'][0]
+                bvid = first_ep['bvid']
+                cid = first_ep['cid']
+                first_ep_title = first_ep.get('ep_title', f"第1集")
+                title = self._sanitize_filename(f"{season_title}_{first_ep_title}")
+                logger.info(f"番剧信息处理完成: {season_title}（共 {len(bangumi_full_info['episodes'])} 集）")
+
+            elif media_type == "cheese":
+                if progress_callback:
+                    progress_callback(20, "正在获取课程信息...")
+                cheese_full_info = self._get_cheese_full_info(media_id)
+                if not cheese_full_info.get('success'):
+                    raise Exception(cheese_full_info.get('error') or "课程信息获取失败")
+                if not cheese_full_info.get('episodes'):
+                    raise Exception(
+                        "未能解析到任何课程集数（可能原因：课程需购买/登录态失效、"
+                        "或该课程链接无效）。"
+                    )
+                cheese_info = cheese_full_info
+                season_title = cheese_full_info['season_title']
+                first_ep = cheese_full_info['episodes'][0]
+                bvid = first_ep['bvid']
+                cid = first_ep['cid']
+                season_id = first_ep.get('season_id', media_id)
+                ep_id = first_ep.get('ep_id', '')
+                first_ep_title = first_ep.get('ep_title', f"第1集")
+                title = self._sanitize_filename(f"{season_title}_{first_ep_title}")
+                if not cheese_info.get('payment'):
+                    cheese_info.update(self._get_pugv_payment_info(season_id))
+                logger.info(f"课程信息处理完成: {season_title}（共 {len(cheese_full_info['episodes'])} 集）")
+
+            
+            if progress_callback:
+                progress_callback(40, "正在获取播放信息...")
+            if cancel_check and cancel_check():
+                logger.info("用户停止解析（尚未获取播放地址），返回已获得的基本信息")
+                return {
+                    "success": True,
+                    "cancelled": True,
+                    "partial": True,
+                    "is_bangumi": media_type == "bangumi",
+                    "is_cheese": media_type == "cheese",
+                    "season_title": season_title,
+                    "title": season_title or title,
+                    "media_type": media_type,
+                    "total_episodes": len(collection),
+                    "episodes": collection,
+                    "collection": collection,
+                    "cover": cover,
+                    "desc": desc,
+                    "bangumi_info": bangumi_info,
+                    "cheese_info": cheese_info,
+                }
+            if media_type == "cheese":
+                play_info = self._get_play_info(media_type, bvid, cid, is_tv_mode, season_id=season_id, ep_id=ep_id)
+            elif media_type == "bangumi":
+                
+                ep_id = first_ep.get('ep_id', '')
+                play_info = self._get_play_info(media_type, bvid, cid, is_tv_mode, ep_id=ep_id)
+            else:
+                play_info = self._get_play_info(media_type, bvid, cid, is_tv_mode)
+            if not play_info['success']:
+                _raw_err = str(play_info.get('error') or '')
+                _err_text = _raw_err
+                _perm_like = any(k in _raw_err for k in ("权限", "会员", "专享", "试看", "付费", "购买", "充电"))
+                if _perm_like:
+                    if media_type == "video":
+                        if is_charging_content:
+                            _err_text = "包含不可下载内容：该视频为充电专属，当前账号尚未为该UP主充电，无法下载"
+                        else:
+                            _err_text = "包含不可下载内容：该视频为付费内容，当前账号未购买，无法下载"
+                    elif media_type == "cheese":
+                        _pay = (cheese_info or {}).get('payment') or {}
+                        _price = _pay.get('price') or _pay.get('price_format') or ''
+                        _err_text = f"包含不可下载内容：该课程为付费课程（{_price}元），当前账号未购买，无法下载"
+                    elif media_type == "bangumi":
+                        _err_text = "包含不可下载内容：该集为大会员专享，当前账号无有效大会员，无法下载"
+                raise Exception(_err_text)
+            logger.info("播放信息获取成功")
+
+            
+            if media_type == "cheese" and cheese_info:
+                episodes = cheese_info.get('episodes', [])
+                collection = episodes  
+                logger.info(f"课程集数: {len(collection)}")
+                
+                total_episodes = len(episodes)
+                # 收集范围内集数，统一并发预取播放信息
+                cheese_tasks = []
+                _cheese_limit = None
+                if ep_filter is None:
+                    try:
+                        # 只预取前几集用于展示可下载状态，其余集数在用户选中后按需取流，
+                        # 避免课程/长番剧一口气预取几十集把解析拖到几分钟
+                        _cheese_limit = min(3, max(1, int(max_episodes)))
+                    except (TypeError, ValueError):
+                        _cheese_limit = None
+                for i, ep in enumerate(episodes):
+                    if ep_filter is not None:
+                        _n = self._ep_number(ep)
+                        if _n is None or _n not in ep_filter:
+                            episodes[i]['out_of_range'] = True
+                            continue
+                        episodes[i]['out_of_range'] = False
+                    if _cheese_limit and len(cheese_tasks) >= _cheese_limit:
+                        break
+                    cheese_tasks.append({
+                        'index': i,
+                        'bvid': ep.get('bvid', ''),
+                        'cid': ep.get('cid', ''),
+                        'season_id': ep.get('season_id', media_id),
+                        'ep_id': ep.get('ep_id', ''),
+                    })
+                cheese_results, _cheese_cancelled = self._prefetch_play_infos(
+                    'cheese', cheese_tasks, is_tv_mode, permission_denied_retries,
+                    cancel_check=cancel_check, progress_callback=progress_callback,
+                    progress_base=40, progress_span=60,
+                    total_for_progress=total_episodes, phase_text="正在处理")
+                if _cheese_cancelled:
+                    _done_cnt = len(cheese_results)
+                    logger.info(f"用户停止解析，返回已完成的 {_done_cnt}/{total_episodes} 集（课程）")
+                    return {
+                        "success": True,
+                        "cancelled": True,
+                        "partial": True,
+                        "is_cheese": True,
+                        "is_bangumi": False,
+                        "season_title": season_title,
+                        "title": season_title,
+                        "media_type": "cheese",
+                        "total_episodes": len(collection),
+                        "episodes": collection,
+                        "collection": collection,
+                        "cover": (cheese_info or {}).get('cover', '') if cheese_info else '',
+                        "desc": (cheese_info or {}).get('desc', '') if cheese_info else '',
+                        "cheese_info": cheese_info,
+                        "cancelled_at": _done_cnt,
+                    }
+                for task in cheese_tasks:
+                    i = task['index']
+                    ep = episodes[i]
+                    ep_play_info = cheese_results.get(i)
+                    if ep_play_info and ep_play_info.get('success'):
+                        episodes[i]['video_urls'] = ep_play_info['video_urls']
+                        episodes[i]['audio_url'] = ep_play_info['audio_url']
+                        episodes[i]['kid'] = ep_play_info.get('kid')
+                        if ep_play_info.get('is_truncated'):
+                            episodes[i]['permission_denied'] = True
+                            episodes[i]['has_free_part'] = True
+                            _avail_ms = ep_play_info.get('available_duration_ms') or 0
+                            _decl_ms = ep_play_info.get('declared_duration_ms') or 0
+                            episodes[i]['available_duration_sec'] = _avail_ms // 1000 if _avail_ms else 0
+                            episodes[i]['declared_duration_sec'] = _decl_ms // 1000 if _decl_ms else ep.get('duration', 0)
+                        else:
+                            episodes[i]['permission_denied'] = False
+                            episodes[i]['has_free_part'] = False
+                    else:
+                        episodes[i]['permission_denied'] = True
+                        episodes[i]['title'] = f"{ep.get('ep_title', '')}（权限不足）"
+            elif media_type == "bangumi" and bangumi_info:
+                episodes = bangumi_info.get('episodes', [])
+                collection = episodes  
+                logger.info(f"番剧集数: {len(collection)}")
+                
+                user_info = self.get_user_info()
+                is_vip = user_info.get('is_vip', False)
+                logger.info(f"用户会员状态: {is_vip}")
+                
+                total_episodes = len(episodes)
+                bangumi_tasks = []
+                _bangumi_limit = None
+                if ep_filter is None:
+                    try:
+                        # 同上：长番剧只预取前几集，其余按需取流
+                        _bangumi_limit = min(3, max(1, int(max_episodes)))
+                    except (TypeError, ValueError):
+                        _bangumi_limit = None
+                for i, ep in enumerate(episodes):
+                    if ep_filter is not None:
+                        _n = self._ep_number(ep)
+                        if _n is None or _n not in ep_filter:
+                            episodes[i]['out_of_range'] = True
+                            continue
+                        episodes[i]['out_of_range'] = False
+                    if _bangumi_limit and len(bangumi_tasks) >= _bangumi_limit:
+                        break
+                    bangumi_tasks.append({
+                        'index': i,
+                        'bvid': ep.get('bvid', ''),
+                        'cid': ep.get('cid', ''),
+                        'ep_id': ep.get('ep_id', ''),
+                    })
+                bangumi_results, _bangumi_cancelled = self._prefetch_play_infos(
+                    'bangumi', bangumi_tasks, is_tv_mode, permission_denied_retries,
+                    cancel_check=cancel_check, progress_callback=progress_callback,
+                    progress_base=40, progress_span=60,
+                    total_for_progress=total_episodes, phase_text="正在检查")
+                if _bangumi_cancelled:
+                    _done_cnt = len(bangumi_results)
+                    logger.info(f"用户停止解析，返回已完成的 {_done_cnt}/{total_episodes} 集（番剧）")
+                    return {
+                        "success": True,
+                        "cancelled": True,
+                        "partial": True,
+                        "is_bangumi": True,
+                        "is_cheese": False,
+                        "season_title": season_title,
+                        "title": season_title,
+                        "media_type": "bangumi",
+                        "total_episodes": len(collection),
+                        "episodes": collection,
+                        "collection": collection,
+                        "cover": (bangumi_info or {}).get('cover', '') if bangumi_info else '',
+                        "desc": (bangumi_info or {}).get('desc', '') if bangumi_info else '',
+                        "bangumi_info": bangumi_info,
+                        "cancelled_at": _done_cnt,
+                    }
+                for task in bangumi_tasks:
+                    i = task['index']
+                    ep = episodes[i]
+                    ep_play_info = bangumi_results.get(i)
+                    if ep_play_info and ep_play_info.get('success'):
+                        episodes[i]['video_urls'] = ep_play_info.get('video_urls', {})
+                        episodes[i]['audio_url'] = ep_play_info.get('audio_url', '')
+                        episodes[i]['kid'] = ep_play_info.get('kid')
+                        if ep_play_info.get('is_truncated'):
+                            episodes[i]['permission_denied'] = True
+                            episodes[i]['has_free_part'] = True
+                            _avail_ms = ep_play_info.get('available_duration_ms') or 0
+                            _decl_ms = ep_play_info.get('declared_duration_ms') or 0
+                            episodes[i]['available_duration_sec'] = _avail_ms // 1000 if _avail_ms else 0
+                            episodes[i]['declared_duration_sec'] = _decl_ms // 1000 if _decl_ms else ep.get('duration', 0)
+                        else:
+                            episodes[i]['permission_denied'] = False
+                            episodes[i]['has_free_part'] = False
+                    else:
+                        episodes[i]['permission_denied'] = True
+                        episodes[i]['title'] = f"{ep.get('ep_title', '')}（权限不足）"
+            elif media_type == "video" and collection:
+                logger.info(f"视频合集数: {len(collection)}")
+                _probe_charging = bool(is_charging_content)
+                for i, ep in enumerate(collection):
+                    if _probe_charging:
+                        try:
+                            _info = self._get_play_info('video', ep.get('bvid', ''), ep.get('cid', 0), is_tv_mode)
+                            _truncated = _info.get('is_truncated', False)
+                            _avail_ms = _info.get('available_duration_ms') or 0
+                            _decl_ms = _info.get('declared_duration_ms') or 0
+                            if _truncated and _avail_ms:
+                                collection[i]['permission_denied'] = True
+                                collection[i]['has_free_part'] = True
+                                collection[i]['declared_duration_sec'] = _decl_ms // 1000 if _decl_ms else ep.get('duration', 0)
+                                collection[i]['available_duration_sec'] = _avail_ms // 1000
+                            else:
+                                collection[i]['permission_denied'] = False
+                                collection[i]['has_free_part'] = False
+                        except Exception as e:
+                            logger.warning(f"探测第{i+1}集可获取时长失败：{str(e)}")
+                            collection[i]['permission_denied'] = False
+                            collection[i]['has_free_part'] = False
+                    else:
+                        collection[i]['permission_denied'] = False
+                        collection[i]['has_free_part'] = False
+
+            # 按门槛字段把未预取到的受限集数也标出来，避免列表里显示成可下载
+            if media_type == "bangumi" and bangumi_info and not self.get_user_info().get('is_vip'):
+                for _ep in (bangumi_info.get('episodes') or []):
+                    if _ep.get('access_label') == "大会员":
+                        _ep['permission_denied'] = True
+            elif media_type == "cheese" and cheese_info:
+                _payment = cheese_info.get('payment') or {}
+                _user_status = cheese_info.get('user_status') or {}
+                _price = _payment.get('price') or _payment.get('price_format') or ''
+                try:
+                    _is_paid_course = float(str(_price).replace('元', '').strip() or 0) > 0
+                except Exception:
+                    _is_paid_course = bool(_price)
+                if _is_paid_course and not _user_status.get('payed'):
+                    for _ep in (cheese_info.get('episodes') or []):
+                        if _ep.get('status') != 1:
+                            _ep['permission_denied'] = True
+
+            pic = None
+            if media_type == "video" and 'video_info' in locals():
+                pic = video_info.get('pic', '')
+            elif media_type == "bangumi" and bangumi_info:
+                pic = bangumi_info.get('cover', '')
+            elif media_type == "cheese" and cheese_info:
+                pic = cheese_info.get('cover', '')
+            
+            
+            total_duration = 0
+            
+            if collection:
+                for i, ep in enumerate(collection):
+                    
+                    if not ep.get('cover'):
+                        if media_type == "video" and 'video_info' in locals():
+                            
+                            collection[i]['cover'] = video_info.get('pic', '')
+                        elif media_type == "bangumi" and bangumi_info:
+                            
+                            collection[i]['cover'] = bangumi_info.get('cover', '')
+                        elif media_type == "cheese" and cheese_info:
+                            
+                            collection[i]['cover'] = cheese_info.get('cover', '')
+                    
+                    if ep.get('duration'):
+                        total_duration += int(ep.get('duration'))
+            
+            
+            estimated_size_mb = 0
+            if total_duration > 0:
+
+                _default_qn = None
+                try:
+                    _default_qn = self.config.get_app_setting("default_quality", 0)
+                except Exception:
+                    _default_qn = None
+                estimated_size_mb = estimate_download_size_mb(
+                    total_duration,
+                    qn=_default_qn,
+                    video_bandwidth=play_info.get('video_bandwidth'),
+                    audio_bandwidth=play_info.get('audio_bandwidth'),
+                    episode_count=len(collection) if collection else 0,
+                )
+                if estimated_size_mb >= 1024:
+                    estimated_size_gb = estimated_size_mb / 1024
+                    estimated_size_str = f"{estimated_size_gb:.1f} GB"
+                else:
+                    estimated_size_str = f"{estimated_size_mb} MB"
+            else:
+                estimated_size_str = "未知"
+
+            _truncated_top = bool(play_info.get('is_truncated'))
+            _avail_ms_top = play_info.get('available_duration_ms') or 0
+            _decl_ms_top = play_info.get('declared_duration_ms') or 0
+            preview_notice = ""
+            if _truncated_top and _decl_ms_top and _avail_ms_top and not is_charging_content:
+                try:
+                    _decl_sec = int(_decl_ms_top) // 1000
+                    _avail_sec = int(_avail_ms_top) // 1000
+                    preview_notice = (
+                        f"当前未登录（或登录已失效/非大会员），B站仅提供约"
+                        f"{self._format_duration(_avail_sec)}的试看片段"
+                        f"（完整时长约{self._format_duration(_decl_sec)}）。"
+                        f"请先登录大会员账号后再解析下载，否则只能下到试看部分。"
+                    )
+                except Exception:
+                    preview_notice = "当前未登录，B站仅提供试看片段，请登录后重新解析下载。"
+
+            _bw_dbg = play_info.get('video_bandwidth') or {}
+            _access_info = None
+            if media_type == "bangumi":
+                _access_info = bangumi_info
+            elif media_type == "cheese":
+                _access_info = cheese_info
+            elif media_type == "video" and 'video_info' in locals():
+                _access_info = video_info
+            access_notice = self._build_access_notice(
+                media_type, is_charging_content, _access_info, collection,
+                bool(play_info.get('success')) and not bool(play_info.get('is_truncated')))
+            logger.info(f"媒体信息解析成功: {title}，总时长: {total_duration}秒，预估大小: {estimated_size_str}（大小估算依据：视频带宽={_bw_dbg}，音频带宽={play_info.get('audio_bandwidth')}）")
+            
+            return {
+                "success": True,
+                "type": media_type,
+                "title": title,
+                "bvid": bvid,
+                "cid": cid,
+                "pic": pic,
+                "qualities": play_info['qualities'],
+                "video_urls": play_info['video_urls'],
+                "audio_url": play_info['audio_url'],
+                "audio_qualities": play_info.get('audio_qualities', []),
+                "is_tv_mode": is_tv_mode,
+                "is_vip": play_info['is_vip'],
+                "has_hevc": play_info['has_hevc'],
+                "collection": collection,
+                "episodes": collection,  
+                "is_collection": len(collection) > 1,
+                "bangumi_info": bangumi_info,
+                "cheese_info": cheese_info,
+                "is_bangumi": media_type == "bangumi",
+                "is_cheese": media_type == "cheese",
+                "is_charging_content": is_charging_content,
+                "is_interact": is_interact if 'is_interact' in locals() else False,
+                "interact_info": interact_info if 'interact_info' in locals() else None,
+                "total_duration": total_duration,
+                "estimated_size": estimated_size_str,
+                "estimated_size_mb": estimated_size_mb,
+                "video_bandwidth": play_info.get('video_bandwidth', {}),
+                "audio_bandwidth": play_info.get('audio_bandwidth', 0),
+                "kid": play_info.get('kid'),
+                "is_truncated": _truncated_top,
+                "declared_duration_ms": _decl_ms_top,
+                "available_duration_ms": _avail_ms_top,
+                "preview_notice": preview_notice,
+                "access_notice": access_notice,
+            }
+        except Exception as e:
+            logger.error(f"解析媒体信息失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def _get_av_info(self, aid):
+        try:
+            url = self.config.get_api_url("av_info_api").format(aid=aid)
+            success, data = self._api_request(url, timeout=10)
+            if not success:
+                raise Exception(f"av号信息获取失败：{data['error']}")
+            if data.get('code') != 0:
+                raise Exception(f"av号信息获取失败：{data.get('message', '未知错误')}")
+            
+            if 'data' in data:
+                return data['data']
+            elif 'result' in data:
+                return data['result']
+            else:
+                raise Exception(f"API返回格式错误，未找到data或result字段：{data}")
+        except Exception as e:
+            raise Exception(f"av信息获取失败：{str(e)}（aid={aid}）")
+
+    def _get_bangumi_full_info(self, media_id):
+        try:
+            media_id = str(media_id)
+            is_ep_id = media_id.startswith('ep')
+            id_value = media_id[2:] if is_ep_id else media_id
+            if not is_ep_id and id_value.startswith('ss'):
+                id_value = id_value[2:]
+            
+            if is_ep_id:
+                url = "https://api.bilibili.com/pgc/view/web/season"
+                params = {"ep_id": id_value}
+                logger.debug(f"使用ep_id获取番剧信息：{url}?ep_id={id_value}")
+            else:
+                url = "https://api.bilibili.com/pgc/view/web/season"
+                params = {"season_id": id_value}
+                logger.debug(f"使用season_id获取番剧信息：{url}?season_id={id_value}")
+                
+            success, api_data = False, {}
+            try:
+                _resp = self.session.get(url, params=params, timeout=10,
+                                        headers={'Referer': 'https://www.bilibili.com/'})
+                _json = _resp.json()
+                if _json.get('code') == 0:
+                    success, api_data = True, _json
+            except Exception as _re:
+                logger.warning(f"番剧直连接口失败：{_re}")
+            if not success:
+                success, api_data = self._api_request(url, timeout=15, use_wbi=True, params=params)
+                if not success:
+                    logger.info("尝试不使用WBI签名获取番剧信息")
+                    success, api_data = self._api_request(url, timeout=15, use_wbi=False, params=params)
+                    if not success:
+                        raise Exception(f"番剧API请求失败：{api_data['error']}")
+
+            if api_data.get('code') != 0:
+                raise Exception(f"番剧API错误：{api_data.get('message', '未知错误')}")
+
+            
+            logger.debug(f"API返回数据结构：{list(api_data.keys())}")
+            
+            
+            data = api_data.get('data', {})
+            result = api_data.get('result', data)
+            
+            logger.debug(f"result数据结构：{list(result.keys()) if result else '空'}")
+            
+            episodes = []
+            ep_sections = {}          # ep对应所属合集标题
+
+            def _collect(section, section_title=None):
+                got = []
+                if not isinstance(section, dict):
+                    return got
+                for key in ('episodes', 'ep_list'):
+                    val = section.get(key)
+                    if isinstance(val, list) and val:
+                        got.extend(val)
+                if section_title:
+                    for _e in got:
+                        if isinstance(_e, dict):
+                            ep_sections[id(_e)] = section_title
+                return got
+
+            top_eps = result.get('episodes')
+            if isinstance(top_eps, list) and top_eps:
+                logger.info(f"正片剧集（result.episodes）：{len(top_eps)} 集")
+                episodes.extend(_collect({'episodes': top_eps}, None))
+
+            episodes.extend(_collect(result.get('main_section'), None))
+
+            sections = result.get('sections')
+            if isinstance(sections, list):
+                for section in sections:
+                    episodes.extend(_collect(section, section.get('title')))
+
+            extra_sections = result.get('section')
+            if isinstance(extra_sections, list):
+                for section in extra_sections:
+                    _st = section.get('title') if isinstance(section, dict) else None
+                    logger.info(f"发现额外合集：{_st}（{len(section.get('episodes') or []) if isinstance(section, dict) else 0} 集）")
+                    episodes.extend(_collect(section, _st))
+
+            if episodes:
+                _seen = set()
+                _deduped = []
+                for _ep in episodes:
+                    if not isinstance(_ep, dict):
+                        continue
+                    _key = (_ep.get('id') or _ep.get('ep_id') or _ep.get('cid')
+                            or _ep.get('bvid') or _ep.get('aid'))
+                    if _key is None:
+                        _deduped.append(_ep)
+                        continue
+                    if _key in _seen:
+                        continue
+                    _seen.add(_key)
+                    _deduped.append(_ep)
+                episodes = _deduped
+                logger.debug(f"番剧剧集收集完成：共 {len(episodes)} 集")
+
+            for _ep in episodes:
+                if isinstance(_ep, dict):
+                    _st = ep_sections.get(id(_ep))
+                    if _st:
+                        _ep['section_title'] = _st
+
+            # 兜底取顶层集
+            if not episodes:
+                top = result.get('episodes')
+                if isinstance(top, list) and top:
+                    episodes = top
+            if not episodes and isinstance(result.get('ep'), dict):
+                episodes = [result['ep']]
+
+            if not episodes:
+                logger.error(f"API未返回剧集数据，result: {_json_dumps(result)[:1000]}...")
+                
+                return {
+                    "success": True,
+                    "season_title": result.get('title', '未知番剧'),
+                    "season_id": id_value,
+                    "total_episodes": 0,
+                    "episodes": [],
+                    "cover": result.get('cover', ''),
+                    "desc": result.get('desc', ''),
+                    "publish_time": result.get('publish_time', 0),
+                    "rating": result.get('rating', {}),
+                    "stat": result.get('stat', {})
+                }
+
+            season_title = '未知番剧'
+            if 'main_section' in result:
+                season_title = result['main_section'].get('title', season_title)
+            if season_title == '未知番剧':
+                season_title = result.get('title', season_title)
+            season_title = self._sanitize_filename(season_title)
+            season_id = id_value
+            
+            season_cover = result.get('cover', '')
+
+            bangumi_episodes = []
+            for idx, ep in enumerate(episodes, 1):
+                logger.info(f"剧集{idx}信息字段：{list(ep.keys())}")
+                logger.info(f"剧集{idx}信息：{_json_dumps(ep)[:500]}")
+                ep_type = ep.get('type_name', '')
+                ep_num = ep.get('ep', idx) or idx
+                
+                if ep_type in ['SP', 'OVA', '剧场版']:
+                    ep_index = f"{ep_type}{ep_num}"
+                else:
+                    ep_index = f"第{ep_num}集"
+
+                title_candidates = [
+                    ep.get('long_title', ''),
+                    ep.get('sub_title', ''),
+                    ep.get('title', ''),
+                    f"第{ep_num}集"
+                ]
+                actual_title = next((t for t in title_candidates if t), f"第{ep_num}集")
+                actual_title = actual_title.replace("正片", "")
+                actual_title = actual_title.replace("_", " ")
+                actual_title = actual_title.strip()
+                if not actual_title:
+                    actual_title = f"第{ep_num}集"
+                if re.match(r'^第\d+集', actual_title):
+                    actual_title = re.sub(r'^第\d+集[ _\-]*', '', actual_title)
+                    if not actual_title:
+                        actual_title = f"第{ep_num}集"
+
+                
+                ep_id = ep.get('id', '')
+                if not ep_id:
+                    ep_id = ep.get('ep_id', '')
+                if not ep_id:
+                    ep_id = ep.get('ep', '')
+
+                bvid = ep.get('bvid', '')
+                if not bvid:
+                    bvid = ep.get('aid', '')
+                
+                
+                
+                
+                _badge = str(ep.get('badge') or '')
+                if "会员" in _badge or ep.get('status') == 13:
+                    _access_label = "大会员"
+                elif "付费" in _badge:
+                    _access_label = "付费"
+                else:
+                    _access_label = ""
+
+                bangumi_episodes.append({
+                    "ep_id": ep_id,
+                    "bvid": bvid,
+                    "cid": ep.get('cid', ''),
+                    "ep_index": ep_index,
+                    "ep_title": self._sanitize_filename(actual_title),
+                    "duration": self._bangumi_duration_sec(ep.get('duration', 0)),
+                    "duration_str": self._format_duration(self._bangumi_duration_sec(ep.get('duration', 0))),
+                    "aid": ep.get('aid', ''),
+                    "cover": ep.get('cover', season_cover),  
+                    "share_url": ep.get('share_url', ''),
+                    "status": ep.get('status', 0),
+                    "badge": _badge,
+                    "access_label": _access_label,
+                    "section_title": ep.get('section_title', '') or '',
+                })
+
+            return {
+                "success": True,
+                "season_title": season_title,
+                "season_id": season_id,
+                "total_episodes": len(bangumi_episodes),
+                "episodes": bangumi_episodes,
+                "cover": result.get('cover', ''),
+                "desc": result.get('desc', ''),
+                "publish_time": result.get('publish_time', 0),
+                "rating": result.get('rating', {}),
+                "stat": result.get('stat', {}),
+                "payment": result.get('payment', {}) or {},
+                "user_status": result.get('user_status', {}) or {},
+                "rights": result.get('rights', {}) or {},
+            }
+        except Exception as e:
+            print(f"获取番剧信息失败：{str(e)}")
+            raise Exception(f"番剧信息获取失败：{str(e)}")
+
+    def _get_pugv_payment_info(self, season_id):
+        """读取课程价格与购买状态，用于解析时直接给出下载门槛。"""
+        try:
+            params = {"season_id": str(season_id)}
+            headers = {'Referer': 'https://www.bilibili.com/cheese/'}
+            resp = self.session.get("https://api.bilibili.com/pugv/view/web/season",
+                                    params=params, timeout=10, headers=headers)
+            j = resp.json()
+            if j.get('code') != 0:
+                resp = self.session.get("https://api.bilibili.com/pugv/view/web/season",
+                                        params=params, timeout=10,
+                                        headers={'Referer': 'https://www.bilibili.com'})
+                j = resp.json()
+            if j.get('code') != 0:
+                return {}
+            d = j.get('data') or {}
+            return {
+                "payment": d.get('payment') or {},
+                "user_status": d.get('user_status') or {},
+                "opened_ep_count": d.get('opened_ep_count', 0),
+            }
+        except Exception as e:
+            logger.warning(f"读取课程购买状态失败：{e}")
+            return {}
+
+    def _get_cheese_full_info(self, media_id):
+        try:
+            logger.info(f"开始获取课程信息，media_id: {media_id}")
+            
+            media_id = str(media_id).strip()
+            is_ep_id = media_id.startswith('ep')
+            id_value = media_id[2:] if is_ep_id else media_id
+            if not is_ep_id and id_value.startswith('ss'):
+                id_value = id_value[2:]
+            
+            original_headers = self.session.headers.copy()
+            
+            self.session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Referer': 'https://www.bilibili.com/cheese/',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive'
+            })
+            
+            logger.info("发送课程API请求...")
+            
+            cheese_api_url = "https://api.bilibili.com/cheese/api/subject/info"
+            if is_ep_id:
+                params = {'ep_id': id_value}
+            else:
+                params = {'season_id': id_value}
+
+            # 先用 pugv season 直连接口（稳定且自带价格/购买状态），避免旧接口超时拖慢解析
+            try:
+                _quick_resp = self.session.get(
+                    "https://api.bilibili.com/pugv/view/web/season",
+                    params=params, timeout=10,
+                    headers={'Referer': 'https://www.bilibili.com/cheese/'})
+                _quick_json = _quick_resp.json()
+                if _quick_json.get('code') == 0:
+                    _quick_data = _quick_json.get('data') or {}
+                    _quick_eps = _quick_data.get('episodes') or []
+                    if _quick_eps:
+                        _qsid = _quick_data.get('season_id', id_value)
+                        _qtitle = self._sanitize_filename(_quick_data.get('title', '未知课程'))
+                        _qeps = []
+                        for _i, _ep in enumerate(_quick_eps, 1):
+                            _num = _ep.get('index', _i) or _i
+                            _t = (_ep.get('title') or f"第{_num}集").strip() or f"第{_num}集"
+                            _st = _ep.get('status', 1)
+                            _qeps.append({
+                                "ep_id": _ep.get('id', ''),
+                                "season_id": _qsid,
+                                "aid": str(_ep.get('aid', '')),
+                                "bvid": str(_ep.get('bvid', '') or ''),
+                                "cid": _ep.get('cid', ''),
+                                "ep_index": f"第{_num}集",
+                                "ep_title": self._sanitize_filename(_t),
+                                "duration": self._bangumi_duration_sec(_ep.get('duration', 0)),
+                                "duration_str": self._format_duration(self._bangumi_duration_sec(_ep.get('duration', 0))),
+                                "status": _st,
+                                "access_label": "付费" if _st != 1 else "",
+                                "kid": _ep.get('kid', None),
+                            })
+                        self.session.headers = original_headers
+                        return {
+                            "success": True,
+                            "season_title": _qtitle,
+                            "season_id": _qsid,
+                            "total_episodes": len(_qeps),
+                            "episodes": _qeps,
+                            "cover": _quick_data.get('cover', ''),
+                            "desc": _quick_data.get('desc', ''),
+                            "share_url": f"https://www.bilibili.com/cheese/play/ss{_qsid}",
+                            "payment": _quick_data.get('payment') or {},
+                            "user_status": _quick_data.get('user_status') or {},
+                            "opened_ep_count": _quick_data.get('opened_ep_count', 0),
+                        }
+            except Exception as _qe:
+                logger.warning(f"课程直连接口失败，回退旧接口：{_qe}")
+
+            logger.info(f"尝试cheese专用API: {cheese_api_url} with params: {params}")
+            success, api_data = self._api_request(cheese_api_url, timeout=15, use_wbi=True, params=params)
+            
+            if not success:
+                logger.info("尝试不使用WBI签名获取课程信息")
+                success, api_data = self._api_request(cheese_api_url, timeout=15, use_wbi=False, params=params)
+                
+            if success and api_data.get('code') == 0:
+                data = api_data.get('data', {})
+                logger.info("cheese API请求成功")
+
+                season_title = data.get('title', '未知课程')
+                season_title = self._sanitize_filename(season_title)
+                season_id = data.get('season_id', media_id)
+                cover = data.get('cover', '')
+                desc = data.get('desc', '')
+
+                episodes = data.get('episodes', [])
+                logger.info(f"获取到的剧集数量：{len(episodes)}")
+                
+                cheese_episodes = []
+                for idx, ep in enumerate(episodes, 1):
+                    ep_num = ep.get('index', idx) or idx
+                    ep_index = f"第{ep_num}集"
+
+                    title = ep.get('title', f"第{ep_num}集")
+                    title = title.strip()
+                    if not title:
+                        title = f"第{ep_num}集"
+
+                    status = ep.get('status', 1)  
+                    is_paid = status != 1
+
+                    cheese_episodes.append({
+                        "ep_id": ep.get('id', ''),
+                        "season_id": season_id,
+                        "aid": str(ep.get('aid', '')),
+                        "bvid": str(ep.get('bvid', '') or ''),
+                        "cid": ep.get('cid', ''),
+                        "ep_index": ep_index,
+                        "ep_title": self._sanitize_filename(title),
+                        "duration": self._bangumi_duration_sec(ep.get('duration', 0)),
+                        "duration_str": self._format_duration(self._bangumi_duration_sec(ep.get('duration', 0))),
+                        "status": status,
+                        "access_label": "付费" if status != 1 else "",
+                        "kid": ep.get('kid', None)
+                    })
+                
+                self.session.headers = original_headers
+                
+                return {
+                    "success": True,
+                    "season_title": season_title,
+                    "season_id": season_id,
+                    "total_episodes": len(cheese_episodes),
+                    "episodes": cheese_episodes,
+                    "cover": cover,
+                    "desc": desc,
+                    "share_url": f"https://www.bilibili.com/cheese/play/ss{season_id}"
+                }
+            
+            logger.info("尝试使用番剧API获取课程信息")
+            url = "https://api.bilibili.com/pugv/view/web/season"
+            if is_ep_id:
+                params = {'ep_id': id_value}
+            else:
+                params = {'season_id': id_value}
+            
+            original_headers = self.session.headers.copy()
+            self.session.headers.update({'Referer': 'https://www.bilibili.com'})
+            
+            success, api_data = self._api_request(url, timeout=15, use_wbi=True, params=params)
+            
+            if not success:
+                logger.info("尝试不使用WBI签名获取课程信息")
+                success, api_data = self._api_request(url, timeout=15, use_wbi=False, params=params)
+                if not success:
+                    logger.error(f"API请求失败：{api_data['error']}")
+                    logger.info("尝试使用其他API端点...")
+                    api_endpoints = [
+                        ("https://api.bilibili.com/pugv/view/web/season", {"season_id": id_value}),
+                        ("https://api.bilibili.com/pugv/view/web/season", {"ep_id": id_value}),
+                        ("https://api.bilibili.com/cheese/api/subject/info", {"season_id": id_value}),
+                    ]
+                    
+                    for api_url, api_params in api_endpoints:
+                        try:
+                            logger.info(f"尝试API: {api_url} with params: {api_params}")
+                            success, api_data = self._api_request(api_url, params=api_params)
+                            if success and api_data.get('code') == 0:
+                                data = api_data.get('data', {})
+                                
+                                season_title = data.get('title', '未知课程')
+                                season_title = self._sanitize_filename(season_title)
+                                season_id = data.get('season_id', media_id)
+                                cover = data.get('cover', '')
+                                desc = data.get('desc', '')
+                                
+                                episodes = data.get('episodes', [])
+                                logger.info(f"获取到的剧集数量：{len(episodes)}")
+                                
+                                cheese_episodes = []
+                                for idx, ep in enumerate(episodes, 1):
+                                    ep_num = ep.get('index', idx) or idx
+                                    ep_index = f"第{ep_num}集"
+
+                                    title = ep.get('title', f"第{ep_num}集")
+                                    title = title.strip()
+                                    if not title:
+                                        title = f"第{ep_num}集"
+
+                                    status = ep.get('status', 1)  
+                                    is_paid = status != 1
+
+                                    cheese_episodes.append({
+                                        "ep_id": ep.get('id', ''),
+                                        "season_id": season_id,
+                                        "aid": str(ep.get('aid', '')),
+                                        "bvid": str(ep.get('bvid', '') or ''),
+                                        "cid": ep.get('cid', ''),
+                                        "ep_index": ep_index,
+                                        "ep_title": self._sanitize_filename(title),
+                                        "duration": self._bangumi_duration_sec(ep.get('duration', 0)),
+                                        "duration_str": self._format_duration(self._bangumi_duration_sec(ep.get('duration', 0))),
+                                        "status": status,
+                                        "access_label": "付费" if status != 1 else "",
+                                        "kid": ep.get('kid', None)
+                                    })
+                                
+                                self.session.headers = original_headers
+                                
+                                return {
+                                    "success": True,
+                                    "season_title": season_title,
+                                    "season_id": season_id,
+                                    "total_episodes": len(cheese_episodes),
+                                    "episodes": cheese_episodes,
+                                    "cover": cover,
+                                    "desc": desc,
+                                    "share_url": f"https://www.bilibili.com/cheese/play/ss{season_id}"
+                                }
+                        except Exception as e:
+                            logger.error(f"API {api_url} 解析失败: {str(e)}")
+                            continue
+                    
+                    raise Exception(f"课程API请求失败：{api_data['error']}")
+
+            self.session.headers = original_headers
+
+            if api_data.get('code') != 0:
+                error_msg = api_data.get('message', '未知错误')
+                logger.error(f"API错误信息：{error_msg}")
+                raise Exception(f"课程API错误：{error_msg}")
+
+            data = api_data.get('data', {})
+            logger.debug(f"data 包含的键：{list(data.keys())}")
+            
+            episodes = data.get('episodes', [])
+            logger.info(f"获取到的剧集数量：{len(episodes)}")
+            
+            if not episodes:
+                logger.error(f"API未返回剧集数据，data: {_json_dumps(data)[:500]}...")
+                raise Exception("API未返回剧集数据")
+
+            season_title = data.get('title', '未知课程')
+            season_title = self._sanitize_filename(season_title)
+            season_id = data.get('season_id', media_id)
+            logger.info(f"课程标题：{season_title}")
+            logger.info(f"课程season_id：{season_id}")
+
+            cheese_episodes = []
+            for idx, ep in enumerate(episodes, 1):
+                ep_num = ep.get('index', idx) or idx
+                ep_index = f"第{ep_num}集"
+
+                title = ep.get('title', f"第{ep_num}集")
+                title = title.strip()
+                if not title:
+                    title = f"第{ep_num}集"
+
+                status = ep.get('status', 1)  
+                is_paid = status != 1
+
+                cheese_episodes.append({
+                "ep_id": ep.get('id', ''),
+                "season_id": season_id,
+                "aid": str(ep.get('aid', '')),
+                "bvid": str(ep.get('bvid', '') or ''),
+                "cid": ep.get('cid', ''),
+                "ep_index": ep_index,
+                "ep_title": self._sanitize_filename(title),
+                "duration": self._bangumi_duration_sec(ep.get('duration', 0)),
+                "duration_str": self._format_duration(self._bangumi_duration_sec(ep.get('duration', 0))),
+                "status": status,
+                "kid": None
+            })
+
+            return {
+                "success": True,
+                "season_title": season_title,
+                "season_id": season_id,
+                "total_episodes": len(cheese_episodes),
+                "episodes": cheese_episodes,
+                "cover": data.get('cover', ''),
+                "desc": data.get('desc', ''),
+                "share_url": data.get('share_url', '')
+            }
+        except Exception as e:
+            logger.error(f"获取课程信息失败：{str(e)}")
+            raise Exception(f"课程信息获取失败：{str(e)}")
+
+    def get_user_folders(self):
+        try:
+            logger.info("开始获取用户收藏夹列表...")
+            
+            if not self.cookies:
+                raise Exception("请先登录")
+            
+            user_info = self.get_user_info()
+            if not user_info.get('success'):
+                error_msg = user_info.get('msg', '未知错误')
+                logger.error(f"获取用户信息失败：{error_msg}")
+                raise Exception(f"获取用户信息失败：{error_msg}")
+            mid = user_info.get('mid')
+            if not mid:
+                raise Exception("无法获取用户ID，请重新登录")
+            
+            try:
+                up_mid = int(mid)
+            except ValueError:
+                raise Exception("用户ID格式错误")
+            
+            url = "https://api.bilibili.com/x/v3/fav/folder/created/list-all"
+            params = {
+                'up_mid': up_mid,
+                'platform': 'web'
+            }
+            
+            success, api_data = self._api_request(url, timeout=15, use_wbi=True, params=params)
+            
+            if not success:
+                logger.info("尝试不使用WBI签名获取收藏夹列表")
+                success, api_data = self._api_request(url, timeout=15, use_wbi=False, params=params)
+                if not success:
+                    error_msg = api_data['error']
+                    logger.error(f"API请求失败：{error_msg}")
+                    raise Exception(f"获取收藏夹列表失败：{error_msg}")
+
+            if api_data.get('code') != 0:
+                error_msg = api_data.get('message', '未知错误')
+                logger.error(f"API错误信息：{error_msg}")
+                raise Exception(f"获取收藏夹列表失败：{error_msg}")
+
+            data = api_data.get('data') or {}
+            folders = data.get('list') or []
+            logger.info(f"获取到 {len(folders)} 个收藏夹")
+            
+            return folders
+        except Exception as e:
+            error_msg = str(e)
+            # 避免错误信息重复
+            if not error_msg.startswith("获取用户收藏夹失败：") and not error_msg.startswith("获取用户信息失败："):
+                error_msg = f"获取用户收藏夹失败：{error_msg}"
+            logger.error(error_msg)
+            raise
+
+    def get_folder_content(self, media_id, page=1, page_size=20, get_all=False, progress_callback=None, page_callback=None, cancel_check=None):
+        try:
+            logger.info(f"开始获取收藏夹内容，media_id: {media_id}, page: {page}, page_size: {page_size}, get_all: {get_all}")
+
+            if not self.cookies:
+                raise Exception("请先登录")
+
+            def _cancelled():
+                if cancel_check is None:
+                    return False
+                try:
+                    return bool(cancel_check())
+                except Exception:
+                    return False
+            
+            base_params = {
+                'media_id': media_id,
+                'ps': min(page_size, 20),
+                'pn': page,
+                'platform': 'web',
+                'keyword': '',
+                'order': 'mtime',
+                'type': 0,
+                'tid': 0
+            }
+            
+            url = "https://api.bilibili.com/x/v3/fav/resource/list"
+            
+            if progress_callback:
+                progress_callback(5, "正在获取收藏夹内容...")
+            
+            max_page_retries = 3
+            
+            def _fetch_page(params, page_num):
+                for retry in range(max_page_retries):
+                    if _cancelled():
+                        raise Exception("已取消")
+                    try:
+                        logger.info(f"获取第{page_num}页收藏内容（尝试 {retry + 1}/{max_page_retries}）")
+                        success, data = self._api_request(url, timeout=15, use_wbi=False, params=params, with_dm_params=False)
+                        
+                        if not success:
+                            success, data = self._api_request(url, timeout=15, use_wbi=False, params=params, with_dm_params=False)
+                            if not success:
+                                error_msg = data['error']
+                                if retry < max_page_retries - 1:
+                                    import time as _t
+                                    wait = 2 * (2 ** retry) + 1
+                                    logger.warning(f"第{page_num}页请求失败，{wait}秒后重试：{error_msg}")
+                                    _t.sleep(wait)
+                                    continue
+                                raise Exception(f"获取收藏夹内容失败：{error_msg}")
+                        
+                        if data.get('code') != 0:
+                            error_msg = data.get('message', '未知错误')
+                            if retry < max_page_retries - 1:
+                                import time as _t
+                                wait = 2 * (2 ** retry) + 1
+                                logger.warning(f"第{page_num}页API返回错误(code={data.get('code')})，{wait}秒后重试：{error_msg}")
+                                _t.sleep(wait)
+                                continue
+                            raise Exception(f"获取收藏夹内容失败：{error_msg}（code={data.get('code')}）")
+                        
+                        return data
+                    except Exception as e:
+                        if retry < max_page_retries - 1 and ('timeout' in str(e).lower() or 'timed out' in str(e).lower()):
+                            import time as _t
+                            wait = 2 * (2 ** retry) + 1
+                            logger.warning(f"第{page_num}页超时，{wait}秒后重试：{e}")
+                            _t.sleep(wait)
+                            continue
+                        raise
+                raise Exception(f"获取第{page_num}页收藏夹内容失败：已重试{max_page_retries}次")
+            
+            def _parse_medias(medias):
+                items = []
+                for item in medias:
+                    bvid = item.get('bv_id') or item.get('bvid')
+                    aid = item.get('id')
+                    if not (bvid or aid):
+                        continue
+                    media_type = int(item.get('type', 2))
+                    items.append({
+                        'id': aid,
+                        'type': 'video',
+                        'title': item.get('title', '未知内容'),
+                        'cover': item.get('cover'),
+                        'bvid': bvid,
+                        'aid': aid,
+                        'up_name': (item.get('upper', {}) or {}).get('name', '未知UP主'),
+                        'duration': item.get('duration', 0),
+                        'fav_time': item.get('fav_time', 0)
+                    })
+                return items
+            
+            api_data = _fetch_page(base_params, page)
+
+            result_data = api_data.get('data') or {}
+            medias = result_data.get('medias') or []
+            has_more = result_data.get('has_more', False)
+            total_count = result_data.get('info', {}).get('media_count', 0)
+            
+            logger.info(f"第一页：获取到 {len(medias)} 个收藏内容，has_more={has_more}，total_count={total_count}")
+            
+            collection_items = _parse_medias(medias)
+            
+            logger.info(f"处理后收藏内容数量：{len(collection_items)}")
+            
+            if page_callback and collection_items:
+                page_callback(collection_items, page, total_count)
+            
+            need_more = bool(has_more) or (total_count and total_count > len(collection_items))
+            if get_all and need_more:
+                all_items = collection_items.copy()
+                estimated_pages = max(1, (total_count + 19) // 20) if total_count > 0 else 10
+                
+                # 读并发线程数限2~8
+                try:
+                    _cfg_threads = self.config.get_app_setting('max_threads', 2) if self.config else 2
+                    _cfg_threads = int(_cfg_threads)
+                except Exception:
+                    _cfg_threads = 2
+                fav_workers = max(2, min(_cfg_threads, 8))
+                logger.info(f"收藏夹分页并发获取，线程数={fav_workers}，预估页数={estimated_pages}")
+                
+                # 线程池并发拉取剩余页
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                import threading as _threading
+                
+                _stop_dispatch = _threading.Event()
+                _completed_count = [0]
+                _counter_lock = _threading.Lock()
+                _empty_page_count = [0]  # 连续空页计数
+                
+                def _fetch_one_page(pn):
+                    if _cancelled():
+                        raise Exception("已取消")
+                    params = {
+                        'media_id': media_id,
+                        'ps': 20,
+                        'pn': pn,
+                        'platform': 'web',
+                        'keyword': '',
+                        'order': 'mtime',
+                        'type': 0,
+                        'tid': 0
+                    }
+                    page_data = _fetch_page(params, pn)
+                    page_result = page_data.get('data') or {}
+                    page_medias = page_result.get('medias') or []
+                    page_has_more = page_result.get('has_more', False)
+                    return pn, page_medias, page_has_more
+
+                _cancelled_exc = None
+                with ThreadPoolExecutor(max_workers=fav_workers) as executor:
+                    next_page = page + 1
+                    max_page_cap = page + estimated_pages
+                    futures = set()
+
+                    # 先派首批，每线程一个
+                    initial_dispatch = min(fav_workers, max(0, max_page_cap - page))
+                    for _ in range(initial_dispatch):
+                        if next_page > max_page_cap:
+                            break
+                        futures.add(executor.submit(_fetch_one_page, next_page))
+                        next_page += 1
+
+                    while futures and not _stop_dispatch.is_set():
+                        if _cancelled():
+                            _stop_dispatch.set()
+                            break
+                        done = set()
+                        for fut in list(futures):
+                            if fut.done():
+                                done.add(fut)
+                        if not done:
+                            import time as _t
+                            _t.sleep(0.02)
+                            continue
+
+                        for fut in done:
+                            futures.discard(fut)
+                            try:
+                                pn, page_medias, page_has_more = fut.result()
+                            except Exception as e:
+                                if _cancelled() or "已取消" in str(e):
+                                    _cancelled_exc = e
+                                    _stop_dispatch.set()
+                                    break
+                                logger.error(f"并发获取收藏夹页失败：{e}")
+                                raise
+
+                            logger.info(f"第{pn}页获取到 {len(page_medias)} 个收藏内容")
+                            page_items = _parse_medias(page_medias)
+                            all_items.extend(page_items)
+
+                            if page_callback and page_items:
+                                page_callback(page_items, pn, total_count)
+
+                            with _counter_lock:
+                                _completed_count[0] += 1
+                            if progress_callback:
+                                page_progress = min(90, int(10 + 80 * _completed_count[0] / max(estimated_pages, 1)))
+                                progress_callback(page_progress, f"已获取 {len(all_items)}/{total_count} 项（完成 {_completed_count[0]} 页）...")
+
+                            if not page_has_more:
+                                if total_count and len(all_items) >= total_count:
+                                    logger.info(f"已获取 {len(all_items)} 项 >= total_count={total_count}，停止派发")
+                                    _stop_dispatch.set()
+                                    break
+                                if not page_medias:
+                                    _empty_page_count[0] += 1
+                                    if _empty_page_count[0] >= 2:
+                                        if futures and (not total_count or len(all_items) < total_count):
+                                            logger.info(f"连续 {_empty_page_count[0]} 次空页，但仍有 {len(futures)} 个在途任务未完成，继续等待")
+                                        else:
+                                            logger.info(f"连续 {_empty_page_count[0]} 次空页，停止派发（已获取 {len(all_items)}/{total_count}）")
+                                            _stop_dispatch.set()
+                                            break
+                                    else:
+                                        logger.info(f"has_more=False 且当前页空，第 {_empty_page_count[0]} 次空页，继续试探下一页")
+                                else:
+                                    _empty_page_count[0] = 0
+                                    logger.info(f"has_more=False 但未拿够（{len(all_items)}/{total_count}），继续派发下一页")
+
+                            if next_page <= max_page_cap and not _stop_dispatch.is_set():
+                                futures.add(executor.submit(_fetch_one_page, next_page))
+                                next_page += 1
+
+                    for fut in futures:
+                        fut.cancel()
+
+                if _cancelled_exc is not None or _cancelled():
+                    logger.info(f"用户已取消获取收藏夹，返回已获取的 {len(all_items)} 项")
+                    if progress_callback:
+                        progress_callback(100, f"已取消，共获取 {len(all_items)} 项")
+                    return {
+                        'items': all_items,
+                        'has_more': False,
+                        'total': len(all_items)
+                    }
+                
+                if progress_callback:
+                    progress_callback(95, f"获取完成，共 {len(all_items)} 项，正在处理...")
+                
+                logger.info(f"处理后收藏内容总数量：{len(all_items)}")
+                return {
+                    'items': all_items,
+                    'has_more': False,
+                    'total': len(all_items)
+                }
+            else:
+                total = result_data.get('info', {}).get('media_count', 0)
+                logger.info(f"收藏夹总内容数量：{total}")
+                if progress_callback:
+                    progress_callback(100, "获取完成")
+                return {
+                    'items': collection_items,
+                    'has_more': has_more,
+                    'total': total
+                }
+        except Exception as e:
+            error_msg = str(e)
+            if not error_msg.startswith("获取收藏夹内容失败："):
+                error_msg = f"获取收藏夹内容失败：{error_msg}"
+            logger.error(error_msg)
+            raise
+
+    def _get_cid(self, media_type, media_id, page=1):
+        try:
+            if media_type == "video":
+                
+                url = self.config.get_api_url("cid_api").format(bvid=media_id)
+                
+                import urllib.parse
+                url_parts = list(urllib.parse.urlparse(url))
+                query = dict(urllib.parse.parse_qsl(url_parts[4]))
+                success, data = self._api_request(url, timeout=10, use_wbi=True, params=query)
+                if success and data.get('code') == 0:
+                    
+                    if 'data' in data:
+                        pages_data = data['data']
+                    elif 'result' in data:
+                        pages_data = data['result']
+                    else:
+                        raise Exception(f"API返回格式错误，未找到data或result字段：{data}")
+                    
+                    if isinstance(pages_data, list):
+                        if len(pages_data) >= page:
+                            return str(pages_data[page - 1]['cid'])
+                        else:
+                            raise Exception(f"未找到第{page}集的CID")
+                
+                
+                logger.warning("CID API失败，尝试使用视频信息API获取CID")
+                video_info_url = self.config.get_api_url("video_info_api").format(bvid=media_id)
+                
+                url_parts = list(urllib.parse.urlparse(video_info_url))
+                query = dict(urllib.parse.parse_qsl(url_parts[4]))
+                success, data = self._api_request(video_info_url, timeout=10, use_wbi=True, params=query)
+                if not success:
+                    raise Exception(f"视频信息API获取失败：{data['error']}")
+                
+                if data.get('code') != 0:
+                    raise Exception(f"视频信息API返回错误：{data.get('message', '未知错误')}")
+                
+                
+                if 'data' in data:
+                    video_data = data['data']
+                elif 'result' in data:
+                    video_data = data['result']
+                else:
+                    raise Exception(f"API返回格式错误，未找到data或result字段：{data}")
+                
+                
+                if 'cid' in video_data:
+                    return str(video_data['cid'])
+                
+                
+                if 'pages' in video_data and isinstance(video_data['pages'], list):
+                    if len(video_data['pages']) >= page:
+                        return str(video_data['pages'][page - 1]['cid'])
+                    else:
+                        raise Exception(f"未找到第{page}集的CID")
+                
+                raise Exception("API未返回CID数据")
+            elif media_type == "bangumi":
+                bangumi_info = self._get_bangumi_full_info(media_id)
+                if bangumi_info['episodes']:
+                    return str(bangumi_info['episodes'][0]['cid'])
+                raise Exception("未找到番剧CID")
+            elif media_type == "cheese":
+                try:
+                    if media_id.startswith('av'):
+                        aid = media_id[2:]
+                        url = f"https://api.bilibili.com/x/player/pagelist?aid={aid}&jsonp=jsonp"
+                    else:
+                        bvid = media_id
+                        url = f"https://api.bilibili.com/x/player/pagelist?bvid={bvid}&jsonp=jsonp"
+                    success, data = self._api_request(url, timeout=10, use_wbi=True)
+                    if success and data.get('code') == 0:
+                        pages = data.get('data', [])
+                        if pages:
+                            return str(pages[0]['cid'])
+                except Exception as e:
+                    logger.warning(f"直接获取CID失败：{str(e)}")
+                cheese_info = self._get_cheese_full_info(media_id)
+                if cheese_info['episodes']:
+                    cid = cheese_info['episodes'][0]['cid']
+                    if cid:
+                        return str(cid)
+                try:
+                    if media_id.startswith('av'):
+                        aid = media_id[2:]
+                        url = f"https://api.bilibili.com/x/web-interface/view?aid={aid}&jsonp=jsonp"
+                    else:
+                        bvid = media_id
+                        url = f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}&jsonp=jsonp"
+                    success, data = self._api_request(url, timeout=10, use_wbi=True)
+                    if success and data.get('code') == 0:
+                        video_data = data.get('data', {})
+                        if 'cid' in video_data:
+                            return str(video_data['cid'])
+                        elif 'pages' in video_data and video_data['pages']:
+                            return str(video_data['pages'][0]['cid'])
+                except Exception as e:
+                    logger.warning(f"视频信息API获取CID失败：{str(e)}")
+                raise Exception("未找到课程CID")
+            else:
+                raise Exception(f"不支持的媒体类型：{media_type}")
+        except Exception as e:
+            raise Exception(f"CID获取失败：{str(e)}（类型={media_type}, ID={media_id}）")
+
+    def _get_collection_info(self, bvid, max_items=None, progress_callback=None):
+        if progress_callback:
+            progress_callback(18, "正在检测合集/分P...")
+        try:
+            url = self.config.get_api_url("video_info_api").format(bvid=bvid)
+            
+            import urllib.parse
+            url_parts = list(urllib.parse.urlparse(url))
+            query = dict(urllib.parse.parse_qsl(url_parts[4]))
+            success, data = self._api_request(url, timeout=10, use_wbi=True, params=query)
+            if not success:
+                raise Exception(f"获取合集信息失败：{data['error']}")
+            if data.get('code') != 0:
+                raise Exception(f"获取合集信息失败：{data.get('message', '未知错误')}")
+
+            
+            if 'data' in data:
+                video_data = data['data']
+            elif 'result' in data:
+                video_data = data['result']
+            else:
+                raise Exception(f"API返回格式错误，未找到data或result字段：{data}")
+
+            collection = []
+            
+            video_cover = video_data.get('pic', '')
+            pages = video_data.get('pages', [])
+            page_count = len(pages)
+            
+
+            if page_count > 1 and 'ugc_season' not in video_data:
+                logger.info(f"视频有{page_count}个分P，优先使用分P信息")
+                for page in pages:
+                    duration = page.get('duration', 0)
+                    collection.append({
+                        "page": page.get('page', 0),
+                        "cid": page.get('cid', 0),
+                        "bvid": bvid,
+                        "title": self._resolve_page_title(page.get('part'), page.get('page'), video_data.get('title', ''), multi=True),
+                        "duration": duration,
+                        "duration_str": self._format_duration(duration),
+                        "cover": video_cover  
+                    })
+                return collection
+
+            if 'ugc_season' in video_data:
+                ugc_season = video_data['ugc_season']
+                season_id = ugc_season.get('id') or ugc_season.get('season_id')
+                upper_mid = ugc_season.get('mid') or ugc_season.get('upper_mid') or video_data.get('owner', {}).get('mid')
+                season_title = ugc_season.get('title') or ugc_season.get('name')
+
+                full_collection = None
+                if season_id and upper_mid:
+                    logger.info(f"检测到合集: {season_title} (season_id={season_id}, mid={upper_mid})，尝试获取完整合集列表")
+                    full_collection = self._get_full_ugc_season_archives(upper_mid, season_id, video_cover, source_bvid=bvid, max_items=max_items, progress_callback=progress_callback)
+                    if full_collection and len(full_collection) > 0:
+                        logger.info(f"从合集详情API获取到 {len(full_collection)} 个视频")
+                        collection = full_collection
+
+                #否则sections
+                if not collection and 'sections' in ugc_season:
+                    logger.info("使用视频信息API中的ugc_season.sections数据")
+                    page_idx = 1
+                    for section in ugc_season['sections']:
+                        if 'episodes' in section:
+                            for ep in section['episodes']:
+
+                                ep_pages = []
+                                if 'page' in ep:
+                                    ep_pages = [ep['page']]
+                                elif 'pages' in ep and ep['pages']:
+                                    ep_pages = ep['pages']
+                                
+                                if not ep_pages:
+                                    continue
+                                
+                                ep_title = ep.get('title', f"第{page_idx}集")
+                                ep_bvid = ep.get('bvid', bvid)
+
+                                if len(ep_pages) == 1:
+                                    page_info = ep_pages[0]
+                                    duration = page_info.get('duration', 0)
+                                    collection.append({
+                                        "page": page_idx,
+                                        "cid": page_info.get('cid', 0),
+                                        "bvid": ep_bvid,
+                                        "title": self._sanitize_filename(ep_title),
+                                        "duration": duration,
+                                        "duration_str": self._format_duration(duration),
+                                        "cover": video_cover
+                                    })
+                                    page_idx += 1
+                                else:
+                                    collection.append({
+                                        "page": page_idx,
+                                        "cid": ep_pages[0].get('cid', 0),
+                                        "bvid": ep_bvid,
+                                        "title": self._sanitize_filename(ep_title),
+                                        "duration": 0,
+                                        "duration_str": "",
+                                        "cover": video_cover
+                                    })
+                                    page_idx += 1
+
+                                    for pi, page_info in enumerate(ep_pages):
+                                        duration = page_info.get('duration', 0)
+                                        part_name = page_info.get('part', f"P{pi+1}")
+                                        collection.append({
+                                            "page": page_idx,
+                                            "cid": page_info.get('cid', 0),
+                                            "bvid": ep_bvid,
+                                            "title": self._sanitize_filename(f"  │ P{pi+1} - {part_name}"),
+                                            "duration": duration,
+                                            "duration_str": self._format_duration(duration),
+                                            "cover": video_cover
+                                        })
+                                        page_idx += 1
+            
+            if not collection:
+                for page in pages:
+                    duration = page.get('duration', 0)
+                    collection.append({
+                        "page": page.get('page', 0),
+                        "cid": page.get('cid', 0),
+                        "bvid": bvid,
+                        "title": self._resolve_page_title(page.get('part'), page.get('page'), video_data.get('title', ''), multi=len(pages) > 1),
+                        "duration": duration,
+                        "duration_str": self._format_duration(duration),
+                        "cover": video_cover  
+                    })
+            
+            return collection
+        except Exception as e:
+            logger.error(f"获取合集信息失败：{str(e)}（bvid={bvid}）")
+            return []
+
+    def _get_full_ugc_season_archives(self, mid, season_id, default_cover='', source_bvid='', max_items=None, progress_callback=None):
+        try:
+            all_archives = []
+            page_size = 30
+            page_num = 1
+
+            while True:
+                try:
+                    url = f"https://api.bilibili.com/x/polymer/web-space/seasons_archives_list?mid={mid}&season_id={season_id}&page_num={page_num}&page_size={page_size}&sort=0"
+                    success, data = self._api_request(url, timeout=10, use_cache=False)
+                    if not success or data.get('code') != 0:
+                        logger.warning(f"获取合集第{page_num}页失败: {data.get('message', '未知错误') if not success else data.get('message')}")
+                        break
+
+                    page_data = data.get('data', {})
+                    archives = page_data.get('archives', [])
+                    if not archives:
+                        break
+
+                    all_archives.extend(archives)
+
+                    page_info = page_data.get('page', {})
+                    total = page_info.get('total', 0)
+                    if total == 0:
+                        total = page_data.get('meta', {}).get('total', 0)
+
+                    logger.info(f"seasons_archives_list 第{page_num}页获取到 {len(archives)} 个视频，累计 {len(all_archives)}/{total}")
+
+                    if max_items and len(all_archives) >= max_items:
+                        logger.info(f"合集已达上限{max_items}集，其余暂不加载")
+                        break
+
+                    if len(all_archives) >= total or len(archives) < page_size:
+                        break
+
+                    page_num += 1
+                except Exception as e:
+                    logger.warning(f"获取合集第{page_num}页异常: {e}")
+                    break
+
+            if not all_archives:
+                logger.info("seasons_archives_list API未返回数据")
+                return []
+
+            logger.info(f"从seasons_archives_list获取到 {len(all_archives)} 个章节视频，开始并发获取每个视频的分P信息")
+
+            skip_sub_pages = len(all_archives) > 200
+            pages_map = {}
+            if skip_sub_pages:
+                logger.info(f"大合集模式：跳过子分P预取（{len(all_archives)}个章节），仅展开源视频分P")
+                if source_bvid:
+                    try:
+                        src_pages = self._get_video_pages_list(source_bvid)
+                        if src_pages:
+                            pages_map[source_bvid] = src_pages
+                    except Exception as e:
+                        logger.warning(f"获取源视频分P失败: {e}")
+            else:
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                def _fetch_pages(bvid):
+                    return bvid, self._get_video_pages_list(bvid)
+
+                max_workers = min(8, len(all_archives)) if all_archives else 1
+                total_archives = len(all_archives)
+                completed_count = 0
+                try:
+                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                        futures = {executor.submit(_fetch_pages, arc.get('bvid', '')): arc for arc in all_archives if arc.get('bvid')}
+                        for future in as_completed(futures, timeout=120):
+                            try:
+                                bvid, pages = future.result(timeout=30)
+                                pages_map[bvid] = pages
+                            except Exception as e:
+                                logger.warning(f"获取分P失败: {e}")
+                            completed_count += 1
+                            if progress_callback:
+                                pct = 20 + int((completed_count / total_archives) * 20)
+                                progress_callback(pct, f"正在获取分P信息 {completed_count}/{total_archives}...")
+                except Exception as e:
+                    logger.warning(f"并发获取分P异常: {e}")
+
+            collection = []
+            page_idx = 1
+            for arc in all_archives:
+                arc_bvid = arc.get('bvid', '')
+                arc_title = arc.get('title', f"第{page_idx}集")
+                arc_cover = arc.get('pic', '') or default_cover
+                arc_duration = arc.get('duration', 0)
+
+                if not arc_bvid:
+                    logger.warning(f"章节视频无bvid，跳过: {arc_title}")
+                    continue
+
+                pages = pages_map.get(arc_bvid, [])
+
+                if not pages:
+                    collection.append({
+                        "page": page_idx,
+                        "cid": arc.get('cid', 0),
+                        "bvid": arc_bvid,
+                        "title": self._sanitize_filename(arc_title),
+                        "duration": arc_duration,
+                        "duration_str": self._format_duration(arc_duration),
+                        "cover": arc_cover
+                    })
+                    page_idx += 1
+                    logger.info(f"章节 '{arc_title}' 无分P，作为单项添加")
+                elif len(pages) == 1:
+                    page_info = pages[0]
+                    duration = page_info.get('duration', 0) or arc_duration
+                    collection.append({
+                        "page": page_idx,
+                        "cid": page_info.get('cid', 0) or arc.get('cid', 0),
+                        "bvid": arc_bvid,
+                        "title": self._sanitize_filename(arc_title),
+                        "duration": duration,
+                        "duration_str": self._format_duration(duration),
+                        "cover": arc_cover
+                    })
+                    page_idx += 1
+                    logger.info(f"章节 '{arc_title}' 单分P，共1项")
+                else:
+                    collection.append({
+                        "page": page_idx,
+                        "cid": pages[0].get('cid', 0) if pages else arc.get('cid', 0),
+                        "bvid": arc_bvid,
+                        "title": self._sanitize_filename(arc_title),
+                        "duration": arc_duration,
+                        "duration_str": self._format_duration(arc_duration),
+                        "cover": arc_cover
+                    })
+                    page_idx += 1
+
+                    for pi, page_info in enumerate(pages):
+                        duration = page_info.get('duration', 0)
+                        part_name = page_info.get('part', f"P{pi+1}")
+                        collection.append({
+                            "page": page_idx,
+                            "cid": page_info.get('cid', 0),
+                            "bvid": arc_bvid,
+                            "title": self._sanitize_filename(f"  │ P{pi+1} - {part_name}"),
+                            "duration": duration,
+                            "duration_str": self._format_duration(duration),
+                            "cover": arc_cover
+                        })
+                        page_idx += 1
+                    logger.info(f"章节 '{arc_title}' 多分P，共{len(pages)+1}项")
+
+            if collection:
+                logger.info(f"构建完整合集列表，共 {len(collection)} 项（含分P）")
+                return collection
+        except Exception as e:
+            logger.error(f"获取完整合集列表失败: {e}")
+
+        # 方案2回退旧合集逻辑
+        try:
+            all_archives = self._get_season_all_archives(mid, season_id, 999)
+            if all_archives:
+                collection = []
+                for idx, arc in enumerate(all_archives, 1):
+                    duration = arc.get('duration', 0)
+                    collection.append({
+                        "page": idx,
+                        "cid": arc.get('cid', 0),
+                        "bvid": arc.get('bvid', ''),
+                        "title": self._sanitize_filename(arc.get('title', f"第{idx}集")),
+                        "duration": duration,
+                        "duration_str": self._format_duration(duration),
+                        "cover": arc.get('pic', '') or default_cover
+                    })
+                return collection
+        except Exception as e:
+            logger.error(f"fallback获取合集列表失败: {e}")
+
+        return []
+
+    def _get_video_pages_list(self, bvid):
+        try:
+            url = self.config.get_api_url("video_info_api").format(bvid=bvid)
+            import urllib.parse
+            url_parts = list(urllib.parse.urlparse(url))
+            query = dict(urllib.parse.parse_qsl(url_parts[4]))
+            success, data = self._api_request(url, timeout=10, use_wbi=True, params=query)
+            if not success or data.get('code') != 0:
+                logger.warning(f"获取视频分P失败: bvid={bvid}")
+                return []
+
+            video_data = data.get('data', {})
+            pages = video_data.get('pages', [])
+            return pages
+        except Exception as e:
+            logger.warning(f"获取视频分P异常: bvid={bvid}, error={e}")
+            return []
+
+    def _get_series_info(self, bvid, mid=None):
+        try:
+            if not mid:
+                video_info = self._get_video_main_info(bvid)
+                if not video_info:
+                    logger.warning(f"无法获取视频信息以查找系列: {bvid}")
+                    return []
+                owner = video_info.get('owner', {})
+                mid = owner.get('mid')
+                if not mid:
+                    logger.warning(f"无法获取UP主mid: {bvid}")
+                    return []
+            
+            # 该接口须WBI签名
+            series_url = f"https://api.bilibili.com/x/polymer/web-space/home/seasons_series?mid={mid}&page_num=1&page_size=30"
+            success, data = self._api_request(series_url, timeout=8, use_cache=False, use_wbi=True)
+            if not success:
+                logger.warning(f"获取UP主系列列表失败: {data.get('error', '未知')}")
+                return []
+            
+            if data.get('code') != 0:
+                logger.warning(f"获取UP主系列列表API返回错误: {data.get('message', '未知')}")
+                return []
+            
+            items_lists = data.get('data', {}).get('items_lists', {})
+            
+            series_list = items_lists.get('series_list', [])
+            for series_item in series_list:
+                meta = series_item.get('meta', {})
+                series_id = meta.get('series_id')
+                recent_aids = series_item.get('recent_aids', [])
+                
+                archives = series_item.get('archives', [])
+                archive_bvids = [a.get('bvid', '') for a in archives]
+                
+                if bvid not in archive_bvids:
+                    continue
+                
+                logger.info(f"找到视频所属系列: {meta.get('name', '未知')} (series_id={series_id}), 系列内{meta.get('total', '?')}个视频")
+                
+                total = meta.get('total', 0)
+                if total > len(archives):
+                    archives = self._get_series_all_archives(mid, series_id, total)
+                
+                collection = []
+                for idx, arc in enumerate(archives, 1):
+                    duration = arc.get('duration', 0)
+                    collection.append({
+                        "page": idx,
+                        "bvid": arc.get('bvid', ''),
+                        "title": self._sanitize_filename(arc.get('title', f"第{idx}集")),
+                        "duration": duration,
+                        "duration_str": self._format_duration(duration),
+                        "cover": arc.get('pic', '')
+                    })
+                
+                return collection
+            
+            seasons_list = items_lists.get('seasons_list', [])
+            for season_item in seasons_list:
+                archives = season_item.get('archives', [])
+                archive_bvids = [a.get('bvid', '') for a in archives]
+                
+                if bvid not in archive_bvids:
+                    continue
+                
+                meta = season_item.get('meta', {})
+                season_id = meta.get('season_id')
+                logger.info(f"找到视频所属合集(通过seasons_list): {meta.get('name', '未知')} (season_id={season_id})")
+                
+                total = meta.get('total', 0)
+                if total > len(archives):
+                    archives = self._get_season_all_archives(mid, season_id, total)
+                
+                collection = []
+                for idx, arc in enumerate(archives, 1):
+                    duration = arc.get('duration', 0)
+                    collection.append({
+                        "page": idx,
+                        "bvid": arc.get('bvid', ''),
+                        "title": self._sanitize_filename(arc.get('title', f"第{idx}集")),
+                        "duration": duration,
+                        "duration_str": self._format_duration(duration),
+                        "cover": arc.get('pic', '')
+                    })
+                
+                return collection
+            
+            logger.info(f"视频 {bvid} 不属于任何系列")
+            return []
+            
+        except Exception as e:
+            logger.error(f"获取系列信息失败: {str(e)}")
+            return []
+
+    def _get_series_all_archives(self, mid, series_id, total):
+        """分页获取系列的所有视频"""
+        all_archives = []
+        page_size = 30
+        total_pages = (total + page_size - 1) // page_size
+        
+        for page_num in range(1, total_pages + 1):
+            try:
+                url = f"https://api.bilibili.com/x/series/archives?mid={mid}&series_id={series_id}&pn={page_num}&ps={page_size}"
+                success, data = self._api_request(url, timeout=10, use_cache=False)
+                if not success or data.get('code') != 0:
+                    break
+                
+                archives = data.get('data', {}).get('archives', [])
+                if not archives:
+                    break
+                all_archives.extend(archives)
+            except Exception as e:
+                logger.warning(f"获取系列第{page_num}页失败: {e}")
+                break
+        
+        return all_archives
+
+    def _get_season_all_archives(self, mid, season_id, total):
+        """分页获取合集的所有视频"""
+        all_archives = []
+        page_size = 30
+        total_pages = (total + page_size - 1) // page_size
+        
+        for page_num in range(1, total_pages + 1):
+            try:
+                url = f"https://api.bilibili.com/x/polymer/web-space/seasons_archives_list?mid={mid}&season_id={season_id}&page_num={page_num}&page_size={page_size}"
+                success, data = self._api_request(url, timeout=10, use_cache=False)
+                if not success or data.get('code') != 0:
+                    break
+                
+                archives = data.get('data', {}).get('archives', [])
+                if not archives:
+                    break
+                all_archives.extend(archives)
+            except Exception as e:
+                logger.warning(f"获取合集第{page_num}页失败: {e}")
+                break
+        
+        return all_archives
+
+    def get_space_list(self, mid, list_id, list_type='season', cancel_check=None, progress_callback=None):
+        list_type = (list_type or 'season').lower()
+        if list_type not in ('series', 'season'):
+            list_type = 'season'
+        try:
+            if progress_callback:
+                progress_callback("正在获取分类信息...")
+
+            title = ''
+            total = 0
+            page_size = 30
+
+            if list_type == 'series':
+                meta_url = f"https://api.bilibili.com/x/series/series?series_id={list_id}"
+                ok, meta_data = self._api_request(meta_url, timeout=8, use_cache=False)
+                if ok and meta_data.get('code') == 0:
+                    meta = (meta_data.get('data') or {}).get('meta') or {}
+                    title = meta.get('name', '') or ''
+                    total = int(meta.get('total', 0) or 0)
+                else:
+                    logger.warning(f"获取系列元信息失败：{(meta_data or {}).get('message', '未知')}")
+            else:
+                pass
+
+            all_archives = []
+            page_num = 1
+            max_pages = 200
+            while page_num <= max_pages:
+                if cancel_check and cancel_check():
+                    logger.info("用户取消加载分类列表")
+                    break
+
+                if list_type == 'series':
+                    url = (f"https://api.bilibili.com/x/series/archives?mid={mid}"
+                           f"&series_id={list_id}&only_normal=true&sort=desc"
+                           f"&pn={page_num}&ps={page_size}")
+                else:
+                    url = (f"https://api.bilibili.com/x/polymer/web-space/seasons_archives_list"
+                           f"?mid={mid}&season_id={list_id}&sort_reverse=false"
+                           f"&page_num={page_num}&page_size={page_size}")
+
+                ok, data = self._api_request(url, timeout=10, use_cache=False)
+                if not ok or data.get('code') != 0:
+                    if page_num == 1:
+                        msg = (data or {}).get('message') or (data or {}).get('error') or '请求失败'
+                        logger.warning(f"获取分类列表失败（{list_type}）：{msg}")
+                        return {"success": False, "error": f"获取分类列表失败：{msg}"}
+                    logger.warning(f"分类列表第{page_num}页获取失败，已获取{len(all_archives)}个")
+                    break
+
+                page_data = data.get('data') or {}
+                if list_type == 'season' and not title:
+                    meta = page_data.get('meta') or {}
+                    title = meta.get('name', '') or ''
+                    total = int(meta.get('total', 0) or 0)
+
+                archives = page_data.get('archives') or []
+                if not archives:
+                    break
+
+                all_archives.extend(archives)
+
+                page_info = page_data.get('page') or {}
+                if not total:
+                    total = int(page_info.get('total', 0) or 0)
+
+                if progress_callback:
+                    progress_callback(f"已获取 {len(all_archives)}/{total or '?'} 个视频")
+
+                if len(archives) < page_size:
+                    break
+                if total and len(all_archives) >= total:
+                    break
+                page_num += 1
+                time.sleep(0.2)
+
+            videos = [self._parse_space_list_item(arc, mid) for arc in all_archives if arc.get('bvid')]
+            if not total:
+                total = len(videos)
+
+            logger.info(f"分类列表解析完成：{title or list_id}，共 {len(videos)}/{total} 个视频（{list_type}）")
+            return {
+                "success": True,
+                "title": title or f"分类{list_id}",
+                "total": total,
+                "videos": videos,
+                "list_type": list_type,
+            }
+        except Exception as e:
+            logger.error(f"解析分类列表异常：{str(e)}")
+            return {"success": False, "error": f"解析分类列表失败：{str(e)}"}
+
+    def _parse_space_list_item(self, arc, mid):
+        """把合集/系列接口返回的条目转换为与空间视频列表一致的结构"""
+        stat = arc.get('stat') or {}
+        try:
+            duration = int(arc.get('duration', 0) or 0)
+        except Exception:
+            duration = 0
+        return {
+            "aid": arc.get('aid', ''),
+            "bvid": arc.get('bvid', ''),
+            "title": arc.get('title', ''),
+            "pic": arc.get('pic', ''),
+            "description": '',
+            "created": arc.get('pubdate') or arc.get('ctime') or 0,
+            "length": self._format_duration(duration),
+            "play": stat.get('view', 0) or 0,
+            "video_review": stat.get('danmaku', 0) or 0,
+            "review": 0,
+            "favorites": 0,
+            "author": '',
+            "mid": mid,
+        }
+
+    def _get_video_main_info(self, bvid):
+        try:
+            url = self.config.get_api_url("video_info_api").format(bvid=bvid)
+            
+            import urllib.parse
+            url_parts = list(urllib.parse.urlparse(url))
+            query = dict(urllib.parse.parse_qsl(url_parts[4]))
+            success, data = self._api_request(url, timeout=10, use_wbi=True, params=query)
+            if not success:
+                raise Exception(f"视频信息获取失败：{data['error']}")
+            if data.get('code') != 0:
+                raise Exception(f"视频信息获取失败：{data.get('message', '未知错误')}")
+            
+            
+            if 'data' in data:
+                video_data = data['data']
+            elif 'result' in data:
+                video_data = data['result']
+            else:
+                raise Exception(f"API返回格式错误，未找到data或result字段：{data}")
+            
+            
+            if 'View' in video_data:
+                
+                view_data = video_data['View']
+                
+                video_data.update(view_data)
+            
+            return video_data
+        except Exception as e:
+            raise Exception(f"视频主信息获取失败：{str(e)}（bvid={bvid}）")
+
+    def _get_interact_video_info(self, bvid, graph_version, edge_id=0):
+        try:
+            url = f"https://api.bilibili.com/x/stein/edgeinfo_v2?bvid={bvid}&graph_version={graph_version}&edge_id={edge_id}"
+            logger.debug(f"获取互动视频信息URL：{url}")
+            success, data = self._api_request(url, timeout=15)
+            if not success:
+                raise Exception(f"互动视频API请求失败：{data['error']}")
+
+            if data.get('code') != 0:
+                raise Exception(f"互动视频API错误：{data.get('message', '未知错误')}")
+
+            return data.get('data', {})
+        except Exception as e:
+            raise Exception(f"获取互动视频信息失败：{str(e)}")
+            
+    def force_get_interact_video_info(self, bvid):
+        try:
+            
+            default_graph_versions = [1, 100, 1000, 5000, 10000, 155446, 200000, 250000, 300000, 350000, 400000, 450000, 500000]  
+            
+            for graph_version in default_graph_versions:
+                try:
+                    url = f"https://api.bilibili.com/x/stein/edgeinfo_v2?bvid={bvid}&graph_version={graph_version}&edge_id=0"
+                    logger.debug(f"尝试获取互动视频信息：{url}")
+                    success, data = self._api_request(url, timeout=15)
+                    
+                    if success and data.get('code') == 0:
+                        interact_data = data.get('data', {})
+                        if interact_data:
+                            logger.debug(f"成功获取互动视频信息：{interact_data}")
+                            return interact_data
+                except Exception as e:
+                    logger.debug(f"尝试graph_version={graph_version}失败：{str(e)}")
+                    continue
+            
+            
+            try:
+                url = f"https://api.bilibili.com/x/stein/edgeinfo_v2?bvid={bvid}&edge_id=0"
+                logger.debug(f"尝试获取互动视频信息（不指定graph_version）：{url}")
+                success, data = self._api_request(url, timeout=15)
+                
+                if success and data.get('code') == 0:
+                    interact_data = data.get('data', {})
+                    if interact_data:
+                        logger.debug(f"成功获取互动视频信息：{interact_data}")
+                        return interact_data
+            except Exception as e:
+                logger.debug(f"尝试不指定graph_version失败：{str(e)}")
+            
+            return {}
+        except Exception as e:
+            logger.error(f"强制获取互动视频信息失败：{str(e)}")
+            return {}
+
+    def _get_play_info(self, media_type, bvid, cid, is_tv_mode, season_id=None, ep_id=None, audio_quality=None):
+        try:
+            if not cid:
+                try:
+                    cid = self._get_cid(media_type, bvid)
+                    logger.info(f"自动获取CID成功：{cid}")
+                except Exception as e:
+                    logger.warning(f"获取CID失败：{str(e)}")
+            
+            
+            
+            
+            fnval = 4048
+            fnver = 0
+            
+            _try_look = 0
+            try:
+                _ui_probe = self.get_user_info()
+                _really_logged_in = bool(_ui_probe.get('success'))
+            except Exception:
+                _really_logged_in = bool(self.cookies and self.cookies.get('SESSDATA'))
+            if not _really_logged_in:
+                _try_look = 1
+            logger.debug(f"试看参数判定：实际登录={_really_logged_in} → try_look={_try_look}")
+
+            if media_type == "bangumi":
+                params = {
+                    'cid': cid,
+                    'bvid': bvid,
+                    'qn': 127,  # 请求最高画质
+                    'fnval': fnval,
+                    'fnver': fnver,
+                    'fourk': 1,
+                    'try_look': _try_look,
+                    'from_client': 'BROWSER',
+                    'drm_tech_type': 2,
+                    'otype': 'json'
+                }
+                play_url = "https://api.bilibili.com/pgc/player/web/playurl"
+                logger.debug(f"获取番剧播放链接：{play_url}，参数：{params}")
+            elif media_type == "cheese":
+                params = {
+                    'qn': 127,
+                    'fnval': fnval,
+                    'fnver': fnver,
+                    'fourk': 1,
+                    'try_look': _try_look,
+                    'drm_tech_type': 2,
+                    'otype': 'json'
+                }
+                
+                if cid:
+                    params['cid'] = cid
+                if ep_id:
+                    params['ep_id'] = ep_id
+                if bvid:
+                    if bvid.startswith('av'):
+                        params['avid'] = bvid[2:]
+                    else:
+                        params['bvid'] = bvid
+                
+                play_url = "https://api.bilibili.com/pugv/player/web/playurl"
+                logger.debug(f"获取课程播放链接：{play_url}，参数：{params}")
+            elif is_tv_mode:
+                play_url = self.config.get_api_url("tv_play_url_api").format(cid=cid, bvid=bvid)
+                logger.debug(f"获取TV模式播放链接：{play_url}")
+            else:
+                params = {
+                    'cid': cid,
+                    'bvid': bvid,
+                    'qn': 127,
+                    'fnval': fnval,
+                    'fnver': fnver,
+                    'fourk': 1,
+                    'try_look': _try_look,
+                    'otype': 'json'
+                }
+                play_url = "https://api.bilibili.com/x/player/playurl"
+                logger.debug(f"获取普通视频播放链接：{play_url}，参数：{params}")
+
+            if media_type == "bangumi":
+                success, play_data = self._api_request(play_url, timeout=15, use_wbi=False, params=params)
+                if not success or play_data.get('code') != 0:
+                    logger.info("尝试使用WBI签名获取番剧播放信息")
+                    success, play_data = self._api_request(play_url, timeout=15, use_wbi=True, params=params)
+            elif media_type == "cheese":
+                if season_id:
+                    params['season_id'] = season_id
+                params = {k: v for k, v in params.items() if v}
+                success, play_data = self._api_request(play_url, timeout=15, use_wbi=False, params=params)
+                if not success or play_data.get('code') != 0:
+                    logger.info("尝试使用WBI签名获取课程播放信息")
+                    success, play_data = self._api_request(play_url, timeout=15, use_wbi=True, params=params)
+                if not success or play_data.get('code') != 0:
+                    logger.info("尝试使用课程备用API")
+                    cheese_api_url = "https://api.bilibili.com/pugv/player/web/playurl"
+                    cheese_params = params.copy()
+                    cheese_params['fourk'] = 1
+                    success, play_data = self._api_request(cheese_api_url, timeout=15, use_wbi=True, params=cheese_params)
+            elif is_tv_mode:
+                success, play_data = self._api_request(play_url, timeout=15, use_wbi=False)
+            else:
+                success, play_data = self._api_request(play_url, timeout=15, use_wbi=True, params=params)
+                if not success or play_data.get('code') != 0:
+                    logger.info("尝试不使用WBI签名获取播放信息")
+                    success, play_data = self._api_request(play_url, timeout=15, use_wbi=False, params=params)
+                    if not success or play_data.get('code') != 0:
+                        logger.info("尝试html5模式获取播放信息")
+                        html5_params = {
+                            'cid': cid,
+                            'bvid': bvid,
+                            'qn': 80,
+                            'fnval': 1,
+                            'fnver': 0,
+                            'platform': 'html5',
+                            'high_quality': 1,
+                            'fourk': 1,
+                            'otype': 'json'
+                        }
+                        success, play_data = self._api_request(play_url, timeout=15, use_wbi=False, params=html5_params)
+
+            _is_perm_err = False
+            if not success:
+                _em = str((play_data or {}).get('error', ''))
+                _is_perm_err = ("访问权限不足" in _em)
+            else:
+                _pq = str((play_data or {}).get('message', ''))
+                _is_perm_err = ("会员" in _pq or "权限" in _pq or "专享" in _pq
+                                or (play_data or {}).get('code') in (-403, 403))
+            if (media_type == "bangumi" and _try_look != 1
+                    and (not success or play_data.get('code') != 0)):
+                logger.info("已登录但番剧取流失败，回退 try_look=1 获取试看（含 1080P 试看）")
+                _tl = dict(params)
+                _tl['try_look'] = 1
+                _tl_ok, _tl_data = self._api_request(play_url, timeout=15, use_wbi=True, params=_tl)
+                if not _tl_ok or _tl_data.get('code') != 0:
+                    _tl_ok, _tl_data = self._api_request(play_url, timeout=15, use_wbi=False, params=_tl)
+                if _tl_ok and _tl_data.get('code') == 0:
+                    logger.info("试看接口获取成功，使用试看流（未开通大会员时即 1080P 试看）")
+                    success, play_data = _tl_ok, _tl_data
+                elif _is_perm_err:
+                    logger.warning("试看接口亦未返回可用流：该集可能需大会员，且当前账号无试看权益")
+            if not success:
+                if "访问权限不足" in play_data['error']:
+                    raise Exception("访问权限不足")
+                elif "啥都木有" in play_data['error'] or "404" in play_data['error']:
+                    raise Exception("视频不存在或已被删除")
+                raise Exception(f"获取播放链接失败：{play_data['error']}")
+
+            if play_data.get('code') != 0:
+                error_msg = play_data.get('message', '权限不足')
+                if play_data.get('code') == 403:
+                    error_msg += "（可能是Cookie失效或无对应画质权限）"
+                elif play_data.get('code') == -404 or "啥都木有" in error_msg:
+                    error_msg = "视频不存在或已被删除"
+                raise Exception(error_msg)
+
+            user_info = self.get_user_info()
+            is_login = user_info.get('success', False)
+            logger.info(
+                "[画质诊断] 实际登录=%s VIP=%s try_look=%s",
+                is_login, user_info.get('is_vip', False), _try_look)
+
+            _data_src = play_data.get('data', play_data.get('result', {}))
+            if not is_login and _data_src.get('dash') and _data_src.get('quality', 0) < 80:
+                _max_qn = _data_src.get('quality', 0)
+                logger.info(f"未登录DASH模式最高画质qn={_max_qn}，尝试html5模式获取1080P")
+                html5_params2 = {
+                    'cid': cid,
+                    'bvid': bvid,
+                    'qn': 80,
+                    'fnval': 1,
+                    'fnver': 0,
+                    'platform': 'html5',
+                    'high_quality': 1,
+                    'fourk': 1,
+                    'otype': 'json'
+                }
+                h5_ok, h5_data = self._api_request(play_url, timeout=15, use_wbi=False, params=html5_params2)
+                if h5_ok and h5_data.get('code') == 0:
+                    h5_src = h5_data.get('data', h5_data.get('result', {}))
+                    h5_qn = h5_src.get('quality', 0)
+                    if h5_qn > _max_qn:
+                        logger.info(f"html5模式获取到更高画质qn={h5_qn}，使用html5数据")
+                        play_data = h5_data
+
+            qualities = []
+            video_urls = {}
+            audio_url = ""
+            
+            is_vip = user_info.get('is_vip', False)
+            has_hevc = False
+            quality_map = self.config.get_quality_map()
+            
+            VIP_ONLY_QN = [74, 100, 112, 116, 125, 126, 127]
+            LOGIN_REQUIRED_QN = []  # try_look已解决
+
+            def is_quality_available(qn, is_login, is_vip):
+                if qn in VIP_ONLY_QN:
+                    return is_vip
+                if qn in LOGIN_REQUIRED_QN:
+                    return is_login
+                return True
+
+            data_source = play_data.get('data', play_data.get('result', {}))
+            logger.debug(f"API返回数据结构：{list(data_source.keys())}")
+
+            try:
+                _dash_v = (data_source.get('dash') or {}).get('video') or []
+                _dash_qns = sorted({v.get('id') for v in _dash_v
+                                    if isinstance(v, dict)}, reverse=True)
+                logger.info(
+                    "[画质诊断] 登录=%s VIP=%s try_look=%s accept_quality=%s dash画质=%s quality=%s",
+                    is_login, is_vip, _try_look,
+                    data_source.get('accept_quality'), _dash_qns,
+                    data_source.get('quality'))
+            except Exception:
+                pass
+
+            _declared_ms = 0
+            _avail_ms = 0
+            _is_truncated = False
+            # 真实码率采集：视频 {qn: bit/s}，音频 bit/s
+            _video_bandwidth = {}
+            _video_bw_codec = {}
+            _audio_bandwidth = 0
+            _audio_bandwidth_map = {}
+            _selected_audio_id = 0
+
+            if 'dash' in data_source and 'video' in data_source['dash'] and data_source['dash']['video']:
+                first_video = data_source['dash']['video'][0]
+                logger.debug(f"第一个视频对象的键：{list(first_video.keys())}")
+                if 'bilidrm_uri' in first_video:
+                    logger.debug(f"bilidrm_uri: {first_video['bilidrm_uri']}")
+                if 'uri' in first_video:
+                    logger.debug(f"uri: {first_video['uri']}")
+                if 'baseUrl' in first_video:
+                    logger.debug(f"baseUrl前100字符：{first_video['baseUrl'][:100]}...")
+                if 'widevine_pssh' in first_video:
+                    _pssh_val = first_video['widevine_pssh']
+                    logger.debug(f"widevine_pssh: {'(空)' if not _pssh_val else _pssh_val[:80] + '...'}")
+
+            kid = None
+            audio_urls = {}
+            audio_qualities = []
+            if 'dash' in data_source:
+                logger.debug("使用DASH格式获取链接")
+
+                _AUDIO_NAME_MAP = {
+                    30251: "Hi-Res无损",
+                    30250: "杜比全景声",
+                    100010: "320K 高音质",
+                    30280: "192K 高音质",
+                    100009: "192K 标准音质",
+                    30232: "132K 标准音质",
+                    100008: "128K 标准音质",
+                    30216: "64K 低音质",
+                }
+
+                def _pick_best_audio_url(url_list):
+                    """从URL列表中选择最稳定的CDN域名"""
+                    if not url_list:
+                        return ''
+                    _avoid = ['mcdn.bilivideo.cn']
+                    _sorted_urls = sorted(url_list, key=lambda u: (
+                        any(m in u for m in _avoid),
+                        -u.count('bilivideo.com')
+                    ))
+                    return _sorted_urls[0].strip().strip('`')
+
+                def _parse_audio_stream(audio_item):
+                    """解析单个音频流，返回(audio_id, audio_url)或None"""
+                    audio_id = audio_item.get('id', 0)
+                    try:
+                        _ab = int(audio_item.get('bandwidth') or 0)
+                        if _ab > 0:
+                            _audio_bandwidth_map[audio_id] = _ab
+                    except (TypeError, ValueError):
+                        pass
+                    _candidates = []
+                    if audio_item.get('baseUrl'):
+                        _candidates.append(audio_item.get('baseUrl'))
+                    if audio_item.get('base_url'):
+                        _candidates.append(audio_item.get('base_url'))
+                    if audio_item.get('url'):
+                        _candidates.append(audio_item.get('url'))
+                    if audio_item.get('backup_url') and isinstance(audio_item.get('backup_url'), list):
+                        _candidates.extend(audio_item.get('backup_url'))
+                    if audio_item.get('backupUrl') and isinstance(audio_item.get('backupUrl'), list):
+                        _candidates.extend(audio_item.get('backupUrl'))
+                    _candidates = [u for u in _candidates if u]
+                    audio_url = _pick_best_audio_url(_candidates) if _candidates else ''
+                    if audio_url:
+                        return audio_id, audio_url
+                    return None
+
+                _all_audio_ids = []
+                if 'audio' in data_source['dash'] and data_source['dash']['audio']:
+                    for audio_item in data_source['dash']['audio']:
+                        _all_audio_ids.append(audio_item.get('id', 0))
+                        result = _parse_audio_stream(audio_item)
+                        if result:
+                            audio_id, audio_url = result
+                            audio_urls[audio_id] = audio_url
+                            quality_name = _AUDIO_NAME_MAP.get(audio_id, f"音质({audio_id})")
+                            audio_qualities.append((audio_id, quality_name))
+                            logger.debug(f"获取音频链接 ID={audio_id}({quality_name}): {audio_url[:50]}...")
+
+                _flac = data_source['dash'].get('flac')
+                if isinstance(_flac, dict):
+                    _flac_audio = _flac.get('audio')
+                    if isinstance(_flac_audio, dict):
+                        logger.info("检测到FLAC/Hi-Res无损音频流")
+                        _all_audio_ids.append(_flac_audio.get('id', 0))
+                        result = _parse_audio_stream(_flac_audio)
+                        if result:
+                            audio_id, audio_url = result
+                            audio_urls[audio_id] = audio_url
+                            quality_name = _AUDIO_NAME_MAP.get(audio_id, f"Hi-Res无损({audio_id})")
+                            audio_qualities.append((audio_id, quality_name))
+                            logger.info(f"获取Hi-Res音频链接 ID={audio_id}({quality_name}): {audio_url[:50]}...")
+                    elif isinstance(_flac_audio, list):
+                        logger.info("检测到FLAC/Hi-Res无损音频流(数组格式)")
+                        for audio_item in _flac_audio:
+                            if not isinstance(audio_item, dict):
+                                continue
+                            _all_audio_ids.append(audio_item.get('id', 0))
+                            result = _parse_audio_stream(audio_item)
+                            if result:
+                                audio_id, audio_url = result
+                                audio_urls[audio_id] = audio_url
+                                quality_name = _AUDIO_NAME_MAP.get(audio_id, f"Hi-Res无损({audio_id})")
+                                audio_qualities.append((audio_id, quality_name))
+                                logger.info(f"获取Hi-Res音频链接 ID={audio_id}({quality_name}): {audio_url[:50]}...")
+
+                _dolby = data_source['dash'].get('dolby')
+                if isinstance(_dolby, dict):
+                    _dolby_audio = _dolby.get('audio')
+                    if isinstance(_dolby_audio, list):
+                        for audio_item in _dolby_audio:
+                            if not isinstance(audio_item, dict):
+                                continue
+                            _all_audio_ids.append(audio_item.get('id', 0))
+                            result = _parse_audio_stream(audio_item)
+                            if result:
+                                audio_id, audio_url = result
+                                audio_urls[audio_id] = audio_url
+                                quality_name = _AUDIO_NAME_MAP.get(audio_id, f"杜比({audio_id})")
+                                audio_qualities.append((audio_id, quality_name))
+                                logger.info(f"获取杜比音频链接 ID={audio_id}({quality_name}): {audio_url[:50]}...")
+                    elif isinstance(_dolby_audio, dict):
+                        _all_audio_ids.append(_dolby_audio.get('id', 0))
+                        result = _parse_audio_stream(_dolby_audio)
+                        if result:
+                            audio_id, audio_url = result
+                            audio_urls[audio_id] = audio_url
+                            quality_name = _AUDIO_NAME_MAP.get(audio_id, f"杜比({audio_id})")
+                            audio_qualities.append((audio_id, quality_name))
+                            logger.info(f"获取杜比音频链接 ID={audio_id}({quality_name}): {audio_url[:50]}...")
+
+                logger.info(f"[音频诊断] API返回音频流: IDs={_all_audio_ids}, "
+                           f"可用音质={[q[1] for q in audio_qualities]}, "
+                           f"登录状态={'已登录' if is_login else '未登录'}, "
+                           f"VIP状态={'是' if is_vip else '否'}")
+                if 30251 not in [a[0] for a in audio_qualities] and 30250 not in [a[0] for a in audio_qualities]:
+                    logger.debug(f"[音频诊断] 未检测到Hi-Res(30251)/杜比(30250)音频流。"
+                                  f"如视频支持Hi-Res，请确认已登录大会员账号")
+
+                if audio_qualities:
+                    audio_quality_priority = [30251, 30250, 100010, 30280, 100009, 30232, 100008, 30216]
+                    sorted_audio_qualities = sorted(audio_qualities, key=lambda x: audio_quality_priority.index(x[0]) if x[0] in audio_quality_priority else 999)
+
+                    if audio_quality and audio_quality in audio_urls:
+                        audio_url = audio_urls[audio_quality]
+                        _selected_audio_id = audio_quality
+                        _aq_name = _AUDIO_NAME_MAP.get(audio_quality, f"音质({audio_quality})")
+                        logger.info(f"使用用户选择的音频质量：{_aq_name}")
+                    else:
+                        highest_quality = sorted_audio_qualities[0][0]
+                        _selected_audio_id = highest_quality
+                        _hq_name = _AUDIO_NAME_MAP.get(highest_quality, f"音质({highest_quality})")
+                        audio_url = audio_urls[highest_quality]
+                        logger.info(f"使用最高可用的音频质量：{_hq_name}")
+                    _audio_bandwidth = _audio_bandwidth_map.get(_selected_audio_id, 0)
+
+                if 'video' in data_source['dash']:
+                    codec_id_map = {7: "AVC", 12: "HEVC", 13: "AV1"}
+                    seen_qn_codec = set()
+                    
+                    for video in data_source['dash']['video']:
+                        qn = video.get('id', 0)
+                        codecid = video.get('codecid', 7)  # 默认AVC
+                        codec_name = codec_id_map.get(codecid, f"编码{codecid}")
+                        quality_name = quality_map.get(qn, f"未知画质({qn})")
+
+                        try:
+                            _bw = int(video.get('bandwidth') or 0)
+                        except (TypeError, ValueError):
+                            _bw = 0
+                        if _bw > 0:
+                            _prev = _video_bandwidth.get(qn)
+                            if _prev is None or codecid == 7 or (
+                                    _video_bw_codec.get(qn) != 7 and _bw > _prev):
+                                _video_bandwidth[qn] = _bw
+                                _video_bw_codec[qn] = codecid
+
+                        
+                        if media_type == "bangumi" or media_type == "cheese":
+                            
+                            if qn == 74:
+                                quality_name = "720P60 高帧率"
+                            elif qn == 100:
+                                quality_name = "智能修复"
+                            elif qn == 116:
+                                quality_name = "1080P60 高帧率"
+                            elif qn == 126:
+                                quality_name = "杜比视界"
+
+                        if qn in [125, 127]:
+                            has_hevc = True
+
+                        if not is_quality_available(qn, is_login, is_vip):
+                            continue
+
+                        
+                        _PREFERRED_HOSTS = ['bilivideo.com']  # 官方CDN最稳定
+                        _AVOID_HOSTS = ['mcdn.bilivideo.cn']   # 移动镜像CDN不稳定
+
+                        def _pick_best_url(url_list):
+                            """从URL列表中选择最稳定的CDN域名"""
+                            if not url_list:
+                                return ''
+                            _sorted_urls = sorted(url_list, key=lambda u: (
+                                any(m in u for m in _AVOID_HOSTS),  # 避免mcdn排最后
+                                -u.count('bilivideo.com')
+                            ))
+                            return _sorted_urls[0].strip().strip('`')
+
+                        video_url = ''
+                        _candidates = []
+                        if video.get('baseUrl'):
+                            _candidates.append(video.get('baseUrl'))
+                        if video.get('base_url'):
+                            _candidates.append(video.get('base_url'))
+                        if video.get('url'):
+                            _candidates.append(video.get('url'))
+                        if video.get('backup_url') and isinstance(video.get('backup_url'), list):
+                            _candidates.extend(video.get('backup_url'))
+                        if video.get('backupUrl') and isinstance(video.get('backupUrl'), list):
+                            _candidates.extend(video.get('backupUrl'))
+                        _candidates = [u for u in _candidates if u]
+                        if _candidates:
+                            video_url = _pick_best_url(_candidates)
+                        
+                        if video_url:
+                            video_urls[(qn, codecid)] = video_url
+                            if qn not in video_urls or codecid == 7:
+                                video_urls[qn] = video_url
+                            
+                            if (qn, codecid) not in seen_qn_codec:
+                                seen_qn_codec.add((qn, codecid))
+                                qualities.append((qn, codecid, quality_name))
+                            logger.debug(f"获取视频链接 QN={qn}: {video_url[:50]}...")
+                            
+                            if not kid:
+                                cache_key = f"{bvid}_{cid}"
+                                
+                                # 查缓存加锁防并发冲突
+                                with KID_CACHE_LOCK:
+                                    if cache_key in KID_CACHE:
+                                        cached_kid, timestamp = KID_CACHE[cache_key]
+                                        if time.time() - timestamp < KID_CACHE_EXPIRY:
+                                            kid = cached_kid
+                                            logger.info(f"从缓存中获取KID：{kid}")
+                                        else:
+                                            del KID_CACHE[cache_key]
+                                
+                                if not kid:
+                                    kid = self._extract_kid_from_video_info(video, "API返回的")
+
+                                    if kid:
+                                        with KID_CACHE_LOCK:
+                                            KID_CACHE[cache_key] = (kid, time.time())
+                                            current_time = time.time()
+                                            expired_keys = [k for k, (_, ts) in KID_CACHE.items()
+                                                          if current_time - ts >= KID_CACHE_EXPIRY]
+                                            for k in expired_keys:
+                                                del KID_CACHE[k]
+
+            elif 'durl' in data_source:
+                logger.debug("使用DURL格式获取链接")
+                current_qn = data_source.get('quality', 0)
+                accept_quality = data_source.get('accept_quality', [current_qn])
+
+                _declared_ms = data_source.get('timelength') or 0
+                _durl_total_ms = 0
+                if data_source['durl']:
+                    _durl_total_ms = sum(int(x.get('length') or 0) for x in data_source['durl'])
+                _avail_ms = _durl_total_ms
+                if _declared_ms and _durl_total_ms and _durl_total_ms < int(_declared_ms) * 0.6:
+                    _is_truncated = True
+                    logger.warning(
+                        f"渐进式视频流疑似被截断: timelength={_declared_ms}ms(约{int(_declared_ms)//1000}秒)，"
+                        f"实际可下载durl仅{_durl_total_ms}ms(约{int(_durl_total_ms)//1000}秒)。"
+                        f"该视频为仅mp4格式(无DASH)，需保持登录状态才能下载完整时长，"
+                        f"否则将只能得到约{self._format_duration(int(_durl_total_ms)//1000)}的前缀内容。"
+                    )
+                
+                if data_source['durl']:
+                    if len(data_source['durl']) > 1:
+                        video_urls_list = []
+                        for durl_item in data_source['durl']:
+                            video_urls_list.append(durl_item['url'])
+                        video_url = video_urls_list
+                        logger.debug(f"获取多分段视频链接，共{len(video_urls_list)}个分段")
+                    else:
+                        video_url = data_source['durl'][0]['url']
+                        logger.debug(f"获取视频链接：{video_url[:50]}...")
+                    
+                    if not kid:
+                        cache_key = f"{bvid}_{cid}"
+                        
+                        # 查缓存加锁防并发冲突
+                        with KID_CACHE_LOCK:
+                            if cache_key in KID_CACHE:
+                                cached_kid, timestamp = KID_CACHE[cache_key]
+                                if time.time() - timestamp < KID_CACHE_EXPIRY:
+                                    kid = cached_kid
+                                    logger.info(f"从缓存中获取KID：{kid}")
+                                else:
+                                    del KID_CACHE[cache_key]
+                        
+                        if not kid:
+                            first_url = video_url[0] if isinstance(video_url, list) else video_url
+                            kid_match = KID_REGEX['url_param'].search(first_url)
+                            if kid_match:
+                                kid = kid_match.group(1)
+                                logger.info(f"从DURL链接中提取到KID：{kid}")
+                                
+                                with KID_CACHE_LOCK:
+                                    KID_CACHE[cache_key] = (kid, time.time())
+                                    current_time = time.time()
+                                    expired_keys = [k for k, (_, ts) in KID_CACHE.items()
+                                                  if current_time - ts >= KID_CACHE_EXPIRY]
+                                    for k in expired_keys:
+                                        del KID_CACHE[k]
+                    
+                    for qn in accept_quality:
+                        qn = int(qn)
+                        quality_name = quality_map.get(qn, f"未知画质({qn})")
+
+                        
+                        if media_type == "bangumi" or media_type == "cheese":
+                            
+                            if qn == 74:
+                                quality_name = "720P60 高帧率"
+                            elif qn == 100:
+                                quality_name = "智能修复"
+                            elif qn == 116:
+                                quality_name = "1080P60 高帧率"
+                            elif qn == 126:
+                                quality_name = "杜比视界"
+
+                        if qn in [125, 127]:
+                            has_hevc = True
+                            quality_name += " (HEVC)"
+
+                        if not is_quality_available(qn, is_login, is_vip):
+                            continue
+
+                        video_urls[qn] = video_url
+                        qualities.append((qn, quality_name))
+
+            else:
+                logger.error("API返回数据中未找到dash或durl字段")
+                raise Exception("API返回格式错误，未找到播放链接数据")
+
+            if not video_urls:
+                logger.error("未获取到任何视频链接")
+                raise Exception("未获取到视频播放链接")
+
+            if qualities and len(qualities[0]) == 3:
+                codec_priority = {7: 0, 12: 1, 13: 2}
+                seen = set()
+                unique_qualities = []
+                for q in qualities:
+                    key = (q[0], q[1])
+                    if key not in seen:
+                        seen.add(key)
+                        unique_qualities.append(q)
+                unique_qualities.sort(key=lambda x: (-x[0], codec_priority.get(x[1], 99)))
+                qualities = unique_qualities
+            else:
+                qualities = list(dict.fromkeys(qualities))
+                qualities.sort(key=lambda x: x[0], reverse=True)
+
+            available_codecs = set()
+            if qualities and len(qualities[0]) == 3:
+                for q in qualities:
+                    available_codecs.add(q[1])
+
+            return {
+                "success": True,
+                "qualities": qualities,
+                "video_urls": video_urls,
+                "audio_url": audio_url,
+                "audio_qualities": audio_qualities,
+                "audio_urls": audio_urls,
+                "is_vip": is_vip,
+                "has_hevc": has_hevc,
+                "kid": kid,
+                "available_codecs": available_codecs,
+                "is_truncated": _is_truncated,
+                "declared_duration_ms": _declared_ms,
+                "available_duration_ms": _avail_ms,
+                "video_bandwidth": _video_bandwidth,
+                "audio_bandwidth": _audio_bandwidth
+            }
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"获取播放信息失败：{error_msg}")
+            
+            if media_type == "cheese" and bvid and cid:
+                logger.info("尝试将cheese视频当作普通视频处理（异常处理中）")
+                try:
+                    normal_play_url = "https://api.bilibili.com/x/player/playurl"
+                    simple_params = {
+                        'cid': cid,
+                        'bvid': bvid,
+                        'fnval': 80,
+                        'otype': 'json'
+                    }
+                    success, play_data = self._api_request(normal_play_url, timeout=15, use_wbi=False, params=simple_params)
+                    if success and play_data.get('code') == 0:
+                        logger.info("成功将cheese视频当作普通视频处理")
+                        data_source = play_data.get('data', play_data.get('result', {}))
+                        qualities = []
+                        video_urls = {}
+                        audio_url = ""
+                        audio_urls = {}
+                        audio_qualities = []
+                        user_info = self.get_user_info()
+                        is_login = user_info.get('success', False)
+                        is_vip = user_info.get('is_vip', False)
+                        has_hevc = False
+                        quality_map = self.config.get_quality_map()
+                        
+                        VIP_ONLY_QN = [74, 100, 112, 116, 125, 126, 127]
+                        LOGIN_REQUIRED_QN = [64, 80]
+                        
+                        def is_quality_available(qn, is_login, is_vip):
+                            if qn in VIP_ONLY_QN:
+                                return is_vip
+                            if qn in LOGIN_REQUIRED_QN:
+                                return is_login
+                            return True
+                        
+                        kid = None
+                        if 'dash' in data_source:
+                            if data_source['dash'].get('video'):
+                                for video in data_source['dash']['video']:
+                                    qn = video.get('id', 0)
+                                    quality_name = quality_map.get(qn, f"未知画质({qn})")
+                                    if qn in [125, 127]:
+                                        has_hevc = True
+                                        quality_name += " (HEVC)"
+                                    if not is_quality_available(qn, is_login, is_vip):
+                                        continue
+                                    video_url = ''
+                                    if video.get('baseUrl'):
+                                        video_url = video.get('baseUrl').strip().strip('`')
+                                    elif video.get('base_url'):
+                                        video_url = video.get('base_url').strip().strip('`')
+                                    elif video.get('url'):
+                                        video_url = video.get('url').strip().strip('`')
+                                    elif video.get('backup_url') and isinstance(video.get('backup_url'), list) and len(video.get('backup_url')) > 0:
+                                        video_url = video.get('backup_url')[0].strip().strip('`')
+                                    if video_url:
+                                        video_urls[qn] = video_url
+                                        qualities.append((qn, quality_name))
+                            if data_source['dash'].get('audio'):
+                                audio_item = data_source['dash']['audio'][0]
+                                if audio_item.get('baseUrl'):
+                                    audio_url = audio_item.get('baseUrl').strip().strip('`')
+                                elif audio_item.get('base_url'):
+                                    audio_url = audio_item.get('base_url').strip().strip('`')
+                                elif audio_item.get('url'):
+                                    audio_url = audio_item.get('url').strip().strip('`')
+                                elif audio_item.get('backup_url') and isinstance(audio_item.get('backup_url'), list) and len(audio_item.get('backup_url')) > 0:
+                                    audio_url = audio_item.get('backup_url')[0].strip().strip('`')
+                        elif 'durl' in data_source:
+                            if data_source['durl']:
+                                video_url = data_source['durl'][0]['url']
+                                current_qn = data_source.get('quality', 0)
+                                accept_quality = data_source.get('accept_quality', [current_qn])
+                                for qn in accept_quality:
+                                    qn = int(qn)
+                                    quality_name = quality_map.get(qn, f"未知画质({qn})")
+                                    if qn in [125, 127]:
+                                        has_hevc = True
+                                        quality_name += " (HEVC)"
+                                    if not is_quality_available(qn, is_login, is_vip):
+                                        continue
+                                    video_urls[qn] = video_url
+                                    qualities.append((qn, quality_name))
+                        
+                        if video_urls:
+                            qualities = list(dict.fromkeys(qualities))
+                            qualities.sort(key=lambda x: x[0], reverse=True)
+                            return {
+                                "success": True,
+                                "qualities": qualities,
+                                "video_urls": video_urls,
+                                "audio_url": audio_url,
+                                "audio_qualities": audio_qualities,
+                                "audio_urls": audio_urls,
+                                "is_vip": is_vip,
+                                "has_hevc": has_hevc,
+                                "kid": kid
+                            }
+                except Exception as e2:
+                    logger.warning(f"将cheese视频当作普通视频处理失败：{str(e2)}")
+            
+            if "任务信息不存在" in error_msg and (media_type == "bangumi" or media_type == "cheese"):
+                
+                try:
+                    if ep_id:
+                        
+                        if media_type == "cheese":
+                            play_url = f"https://api.bilibili.com/pugv/player/web/playurl?ep_id={ep_id}&qn=127&fnval=112&fourk=1&drm_tech_type=2&otype=json&try_look=1"
+                        else:
+                            play_url = f"https://api.bilibili.com/pgc/player/web/playurl?ep_id={ep_id}&qn=127&fnval=112&fnver=0&fourk=1&from_client=BROWSER&drm_tech_type=2&otype=json&try_look=1"
+                        logger.info(f"尝试备用链接（仅ep_id）：{play_url}")
+                        
+                        
+                        if 'Referer' not in self.session.headers:
+                            self.session.headers.update({'Referer': 'https://www.bilibili.com'})
+                        
+                        
+                        success, data = self._api_request(play_url, timeout=15)
+                        logger.info(f"备用链接API请求结果：success={success}")
+                        
+                        if success and data.get('code') == 0:
+                            data_source = data.get('data', data.get('result', {}))
+                            qualities = []
+                            video_urls = {}
+                            audio_url = ""
+                            audio_urls = {}
+                            audio_qualities = []
+                            user_info = self.get_user_info()
+                            is_login = user_info.get('success', False)
+                            is_vip = user_info.get('is_vip', False)
+                            has_hevc = False
+                            quality_map = self.config.get_quality_map()
+                            
+                            VIP_ONLY_QN = [74, 100, 112, 116, 125, 126, 127]
+                            LOGIN_REQUIRED_QN = [64, 80]
+                            
+                            def is_quality_available(qn, is_login, is_vip):
+                                if qn in VIP_ONLY_QN:
+                                    return is_vip
+                                if qn in LOGIN_REQUIRED_QN:
+                                    return is_login
+                                return True
+                            
+                            kid = None
+                            if 'dash' in data_source:
+                                if data_source['dash'].get('video'):
+                                    for video in data_source['dash']['video']:
+                                        qn = video.get('id', 0)
+                                        quality_name = quality_map.get(qn, f"未知画质({qn})")
+                                        if qn == 74:
+                                            quality_name = "720P60 高帧率"
+                                        elif qn == 100:
+                                            quality_name = "智能修复"
+                                        elif qn == 116:
+                                            quality_name = "1080P60 高帧率"
+                                        elif qn == 126:
+                                            quality_name = "杜比视界"
+                                        if qn in [125, 127]:
+                                            has_hevc = True
+                                            quality_name += " (HEVC)"
+                                        if not is_quality_available(qn, is_login, is_vip):
+                                            continue
+                                        video_url = ''
+                                        if video.get('baseUrl'):
+                                            video_url = video.get('baseUrl').strip().strip('`')
+                                        elif video.get('base_url'):
+                                            video_url = video.get('base_url').strip().strip('`')
+                                        elif video.get('url'):
+                                            video_url = video.get('url').strip().strip('`')
+                                        elif video.get('backup_url') and isinstance(video.get('backup_url'), list) and len(video.get('backup_url')) > 0:
+                                            video_url = video.get('backup_url')[0].strip().strip('`')
+                                        if video_url:
+                                            video_urls[qn] = video_url
+                                            qualities.append((qn, quality_name))
+                                            
+                                            if not kid:
+                                                kid = self._extract_kid_from_video_info(video, "备用链接")
+                                if data_source['dash'].get('audio'):
+                                    audio_item = data_source['dash']['audio'][0]
+                                    if audio_item.get('baseUrl'):
+                                        audio_url = audio_item.get('baseUrl').strip().strip('`')
+                                    elif audio_item.get('base_url'):
+                                        audio_url = audio_item.get('base_url').strip().strip('`')
+                                    elif audio_item.get('url'):
+                                        audio_url = audio_item.get('url').strip().strip('`')
+                                    elif audio_item.get('backup_url') and isinstance(audio_item.get('backup_url'), list) and len(audio_item.get('backup_url')) > 0:
+                                        audio_url = audio_item.get('backup_url')[0].strip().strip('`')
+                            elif 'durl' in data_source:
+                                if data_source['durl']:
+                                    video_url = data_source['durl'][0]['url']
+                                    current_qn = data_source.get('quality', 0)
+                                    accept_quality = data_source.get('accept_quality', [current_qn])
+                                    for qn in accept_quality:
+                                        qn = int(qn)
+                                        quality_name = quality_map.get(qn, f"未知画质({qn})")
+                                        if qn == 74:
+                                            quality_name = "720P60 高帧率"
+                                        elif qn == 100:
+                                            quality_name = "智能修复"
+                                        elif qn == 116:
+                                            quality_name = "1080P60 高帧率"
+                                        elif qn == 126:
+                                            quality_name = "杜比视界"
+                                        if qn in [125, 127]:
+                                            has_hevc = True
+                                            quality_name += " (HEVC)"
+                                        if not is_quality_available(qn, is_login, is_vip):
+                                            continue
+                                        video_urls[qn] = video_url
+                                        qualities.append((qn, quality_name))
+                            
+                            if video_urls:
+                                qualities = list(dict.fromkeys(qualities))
+                                qualities.sort(key=lambda x: x[0], reverse=True)
+                                logger.info(f"备用链接获取成功：视频URL数量={len(video_urls)}, 音频URL长度={len(audio_url)}")
+                                return {
+                                    "success": True,
+                                    "qualities": qualities,
+                                    "video_urls": video_urls,
+                                    "audio_url": audio_url,
+                                    "audio_qualities": audio_qualities,
+                                    "audio_urls": audio_urls,
+                                    "is_vip": is_vip,
+                                    "has_hevc": has_hevc,
+                                    "kid": kid
+                                }
+                    
+                    
+                    if bvid and cid:
+                        if media_type == "cheese":
+                            if bvid.startswith('BV'):
+                                play_url = f"https://api.bilibili.com/pugv/player/web/playurl?cid={cid}&bvid={bvid}&qn=127&fnval=112&fourk=1&drm_tech_type=2&otype=json&try_look=1"
+                            else:
+                                play_url = f"https://api.bilibili.com/pugv/player/web/playurl?cid={cid}&avid={bvid}&qn=127&fnval=112&fourk=1&drm_tech_type=2&otype=json&try_look=1"
+                        else:
+                            play_url = f"https://api.bilibili.com/pgc/player/web/playurl?cid={cid}&bvid={bvid}&qn=127&fnval=112&fnver=0&fourk=1&from_client=BROWSER&drm_tech_type=2&otype=json&try_look=1"
+                        logger.info(f"尝试备用链接（cid+bvid）：{play_url}")
+                        
+                        
+                        success, data = self._api_request(play_url, timeout=15)
+                        logger.info(f"备用链接API请求结果：success={success}")
+                        
+                        if success and data.get('code') == 0:
+                            data_source = data.get('data', data.get('result', {}))
+                            qualities = []
+                            video_urls = {}
+                            audio_url = ""
+                            audio_urls = {}
+                            audio_qualities = []
+                            user_info = self.get_user_info()
+                            is_login = user_info.get('success', False)
+                            is_vip = user_info.get('is_vip', False)
+                            has_hevc = False
+                            quality_map = self.config.get_quality_map()
+                            
+                            VIP_ONLY_QN = [74, 100, 112, 116, 125, 126, 127]
+                            LOGIN_REQUIRED_QN = [64, 80]
+                            
+                            def is_quality_available(qn, is_login, is_vip):
+                                if qn in VIP_ONLY_QN:
+                                    return is_vip
+                                if qn in LOGIN_REQUIRED_QN:
+                                    return is_login
+                                return True
+                            
+                            kid = None
+                            if 'dash' in data_source:
+                                if data_source['dash'].get('video'):
+                                    for video in data_source['dash']['video']:
+                                        qn = video.get('id', 0)
+                                        quality_name = quality_map.get(qn, f"未知画质({qn})")
+                                        if qn == 74:
+                                            quality_name = "720P60 高帧率"
+                                        elif qn == 100:
+                                            quality_name = "智能修复"
+                                        elif qn == 116:
+                                            quality_name = "1080P60 高帧率"
+                                        elif qn == 126:
+                                            quality_name = "杜比视界"
+                                        if qn in [125, 127]:
+                                            has_hevc = True
+                                            quality_name += " (HEVC)"
+                                        if not is_quality_available(qn, is_login, is_vip):
+                                            continue
+                                        video_url = ''
+                                        if video.get('baseUrl'):
+                                            video_url = video.get('baseUrl').strip().strip('`')
+                                        elif video.get('base_url'):
+                                            video_url = video.get('base_url').strip().strip('`')
+                                        elif video.get('url'):
+                                            video_url = video.get('url').strip().strip('`')
+                                        elif video.get('backup_url') and isinstance(video.get('backup_url'), list) and len(video.get('backup_url')) > 0:
+                                            video_url = video.get('backup_url')[0].strip().strip('`')
+                                        if video_url:
+                                            video_urls[qn] = video_url
+                                            qualities.append((qn, quality_name))
+                                            
+                                            if not kid:
+                                                kid = self._extract_kid_from_video_info(video, "备用链接")
+                                if data_source['dash'].get('audio'):
+                                    audio_item = data_source['dash']['audio'][0]
+                                    if audio_item.get('baseUrl'):
+                                        audio_url = audio_item.get('baseUrl').strip().strip('`')
+                                    elif audio_item.get('base_url'):
+                                        audio_url = audio_item.get('base_url').strip().strip('`')
+                                    elif audio_item.get('url'):
+                                        audio_url = audio_item.get('url').strip().strip('`')
+                                    elif audio_item.get('backup_url') and isinstance(audio_item.get('backup_url'), list) and len(audio_item.get('backup_url')) > 0:
+                                        audio_url = audio_item.get('backup_url')[0].strip().strip('`')
+                            elif 'durl' in data_source:
+                                if data_source['durl']:
+                                    video_url = data_source['durl'][0]['url']
+                                    current_qn = data_source.get('quality', 0)
+                                    accept_quality = data_source.get('accept_quality', [current_qn])
+                                    for qn in accept_quality:
+                                        qn = int(qn)
+                                        quality_name = quality_map.get(qn, f"未知画质({qn})")
+                                        if qn == 74:
+                                            quality_name = "720P60 高帧率"
+                                        elif qn == 100:
+                                            quality_name = "智能修复"
+                                        elif qn == 116:
+                                            quality_name = "1080P60 高帧率"
+                                        elif qn == 126:
+                                            quality_name = "杜比视界"
+                                        if qn in [125, 127]:
+                                            has_hevc = True
+                                            quality_name += " (HEVC)"
+                                        if not is_quality_available(qn, is_login, is_vip):
+                                            continue
+                                        video_urls[qn] = video_url
+                                        qualities.append((qn, quality_name))
+                            
+                            if video_urls:
+                                qualities = list(dict.fromkeys(qualities))
+                                qualities.sort(key=lambda x: x[0], reverse=True)
+                                logger.info(f"备用链接获取成功：视频URL数量={len(video_urls)}, 音频URL长度={len(audio_url)}")
+                                return {
+                                    "success": True,
+                                    "qualities": qualities,
+                                    "video_urls": video_urls,
+                                    "audio_url": audio_url,
+                                    "audio_qualities": audio_qualities,
+                                    "audio_urls": audio_urls,
+                                    "is_vip": is_vip,
+                                    "has_hevc": has_hevc,
+                                    "kid": kid
+                                }
+                    
+                    
+                    if ep_id and cid:
+                        if media_type == "cheese":
+                            play_url = f"https://api.bilibili.com/pugv/player/web/playurl?ep_id={ep_id}&cid={cid}&qn=127&fnval=112&fourk=1&drm_tech_type=2&otype=json&try_look=1"
+                        else:
+                            play_url = f"https://api.bilibili.com/pgc/player/web/playurl?ep_id={ep_id}&cid={cid}&qn=127&fnval=112&fnver=0&fourk=1&from_client=BROWSER&drm_tech_type=2&otype=json&try_look=1"
+                        logger.info(f"尝试备用链接（ep_id+cid）：{play_url}")
+                        
+                        
+                        success, data = self._api_request(play_url, timeout=15)
+                        logger.info(f"备用链接API请求结果：success={success}")
+                        
+                        if success and data.get('code') == 0:
+                            data_source = data.get('data', data.get('result', {}))
+                            qualities = []
+                            video_urls = {}
+                            audio_url = ""
+                            audio_urls = {}
+                            audio_qualities = []
+                            user_info = self.get_user_info()
+                            is_login = user_info.get('success', False)
+                            is_vip = user_info.get('is_vip', False)
+                            has_hevc = False
+                            quality_map = self.config.get_quality_map()
+                            
+                            VIP_ONLY_QN = [74, 100, 112, 116, 125, 126, 127]
+                            LOGIN_REQUIRED_QN = [64, 80]
+                            
+                            def is_quality_available(qn, is_login, is_vip):
+                                if qn in VIP_ONLY_QN:
+                                    return is_vip
+                                if qn in LOGIN_REQUIRED_QN:
+                                    return is_login
+                                return True
+                            
+                            kid = None
+                            if 'dash' in data_source:
+                                if data_source['dash'].get('video'):
+                                    for video in data_source['dash']['video']:
+                                        qn = video.get('id', 0)
+                                        quality_name = quality_map.get(qn, f"未知画质({qn})")
+                                        if qn == 74:
+                                            quality_name = "720P60 高帧率"
+                                        elif qn == 100:
+                                            quality_name = "智能修复"
+                                        elif qn == 116:
+                                            quality_name = "1080P60 高帧率"
+                                        elif qn == 126:
+                                            quality_name = "杜比视界"
+                                        if qn in [125, 127]:
+                                            has_hevc = True
+                                            quality_name += " (HEVC)"
+                                        if not is_quality_available(qn, is_login, is_vip):
+                                            continue
+                                        video_url = ''
+                                        if video.get('baseUrl'):
+                                            video_url = video.get('baseUrl').strip().strip('`')
+                                        elif video.get('base_url'):
+                                            video_url = video.get('base_url').strip().strip('`')
+                                        elif video.get('url'):
+                                            video_url = video.get('url').strip().strip('`')
+                                        elif video.get('backup_url') and isinstance(video.get('backup_url'), list) and len(video.get('backup_url')) > 0:
+                                            video_url = video.get('backup_url')[0].strip().strip('`')
+                                        if video_url:
+                                            video_urls[qn] = video_url
+                                            qualities.append((qn, quality_name))
+                                            
+                                            if not kid:
+                                                kid = self._extract_kid_from_video_info(video, "备用链接")
+                                if data_source['dash'].get('audio'):
+                                    audio_item = data_source['dash']['audio'][0]
+                                    if audio_item.get('baseUrl'):
+                                        audio_url = audio_item.get('baseUrl').strip().strip('`')
+                                    elif audio_item.get('base_url'):
+                                        audio_url = audio_item.get('base_url').strip().strip('`')
+                                    elif audio_item.get('url'):
+                                        audio_url = audio_item.get('url').strip().strip('`')
+                                    elif audio_item.get('backup_url') and isinstance(audio_item.get('backup_url'), list) and len(audio_item.get('backup_url')) > 0:
+                                        audio_url = audio_item.get('backup_url')[0].strip().strip('`')
+                            elif 'durl' in data_source:
+                                if data_source['durl']:
+                                    video_url = data_source['durl'][0]['url']
+                                    current_qn = data_source.get('quality', 0)
+                                    accept_quality = data_source.get('accept_quality', [current_qn])
+                                    for qn in accept_quality:
+                                        qn = int(qn)
+                                        quality_name = quality_map.get(qn, f"未知画质({qn})")
+                                        if qn == 74:
+                                            quality_name = "720P60 高帧率"
+                                        elif qn == 100:
+                                            quality_name = "智能修复"
+                                        elif qn == 116:
+                                            quality_name = "1080P60 高帧率"
+                                        elif qn == 126:
+                                            quality_name = "杜比视界"
+                                        if qn in [125, 127]:
+                                            has_hevc = True
+                                            quality_name += " (HEVC)"
+                                        if not is_quality_available(qn, is_login, is_vip):
+                                            continue
+                                        video_urls[qn] = video_url
+                                        qualities.append((qn, quality_name))
+                            
+                            if video_urls:
+                                qualities = list(dict.fromkeys(qualities))
+                                qualities.sort(key=lambda x: x[0], reverse=True)
+                                logger.info(f"备用链接获取成功：视频URL数量={len(video_urls)}, 音频URL长度={len(audio_url)}")
+                                return {
+                                    "success": True,
+                                    "qualities": qualities,
+                                    "video_urls": video_urls,
+                                    "audio_url": audio_url,
+                                    "audio_qualities": audio_qualities,
+                                    "audio_urls": audio_urls,
+                                    "is_vip": is_vip,
+                                    "has_hevc": has_hevc,
+                                    "kid": kid
+                                }
+                except Exception as backup_e:
+                    logger.error(f"备用链接尝试失败：{str(backup_e)}")
+            
+            elif media_type == "cheese":
+                
+                try:
+                    if ep_id:
+                        
+                        play_url = f"https://api.bilibili.com/pugv/player/web/playurl?ep_id={ep_id}&qn=127&fnval=112&fourk=1&otype=json&try_look=1"
+                        logger.info(f"尝试备用链接（仅ep_id）：{play_url}")
+                        
+                        
+                        if 'Referer' not in self.session.headers:
+                            self.session.headers.update({'Referer': 'https://www.bilibili.com'})
+                        
+                        
+                        success, data = self._api_request(play_url, timeout=15)
+                        logger.info(f"备用链接API请求结果：success={success}")
+                        
+                        if success and data.get('code') == 0:
+                            data_source = data.get('data', data.get('result', {}))
+                            qualities = []
+                            video_urls = {}
+                            audio_url = ""
+                            audio_urls = {}
+                            audio_qualities = []
+                            user_info = self.get_user_info()
+                            is_login = user_info.get('success', False)
+                            is_vip = user_info.get('is_vip', False)
+                            has_hevc = False
+                            quality_map = self.config.get_quality_map()
+                            
+                            VIP_ONLY_QN = [74, 100, 112, 116, 125, 126, 127]
+                            LOGIN_REQUIRED_QN = [64, 80]
+                            
+                            def is_quality_available(qn, is_login, is_vip):
+                                if qn in VIP_ONLY_QN:
+                                    return is_vip
+                                if qn in LOGIN_REQUIRED_QN:
+                                    return is_login
+                                return True
+                            
+                            kid = None
+                            if 'dash' in data_source:
+                                if data_source['dash'].get('video'):
+                                    for video in data_source['dash']['video']:
+                                        qn = video.get('id', 0)
+                                        quality_name = quality_map.get(qn, f"未知画质({qn})")
+                                        if qn == 74:
+                                            quality_name = "720P60 高帧率"
+                                        elif qn == 100:
+                                            quality_name = "智能修复"
+                                        elif qn == 116:
+                                            quality_name = "1080P60 高帧率"
+                                        elif qn == 126:
+                                            quality_name = "杜比视界"
+                                        if qn in [125, 127]:
+                                            has_hevc = True
+                                            quality_name += " (HEVC)"
+                                        if not is_quality_available(qn, is_login, is_vip):
+                                            continue
+                                        video_url = ''
+                                        if video.get('baseUrl'):
+                                            video_url = video.get('baseUrl').strip().strip('`')
+                                        elif video.get('base_url'):
+                                            video_url = video.get('base_url').strip().strip('`')
+                                        elif video.get('url'):
+                                            video_url = video.get('url').strip().strip('`')
+                                        elif video.get('backup_url') and isinstance(video.get('backup_url'), list) and len(video.get('backup_url')) > 0:
+                                            video_url = video.get('backup_url')[0].strip().strip('`')
+                                        if video_url:
+                                            video_urls[qn] = video_url
+                                            qualities.append((qn, quality_name))
+                                            
+                                            if not kid:
+                                                kid = self._extract_kid_from_video_info(video, "备用链接")
+                                if data_source['dash'].get('audio'):
+                                    audio_item = data_source['dash']['audio'][0]
+                                    if audio_item.get('baseUrl'):
+                                        audio_url = audio_item.get('baseUrl').strip().strip('`')
+                                    elif audio_item.get('base_url'):
+                                        audio_url = audio_item.get('base_url').strip().strip('`')
+                                    elif audio_item.get('url'):
+                                        audio_url = audio_item.get('url').strip().strip('`')
+                                    elif audio_item.get('backup_url') and isinstance(audio_item.get('backup_url'), list) and len(audio_item.get('backup_url')) > 0:
+                                        audio_url = audio_item.get('backup_url')[0].strip().strip('`')
+                            elif 'durl' in data_source:
+                                if data_source['durl']:
+                                    video_url = data_source['durl'][0]['url']
+                                    current_qn = data_source.get('quality', 0)
+                                    accept_quality = data_source.get('accept_quality', [current_qn])
+                                    for qn in accept_quality:
+                                        qn = int(qn)
+                                        quality_name = quality_map.get(qn, f"未知画质({qn})")
+                                        if qn == 74:
+                                            quality_name = "720P60 高帧率"
+                                        elif qn == 100:
+                                            quality_name = "智能修复"
+                                        elif qn == 116:
+                                            quality_name = "1080P60 高帧率"
+                                        elif qn == 126:
+                                            quality_name = "杜比视界"
+                                        if qn in [125, 127]:
+                                            has_hevc = True
+                                            quality_name += " (HEVC)"
+                                        if not is_quality_available(qn, is_login, is_vip):
+                                            continue
+                                        video_urls[qn] = video_url
+                                        qualities.append((qn, quality_name))
+                            
+                            if video_urls:
+                                qualities = list(dict.fromkeys(qualities))
+                                qualities.sort(key=lambda x: x[0], reverse=True)
+                                logger.info(f"备用链接获取成功：视频URL数量={len(video_urls)}, 音频URL长度={len(audio_url)}")
+                                return {
+                                    "success": True,
+                                    "qualities": qualities,
+                                    "video_urls": video_urls,
+                                    "audio_url": audio_url,
+                                    "audio_qualities": audio_qualities,
+                                    "audio_urls": audio_urls,
+                                    "is_vip": is_vip,
+                                    "has_hevc": has_hevc,
+                                    "kid": kid
+                                }
+                    
+                    
+                    if bvid and cid:
+                        if not bvid.startswith('av'):
+                            play_url = f"https://api.bilibili.com/pugv/player/web/playurl?cid={cid}&bvid={bvid}&qn=127&fnval=112&fourk=1&otype=json&try_look=1"
+                            logger.info(f"尝试备用链接（cid+bvid）：{play_url}")
+                        else:
+                            play_url = f"https://api.bilibili.com/pugv/player/web/playurl?cid={cid}&avid={bvid[2:]}&qn=127&fnval=112&fourk=1&otype=json&try_look=1"
+                            logger.info(f"尝试备用链接（cid+avid）：{play_url}")
+                        
+                        
+                        success, data = self._api_request(play_url, timeout=15)
+                        logger.info(f"备用链接API请求结果：success={success}")
+                        
+                        if success and data.get('code') == 0:
+                            data_source = data.get('data', data.get('result', {}))
+                            qualities = []
+                            video_urls = {}
+                            audio_url = ""
+                            audio_urls = {}
+                            audio_qualities = []
+                            user_info = self.get_user_info()
+                            is_login = user_info.get('success', False)
+                            is_vip = user_info.get('is_vip', False)
+                            has_hevc = False
+                            quality_map = self.config.get_quality_map()
+                            
+                            VIP_ONLY_QN = [74, 100, 112, 116, 125, 126, 127]
+                            LOGIN_REQUIRED_QN = [64, 80]
+                            
+                            def is_quality_available(qn, is_login, is_vip):
+                                if qn in VIP_ONLY_QN:
+                                    return is_vip
+                                if qn in LOGIN_REQUIRED_QN:
+                                    return is_login
+                                return True
+                            
+                            kid = None
+                            if 'dash' in data_source:
+                                if data_source['dash'].get('video'):
+                                    for video in data_source['dash']['video']:
+                                        qn = video.get('id', 0)
+                                        quality_name = quality_map.get(qn, f"未知画质({qn})")
+                                        if qn == 74:
+                                            quality_name = "720P60 高帧率"
+                                        elif qn == 100:
+                                            quality_name = "智能修复"
+                                        elif qn == 116:
+                                            quality_name = "1080P60 高帧率"
+                                        elif qn == 126:
+                                            quality_name = "杜比视界"
+                                        if qn in [125, 127]:
+                                            has_hevc = True
+                                            quality_name += " (HEVC)"
+                                        if not is_quality_available(qn, is_login, is_vip):
+                                            continue
+                                        video_url = ''
+                                        if video.get('baseUrl'):
+                                            video_url = video.get('baseUrl').strip().strip('`')
+                                        elif video.get('base_url'):
+                                            video_url = video.get('base_url').strip().strip('`')
+                                        elif video.get('url'):
+                                            video_url = video.get('url').strip().strip('`')
+                                        elif video.get('backup_url') and isinstance(video.get('backup_url'), list) and len(video.get('backup_url')) > 0:
+                                            video_url = video.get('backup_url')[0].strip().strip('`')
+                                        if video_url:
+                                            video_urls[qn] = video_url
+                                            qualities.append((qn, quality_name))
+                                            
+                                            if not kid:
+                                                kid = self._extract_kid_from_video_info(video, "备用链接")
+                                if data_source['dash'].get('audio'):
+                                    audio_item = data_source['dash']['audio'][0]
+                                    if audio_item.get('baseUrl'):
+                                        audio_url = audio_item.get('baseUrl').strip().strip('`')
+                                    elif audio_item.get('base_url'):
+                                        audio_url = audio_item.get('base_url').strip().strip('`')
+                                    elif audio_item.get('url'):
+                                        audio_url = audio_item.get('url').strip().strip('`')
+                                    elif audio_item.get('backup_url') and isinstance(audio_item.get('backup_url'), list) and len(audio_item.get('backup_url')) > 0:
+                                        audio_url = audio_item.get('backup_url')[0].strip().strip('`')
+                            elif 'durl' in data_source:
+                                if data_source['durl']:
+                                    video_url = data_source['durl'][0]['url']
+                                    current_qn = data_source.get('quality', 0)
+                                    accept_quality = data_source.get('accept_quality', [current_qn])
+                                    for qn in accept_quality:
+                                        qn = int(qn)
+                                        quality_name = quality_map.get(qn, f"未知画质({qn})")
+                                        if qn == 74:
+                                            quality_name = "720P60 高帧率"
+                                        elif qn == 100:
+                                            quality_name = "智能修复"
+                                        elif qn == 116:
+                                            quality_name = "1080P60 高帧率"
+                                        elif qn == 126:
+                                            quality_name = "杜比视界"
+                                        if qn in [125, 127]:
+                                            has_hevc = True
+                                            quality_name += " (HEVC)"
+                                        if not is_quality_available(qn, is_login, is_vip):
+                                            continue
+                                        video_urls[qn] = video_url
+                                        qualities.append((qn, quality_name))
+                            
+                            if video_urls:
+                                qualities = list(dict.fromkeys(qualities))
+                                qualities.sort(key=lambda x: x[0], reverse=True)
+                                logger.info(f"备用链接获取成功：视频URL数量={len(video_urls)}, 音频URL长度={len(audio_url)}")
+                                return {
+                                    "success": True,
+                                    "qualities": qualities,
+                                    "video_urls": video_urls,
+                                    "audio_url": audio_url,
+                                    "audio_qualities": audio_qualities,
+                                    "audio_urls": audio_urls,
+                                    "is_vip": is_vip,
+                                    "has_hevc": has_hevc,
+                                    "kid": kid
+                                }
+                    
+                    
+                    if ep_id and cid:
+                        play_url = f"https://api.bilibili.com/pugv/player/web/playurl?ep_id={ep_id}&cid={cid}&qn=127&fnval=112&fourk=1&otype=json&try_look=1"
+                        logger.info(f"尝试备用链接（ep_id+cid）：{play_url}")
+                        
+                        
+                        success, data = self._api_request(play_url, timeout=15)
+                        logger.info(f"备用链接API请求结果：success={success}")
+                        
+                        if success and data.get('code') == 0:
+                            data_source = data.get('data', data.get('result', {}))
+                            qualities = []
+                            video_urls = {}
+                            audio_url = ""
+                            audio_urls = {}
+                            audio_qualities = []
+                            user_info = self.get_user_info()
+                            is_login = user_info.get('success', False)
+                            is_vip = user_info.get('is_vip', False)
+                            has_hevc = False
+                            quality_map = self.config.get_quality_map()
+                            
+                            VIP_ONLY_QN = [74, 100, 112, 116, 125, 126, 127]
+                            LOGIN_REQUIRED_QN = [64, 80]
+                            
+                            def is_quality_available(qn, is_login, is_vip):
+                                if qn in VIP_ONLY_QN:
+                                    return is_vip
+                                if qn in LOGIN_REQUIRED_QN:
+                                    return is_login
+                                return True
+                            
+                            kid = None
+                            if 'dash' in data_source:
+                                if data_source['dash'].get('video'):
+                                    for video in data_source['dash']['video']:
+                                        qn = video.get('id', 0)
+                                        quality_name = quality_map.get(qn, f"未知画质({qn})")
+                                        if qn == 74:
+                                            quality_name = "720P60 高帧率"
+                                        elif qn == 100:
+                                            quality_name = "智能修复"
+                                        elif qn == 116:
+                                            quality_name = "1080P60 高帧率"
+                                        elif qn == 126:
+                                            quality_name = "杜比视界"
+                                        if qn in [125, 127]:
+                                            has_hevc = True
+                                            quality_name += " (HEVC)"
+                                        if not is_quality_available(qn, is_login, is_vip):
+                                            continue
+                                        video_url = ''
+                                        if video.get('baseUrl'):
+                                            video_url = video.get('baseUrl').strip().strip('`')
+                                        elif video.get('base_url'):
+                                            video_url = video.get('base_url').strip().strip('`')
+                                        elif video.get('url'):
+                                            video_url = video.get('url').strip().strip('`')
+                                        elif video.get('backup_url') and isinstance(video.get('backup_url'), list) and len(video.get('backup_url')) > 0:
+                                            video_url = video.get('backup_url')[0].strip().strip('`')
+                                        if video_url:
+                                            video_urls[qn] = video_url
+                                            qualities.append((qn, quality_name))
+                                            
+                                            if not kid:
+                                                kid = self._extract_kid_from_video_info(video, "备用链接")
+                                if data_source['dash'].get('audio'):
+                                    audio_item = data_source['dash']['audio'][0]
+                                    if audio_item.get('baseUrl'):
+                                        audio_url = audio_item.get('baseUrl').strip().strip('`')
+                                    elif audio_item.get('base_url'):
+                                        audio_url = audio_item.get('base_url').strip().strip('`')
+                                    elif audio_item.get('url'):
+                                        audio_url = audio_item.get('url').strip().strip('`')
+                                    elif audio_item.get('backup_url') and isinstance(audio_item.get('backup_url'), list) and len(audio_item.get('backup_url')) > 0:
+                                        audio_url = audio_item.get('backup_url')[0].strip().strip('`')
+                            elif 'durl' in data_source:
+                                if data_source['durl']:
+                                    video_url = data_source['durl'][0]['url']
+                                    current_qn = data_source.get('quality', 0)
+                                    accept_quality = data_source.get('accept_quality', [current_qn])
+                                    for qn in accept_quality:
+                                        qn = int(qn)
+                                        quality_name = quality_map.get(qn, f"未知画质({qn})")
+                                        if qn == 74:
+                                            quality_name = "720P60 高帧率"
+                                        elif qn == 100:
+                                            quality_name = "智能修复"
+                                        elif qn == 116:
+                                            quality_name = "1080P60 高帧率"
+                                        elif qn == 126:
+                                            quality_name = "杜比视界"
+                                        if qn in [125, 127]:
+                                            has_hevc = True
+                                            quality_name += " (HEVC)"
+                                        if not is_quality_available(qn, is_login, is_vip):
+                                            continue
+                                        video_urls[qn] = video_url
+                                        qualities.append((qn, quality_name))
+                            
+                            if video_urls:
+                                qualities = list(dict.fromkeys(qualities))
+                                qualities.sort(key=lambda x: x[0], reverse=True)
+                                logger.info(f"备用链接获取成功：视频URL数量={len(video_urls)}, 音频URL长度={len(audio_url)}")
+                                return {
+                                    "success": True,
+                                    "qualities": qualities,
+                                    "video_urls": video_urls,
+                                    "audio_url": audio_url,
+                                    "audio_qualities": audio_qualities,
+                                    "audio_urls": audio_urls,
+                                    "is_vip": is_vip,
+                                    "has_hevc": has_hevc,
+                                    "kid": kid
+                                }
+                except Exception as backup_e:
+                    logger.error(f"备用链接尝试失败：{str(backup_e)}")
+            
+            return {"success": False, "error": error_msg}
+
+    def get_single_episode_info(self, media_type, media_id, page=1, is_tv_mode=False):
+        try:
+            bvid = media_id if media_type == "video" else None
+            cid = None
+
+            if media_type == "video":
+                if not bvid:
+                    raise Exception("视频ID（BV号）为空")
+                collection = self._get_collection_info(bvid)
+                
+                ep_info = next((item for item in collection if item['page'] == page), None)
+                if not ep_info:
+                    raise Exception(f"未找到第{page}集")
+                
+                ep_title = ep_info['title']
+
+                if 'bvid' in ep_info and ep_info['bvid']:
+                    bvid = ep_info['bvid']
+
+                cid = ep_info.get('cid', '') or ep_info.get('cid', 0)
+                if not cid:
+                    cid = self._get_cid(media_type, bvid, 1)
+
+                main_title = self._get_video_main_info(bvid)['title']
+                full_title = f"{main_title}_{ep_title}"
+
+            elif media_type == "bangumi":
+                return {"success": False, "error": "番剧单集信息请通过get_bangumi_episode_playinfo获取"}
+            elif media_type == "cheese":
+                return {"success": False, "error": "课程单集信息请通过parse_media获取"}
+            else:
+                return {"success": False, "error": f"不支持的媒体类型：{media_type}"}
+
+            play_info = self._get_play_info(media_type, bvid, cid, is_tv_mode)
+            if not play_info['success']:
+                _page_err = str(play_info.get('error') or '')
+                if any(k in _page_err for k in ("权限", "会员", "专享", "试看", "付费", "购买", "充电")):
+                    raise Exception(f"包含不可下载内容：第{page}集当前账号无下载权限（{_page_err}）")
+                raise Exception(_page_err)
+
+            return {
+                "success": True,
+                "type": media_type,
+                "title": self._sanitize_filename(full_title),
+                "bvid": bvid,
+                "cid": cid,
+                "page": page,
+                "qualities": play_info['qualities'],
+                "video_urls": play_info['video_urls'],
+                "audio_url": play_info['audio_url'],
+                "is_tv_mode": is_tv_mode,
+                "is_vip": play_info['is_vip'],
+                "has_hevc": play_info['has_hevc'],
+                "kid": play_info.get('kid')
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "page": page
+            }
+
+    def get_bangumi_episode_playinfo(self, bvid, cid, quality=80, ep_id=None):
+        try:
+            
+            play_url = self.config.get_api_url("bangumi_play_url_api").format(cid=cid, bvid=bvid, fnval=112)
+            success, data = self._api_request(play_url, timeout=15)
+            if not success:
+                if "访问权限不足" in data['error']:
+                    raise Exception("访问权限不足")
+                raise Exception(f"获取番剧播放链接失败：{data['error']}")
+
+            if data.get('code') != 0:
+                error_msg = data.get('message', '权限不足')
+                if data.get('code') == 403:
+                    error_msg += "（可能是会员专享集或Cookie失效）"
+                raise Exception(error_msg)
+
+            data_source = data.get('data', data.get('result', {}))
+
+            video_url = ""
+            audio_url = ""
+            if 'dash' in data_source:
+                if data_source['dash'].get('video'):
+                    selected_video = None
+                    for video in data_source['dash']['video']:
+                        if video.get('id') == quality:
+                            selected_video = video
+                            break
+                    if not selected_video:
+                        selected_video = data_source['dash']['video'][0]
+                    video_url = selected_video.get('baseUrl') or selected_video.get('base_url', '')
+                if data_source['dash'].get('audio'):
+                    _audio_item = data_source['dash']['audio'][0]
+                    audio_url = _audio_item.get('baseUrl') or _audio_item.get('base_url', '')
+            elif 'durl' in data_source:
+                video_url = data_source['durl'][0]['url']
+
+            if not video_url:
+                raise Exception("未获取到视频播放链接")
+
+            return {
+                "success": True,
+                "video_url": video_url,
+                "audio_url": audio_url
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"番剧单集播放链接获取失败：{str(e)}（bvid={bvid}, cid={cid}）"
+            }
+    def decrypt_file(self, input_path, output_path, key):
+        logger.info(f"开始解密文件：{input_path}")
+        try:
+            with open(input_path, 'rb') as f:
+                encrypted_data = f.read()
+            
+            key_bytes = bytes.fromhex(key)
+            cipher = AES.new(key_bytes, AES.MODE_ECB)
+            
+            decrypted_data = cipher.decrypt(encrypted_data)
+            
+            padding_length = decrypted_data[-1]
+            if padding_length > 0:
+                decrypted_data = decrypted_data[:-padding_length]
+            
+            with open(output_path, 'wb') as f:
+                f.write(decrypted_data)
+            
+            logger.info(f"文件解密成功：{output_path}")
+            return True
+        except Exception as e:
+            logger.error(f"文件解密失败：{str(e)}")
+            return False
+
+    _download_session = None
+
+    def _get_download_session(self, headers=None):
+        if self._download_session is None:
+            self._download_session = requests.Session()
+            self._download_session.proxies = {}
+            self._download_session.trust_env = False
+            self._download_session.cookies.update(self.session.cookies)
+        if headers:
+            self._download_session.headers.update(headers)
+        return self._download_session
+
+    def _download_segment(self, segment_url, segment_path, headers, segment_index, total_segments, progress_lock, progress_state, is_running=None):
+        seg_session = requests.Session()
+        seg_session.headers.update(headers)
+        seg_session.cookies.update(self.session.cookies)
+        seg_session.proxies = {}
+        seg_session.trust_env = False
+        seg_session.timeout = (15, 30)
+
+        max_retries = self.config.get_app_setting("max_retry", 3) if self.config else 3
+        try:
+            max_retries = int(max_retries)
+        except (ValueError, TypeError):
+            max_retries = 3
+        retry_count = 0
+        segment_response = None
+
+        while retry_count < max_retries:
+            if is_running is not None and not is_running():
+                seg_session.close()
+                raise Exception("下载已取消")
+            try:
+                segment_response = seg_session.get(segment_url, stream=True, headers=headers, timeout=(15, 30))
+                logger.info(f"分段 {segment_index+1} 响应状态码：{segment_response.status_code}")
+                segment_response.raise_for_status()
+                break
+            except requests.exceptions.RequestException as e:
+                if segment_response is not None:
+                    try:
+                        segment_response.close()
+                    except Exception:
+                        pass
+                    segment_response = None
+                retry_count += 1
+                if retry_count >= max_retries:
+                    seg_session.close()
+                    raise
+                wait = 2 ** retry_count
+                logger.warning(f"分段 {segment_index+1} 请求失败，{wait}秒后重试：{str(e)}")
+                time.sleep(wait)
+
+        segment_total_size = int(segment_response.headers.get('content-length', 0))
+        logger.info(f"分段 {segment_index+1} 大小：{segment_total_size}字节")
+
+        segment_size_downloaded = 0
+        segment_size_pct = 100 / total_segments
+
+        try:
+            with open(segment_path, 'wb') as f:
+                chunk_size = 65536
+                for chunk in segment_response.iter_content(chunk_size=chunk_size):
+                    if is_running is not None and not is_running():
+                        raise Exception("下载已取消")
+
+                    if chunk:
+                        f.write(chunk)
+                        chunk_len = len(chunk)
+                        segment_size_downloaded += chunk_len
+
+                        with progress_lock:
+                            progress_state['cumulative_size'] += chunk_len
+                            segment_progress = min(100, int((segment_size_downloaded / segment_total_size) * 100)) if segment_total_size > 0 else 0
+                            total_progress = min(99, int((segment_index * segment_size_pct) + (segment_progress * segment_size_pct / 100)))
+                            cb = progress_state.get('callback')
+                            if cb and total_progress % 5 == 0:
+                                cb(total_progress, progress_state['cumulative_size'])
+        finally:
+            if segment_response is not None:
+                try:
+                    segment_response.close()
+                except Exception:
+                    pass
+            seg_session.close()
+
+        logger.info(f"分段 {segment_index+1} 下载完成，大小：{segment_size_downloaded/1024/1024:.2f}MB")
+        return segment_path, segment_size_downloaded
+
+    def download_file(self, url, save_path, progress_callback, file_type="video", bvid=None, is_running=None, kid=None):
+        logger.info(f"开始下载{file_type}：{url[:100]}...")
+        if is_running is not None and not is_running():
+            logger.info("下载已被取消")
+            raise Exception("下载已被取消")
+
+        
+        save_dir = os.path.dirname(save_path)
+        try:
+            os.makedirs(save_dir, exist_ok=True)
+            logger.debug(f"保存目录：{save_dir}")
+        except Exception as e:
+            logger.error(f"创建保存目录失败：{str(e)}")
+            raise Exception(f"创建保存目录失败：{str(e)}")
+
+        
+        work_dir = os.path.dirname(os.path.abspath(__file__))
+        temp_dir = None
+        try:
+            _target_dir = os.path.dirname(os.path.abspath(save_path)) if save_path else ""
+            if _target_dir:
+                temp_dir = get_safe_temp_dir(
+                    work_dir, "temp",
+                    cache_dir=None,
+                    prefer_dir=_target_dir,
+                )
+        except Exception as _e:
+            logger.debug(f"按下载盘解析临时目录失败，回退 safe_temp_dir: {_e}")
+        # 回退初始临时目录
+        if not temp_dir:
+            temp_dir = getattr(self, "safe_temp_dir", None)
+        # 最后回退程序temp
+        if not temp_dir:
+            temp_dir = os.path.join(work_dir, "temp")
+        try:
+            os.makedirs(temp_dir, exist_ok=True)
+            hide_file(temp_dir)
+            logger.debug(f"临时目录：{temp_dir}")
+        except Exception as e:
+            logger.error(f"创建临时目录失败：{str(e)}")
+            raise Exception(f"创建临时目录失败：{str(e)}")
+
+        import uuid
+        import time
+        temp_filename = f"temp_{file_type}_{uuid.uuid4().hex}_{int(time.time())}.m4s"
+        import re
+        temp_filename = re.sub(r'[\x00-\x1f\x7f:/\\*?"<>|]', '', temp_filename)
+        temp_path = os.path.join(temp_dir, temp_filename)
+        temp_path = os.path.normpath(temp_path)
+        downloaded_size = 0
+        logger.debug(f"临时文件：{temp_path}")
+
+        
+        try:
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                'Referer': f'https://www.bilibili.com/video/{bvid}/' if bvid else 'https://www.bilibili.com/',
+                'Accept': '*/*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Connection': 'keep-alive',
+                'Origin': 'https://www.bilibili.com',
+                'Pragma': 'no-cache',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-site'
+            }
+            
+            session = self._get_download_session(headers)
+
+            CHUNK_THRESHOLD = 2 * 1024 * 1024   # 2MB以上就启用分片
+            use_chunked = False
+            total_file_size = 0
+            try:
+                _mt = int(self.config.get_app_setting('max_threads', 4)) if self.config else 4
+            except Exception:
+                _mt = 4
+            if _mt >= 3:
+                CHUNK_COUNT = 1   # 多任务并发不再分片
+            elif _mt == 2:
+                CHUNK_COUNT = 2
+            else:
+                CHUNK_COUNT = 4   # 单任务用4分片提速
+
+            if not isinstance(url, list):
+                try:
+                    probe_headers = dict(headers)
+                    probe_headers['Range'] = 'bytes=0-0'
+                    probe_resp = session.get(url, headers=probe_headers, timeout=10, allow_redirects=True)
+                    if probe_resp.status_code == 206:
+                        cr = probe_resp.headers.get('Content-Range', '')
+                        if '/' in cr:
+                            total_file_size = int(cr.split('/')[-1])
+                        probe_resp.close()
+                        if total_file_size >= CHUNK_THRESHOLD:
+                            use_chunked = True
+                            logger.info(f"CDN支持Range请求，文件大小{total_file_size/1024/1024:.1f}MB，启用分片并发下载")
+                    elif probe_resp.status_code == 200:
+                        total_file_size = int(probe_resp.headers.get('Content-Length', 0))
+                        probe_resp.close()
+                        logger.info(f"CDN不支持Range请求(status=200)，使用普通下载，文件大小{total_file_size/1024/1024:.1f}MB")
+                    else:
+                        probe_resp.close()
+                        logger.info(f"探针请求返回{probe_resp.status_code}，使用普通下载")
+                except Exception as e:
+                    logger.warning(f"探针请求失败: {e}，使用普通下载")
+
+                if use_chunked and total_file_size > 0:
+                    if total_file_size < 5 * 1024 * 1024:
+                        CHUNK_COUNT = 1   # 小于5MB不分行
+                    logger.info(f"文件大小{total_file_size/1024/1024:.1f}MB，启用{CHUNK_COUNT}分片并发下载（max_threads={_mt}）")
+
+            if use_chunked and total_file_size > 0:
+                chunk_size = total_file_size // CHUNK_COUNT
+                ranges = []
+                for i in range(CHUNK_COUNT):
+                    start = i * chunk_size
+                    end = total_file_size - 1 if i == CHUNK_COUNT - 1 else (i + 1) * chunk_size - 1
+                    ranges.append((start, end))
+
+                chunk_paths = []
+                for i in range(CHUNK_COUNT):
+                    chunk_filename = f"temp_{file_type}_chunk_{i}_{uuid.uuid4().hex}_{int(time.time())}.m4s"
+                    chunk_filename = re.sub(r'[\x00-\x1f\x7f:/\\*?"<>|]', '', chunk_filename)
+                    chunk_paths.append(os.path.join(temp_dir, chunk_filename))
+
+                progress_lock = threading.Lock()
+                progress_state = {
+                    'cumulative_size': 0,
+                    'chunk_progresses': [0] * CHUNK_COUNT,
+                    'chunk_sizes': [r[1] - r[0] + 1 for r in ranges],
+                    'last_callback_overall': -1  # 记上次进度值避免重复
+                }
+                chunk_results = [None] * CHUNK_COUNT
+                chunked_failed = False
+
+                def _download_chunk(chunk_url, chunk_path, chunk_headers, chunk_index, chunk_start, chunk_end):
+                    """下载单个分片"""
+                    ch_session = requests.Session()
+                    ch_session.trust_env = False
+                    ch_session.headers.update(chunk_headers)
+                    ch_session.cookies.update(self.session.cookies)
+
+                    chunk_total = chunk_end - chunk_start + 1
+                    chunk_downloaded = 0
+                    max_retries = 5
+                    for retry in range(max_retries):
+                        if is_running is not None and not is_running():
+                            ch_session.close()
+                            raise Exception("下载已取消")
+                        resp = None
+                        try:
+                            cur_start = chunk_start + chunk_downloaded
+                            chunk_headers_copy = dict(chunk_headers)
+                            chunk_headers_copy['Range'] = f'bytes={cur_start}-{chunk_end}'
+                            resp = ch_session.get(chunk_url, stream=True, headers=chunk_headers_copy, timeout=(15, 120))
+                            if resp.status_code != 206:
+                                _sc = resp.status_code
+                                resp.close()
+                                resp = None
+                                raise Exception(f"CDN返回{_sc}而非206，不支持Range请求")
+                            resp.raise_for_status()
+                            logger.info(f"分片{chunk_index}开始下载: bytes={cur_start}-{chunk_end} (已续传 {chunk_downloaded/1024/1024:.1f}MB), status=206")
+
+                            # 流式读取也纳入重试
+                            file_mode = 'ab' if chunk_downloaded > 0 else 'wb'
+                            with open(chunk_path, file_mode) as f:
+                                for chunk_data in resp.iter_content(chunk_size=1048576):
+                                    if is_running is not None and not is_running():
+                                        resp.close()
+                                        ch_session.close()
+                                        raise Exception("下载已取消")
+                                    if chunk_data:
+                                        f.write(chunk_data)
+                                        chunk_downloaded += len(chunk_data)
+                                        with progress_lock:
+                                            progress_state['cumulative_size'] += len(chunk_data)
+                                            chunk_pct = min(100, int(chunk_downloaded * 100 / chunk_total))
+                                            progress_state['chunk_progresses'][chunk_index] = chunk_pct
+                                            overall = min(99, int(progress_state['cumulative_size'] * 100 / total_file_size))
+                                            if progress_callback and overall != progress_state['last_callback_overall'] and overall % 2 == 0:
+                                                progress_state['last_callback_overall'] = overall
+                                                try:
+                                                    progress_callback(overall, progress_state['cumulative_size'], list(progress_state['chunk_progresses']))
+                                                except TypeError:
+                                                    progress_callback(overall, progress_state['cumulative_size'])
+
+                            resp.close()
+                            if chunk_downloaded < chunk_total:
+                                raise requests.exceptions.ChunkedEncodingError(
+                                    f"分片{chunk_index}不完整：已下载{chunk_downloaded}字节，"
+                                    f"应为{chunk_total}字节"
+                                )
+                            ch_session.close()
+                            logger.info(f"分片{chunk_index}下载完成: {chunk_downloaded/1024/1024:.1f}MB")
+                            return chunk_path, chunk_downloaded
+                        except Exception as e:
+                            if resp is not None:
+                                try:
+                                    resp.close()
+                                except Exception:
+                                    pass
+                                resp = None
+                            # 取消时直接抛出，不重试
+                            if str(e) == "下载已取消":
+                                ch_session.close()
+                                raise
+                            if is_running is not None and not is_running():
+                                ch_session.close()
+                                raise Exception("下载已取消")
+                            if retry >= max_retries - 1:
+                                ch_session.close()
+                                raise
+                            wait = 2 ** (retry + 1)
+                            logger.warning(f"分片{chunk_index}下载失败(已下载{chunk_downloaded/1024/1024:.1f}MB)，{wait}秒后重试({retry+1}/{max_retries}): {e}")
+                            slept = 0
+                            while slept < wait:
+                                if is_running is not None and not is_running():
+                                    ch_session.close()
+                                    raise Exception("下载已取消")
+                                time.sleep(min(0.5, wait - slept))
+                                slept += 0.5
+
+                    ch_session.close()
+                    raise Exception(f"分片{chunk_index}下载失败，已重试{max_retries}次")
+
+                try:
+                    max_workers = min(CHUNK_COUNT, 4)
+                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                        futures = {}
+                        for i in range(CHUNK_COUNT):
+                            future = executor.submit(
+                                _download_chunk, url, chunk_paths[i], headers,
+                                i, ranges[i][0], ranges[i][1]
+                            )
+                            futures[future] = i
+
+                        for future in as_completed(futures):
+                            idx = futures[future]
+                            try:
+                                chunk_results[idx] = future.result()
+                            except Exception as e:
+                                if str(e) == "下载已取消":
+                                    logger.info(f"分片{idx}下载已取消")
+                                else:
+                                    logger.error(f"分片{idx}下载失败: {e}")
+                                chunked_failed = True
+                                raise
+
+                    logger.info(f"合并{CHUNK_COUNT}个分片...")
+                    _MERGE_BUF = 4 * 1024 * 1024  # 4MB缓冲减系统调用
+                    with open(temp_path, 'wb') as outfile:
+                        for chunk_path, _ in chunk_results:
+                            with open(chunk_path, 'rb') as infile:
+                                while True:
+                                    data = infile.read(_MERGE_BUF)
+                                    if not data:
+                                        break
+                                    outfile.write(data)
+                            try:
+                                os.remove(chunk_path)
+                            except Exception:
+                                pass
+
+                    downloaded_size = total_file_size
+                    if progress_callback:
+                        progress_callback(100, downloaded_size)
+                except Exception as e:
+                    # 取消时不回退普通下载
+                    if str(e) == "下载已取消" or (is_running is not None and not is_running()):
+                        for cp in chunk_paths:
+                            try:
+                                if os.path.exists(cp):
+                                    os.remove(cp)
+                            except Exception:
+                                pass
+                        raise
+                    # 分片失败清理后回退
+                    logger.warning(f"分片下载失败: {e}，回退到普通下载")
+                    chunked_failed = True
+                    for cp in chunk_paths:
+                        try:
+                            if os.path.exists(cp):
+                                os.remove(cp)
+                        except Exception:
+                            pass
+                    # 等3秒防限流
+                    time.sleep(3)
+
+                if not chunked_failed:
+                    return temp_path
+                else:
+                    # 分片失败重置标记回退
+                    use_chunked = False
+
+            if isinstance(url, list):
+                logger.info(f"开始多分段并发下载，共{len(url)}个分段")
+                total_segments = len(url)
+                
+                segment_paths = []
+                for i, segment_url in enumerate(url):
+                    segment_filename = f"temp_{file_type}_segment_{i}_{uuid.uuid4().hex}_{int(time.time())}.m4s"
+                    segment_filename = re.sub(r'[\x00-\x1f\x7f:/\\*?"<>|]', '', segment_filename)
+                    segment_path = os.path.join(temp_dir, segment_filename)
+                    segment_paths.append(segment_path)
+                    logger.info(f"准备下载分段 {i+1}/{total_segments}：{segment_url[:100]}...")
+                
+                progress_lock = threading.Lock()
+                progress_state = {
+                    'cumulative_size': 0,
+                    'callback': progress_callback
+                }
+                
+                max_workers = min(total_segments, 4)
+                segment_results = [None] * total_segments
+                
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {}
+                    for i, segment_url in enumerate(url):
+                        future = executor.submit(
+                            self._download_segment,
+                            segment_url, segment_paths[i], headers,
+                            i, total_segments,
+                            progress_lock, progress_state,
+                            is_running
+                        )
+                        futures[future] = i
+                    
+                    for future in as_completed(futures):
+                        idx = futures[future]
+                        try:
+                            seg_path, seg_size = future.result()
+                            segment_results[idx] = (seg_path, seg_size)
+                        except Exception as e:
+                            logger.error(f"分段 {idx+1} 下载失败：{str(e)}")
+                            executor.shutdown(wait=False, cancel_futures=True)
+                            for sp in segment_paths:
+                                try:
+                                    if os.path.exists(sp):
+                                        os.remove(sp)
+                                except Exception:
+                                    pass
+                            raise
+                
+                cumulative_size = progress_state['cumulative_size']
+                
+                logger.info(f"开始合并{total_segments}个分段")
+                _MERGE_BUF = 4 * 1024 * 1024  # 4MB缓冲减系统调用
+                with open(temp_path, 'wb') as outfile:
+                    for seg_path, _ in segment_results:
+                        with open(seg_path, 'rb') as infile:
+                            while True:
+                                data = infile.read(_MERGE_BUF)
+                                if not data:
+                                    break
+                                outfile.write(data)
+                        try:
+                            os.remove(seg_path)
+                            logger.debug(f"删除已合并的分段文件：{seg_path}")
+                        except Exception as e:
+                            logger.warning(f"删除分段文件失败：{str(e)}")
+                
+                downloaded_size = cumulative_size
+                logger.info(f"分段合并完成，总大小：{downloaded_size/1024/1024:.2f}MB")
+            elif not use_chunked:
+                # 失败回退单URL
+                if os.path.exists(temp_path):
+                    downloaded_size = os.path.getsize(temp_path)
+                    logger.info(f"续传：已下载{downloaded_size}字节")
+                    headers['Range'] = f'bytes={downloaded_size}-'
+                    mode = 'ab'
+                else:
+                    downloaded_size = 0
+                    mode = 'wb'
+                
+                logger.debug(f"请求头：{headers}")
+
+                
+                logger.info(f"发送请求，URL：{url[:100]}...")
+                max_retries = self.config.get_app_setting("max_retry", 3) if self.config else 3
+                try:
+                    max_retries = int(max_retries)
+                except (ValueError, TypeError):
+                    max_retries = 3
+                retry_count = 0
+                response = None
+                while retry_count < max_retries:
+                    try:
+                        response = session.get(url, stream=True, headers=headers, timeout=(15, 30))
+                        logger.info(f"响应状态码：{response.status_code}")
+                        
+                        
+                        if response.status_code == 416:
+                            logger.info("文件已下载完成")
+                            response.close()
+                            if progress_callback:
+                                progress_callback(100, downloaded_size)
+                            return temp_path
+                        
+                        response.raise_for_status()
+                        break
+                    except requests.exceptions.RequestException as e:
+                        if response is not None:
+                            try:
+                                response.close()
+                            except Exception:
+                                pass
+                            response = None
+                        retry_count += 1
+                        if retry_count >= max_retries:
+                            raise
+                        wait = 2 ** retry_count
+                        logger.warning(f"请求失败，{wait}秒后重试：{str(e)}")
+                        time.sleep(wait)
+
+            
+            _hdr_total = int(response.headers.get('content-length', 0))
+            if 'content-range' in response.headers:
+                try:
+                    _hdr_total = max(_hdr_total,
+                                     int(response.headers['content-range'].split('/')[-1]))
+                except (ValueError, TypeError):
+                    pass
+            total_size = _hdr_total
+            if total_file_size and total_file_size > total_size:
+                total_size = total_file_size
+            logger.info(f"文件大小：{total_size}字节")
+
+            
+            logger.debug(f"打开文件，模式：{mode}")
+            
+            max_download_retries = 3
+            download_retry_count = 0
+            download_success = False
+            
+            while download_retry_count < max_download_retries and not download_success:
+                try:
+                    with open(temp_path, mode) as f:
+                        logger.debug("开始读取数据...")
+                        if total_size > 100 * 1024 * 1024:  # 大于100MB
+                            chunk_size = 262144  # 256KB
+                        elif total_size > 10 * 1024 * 1024:  # 大于10MB
+                            chunk_size = 131072  # 128KB
+                        else:
+                            chunk_size = 65536  # 64KB
+                        
+                        chunk_count = 0
+                        start_time = time.time()
+                        last_progress_update = time.time()
+                        last_progress_value = -1
+                        bytes_processed = 0
+                        speed_check_interval = 50  #每50chunk查速
+                        
+                        for chunk in response.iter_content(chunk_size=chunk_size):
+                            if is_running is not None and not is_running():
+                                logger.info("下载已被取消")
+                                raise Exception("下载已取消")
+                            
+                            if chunk:
+                                f.write(chunk)
+                                chunk_len = len(chunk)
+                                downloaded_size += chunk_len
+                                chunk_count += 1
+                                bytes_processed += chunk_len
+                                
+                                current_time = time.time()
+                                if chunk_count % 5 == 0 or current_time - last_progress_update >= 0.5:
+                                    if total_size > 0:
+                                        progress = min(99, int((downloaded_size / total_size) * 100))
+                                    else:
+                                        progress = min(99, int(chunk_count / 100))
+                                    
+                                    if progress != last_progress_value or current_time - last_progress_update >= 1.0:
+                                        if progress_callback:
+                                            progress_callback(progress, downloaded_size)
+                                        last_progress_value = progress
+                                        last_progress_update = current_time
+                                        
+                                if chunk_count % speed_check_interval == 0:
+                                    elapsed_time = current_time - start_time
+                                    if elapsed_time > 0:
+                                        speed = bytes_processed / elapsed_time / 1024  # KB/s
+                                        logger.debug(f"下载速度：{speed:.2f} KB/s，进度：{progress}%")
+                                        bytes_processed = 0
+                    
+                    if total_size > 0 and downloaded_size < total_size:
+                        raise requests.exceptions.ChunkedEncodingError(
+                            f"下载不完整：已下载{downloaded_size}字节，应为{total_size}字节"
+                            f"（缺少{total_size - downloaded_size}字节）"
+                        )
+
+                    download_success = True
+                    total_time = time.time() - start_time
+                    if total_time > 0:
+                        average_speed = downloaded_size / total_time / 1024 / 1024  # MB/s
+                        logger.info(f"下载完成，总大小：{downloaded_size/1024/1024:.2f}MB，耗时：{total_time:.2f}秒，平均速度：{average_speed:.2f}MB/s")
+                    else:
+                        logger.info(f"下载完成，总大小：{downloaded_size/1024/1024:.2f}MB")
+                    
+                except (requests.exceptions.ChunkedEncodingError, requests.exceptions.ConnectionError) as e:
+                    download_retry_count += 1
+                    if is_running is not None and not is_running():
+                        raise Exception("下载已取消")
+                    if download_retry_count >= max_download_retries:
+                        logger.error(f"下载失败，已重试{max_download_retries}次：{str(e)}")
+                        raise Exception(f"网络连接中断，下载失败：{str(e)}")
+
+                    if response is not None:
+                        try:
+                            response.close()
+                        except Exception:
+                            pass
+                        response = None
+
+                    # 退避2,4秒防再次限流
+                    wait = 2 ** download_retry_count
+                    logger.warning(f"下载中断，{wait}秒后重试：{str(e)}")
+                    slept = 0
+                    while slept < wait:
+                        if is_running is not None and not is_running():
+                            raise Exception("下载已取消")
+                        time.sleep(min(0.5, wait - slept))
+                        slept += 0.5
+
+                    if os.path.exists(temp_path):
+                        downloaded_size = os.path.getsize(temp_path)
+                        logger.info(f"已下载{downloaded_size}字节，尝试断点续传")
+                    
+                    headers['Range'] = f'bytes={downloaded_size}-'
+                    mode = 'ab'
+                    
+                    try:
+                        response = session.get(url, stream=True, headers=headers, timeout=(15, 30))
+                        logger.info(f"断点续传响应状态码：{response.status_code}")
+
+                        if response.status_code == 206:
+                            _cr = response.headers.get('content-range', '')
+                            if '/' in _cr:
+                                try:
+                                    total_size = int(_cr.split('/')[-1])
+                                    logger.info(f"断点续传：完整文件大小应为{total_size}字节")
+                                except (ValueError, TypeError):
+                                    pass
+
+                        if response.status_code == 416:
+                            _local = os.path.getsize(temp_path) if os.path.exists(temp_path) else 0
+                            response.close()
+                            response = None
+                            if total_size > 0 and _local >= total_size:
+                                logger.info("文件已下载完成")
+                                downloaded_size = _local
+                                download_success = True
+                                break
+                            raise Exception(
+                                f"断点续传被拒绝(416)：本地{_local}字节，"
+                                f"应为{total_size}字节"
+                            )
+
+                        response.raise_for_status()
+                    except Exception as retry_e:
+                        logger.error(f"断点续传请求失败：{str(retry_e)}")
+                        if download_retry_count >= max_download_retries:
+                            raise Exception(f"断点续传失败：{str(retry_e)}")
+            if response is not None:
+                try:
+                    response.close()
+                except Exception:
+                    pass
+                response = None
+
+            if not download_success or downloaded_size <= 0:
+                raise Exception("下载未完成：未获取到有效数据")
+            if total_size > 0 and downloaded_size < total_size:
+                raise Exception(
+                    f"下载不完整：已下载{downloaded_size}字节，应为{total_size}字节"
+                )
+            _actual_size = os.path.getsize(temp_path) if os.path.exists(temp_path) else 0
+            if total_size > 0 and _actual_size < total_size:
+                raise Exception(
+                    f"临时文件不完整：{_actual_size}字节，应为{total_size}字节"
+                )
+
+            if progress_callback:
+                progress_callback(100, downloaded_size)
+            
+            if file_type in ["video", "audio"]:
+                is_encrypted, encryption_type = self._check_encryption(temp_path)
+                if is_encrypted:
+                    logger.info(f"检测到{file_type}被{encryption_type}加密，尝试解密")
+                    try:
+                        max_attempts = 5
+                        for attempt in range(max_attempts):
+                            try:
+                                with open(temp_path, 'rb') as f:
+                                    logger.info(f"文件可以正常打开（解密前尝试{attempt+1}/{max_attempts}）")
+                                break
+                            except Exception as e:
+                                logger.error(f"文件被占用：{str(e)}")
+                                if attempt < max_attempts - 1:
+                                    logger.info(f"等待{3*(attempt+1)}秒后重试...")
+                                    time.sleep(3*(attempt+1))
+                                else:
+                                    logger.error(f"文件仍然被占用，尝试{max_attempts}次后失败")
+                                    raise Exception("文件被占用，无法解密")
+                        
+                        decrypted_path = temp_path + ".decrypted"
+                        decrypted_path = asyncio.run(self._decrypt_with_bento4(temp_path, decrypted_path, kid))
+                        import time
+                        time.sleep(1)
+                        if not os.path.exists(decrypted_path):
+                            raise Exception("解密后文件不存在")
+                        # 再查文件存在性防竞态
+                        if not os.path.exists(decrypted_path):
+                            raise Exception("解密后文件不存在（竞态条件）")
+                        decrypted_size = os.path.getsize(decrypted_path)
+                        if decrypted_size < 1024:
+                            raise Exception(f"解密后文件过小：{decrypted_size}字节")
+                        logger.info("等待解密后文件释放...")
+                        time.sleep(2)
+                        
+                        for attempt in range(max_attempts):
+                            try:
+                                with open(temp_path, 'rb') as f:
+                                    pass
+                                with open(decrypted_path, 'rb') as f:
+                                    pass
+                                logger.info(f"文件可以正常打开（替换前尝试{attempt+1}/{max_attempts}）")
+                                break
+                            except Exception as e:
+                                logger.error(f"文件被占用：{str(e)}")
+                                if attempt < max_attempts - 1:
+                                    logger.info(f"等待{2*(attempt+1)}秒后重试...")
+                                    time.sleep(2*(attempt+1))
+                                else:
+                                    logger.error(f"文件仍然被占用，尝试{max_attempts}次后失败")
+                                    raise Exception("文件被占用，无法替换")
+                        
+                        os.remove(temp_path)
+                        os.rename(decrypted_path, temp_path)
+                        logger.info(f"{file_type}解密成功")
+                    except Exception as decrypt_e:
+                        logger.error(f"解密失败：{str(decrypt_e)}")
+                        if os.path.exists(temp_path):
+                            try:
+                                os.remove(temp_path)
+                                logger.debug(f"已清理加密的临时文件：{temp_path}")
+                            except Exception as clean_e:
+                                logger.warning(f"清理临时文件失败：{clean_e}")
+                        if os.path.exists(decrypted_path):
+                            try:
+                                os.remove(decrypted_path)
+                                logger.debug(f"已清理解密失败的临时文件：{decrypted_path}")
+                            except Exception as clean_e:
+                                logger.warning(f"清理临时文件失败：{clean_e}")
+                        raise Exception(f"流媒体已加密，解密失败：{str(decrypt_e)}")
+            
+            import shutil
+            try:
+                if os.path.isdir(save_path):
+                    actual_save_path = os.path.join(save_path, os.path.basename(temp_path))
+                else:
+                    actual_save_path = save_path
+                if os.path.exists(actual_save_path):
+                    max_retries = 3
+                    for attempt in range(max_retries):
+                        try:
+                            os.remove(actual_save_path)
+                            break
+                        except Exception as remove_e:
+                            logger.warning(f"删除文件失败（尝试{attempt+1}/{max_retries}）：{str(remove_e)}")
+                            if attempt < max_retries - 1:
+                                time.sleep(1)
+                            else:
+                                raise
+                move_file_no_copy(temp_path, actual_save_path, logger=logger)
+                logger.info(f"文件已保存到（同盘零拷贝移动）：{actual_save_path}")
+
+                if not os.path.exists(actual_save_path) or os.path.getsize(actual_save_path) == 0:
+                    from utils import verify_and_ensure_save
+                    actual_path, saved = verify_and_ensure_save(actual_save_path, source_path=temp_path if os.path.exists(temp_path) else None)
+                    if saved:
+                        logger.info(f"文件保存验证修复成功：{actual_path}")
+                        return actual_path
+                    else:
+                        logger.error(f"文件保存验证失败，目标路径：{actual_save_path}")
+
+                return actual_save_path
+            except Exception as e:
+                logger.error(f"移动文件失败：{str(e)}")
+                if os.path.exists(temp_path):
+                    from utils import verify_and_ensure_save
+                    actual_path, saved = verify_and_ensure_save(actual_save_path, source_path=temp_path)
+                    if saved:
+                        logger.info(f"移动失败后备用保存成功：{actual_path}")
+                        return actual_path
+                logger.warning("返回临时文件路径")
+                return temp_path
+        except requests.exceptions.Timeout as e:
+            logger.error(f"下载超时：{str(e)}")
+            raise Exception(f"下载超时：{str(e)}")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"网络请求失败：{str(e)}")
+            raise Exception(f"网络请求失败：{str(e)}")
+        except Exception as e:
+            if "TASK_PAUSED" in str(e):
+                logger.info(f"下载暂停：{str(e)}")
+                raise
+            if "取消" in str(e):
+                logger.info(f"下载中断：{str(e)}")
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except Exception as clean_e:
+                        logger.warning(f"清理临时文件失败：{clean_e}")
+                raise
+            logger.error(f"下载错误：{str(e)}")
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                    logger.debug(f"已清理临时文件：{temp_path}")
+                except Exception as clean_e:
+                    logger.warning(f"清理临时文件失败：{clean_e}")
+            raise Exception(f"{file_type}下载失败：{str(e)}")
+
+    @staticmethod
+    def _extract_kid_from_video_info(video, log_prefix=""):
+        import base64 as _b64
+        kid = None
+
+        if not kid and video.get('bilidrm_uri'):
+            uri = video['bilidrm_uri']
+            m = re.search(r'uri:bili://([0-9a-f]{32})', uri, re.IGNORECASE)
+            if m:
+                kid = m.group(1)
+                logger.info(f"{log_prefix}从bilidrm_uri中提取到KID：{kid}")
+
+        if not kid and video.get('uri'):
+            uri = video['uri']
+            m = re.search(r'uri:bili://([0-9a-f]{32})', uri, re.IGNORECASE)
+            if m:
+                kid = m.group(1)
+                logger.info(f"{log_prefix}从URI中提取到KID：{kid}")
+
+        if not kid and video.get('baseUrl'):
+            m = re.search(r'kid=([0-9a-fA-F]{32})', video['baseUrl'])
+            if m:
+                kid = m.group(1)
+                logger.info(f"{log_prefix}从baseUrl参数中提取到KID：{kid}")
+
+        if not kid and video.get('base_url'):
+            m = re.search(r'kid=([0-9a-fA-F]{32})', video['base_url'])
+            if m:
+                kid = m.group(1)
+                logger.info(f"{log_prefix}从base_url参数中提取到KID：{kid}")
+
+        if not kid and video.get('widevine_pssh'):
+            try:
+                pssh_data = _b64.b64decode(video['widevine_pssh'])
+                if len(pssh_data) >= 32:
+                    widevine_sid = bytes.fromhex('edef8ba979d64acea3c827dcd51d21ed')
+                    sid_pos = pssh_data.find(widevine_sid)
+                    if sid_pos >= 0:
+                        data_size_pos = sid_pos + 16
+                        if data_size_pos + 4 <= len(pssh_data):
+                            data_size = int.from_bytes(pssh_data[data_size_pos:data_size_pos + 4], 'big')
+                            data_start = data_size_pos + 4
+                            data_end = min(data_start + data_size, len(pssh_data))
+                            payload = pssh_data[data_start:data_end]
+                            idx = payload.find(b'\x12\x10')
+                            if idx >= 0 and idx + 2 + 16 <= len(payload):
+                                extracted = payload[idx + 2:idx + 18].hex()
+                                if extracted != '0' * 32:
+                                    kid = extracted
+                                    logger.info(f"{log_prefix}从widevine_pssh中提取到KID：{kid}")
+                            else:
+                                version = pssh_data[sid_pos - 4] if sid_pos >= 4 else 0
+                                if version == 1 and len(payload) >= 4 + 16:
+                                    kid_count = int.from_bytes(payload[:4], 'big')
+                                    if kid_count > 0:
+                                        extracted = payload[4:20].hex()
+                                        if extracted != '0' * 32:
+                                            kid = extracted
+                                            logger.info(f"{log_prefix}从widevine_pssh(v1)中提取到KID：{kid}")
+            except Exception as pssh_e:
+                logger.warning(f"{log_prefix}从widevine_pssh提取KID失败: {pssh_e}")
+
+        return kid
+
+    def _extract_kid_from_binary(self, m4s_path):
+        try:
+            _READ_SIZE = 2 * 1024 * 1024
+            with open(m4s_path, 'rb') as f:
+                data = f.read(_READ_SIZE)
+
+            if not data or len(data) < 32:
+                logger.warning(f"二进制解析KID：文件过小或无法读取（{len(data) if data else 0}字节）")
+                return None
+
+            tenc_marker = b'tenc'
+            pos = 0
+            while True:
+                pos = data.find(tenc_marker, pos)
+                if pos < 0:
+                    break
+                if pos >= 4:
+                    box_size = int.from_bytes(data[pos - 4:pos], 'big')
+                    if 28 <= box_size <= 64:
+                        box_start = pos - 4
+                        kid_start = box_start + box_size - 16
+                        kid_end = kid_start + 16
+                        if kid_end <= len(data):
+                            kid_bytes = data[kid_start:kid_end]
+                            if kid_bytes != b'\x00' * 16:
+                                kid = kid_bytes.hex()
+                                logger.info(f"从tenc box中提取到KID：{kid}（pos={pos}, box_size={box_size}）")
+                                return kid
+                pos += 4
+
+            widevine_sid = bytes.fromhex('edef8ba979d64acea3c827dcd51d21ed')
+            pssh_marker = b'pssh'
+            pos = 0
+            while True:
+                pos = data.find(pssh_marker, pos)
+                if pos < 0:
+                    break
+                if pos >= 4:
+                    box_size = int.from_bytes(data[pos - 4:pos], 'big')
+                    if box_size >= 32 and pos + box_size - 4 <= len(data):
+                        sys_id_start = pos + 8
+                        sys_id_end = sys_id_start + 16
+                        if sys_id_end <= len(data) and data[sys_id_start:sys_id_end] == widevine_sid:
+                            if sys_id_end + 4 <= len(data):
+                                data_size = int.from_bytes(data[sys_id_end:sys_id_end + 4], 'big')
+                                pssh_payload_start = sys_id_end + 4
+                                pssh_payload_end = min(pssh_payload_start + data_size, len(data))
+                                pssh_payload = data[pssh_payload_start:pssh_payload_end]
+                                idx = pssh_payload.find(b'\x12\x10')
+                                if idx >= 0 and idx + 2 + 16 <= len(pssh_payload):
+                                    kid_bytes = pssh_payload[idx + 2:idx + 18]
+                                    if kid_bytes != b'\x00' * 16:
+                                        kid = kid_bytes.hex()
+                                        logger.info(f"从pssh box(Widevine v0)中提取到KID：{kid}")
+                                        return kid
+                pos += 4
+
+            logger.warning("二进制解析KID：未找到tenc/pssh box或KID为空")
+            return None
+        except Exception as e:
+            logger.error(f"二进制解析KID时出错：{str(e)}")
+            import traceback
+            logger.debug("traceback", exc_info=True)
+            return None
+
+    def _extract_kid_from_m4s(self, m4s_path):
+        import re
+
+        original_m4s_path = m4s_path
+        _temp_m4s_copied = False
+        if has_non_ascii(m4s_path):
+            short_path = to_short_path(m4s_path)
+            if short_path != m4s_path:
+                m4s_path = short_path
+                logger.info(f"[KID提取] 中文路径，使用8.3短路径：{short_path}")
+            else:
+                try:
+                    _tmp_dir = self.safe_temp_dir
+                    _unique_name = f"m4s_extract_{os.getpid()}_{int(time.time() * 1000) % 1000000}_{os.path.basename(m4s_path)}"
+                    _tmp_path = os.path.join(_tmp_dir, _unique_name)
+                    
+                    _HEAD_BYTES = 1024 * 1024  # 1MB
+                    with open(m4s_path, 'rb') as src_f:
+                        head_data = src_f.read(_HEAD_BYTES)
+                    with open(_tmp_path, 'wb') as dst_f:
+                        dst_f.write(head_data)
+                    m4s_path = _tmp_path
+                    _temp_m4s_copied = True
+                    logger.info(f"[KID提取] 短路径转换失败，复制文件头部({_HEAD_BYTES//1024}KB)到临时目录：{_tmp_path}")
+                except Exception as _e:
+                    logger.warning(f"[KID提取] 复制到临时目录失败，使用原路径：{_e}")
+        
+        try:
+            if not os.path.exists(m4s_path):
+                logger.error(f"M4S文件不存在：{m4s_path}")
+                return None
+            
+            file_size = os.path.getsize(m4s_path)
+            logger.info(f"M4S文件大小：{file_size}字节")
+            
+            if file_size < 1024:
+                logger.warning("文件过小，可能不是有效的M4S文件")
+                return None
+            
+            logger.info("等待文件释放...")
+            time.sleep(2)
+            
+            max_attempts = 3
+            for attempt in range(max_attempts):
+                try:
+                    with open(m4s_path, 'rb') as f:
+                        logger.info(f"文件可以正常打开（尝试{attempt+1}/{max_attempts}")
+                    break
+                except Exception as e:
+                    logger.error(f"文件被占用：{str(e)}")
+                    if attempt < max_attempts - 1:
+                        logger.info(f"等待{2*(attempt+1)}秒后重试...")
+                        time.sleep(2*(attempt+1))
+                    else:
+                        logger.error(f"文件仍然被占用，尝试{max_attempts}次后失败")
+                        return None
+            
+            logger.info("尝试通过二进制解析提取KID...")
+            kid = self._extract_kid_from_binary(m4s_path)
+            if kid:
+                return kid
+
+            bento4_path = os.path.join(self.bento4_dir, exe('mp4dump'))
+            if os.path.exists(bento4_path):
+                try:
+                    absolute_path = os.path.abspath(m4s_path)
+                    logger.info(f"使用绝对路径：{absolute_path}")
+
+                    cmd = [bento4_path, absolute_path]
+                    logger.info(f"执行命令：{' '.join(cmd)}")
+                    
+                    import subprocess
+                    result = subprocess.run(cmd, capture_output=True, text=False, timeout=30,
+                                          **subprocess_no_window_kwargs())
+                    
+                    if result.returncode == 0:
+                        output = result.stdout.decode('utf-8', errors='replace')
+                        kid_match = re.search(r'default_KID\s*=\s*\[(.*?)\]', output)
+                        if not kid_match:
+                            kid_match = re.search(r'KID\s*=\s*\[(.*?)\]', result.stdout)
+                        if not kid_match:
+                            kid_match = re.search(r'[Kk][Ii][Dd]\s*[:=]\s*\[(.*?)\]', result.stdout)
+                        if not kid_match:
+                            kid_match = re.search(r'uri:bili://([0-9a-fA-F]{32})', result.stdout)
+                        if not kid_match:
+                            kid_match = re.search(r'([0-9a-fA-F]{32})', result.stdout)
+                        
+                        if kid_match:
+                            if len(kid_match.groups()) > 0:
+                                kid_hex = kid_match.group(1)
+                                kid = ''.join(kid_hex.split())
+                                if len(kid) == 32 and all(c in '0123456789abcdefABCDEF' for c in kid):
+                                    logger.info(f"从mp4dump输出中提取到KID：{kid}")
+                                    return kid
+                                else:
+                                    logger.error(f"提取到的KID格式不正确：{kid}")
+                            else:
+                                kid = kid_match.group(0)
+                                if len(kid) == 32 and all(c in '0123456789abcdefABCDEF' for c in kid):
+                                    logger.info(f"从mp4dump输出中提取到KID：{kid}")
+                                    return kid
+                    else:
+                        logger.warning(f"mp4dump返回错误：{result.stderr}")
+                except Exception as e:
+                    logger.warning(f"执行mp4dump时出错：{str(e)}")
+            else:
+                logger.warning("Bento4 mp4dump工具不存在")
+            
+            logger.info("尝试直接从文件内容中提取KID...")
+            try:
+                with open(m4s_path, 'rb') as f:
+                    file_content = f.read(102400)
+                    content_str = file_content.decode('utf-8', errors='ignore')
+                    
+                    kid_match = re.search(r'uri:bili://([0-9a-fA-F]{32})', content_str)
+                    if not kid_match:
+                        kid_match = re.search(r'([0-9a-fA-F]{32})', content_str)
+                    
+                    if kid_match:
+                        kid = kid_match.group(1) if kid_match.groups() else kid_match.group(0)
+                        if len(kid) == 32 and all(c in '0123456789abcdefABCDEF' for c in kid):
+                            logger.info(f"从文件内容中提取到KID：{kid}")
+                            return kid
+                        else:
+                            logger.error(f"提取到的KID格式不正确：{kid}")
+            except Exception as e:
+                logger.error(f"直接读取文件时出错：{str(e)}")
+            
+            mp4info_path = os.path.join(self.bento4_dir, exe('mp4info'))
+            if os.path.exists(mp4info_path):
+                try:
+                    absolute_path = os.path.abspath(m4s_path)
+                    cmd = [mp4info_path, absolute_path]
+                    logger.info(f"执行命令：{' '.join(cmd)}")
+                    
+                    import subprocess
+                    result = subprocess.run(cmd, capture_output=True, text=False, timeout=30,
+                                          **subprocess_no_window_kwargs())
+                    
+                    if result.returncode == 0:
+                        output = result.stdout.decode('utf-8', errors='replace')
+                        kid_match = re.search(r'default_KID\s*=\s*\[(.*?)\]', output)
+                        if not kid_match:
+                            kid_match = re.search(r'KID\s*=\s*\[(.*?)\]', output)
+                        if not kid_match:
+                            kid_match = re.search(r'uri:bili://([0-9a-fA-F]{32})', output)
+                        if not kid_match:
+                            kid_match = re.search(r'([0-9a-fA-F]{32})', output)
+                        
+                        if kid_match:
+                            kid = kid_match.group(1) if kid_match.groups() else kid_match.group(0)
+                            if len(kid) == 32 and all(c in '0123456789abcdefABCDEF' for c in kid):
+                                logger.info(f"从mp4info输出中提取到KID：{kid}")
+                                return kid
+                except Exception as e:
+                    logger.warning(f"执行mp4info时出错：{str(e)}")
+            
+            logger.error("所有方法都无法提取KID")
+            return None
+        except Exception as e:
+            logger.error(f"提取KID时出错：{str(e)}")
+            import traceback
+            logger.debug("traceback", exc_info=True)
+            return None
+        finally:
+            if _temp_m4s_copied and m4s_path != original_m4s_path:
+                try:
+                    if os.path.exists(m4s_path):
+                        os.remove(m4s_path)
+                except Exception:
+                    pass
+
+    async def _decrypt_with_bento4(self, input_file, output_file, kid=None):
+        # 提前初始化防未定义
+        need_temp_copy = False
+        temp_input = None
+        temp_output = None
+        temp_dir = self.safe_temp_dir
+        
+        try:
+            if not kid:
+                try:
+                    kid = self._extract_kid_from_m4s(input_file)
+                    logger.info(f"提取到KID：{kid}")
+                except Exception as e:
+                    logger.warning(f"提取KID时发生异常：{str(e)}")
+
+                if not kid:
+                    raise Exception("无法获取DRM KID，无法解密")
+
+            key = None
+            retry_count = 0
+            max_retries = 3
+
+            while retry_count < max_retries:
+                try:
+                    async with SimpleBiliDRM() as drm:
+                        key = await drm.get_key(kid)
+                        if key:
+                            break
+                except Exception as e:
+                    logger.warning(f"获取DRM密钥失败，尝试重试 ({retry_count+1}/{max_retries})：{str(e)}")
+                    retry_count += 1
+                    await asyncio.sleep(2)
+
+            if not key:
+                raise Exception("多次尝试后仍然无法获取DRM密钥")
+
+            logger.info(f"使用KID {kid} 和密钥 {key} 解密文件")
+            
+            if not os.path.exists(input_file):
+                raise Exception(f"输入文件不存在：{input_file}")
+            
+            output_dir = os.path.dirname(output_file)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+            
+            input_file = os.path.abspath(input_file)
+            output_file = os.path.abspath(output_file)
+            
+            base_name = os.path.basename(output_file)
+            if not base_name.endswith('.mp4'):
+                output_file = os.path.join(os.path.dirname(output_file), f"{os.path.splitext(base_name)[0]}.mp4")
+            
+            logger.info(f"输入文件绝对路径：{input_file}")
+            logger.info(f"输出文件绝对路径：{output_file}")
+            
+            need_temp_copy = False
+            temp_input_is_copy = False
+            temp_input = input_file
+            temp_output = output_file
+            
+            input_has_non_ascii = has_non_ascii(input_file)
+            output_has_non_ascii = has_non_ascii(output_file)
+            
+            if input_has_non_ascii or output_has_non_ascii:
+                if input_has_non_ascii:
+                    short_input = to_short_path(input_file)
+                    if short_input != input_file:
+                        temp_input = short_input
+                        logger.info(f"输入文件使用8.3短路径：{short_input}")
+                    else:
+                        temp_input = os.path.join(temp_dir, f"decrypt_input_{os.getpid()}_{int(time.time() * 1000) % 100000000}_{os.path.basename(input_file)}")
+                        link_or_copy(input_file, temp_input, logger=logger)
+                        temp_input_is_copy = True  # 标记为副本，异常时清理
+                        logger.info(f"输入文件短路径转换失败，已准备同盘副本：{temp_input}")
+                
+                temp_output = os.path.join(temp_dir, f"decrypt_output_{os.getpid()}_{int(time.time() * 1000) % 100000000}.mp4")
+                need_temp_copy = True  # 标记需复制回原位
+                logger.info(f"输出文件使用ASCII临时路径：{temp_output}")
+            
+            try:
+                ffmpeg_exec = self.ffmpeg_local
+                if not ffmpeg_exec or not os.path.exists(ffmpeg_exec):
+                    ffmpeg_exec = shutil.which('ffmpeg')
+                if not ffmpeg_exec or not os.path.exists(ffmpeg_exec):
+                    raise Exception("未找到ffmpeg")
+                ffmpeg_exec = os.path.normpath(ffmpeg_exec)
+                
+                cmd = [
+                    ffmpeg_exec,
+                    '-decryption_key', f'{key}',
+                    '-i', temp_input,
+                    '-c', 'copy',
+                    '-y',
+                    temp_output
+                ]
+                logger.info(f"使用ffmpeg执行解密命令：{' '.join(cmd)}")
+                
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+                
+                if process.returncode != 0:
+                    error_msg = _decode_subprocess_output(stderr)
+                    logger.error(f"ffmpeg解密失败，返回码：{process.returncode}")
+                    logger.error(f"错误输出：{error_msg}")
+                    logger.error(f"标准输出：{_decode_subprocess_output(stdout)}")
+                    if need_temp_copy and temp_output and os.path.exists(temp_output):
+                        try:
+                            os.remove(temp_output)
+                        except Exception:
+                            pass
+                    raise Exception(f"ffmpeg解密失败：{error_msg}")
+
+                # 返回0也须验证输出
+                actual_output = temp_output if need_temp_copy else output_file
+                
+                await asyncio.sleep(0.5)
+                
+                if not os.path.exists(actual_output):
+                    stderr_text = _decode_subprocess_output(stderr).strip()
+                    stdout_text = _decode_subprocess_output(stdout).strip()
+                    logger.error(f"ffmpeg返回成功但输出文件不存在: {actual_output}")
+                    logger.error(f"ffmpeg stderr: {stderr_text[:500] if stderr_text else '(空)'}")
+                    logger.error(f"ffmpeg stdout: {stdout_text[:500] if stdout_text else '(空)'}")
+                    raise Exception(f"ffmpeg解密后输出文件不存在: {actual_output}")
+                
+                output_size = os.path.getsize(actual_output)
+                if output_size < 1024:
+                    logger.error(f"ffmpeg解密输出文件过小: {actual_output}, 大小={output_size}字节")
+                    raise Exception(f"ffmpeg解密输出文件过小: {output_size}字节")
+                
+                logger.info(f"ffmpeg解密输出文件验证通过: {actual_output} ({output_size}字节)")
+                
+                if need_temp_copy and temp_output != output_file:
+                    move_file_no_copy(temp_output, output_file, logger=logger)
+                    logger.info(f"解密结果已移动到目标路径（同盘零拷贝）：{output_file}")
+                
+                logger.info(f"ffmpeg解密成功：{input_file} -> {output_file}")
+                return output_file
+            except Exception as ffmpeg_e:
+                logger.warning(f"ffmpeg解密失败，尝试使用Bento4：{str(ffmpeg_e)}")
+                
+                bento4_path = os.path.join(self.bento4_dir, exe('mp4decrypt'))
+                if not os.path.exists(bento4_path):
+                    raise Exception(f"Bento4 mp4decrypt工具不存在：{bento4_path}")
+                
+                if temp_input_is_copy and os.path.exists(temp_input):
+                    simple_input = temp_input
+                else:
+                    _unique_suffix = f"{os.getpid()}_{int(time.time() * 1000) % 1000000}_{os.urandom(4).hex()}"
+                    simple_input = os.path.join(temp_dir, f"bento4_input_{_unique_suffix}.m4s")
+                    link_or_copy(temp_input, simple_input, logger=logger)
+                    logger.info(f"已准备ASCII安全同盘副本：{simple_input}")
+                simple_output = os.path.splitext(simple_input)[0] + ".decrypted.mp4"
+                
+                cmd = [bento4_path, '--key', f'{kid}:{key}', simple_input, simple_output]
+                logger.info(f"使用Bento4执行解密命令：{' '.join(cmd)}")
+                
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+
+                if process.returncode != 0:
+                    error_msg = _decode_subprocess_output(stderr)
+                    logger.error(f"Bento4解密失败，返回码：{process.returncode}")
+                    logger.error(f"错误输出：{error_msg}")
+                    logger.error(f"标准输出：{_decode_subprocess_output(stdout)}")
+                    if os.path.exists(simple_input):
+                        try:
+                            os.remove(simple_input)
+                        except Exception as e:
+                            logger.warning(f"清理临时输入文件失败：{e}")
+                    if os.path.exists(simple_output):
+                        try:
+                            os.remove(simple_output)
+                        except Exception as e:
+                            logger.warning(f"清理临时输出文件失败：{e}")
+                    raise Exception(f"Bento4解密失败：{error_msg}")
+                
+                await asyncio.sleep(1.0)  # 增加等待时间
+
+                if os.path.exists(simple_output) and os.path.getsize(simple_output) > 1024:
+                    move_file_no_copy(simple_output, output_file, logger=logger)
+                    logger.info(f"解密后的文件已移动到目标位置（同盘零拷贝）：{output_file}")
+                else:
+                    if os.path.exists(simple_input):
+                        try:
+                            os.remove(simple_input)
+                        except Exception as e:
+                            logger.warning(f"清理临时输入文件失败：{e}")
+                    if os.path.exists(simple_output):
+                        try:
+                            os.remove(simple_output)
+                        except Exception as e:
+                            logger.warning(f"清理临时输出文件失败：{e}")
+                    raise Exception("解密后文件不存在或文件过小")
+
+                if os.path.exists(simple_input):
+                    try:
+                        os.remove(simple_input)
+                    except Exception as e:
+                        logger.warning(f"清理临时输入文件失败：{e}")
+                if os.path.exists(simple_output):
+                    try:
+                        os.remove(simple_output)
+                    except Exception as e:
+                        logger.warning(f"清理临时输出文件失败：{e}")
+                
+                logger.info(f"Bento4解密成功：{input_file} -> {output_file}")
+                return output_file
+        except Exception as e:
+            logger.error(f"解密时出错：{str(e)}")
+            import traceback
+            logger.debug("traceback", exc_info=True)
+            if need_temp_copy:
+                files_to_clean = []
+                if temp_input_is_copy and temp_input and os.path.exists(temp_input):
+                    files_to_clean.append(temp_input)
+                if temp_output and temp_output != output_file and os.path.exists(temp_output):
+                    files_to_clean.append(temp_output)
+                for tf in files_to_clean:
+                    try:
+                        os.remove(tf)
+                    except Exception:
+                        pass
+            raise
+
+    def _check_encryption(self, video_path):
+        try:
+            if not video_path or not os.path.exists(video_path):
+                logger.error(f"加密检测：文件不存在：{video_path}")
+                return False, ""
+
+            if has_non_ascii(video_path):
+                short_path = to_short_path(video_path)
+                if short_path != video_path:
+                    logger.info(f"加密检测：使用8.3短路径：{short_path}")
+                    video_path = short_path
+
+            file_size = os.path.getsize(video_path)
+            logger.info(f"加密检测：文件大小={file_size}字节")
+
+            if file_size < 1024:
+                logger.warning("加密检测：文件过小，可能是加密文件")
+                return True, "加密文件"
+
+            try:
+                ffprobe_exec = None
+                if self.ffmpeg_local and os.path.exists(self.ffmpeg_local):
+                    ffprobe_path = os.path.join(os.path.dirname(self.ffmpeg_local), exe('ffprobe'))
+                    if os.path.exists(ffprobe_path):
+                        ffprobe_exec = os.path.normpath(ffprobe_path)
+                if not ffprobe_exec or not os.path.exists(ffprobe_exec):
+                    ffprobe_exec = shutil.which('ffprobe')
+                    if ffprobe_exec:
+                        ffprobe_exec = os.path.normpath(ffprobe_exec)
+
+                if ffprobe_exec and os.path.exists(ffprobe_exec):
+                    cmd = [ffprobe_exec, '-i', video_path, '-v', 'error', '-print_format', 'json', '-show_format', '-show_streams']
+                    logger.info(f"加密检测：使用ffprobe检测文件类型，命令={cmd}")
+                    result = run_no_window(cmd, timeout=30, text=False)
+                    stdout = result.stdout.decode('utf-8', errors='replace')
+                    stderr = result.stderr.decode('utf-8', errors='replace')
+                    logger.info(f"加密检测：ffprobe返回码={result.returncode}")
+                    logger.info(f"加密检测：ffprobe stdout={stdout}")
+                    logger.info(f"加密检测：ffprobe stderr={stderr}")
+
+                    decode_errors = ['error while decoding', 'top block unavailable',
+                                     'Could not open codec', 'Decrypting not allowed']
+                    has_decode_error = any(error in stderr for error in decode_errors)
+
+                    has_encryption_error = 'Decrypt' in stderr or 'encrypted' in stderr.lower()
+
+                    has_invalid_data = 'Invalid data found' in stderr or 'error reading header' in stderr
+
+                    if result.returncode == 0 and not has_decode_error:
+                        logger.info("加密检测：ffprobe检测成功，文件格式正常")
+                        return False, ""
+                    elif has_encryption_error:
+                        logger.warning("加密检测：ffprobe输出明确加密错误，标记为加密文件")
+                        return True, "加密文件"
+                    elif has_decode_error:
+                        logger.warning("加密检测：ffprobe解码错误，可能是加密文件")
+                        return True, "加密文件"
+                    elif result.returncode != 0 and has_invalid_data:
+                        logger.warning(f"加密检测：ffprobe返回码={result.returncode}且数据无效，疑似加密文件")
+                        return True, "加密文件"
+                    else:
+                        logger.warning(f"加密检测：ffprobe检测失败但非加密特征，继续备选检测")
+            except Exception as ffprobe_e:
+                logger.error(f"加密检测：ffprobe检测异常：{str(ffprobe_e)}")
+                logger.warning("加密检测：ffprobe检测异常，继续使用备选检测方法")
+
+            logger.info("加密检测：使用文件头备选检测方法")
+
+            with open(video_path, 'rb') as f:
+                header = f.read(256)
+                logger.info(f"加密检测：文件头前256字节={header[:256].hex()}")
+
+                if header.startswith(b'RDM'):
+                    logger.warning("加密检测：检测到RDM加密")
+                    return True, "RDM"
+
+                if header.startswith(b'AES-'):
+                    logger.warning("加密检测：检测到AES加密文件头")
+                    return True, "AES"
+
+                if header.startswith(b'Widevine') or header.startswith(b'PlayReady') or header.startswith(b'FairPlay'):
+                    logger.warning("加密检测：检测到DRM系统文件头")
+                    return True, "DRM"
+
+                if header.startswith(b'ftyp') or (len(header) >= 8 and header[4:8] == b'ftyp'):
+                    logger.info("加密检测：检测到MP4/m4s文件")
+                    return False, ""
+
+                if header[0:1] == b'\x47':
+                    logger.info("加密检测：检测到MPEG-TS文件")
+                    return False, ""
+
+                if header.startswith(b'FLV'):
+                    logger.info("加密检测：检测到FLV文件")
+                    return False, ""
+
+                if header.startswith(b'\x1a\x45\xdf\xa3'):
+                    logger.info("加密检测：检测到MKV/WebM文件")
+                    return False, ""
+
+                if header.startswith(b'ID3'):
+                    logger.info("加密检测：检测到MP3文件")
+                    return False, ""
+
+                if header.startswith(b'RIFF') and b'WAVE' in header[:12]:
+                    logger.info("加密检测：检测到WAV文件")
+                    return False, ""
+
+                if header.startswith(b'ADIF') or (len(header) >= 2 and header[0] == 0xFF and (header[1] & 0xF0) == 0xF0):
+                    logger.info("加密检测：检测到AAC文件")
+                    return False, ""
+
+                ext = os.path.splitext(video_path)[1].lower()
+                logger.info(f"加密检测：文件扩展名={ext}")
+                encrypted_exts = ['.enc', '.drm', '.protected', '.secure', '.encrypted']
+                if ext in encrypted_exts:
+                    logger.warning(f"加密检测：检测到加密文件扩展名{ext}")
+                    return True, "加密文件"
+
+                media_exts = ['.mp4', '.ts', '.flv', '.mkv', '.webm', '.m4s', '.mp3', '.wav', '.aac']
+                if ext in media_exts:
+                    logger.info(f"加密检测：检测到媒体文件扩展名{ext}")
+                    return False, ""
+
+                logger.warning(f"加密检测：检测到未知文件格式，但默认不标记为加密")
+                return False, ""
+        except Exception as e:
+            logger.error(f"加密检测：检测失败：{str(e)}")
+            import traceback
+            logger.debug("traceback", exc_info=True)
+            logger.warning("加密检测：检测异常，默认不标记为加密（避免误报）")
+            return False, ""
+            
+    def get_danmaku(self, cid, aid=None):
+        import logging
+        import gzip
+        import xml.etree.ElementTree as ET
+        import requests
+        logger = logging.getLogger(__name__)
+        
+        try:
+            xml_urls = [
+                f"https://comment.bilibili.com/{cid}.xml",
+                f"https://api.bilibili.com/x/v1/dm/list.so?oid={cid}"
+            ]
+            
+            for idx, xml_url in enumerate(xml_urls):
+                logger.info(f"尝试使用XML弹幕API：{xml_url}")
+                try:
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+                        'Referer': 'https://www.bilibili.com',
+                        'Accept-Encoding': 'gzip, deflate'
+                    }
+                    
+                    # 首选API超时则回退
+                    xml_timeout = 3 if idx == 0 else 8
+                    response = self.session.get(xml_url, headers=headers, timeout=xml_timeout, proxies={})
+                    logger.info(f"XML API响应状态码：{response.status_code}")
+                    logger.info(f"XML API响应头：{dict(response.headers)}")
+                    
+                    if response.status_code != 200:
+                        logger.warning(f"XML API请求失败，状态码：{response.status_code}")
+                        logger.warning(f"响应内容：{response.text[:200]}")
+                        continue
+                    
+                    content = response.content
+                    logger.info(f"响应内容长度：{len(content)}")
+                    
+                    if response.headers.get('Content-Encoding') == 'gzip':
+                        logger.info("处理gzip压缩响应")
+                        try:
+                            content = gzip.decompress(content)
+                            logger.info(f"解压后内容长度：{len(content)}")
+                        except Exception as e:
+                            logger.error(f"解压gzip响应失败：{str(e)}")
+                            continue
+                    
+                    try:
+                        xml_content = content.decode('utf-8')
+                        logger.info(f"XML内容前200字符：{xml_content[:200]}")
+                        
+                        root = ET.fromstring(xml_content)
+                        danmaku_list = []
+                        
+                        logger.info(f"XML根标签：{root.tag}")
+                        logger.info(f"XML子标签数量：{len(root)}")
+                        
+                        for d in root.findall('.//d'):
+                            p = d.get('p')
+                            if p:
+                                parts = p.split(',')
+                                if len(parts) >= 8:
+                                    try:
+                                        danmaku = {
+                                            "id": int(parts[7]),
+                                            "progress": int(float(parts[0]) * 1000),
+                                            "mode": int(parts[1]),
+                                            "fontsize": int(parts[2]),
+                                            "color": int(parts[3]),
+                                            "midHash": parts[6],
+                                            "content": d.text or "",
+                                            "ctime": int(parts[4]),
+                                            "weight": 1,
+                                            "pool": int(parts[5]),
+                                            "idStr": parts[7],
+                                            "attr": 0
+                                        }
+                                        danmaku_list.append(danmaku)
+                                    except (ValueError, IndexError) as e:
+                                        logger.error(f"解析弹幕数据失败：{str(e)}")
+                                        continue
+                        
+                        if danmaku_list:
+                            logger.info(f"XML API获取到{len(danmaku_list)}条弹幕")
+                            return {"data": {"danmaku": danmaku_list, "count": len(danmaku_list)}, "error": ""}
+                        else:
+                            logger.warning("XML API未获取到弹幕")
+                    except Exception as e:
+                        logger.error(f"解析XML失败：{str(e)}")
+                        try:
+                            logger.error(f"错误时的XML内容：{content[:500].decode('utf-8', errors='replace')}")
+                        except Exception:
+                            pass
+                        continue
+                except Exception as e:
+                    logger.error(f"XML API请求失败：{str(e)}")
+                    import traceback
+                    logger.debug("traceback", exc_info=True)
+                    continue
+            
+            proto_urls = [
+                {"url": "https://api.bilibili.com/x/v2/dm/web/seg.so", "params": {"type": 1, "oid": cid, "segment_index": 1}},
+                {"url": "https://api.bilibili.com/x/v2/dm/list/seg.so", "params": {"type": 1, "oid": cid, "segment_index": 1}},
+                {"url": "https://api.bilibili.com/x/v2/dm/wbi/web/seg.so", "params": {"type": 1, "oid": cid, "segment_index": 1}}
+            ]
+            
+            if aid:
+                proto_urls.append({"url": "https://api.bilibili.com/x/v2/dm/web/seg.so", "params": {"type": 1, "oid": cid, "pid": aid, "segment_index": 1}})
+            
+            for config in proto_urls:
+                url = config["url"]
+                params = config["params"]
+                logger.info(f"尝试使用Protobuf弹幕API：{url}，参数：{params}")
+                
+                try:
+                    if 'Referer' not in self.session.headers:
+                        self.session.headers.update({'Referer': 'https://www.bilibili.com'})
+                    
+                    response = self.session.get(url, params=params, timeout=10)
+                    logger.info(f"Protobuf API响应状态码：{response.status_code}")
+                    
+                    if response.status_code != 200:
+                        logger.warning(f"Protobuf API请求失败，状态码：{response.status_code}")
+                        continue
+                    
+                    content = response.content
+                    if not content:
+                        logger.warning("空响应")
+                        continue
+                    
+                    segment_danmaku = self._parse_danmaku_proto(content)
+                    if segment_danmaku:
+                        logger.info(f"Protobuf API获取到{len(segment_danmaku)}条弹幕")
+                        return {"data": {"danmaku": segment_danmaku, "count": len(segment_danmaku)}, "error": ""}
+                    else:
+                        logger.warning("Protobuf API未解析到弹幕")
+                except Exception as e:
+                    logger.error(f"Protobuf API请求失败：{str(e)}")
+                    import traceback
+                    logger.debug("traceback", exc_info=True)
+                    continue
+            
+            logger.info("所有API都未获取到弹幕")
+            return {"data": {"danmaku": [], "count": 0}, "error": ""}
+        except Exception as e:
+            logger.error(f"获取弹幕失败：{str(e)}")
+            import traceback
+            logger.debug("traceback", exc_info=True)
+            return {"data": {}, "error": str(e)}
+            
+    def _get_danmaku_info(self, cid, aid=None):
+        import logging
+        import json
+        logger = logging.getLogger(__name__)
+        
+        try:
+            url = "https://api.bilibili.com/x/v2/dm/web/view"
+            params = {
+                "type": 1,
+                "oid": cid
+            }
+            if aid:
+                params["pid"] = aid
+            
+            if 'Referer' not in self.session.headers:
+                self.session.headers.update({'Referer': 'https://www.bilibili.com'})
+            
+            response = self.session.get(url, params=params, timeout=10)
+            logger.info(f"弹幕API响应状态码：{response.status_code}")
+            logger.info(f"弹幕API响应头：{dict(response.headers)}")
+            
+            if response.status_code != 200:
+                logger.error(f"获取弹幕元数据失败：HTTP {response.status_code}")
+                return {"success": False, "error": f"HTTP {response.status_code}"}
+            
+            content = response.text.strip()
+            logger.info(f"弹幕API响应内容长度：{len(content)}")
+            logger.info(f"弹幕API响应内容前200字符：{content[:200]}")
+            
+            try:
+                data = json.loads(content)
+                code = data.get('code', 0)
+                if code != 0:
+                    error_message = data.get('message', '未知错误')
+                    logger.error(f"获取弹幕元数据失败：{error_message}（code={code}）")
+                    return {"success": False, "error": error_message}
+                
+                danmaku_data = data.get("data", {})
+                count = danmaku_data.get("count", 0)
+                
+                logger.info(f"获取弹幕元数据成功，弹幕总数：{count}")
+                return {"success": True, "count": count, "data": danmaku_data}
+            except JSONDecodeError:
+                logger.error(f"获取弹幕元数据失败：API返回的不是JSON格式数据")
+                logger.error(f"响应内容：{content[:500]}")
+                
+                try:
+                    url2 = "https://api.bilibili.com/x/v2/dm/preview"
+                    params2 = {
+                        "aid": aid or "0",
+                        "cid": cid,
+                        "page": 1
+                    }
+                    response2 = self.session.get(url2, params=params2, timeout=10)
+                    if response2.status_code == 200:
+                        content2 = response2.text.strip()
+                        data2 = json.loads(content2)
+                        if data2.get('code') == 0:
+                            danmaku_data2 = data2.get("data", {})
+                            count2 = danmaku_data2.get("count", 0)
+                            logger.info(f"使用备用API获取弹幕元数据成功，弹幕总数：{count2}")
+                            return {"success": True, "count": count2, "data": danmaku_data2}
+                except Exception as e2:
+                    logger.error(f"备用API也失败：{str(e2)}")
+                
+                return {"success": False, "error": "API返回的不是JSON格式数据"}
+        except Exception as e:
+            logger.error(f"获取弹幕元数据失败：{str(e)}")
+            import traceback
+            logger.debug("traceback", exc_info=True)
+            return {"success": False, "error": str(e)}
+            
+    def _get_danmaku_segment(self, cid, segment_index, aid=None):
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            url = "https://api.bilibili.com/x/v2/dm/web/seg.so"
+            params = {
+                "type": 1,
+                "oid": cid,
+                "segment_index": segment_index
+            }
+            if aid:
+                params["pid"] = aid
+            
+            if 'Referer' not in self.session.headers:
+                self.session.headers.update({'Referer': 'https://www.bilibili.com'})
+            
+            response = self.session.get(url, params=params, timeout=10)
+            if response.status_code != 200:
+                return {"success": False, "error": f"HTTP {response.status_code}"}
+            
+            content = response.content
+            if not content:
+                return {"success": False, "error": "空响应"}
+            
+            danmaku_list = self._parse_danmaku_proto(content)
+            return {"success": True, "danmaku": danmaku_list}
+        except Exception as e:
+            logger.error(f"获取弹幕分段失败：{str(e)}")
+            return {"success": False, "error": str(e)}
+            
+    @staticmethod
+    def _read_varint(data, pos):
+        """读取 protobuf varint，返回 (值, 新位置)；数据不足时返回 (None, pos)"""
+        result = 0
+        shift = 0
+        n = len(data)
+        while pos < n:
+            byte = data[pos]
+            pos += 1
+            result |= (byte & 0x7F) << shift
+            if not (byte & 0x80):
+                return result, pos
+            shift += 7
+            if shift > 63:
+                break
+        return None, pos
+
+    def _parse_danmaku_proto_manual(self, data):
+        danmaku_list = []
+        n = len(data)
+        pos = 0
+        while pos < n:
+            tag, pos = self._read_varint(data, pos)
+            if tag is None:
+                break
+            field_no = tag >> 3
+            wire_type = tag & 0x07
+
+            if wire_type == 2:
+                length, pos = self._read_varint(data, pos)
+                if length is None or pos + length > n:
+                    break
+                payload = data[pos:pos + length]
+                pos += length
+                if field_no == 1:
+                    elem = self._parse_danmaku_elem(payload)
+                    if elem and elem.get("content"):
+                        danmaku_list.append(elem)
+            elif wire_type == 0:
+                _, pos = self._read_varint(data, pos)
+            elif wire_type == 1:
+                pos += 8
+            elif wire_type == 5:
+                pos += 4
+            else:
+                break
+
+        logger.info(f"内置方式解析获取到{len(danmaku_list)}条弹幕")
+        return danmaku_list
+
+    def _parse_danmaku_elem(self, payload):
+        """解析单条 DanmakuElem"""
+        danmaku = {
+            "id": 0, "progress": 0, "mode": 1, "fontsize": 25,
+            "color": 16777215, "midHash": "unknown", "content": "",
+            "ctime": 0, "weight": 1, "pool": 0, "idStr": "", "attr": 0,
+        }
+        n = len(payload)
+        pos = 0
+        while pos < n:
+            tag, pos = self._read_varint(payload, pos)
+            if tag is None:
+                break
+            field_no = tag >> 3
+            wire_type = tag & 0x07
+
+            if wire_type == 2:
+                length, pos = self._read_varint(payload, pos)
+                if length is None or pos + length > n:
+                    break
+                raw = payload[pos:pos + length]
+                pos += length
+                if field_no == 6:
+                    danmaku["midHash"] = raw.decode("utf-8", errors="replace")
+                elif field_no == 7:
+                    danmaku["content"] = raw.decode("utf-8", errors="replace")
+                elif field_no == 12:
+                    danmaku["idStr"] = raw.decode("utf-8", errors="replace")
+            elif wire_type == 0:
+                value, pos = self._read_varint(payload, pos)
+                if value is None:
+                    break
+                if field_no == 1:
+                    danmaku["id"] = value
+                elif field_no == 2:
+                    danmaku["progress"] = value
+                elif field_no == 3:
+                    danmaku["mode"] = value
+                elif field_no == 4:
+                    danmaku["fontsize"] = value
+                elif field_no == 5:
+                    danmaku["color"] = value
+                elif field_no == 8:
+                    danmaku["ctime"] = value
+                elif field_no == 9:
+                    danmaku["weight"] = value
+                elif field_no == 11:
+                    danmaku["pool"] = value
+                elif field_no == 13:
+                    danmaku["attr"] = value
+            elif wire_type == 1:
+                pos += 8
+            elif wire_type == 5:
+                pos += 4
+            else:
+                break
+        return danmaku
+
+    def _parse_danmaku_proto(self, data):
+        import logging
+        import struct
+        logger = logging.getLogger(__name__)
+        
+        try:
+            try:
+                from bilibili.community.service.dm.v1.dm_pb2 import DmSegMobileReply
+                danmaku_seg = DmSegMobileReply()
+                danmaku_seg.ParseFromString(data)
+                
+                danmaku_list = []
+                for elem in danmaku_seg.elems:
+                    danmaku = {
+                        "id": elem.id,
+                        "progress": elem.progress,
+                        "mode": elem.mode,
+                        "fontsize": elem.fontsize,
+                        "color": elem.color,
+                        "midHash": elem.midHash,
+                        "content": elem.content,
+                        "ctime": elem.ctime,
+                        "weight": elem.weight,
+                        "pool": elem.pool,
+                        "idStr": elem.idStr,
+                        "attr": elem.attr
+                    }
+                    danmaku_list.append(danmaku)
+                
+                return danmaku_list
+            except ImportError:
+                logger.debug("未找到编译的protobuf文件，改用内置解析方式")
+                return self._parse_danmaku_proto_manual(data)
+        except Exception as e:
+            logger.error(f"解析弹幕protobuf失败：{str(e)}")
+            return []
+            
+    def convert_danmaku_format(self, danmaku_list, format_type="XML"):
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            if format_type == "XML":
+                return self._convert_to_xml(danmaku_list)
+            elif format_type == "ASS":
+                return self._convert_to_ass(danmaku_list)
+            elif format_type == "JSON":
+                import json
+                return json.dumps(danmaku_list, ensure_ascii=False)
+            else:
+                logger.error(f"不支持的弹幕格式：{format_type}")
+                return ""
+        except Exception as e:
+            logger.error(f"转换弹幕格式失败：{str(e)}")
+            return ""
+            
+    def _convert_to_xml(self, danmaku_list):
+        import time
+        xml_header = '<?xml version="1.0" encoding="UTF-8"?><i>\n'
+        xml_footer = '</i>'
+        
+        xml_content = xml_header
+        for danmaku in danmaku_list:
+            time_str = self._format_danmaku_time(danmaku['progress'])
+            mode = danmaku['mode']
+            fontsize = danmaku['fontsize']
+            color = danmaku['color']
+            ctime = danmaku['ctime']
+            mid_hash = danmaku['midHash']
+            content = danmaku['content'].replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            danmaku_id = danmaku['id']
+            
+            xml_line = f'  <d p="{time_str},{mode},{fontsize},{color},{ctime},{mid_hash},0,{danmaku_id}">{content}</d>\n'
+            xml_content += xml_line
+        
+        xml_content += xml_footer
+        return xml_content
+        
+    def _convert_to_ass(self, danmaku_list):
+        ass_header = '''[Script Info]
+; Script generated by Bilibili Downloader
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+ScaledBorderAndShadow: yes
+Collisions: Normal
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,SimHei,25,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+'''
+        
+        ass_content = ass_header
+        layer = 0
+        for danmaku in danmaku_list:
+            start_time = self._format_ass_time(danmaku['progress'])
+            end_time = self._format_ass_time(danmaku['progress'] + 8000)
+            mode = danmaku['mode']
+            alignment = 2
+            if mode == 4:
+                alignment = 8
+            elif mode == 5:
+                alignment = 4
+            color = danmaku['color']
+            content = danmaku['content'].replace('\\', '\\\\').replace('{', '\\{').replace('}', '\\}')
+            
+            ass_line = f'Dialogue: {layer},{start_time},{end_time},Default,,0,0,0,,{{\\c&H{color:06X}&}}{{\\a{alignment}}}{content}\n'
+            ass_content += ass_line
+        
+        return ass_content
+        
+    def _format_danmaku_time(self, ms):
+        seconds = ms / 1000
+        return f"{seconds:.2f}"
+        
+    def _format_ass_time(self, ms):
+        seconds = ms / 1000
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = seconds % 60
+        return f"{hours:02d}:{minutes:02d}:{secs:.2f}"
+
+    def _get_video_codec(self, video_path, ffmpeg_exec):
+        try:
+            import subprocess
+            if has_non_ascii(video_path):
+                short_path = to_short_path(video_path)
+                if short_path != video_path:
+                    video_path = short_path
+            ffprobe_exec = None
+            ffmpeg_dir = os.path.dirname(ffmpeg_exec)
+            if ffmpeg_dir:
+                candidate = os.path.join(ffmpeg_dir, exe('ffprobe'))
+                if os.path.exists(candidate):
+                    ffprobe_exec = os.path.normpath(candidate)
+            if not ffprobe_exec:
+                ffprobe_exec = shutil.which('ffprobe')
+                if ffprobe_exec:
+                    ffprobe_exec = os.path.normpath(ffprobe_exec)
+            if not ffprobe_exec or not os.path.exists(ffprobe_exec):
+                logger.warning("未找到ffprobe，无法检测视频编码")
+                return 'unknown'
+            cmd = [
+                ffprobe_exec,
+                '-v', 'quiet',
+                '-print_format', 'json',
+                '-show_streams',
+                video_path
+            ]
+            result = run_no_window(cmd, timeout=30)
+            if result.returncode != 0:
+                logger.warning(f"ffprobe检测视频编码失败，返回码：{result.returncode}")
+                return 'unknown'
+            import json
+            output = result.stdout.decode('utf-8', errors='ignore')
+            data = json.loads(output)
+            for stream in data.get('streams', []):
+                if stream.get('codec_type') == 'video':
+                    codec = stream.get('codec_name', 'unknown')
+                    logger.info(f"检测到视频编码: {codec} (来自文件: {os.path.basename(video_path)})")
+                    return codec
+            return 'unknown'
+        except subprocess.TimeoutExpired:
+            logger.warning("ffprobe检测视频编码超时")
+            return 'unknown'
+        except Exception as e:
+            logger.warning(f"获取视频编码失败：{str(e)}")
+            return 'unknown'
+
+    def _get_video_bitrate(self, video_path, ffmpeg_exec):
+        """使用ffprobe检测视频码率，返回码率(bps)，失败返回0"""
+        try:
+            import subprocess
+            if has_non_ascii(video_path):
+                short_path = to_short_path(video_path)
+                if short_path != video_path:
+                    video_path = short_path
+            ffprobe_exec = None
+            ffmpeg_dir = os.path.dirname(ffmpeg_exec)
+            if ffmpeg_dir:
+                candidate = os.path.join(ffmpeg_dir, exe('ffprobe'))
+                if os.path.exists(candidate):
+                    ffprobe_exec = os.path.normpath(candidate)
+            if not ffprobe_exec:
+                ffprobe_exec = shutil.which('ffprobe')
+                if ffprobe_exec:
+                    ffprobe_exec = os.path.normpath(ffprobe_exec)
+            if not ffprobe_exec or not os.path.exists(ffprobe_exec):
+                logger.warning("未找到ffprobe，无法检测视频码率")
+                return 0
+            cmd = [
+                ffprobe_exec,
+                '-v', 'quiet',
+                '-print_format', 'json',
+                '-show_streams',
+                '-show_format',
+                video_path
+            ]
+            result = run_no_window(cmd, timeout=30)
+            if result.returncode != 0:
+                return 0
+            import json
+            output = result.stdout.decode('utf-8', errors='ignore')
+            data = json.loads(output)
+            for stream in data.get('streams', []):
+                if stream.get('codec_type') == 'video':
+                    bitrate = stream.get('bit_rate')
+                    if bitrate and int(bitrate) > 0:
+                        logger.info(f"检测到视频码率: {int(bitrate)} bps ({int(bitrate)//1000} kbps)")
+                        return int(bitrate)
+            # 回退到格式级别码率
+            format_bitrate = data.get('format', {}).get('bit_rate')
+            if format_bitrate and int(format_bitrate) > 0:
+                logger.info(f"从format检测到码率: {int(format_bitrate)} bps ({int(format_bitrate)//1000} kbps)")
+                return int(format_bitrate)
+            return 0
+        except Exception as e:
+            logger.warning(f"获取视频码率失败：{str(e)}")
+            return 0
+
+    def _get_adaptive_crf(self, video_bitrate):
+        kbps = video_bitrate // 1000
+        if kbps >= 20000:
+            crf = 17
+        elif kbps >= 10000:
+            crf = 19
+        elif kbps >= 6000:
+            crf = 20
+        elif kbps >= 3000:
+            crf = 22
+        else:
+            crf = 23
+        logger.info(f"自适应CRF: 源码率={kbps}kbps, CRF={crf}")
+        return crf
+
+    def _check_gpu_codec_support(self, ffmpeg_exec, gpu_type, video_path, video_codec):
+        import subprocess as _sp
+
+        if not ffmpeg_exec or not os.path.exists(ffmpeg_exec):
+            return "no_gpu", "ffmpeg 不可用"
+
+        if has_non_ascii(video_path):
+            short_path = to_short_path(video_path)
+            if short_path != video_path:
+                video_path = short_path
+
+        hwaccel_map = {
+            'nvidia': ['-hwaccel', 'cuda', '-hwaccel_device', '0',
+                       '-hwaccel_output_format', 'cuda'],
+            'amd':    ['-hwaccel', 'd3d11va',
+                       '-hwaccel_output_format', 'd3d11'],
+            'intel':  ['-hwaccel', 'qsv',
+                       '-hwaccel_output_format', 'qsv'],
+        }
+        if gpu_type not in hwaccel_map:
+            return "no_gpu", f"未知 gpu_type={gpu_type}"
+
+        if video_codec in ('av1', 'hevc', 'h265', 'unknown'):
+            logger.info(f"[GPU预检] 视频编码为 {video_codec}，正在验证 {gpu_type} 硬件解码能力...")
+            test_cmd = [ffmpeg_exec] + hwaccel_map[gpu_type] + [
+                '-i', video_path,
+                '-frames:v', '30',
+                '-an',
+                '-f', 'null',
+                '-'
+            ]
+            try:
+                probe = _sp.run(
+                    test_cmd,
+                    stdout=_sp.PIPE,
+                    stderr=_sp.PIPE,
+                    stdin=_sp.PIPE,
+                    shell=False,
+                    timeout=30,
+                    **subprocess_no_window_kwargs()
+                )
+                if probe.returncode == 0:
+                    logger.info(f"[GPU预检] {gpu_type} 支持 {video_codec} 硬件解码，将使用 GPU 全链路")
+                    return "full_gpu", "支持"
+                stderr_text = (probe.stderr or b'').decode('utf-8', errors='ignore').strip()
+                logger.warning(
+                    f"[GPU预检] {gpu_type} 不支持 {video_codec} 硬件解码（返回码={probe.returncode}），"
+                    f"将使用 CPU 解码 + GPU 编码（混合模式）。ffmpeg 诊断: {stderr_text[:300]}"
+                )
+                return "encode_only", f"硬件解码失败: {stderr_text[:200]}"
+            except _sp.TimeoutExpired:
+                logger.warning(f"[GPU预检] 硬件解码测试超时，跳过 GPU 解码，使用 CPU 解码 + GPU 编码")
+                return "encode_only", "预检超时"
+            except Exception as ex:
+                logger.warning(f"[GPU预检] 检测异常: {ex}，跳过 GPU 解码，使用 CPU 解码 + GPU 编码")
+                return "encode_only", f"异常: {ex}"
+
+        return "full_gpu", "默认支持"
+
+    def merge_media(self, video_path, audio_path, output_path, kid=None, target_codecid=0, actual_codecid=0, audio_quality=None, video_process_mode='copy'):
+        import os
+        import shutil
+        try:
+            _aq_label = {0: "自动", 30251: "Hi-Res无损", 30250: "杜比全景声", 100010: "320K高音质", 30280: "192K高音质", 100009: "192K标准音质", 30232: "132K标准音质", 100008: "128K标准音质", 30216: "64K低音质"}.get(audio_quality or 0, f"音质({audio_quality})")
+            logger.debug(f"开始合并音视频：视频={video_path}, 音频={audio_path}, 输出={output_path}, 音频质量设置={_aq_label}")
+
+            AUDIO_QUALITY_BITRATE = {
+                30251: None,                  # Hi-Res只copy
+                30250: None,                  # 杜比只copy
+                100010: None,                 # 320K高码copy
+                30280: None,                  # 192K默认copy
+                100009: None,                 # 同30280copy
+                30232: ('132k', '132K'),     # 132K转132k
+                100008: ('128k', '128K'),     # 128K转128k
+                30216: ('64k', '64K'),        # 64K转64kbps
+            }
+
+            def _get_audio_encode_args():
+                if audio_quality is None or audio_quality == 0:
+                    return None  # 自动则copy原质
+                bitrate_info = AUDIO_QUALITY_BITRATE.get(audio_quality)
+                if bitrate_info is None:
+                    return None  # 高质无损自动copy
+                bitrate_k, label = bitrate_info
+                logger.info(f"音频转码：用户设置了{label}音频质量，目标码率={bitrate_k}")
+                return ['-c:a', 'aac', '-b:a', bitrate_k, '-ar', '44100', '-ac', '2']
+
+            import time
+            try:
+                merge_temp_dir = get_safe_temp_dir(
+                    os.path.dirname(os.path.abspath(__file__)), "temp",
+                    cache_dir=None,
+                    prefer_dir=os.path.dirname(os.path.abspath(output_path)),
+                )
+            except Exception:
+                merge_temp_dir = self.safe_temp_dir
+            if not merge_temp_dir:
+                merge_temp_dir = self.safe_temp_dir
+            output_has_non_ascii = has_non_ascii(output_path)
+            merge_temp_output = None
+
+            _safe_name = f"bili_merge_{int(time.time() * 1000) % 100000000}.mp4"
+            if output_has_non_ascii:
+                merge_temp_output = os.path.join(merge_temp_dir, _safe_name)
+                logger.info(f"输出路径含非ASCII字符，使用安全临时路径合并：{merge_temp_output}")
+            
+            decrypted_video_path = video_path
+            decrypted_audio_path = audio_path
+
+            def _cleanup_decrypted_files():
+                """统一清理解密产生的临时文件，避免early return路径资源泄漏"""
+                if decrypted_video_path != video_path and os.path.exists(decrypted_video_path):
+                    try:
+                        os.remove(decrypted_video_path)
+                        logger.debug(f"清理临时视频文件：{decrypted_video_path}")
+                    except Exception:
+                        pass
+                if decrypted_audio_path != audio_path and os.path.exists(decrypted_audio_path):
+                    try:
+                        os.remove(decrypted_audio_path)
+                        logger.debug(f"清理临时音频文件：{decrypted_audio_path}")
+                    except Exception:
+                        pass
+                if merge_temp_output and merge_temp_output != output_path and os.path.exists(merge_temp_output):
+                    try:
+                        os.remove(merge_temp_output)
+                    except Exception:
+                        pass
+
+            is_encrypted, encryption_type = self._check_encryption(video_path)
+            if is_encrypted:
+                logger.info(f"检测到视频被{encryption_type}加密，尝试解密")
+                decrypted_video_path = video_path + '.decrypted'
+                try:
+                    actual_decrypted = asyncio.run(self._decrypt_with_bento4(video_path, decrypted_video_path, kid))
+                    if actual_decrypted and actual_decrypted != decrypted_video_path:
+                        decrypted_video_path = actual_decrypted
+                except Exception as decrypt_err:
+                    logger.error(f"视频解密失败: {decrypt_err}")
+                    if os.path.exists(decrypted_video_path):
+                        try:
+                            os.remove(decrypted_video_path)
+                        except Exception:
+                            pass
+                    return False, f"视频DRM解密失败（{encryption_type}）: {decrypt_err}"
+                if not os.path.exists(decrypted_video_path):
+                    return False, "视频解密后文件不存在"
+                if has_non_ascii(decrypted_video_path):
+                    _short_v = to_short_path(decrypted_video_path)
+                    if _short_v != decrypted_video_path:
+                        logger.info(f"[合并] 解密后视频使用8.3短路径：{_short_v}")
+                        decrypted_video_path = _short_v
+                decrypted_size = os.path.getsize(decrypted_video_path)
+                if decrypted_size < 1024:
+                    _cleanup_decrypted_files()
+                    return False, f"视频解密后文件过小（{decrypted_size}字节），可能是密钥错误或文件损坏"
+                ffmpeg_exec = self.ffmpeg_local
+                if not ffmpeg_exec or not os.path.exists(ffmpeg_exec):
+                    ffmpeg_exec = shutil.which('ffmpeg')
+                if ffmpeg_exec and os.path.exists(ffmpeg_exec):
+                    ffmpeg_exec = os.path.normpath(ffmpeg_exec)
+                    ffprobe_exec = os.path.join(os.path.dirname(ffmpeg_exec), exe('ffprobe'))
+                    if not os.path.exists(ffprobe_exec):
+                        ffprobe_exec = shutil.which('ffprobe')
+                    if ffprobe_exec:
+                        ffprobe_exec = os.path.normpath(ffprobe_exec)
+                    if ffprobe_exec and os.path.exists(ffprobe_exec):
+                        import subprocess as sp
+                        try:
+                            probe_result = sp.run(
+                                [ffprobe_exec, '-v', 'quiet', '-print_format', 'json',
+                                 '-show_streams', decrypted_video_path],
+                                stdout=sp.PIPE, stderr=sp.PIPE,
+                                shell=False, **subprocess_no_window_kwargs(), timeout=15
+                            )
+                            if probe_result.returncode != 0:
+                                err_msg = probe_result.stderr.decode('utf-8', errors='ignore')[:200]
+                                logger.error(f"解密后文件仍无法被ffprobe读取: {err_msg}")
+                                _cleanup_decrypted_files()
+                                return False, f"视频解密后文件仍然损坏（{err_msg[:80]}），请检查DRM密钥获取是否正常"
+                        except Exception as ve:
+                            logger.warning(f"验证解密文件时异常: {ve}")
+                logger.info(f"视频解密成功并验证通过：{decrypted_video_path}")
+            else:
+                logger.info("视频未加密，直接使用原始文件")
+
+            if audio_path:
+                is_audio_encrypted, audio_encryption_type = self._check_encryption(audio_path)
+                if is_audio_encrypted:
+                    logger.info(f"检测到音频被{audio_encryption_type}加密，尝试解密")
+                    decrypted_audio_path = audio_path + '.decrypted'
+                    try:
+                        actual_decrypted = asyncio.run(self._decrypt_with_bento4(audio_path, decrypted_audio_path, kid))
+                        if actual_decrypted and actual_decrypted != decrypted_audio_path:
+                            decrypted_audio_path = actual_decrypted
+                    except Exception as decrypt_err:
+                        logger.error(f"音频解密失败: {decrypt_err}")
+                        if os.path.exists(decrypted_audio_path):
+                            try:
+                                os.remove(decrypted_audio_path)
+                            except Exception:
+                                pass
+                        _cleanup_decrypted_files()
+                        return False, f"音频DRM解密失败（{audio_encryption_type}）: {decrypt_err}"
+                    if not os.path.exists(decrypted_audio_path):
+                        _cleanup_decrypted_files()
+                        return False, "音频解密后文件不存在"
+                    decrypted_size = os.path.getsize(decrypted_audio_path)
+                    if decrypted_size < 1024:
+                        _cleanup_decrypted_files()
+                        return False, f"音频解密后文件过小：{decrypted_size}字节"
+            
+            ffmpeg_exec = self.ffmpeg_local
+            logger.debug(f"本地ffmpeg路径：{ffmpeg_exec}")
+            
+            if not ffmpeg_exec or not os.path.exists(ffmpeg_exec):
+                ffmpeg_exec = shutil.which('ffmpeg')
+                logger.debug(f"系统环境变量中的ffmpeg路径：{ffmpeg_exec}")
+                if not ffmpeg_exec or not os.path.exists(ffmpeg_exec):
+                    logger.error(f"未找到ffmpeg！本地路径和系统PATH均不存在")
+                    _cleanup_decrypted_files()
+                    return False, "未找到ffmpeg！请安装并添加到系统环境变量，或放在./ffmpeg/bin目录下"
+
+            logger.debug(f"使用的ffmpeg路径：{ffmpeg_exec}")
+            
+            if output_has_non_ascii:
+                pass
+            else:
+                merge_temp_output = output_path
+            
+            video_codec = self._get_video_codec(decrypted_video_path, ffmpeg_exec)
+            logger.info(f"视频编码：{video_codec}")
+
+            video_bitrate = self._get_video_bitrate(decrypted_video_path, ffmpeg_exec)
+            adaptive_crf = self._get_adaptive_crf(video_bitrate)
+
+            output_ext = os.path.splitext(output_path)[1].lower()
+            is_amv = output_ext == '.amv'
+
+            need_drm_repack = encryption_type is not None  # 经过了DRM解密
+            need_format_convert = is_amv
+            if output_ext == '.avi' and video_codec in ('hevc', 'av1', 'h265', 'vp9'):
+                need_format_convert = True
+                logger.info(f"输出格式AVI不支持{video_codec}编码，将转码为H.264")
+            if output_ext == '.flv' and video_codec in ('hevc', 'av1', 'h265', 'vp9'):
+                need_format_convert = True
+                logger.info(f"输出格式FLV不支持{video_codec}编码，将转码为H.264")
+            if output_ext in ('.wmv', '.asf') and video_codec not in ('wmv1', 'wmv2', 'wmv3', 'msmpeg4', 'mpeg4'):
+                need_format_convert = True
+                logger.info(f"输出格式{output_ext}需要WMV兼容编码，将转码为H.264")
+            if output_ext in ('.vob', '.dat') and video_codec not in ('mpeg1video', 'mpeg2video'):
+                need_format_convert = True
+                logger.info(f"输出格式{output_ext}需要MPEG2编码，将转码")
+            if output_ext == '.svcd' and video_codec not in ('mpeg1video', 'mpeg2video'):
+                need_format_convert = True
+            if output_ext in ('.mpg', '.mpeg') and video_codec in ('hevc', 'av1', 'h265', 'vp9'):
+                need_format_convert = True
+            if output_ext == '.m2ts' and video_codec in ('av1', 'vp9'):
+                need_format_convert = True
+            need_conversion = (video_codec == 'unknown') or need_format_convert
+
+            if need_drm_repack:
+                logger.info(f"检测到DRM已解密({encryption_type})，可能需要转码确保格式正确")
+            if video_codec == 'unknown':
+                logger.warning("无法检测视频编码，将转换为H.264以确保兼容性")
+
+            gpu_acceleration = self.config.get_app_setting("gpu_acceleration", False) if self.config else False
+            gpu_type = None
+            logger.info(f"[GPU诊断] gpu_acceleration配置值={gpu_acceleration}, self.config存在={self.config is not None}")
+            if gpu_acceleration:
+                try:
+                    from platform_utils import detect_gpu
+                    _, gpu_type, _ = detect_gpu()
+                    logger.info(f"[GPU诊断] detect_gpu()返回: gpu_type={gpu_type}")
+                except Exception as ex:
+                    logger.error(f"[GPU诊断] detect_gpu()异常: {ex}")
+                    gpu_type = None
+
+            def _gpu_encode_args(video_bitrate=0):
+                src_kbps = (video_bitrate // 1000) if video_bitrate else 0
+                target_kbps = max(int(src_kbps * 1.25), 800) if src_kbps > 0 else 1000
+                maxrate_kbps = int(target_kbps * 1.1)
+                logger.info(f"[GPU编码] ABR目标码率模式，源={src_kbps}kbps, 目标={target_kbps}kbps, gpu_type={gpu_type}")
+
+                if gpu_type == 'nvidia':
+                    return {
+                        'hwaccel': ['-hwaccel', 'cuda',
+                                    '-hwaccel_device', '0',
+                                    '-hwaccel_output_format', 'cuda'],
+                        'encoder': [
+                            '-c:v', 'h264_nvenc',
+                            '-rc', 'vbr',
+                            '-b:v', f'{target_kbps}k',
+                            '-maxrate', f'{maxrate_kbps}k',
+                            '-qmin', '22', '-qmax', '40',
+                            '-preset', 'p4',
+                            '-spatial_aq', '1',
+                        ]
+                    }
+                elif gpu_type == 'amd':
+                    return {
+                        'hwaccel': ['-hwaccel', 'd3d11va',
+                                    '-hwaccel_output_format', 'd3d11'],
+                        'encoder': [
+                            '-c:v', 'h264_amf',
+                            '-rc', 'vbr_latency',
+                            '-b:v', f'{target_kbps}k',
+                            '-maxrate', f'{maxrate_kbps}k',
+                            '-qmin', '22', '-qmax', '40',
+                            '-quality', 'quality'
+                        ]
+                    }
+                elif gpu_type == 'intel':
+                    return {
+                        'hwaccel': ['-hwaccel', 'qsv',
+                                    '-hwaccel_output_format', 'qsv',
+                                    '-async', '4'],
+                        'encoder': [
+                            '-c:v', 'h264_qsv',
+                            '-rc', 'vbr',
+                            '-b:v', f'{target_kbps}k',
+                            '-maxrate', f'{maxrate_kbps}k',
+                            '-global_quality', '25',
+                            '-preset', 'medium'
+                        ]
+                    }
+                return None
+
+            gpu_mode = "off"
+            if gpu_acceleration and gpu_type and _gpu_encode_args(0) is not None:
+                gpu_result, _gpu_diag = self._check_gpu_codec_support(
+                    ffmpeg_exec, gpu_type, decrypted_video_path, video_codec
+                )
+                if gpu_result in ("full_gpu", "encode_only"):
+                    gpu_mode = gpu_result
+            logger.info(f"[GPU诊断] 最终决策: gpu_acceleration={gpu_acceleration}, gpu_type={gpu_type}, gpu_mode={gpu_mode}, _gpu_encode_args()={_gpu_encode_args()}")
+
+            if decrypted_audio_path and has_non_ascii(decrypted_audio_path):
+                _short_a = to_short_path(decrypted_audio_path)
+                if _short_a != decrypted_audio_path:
+                    logger.info(f"[合并] 音频输入使用8.3短路径：{_short_a}")
+                    decrypted_audio_path = _short_a
+
+            _audio_args = _get_audio_encode_args() if decrypted_audio_path else None
+            if _audio_args is None:
+                _audio_args = ['-c:a', 'copy']  # 默认copy
+
+            _CODEC_ENCODER_MAP = {
+                7: ['-c:v', 'libx264', '-preset', 'fast', '-crf', '20'],
+                12: ['-c:v', 'libx265', '-preset', 'medium', '-crf', '23'],
+                13: ['-c:v', 'libaom-av1', '-crf', '35', '-cpu-used', '4'],
+                14: ['-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0', '-cpu-used', '4'],
+            }
+            _CODEC_NAME_MAP = {7: 'H.264/AVC', 12: 'H.265/HEVC', 13: 'AV1', 14: 'VP9'}
+            need_video_transcode = (target_codecid and target_codecid > 0 and
+                                    actual_codecid and actual_codecid > 0 and
+                                    target_codecid != actual_codecid)
+            _force_copy = (video_process_mode == 'copy')
+            if _force_copy:
+                need_video_transcode = False
+                need_conversion = False
+                need_format_convert = False
+                _audio_args = ['-c:a', 'copy']
+                logger.info("复制数据流模式：音视频直接copy封装，GPU加速解码（如可用）")
+
+            src_kbps = (video_bitrate // 1000) if video_bitrate else 0
+            _reencode_target_kbps = max(int(src_kbps * 1.25), 800) if src_kbps > 0 else 1000
+            _reencode_maxrate_kbps = int(_reencode_target_kbps * 1.1)
+            _reencode_bufsize_kbps = _reencode_target_kbps * 2
+
+            if need_video_transcode and not _force_copy:
+                _video_args = _CODEC_ENCODER_MAP.get(target_codecid, ['-c:v', 'libx264', '-preset', 'fast'])
+                _br_args = ['-b:v', f'{_reencode_target_kbps}k',
+                            '-maxrate', f'{_reencode_maxrate_kbps}k',
+                            '-bufsize', f'{_reencode_bufsize_kbps}k']
+                _crf_idx = next((i for i, x in enumerate(_video_args) if x == '-crf'), -1)
+                if _crf_idx >= 0:
+                    _video_args = _video_args[:_crf_idx] + _br_args + _video_args[_crf_idx+2:]
+                else:
+                    _video_args = _video_args + _br_args
+                src_codec = _CODEC_NAME_MAP.get(actual_codecid, str(actual_codecid))
+                dst_codec = _CODEC_NAME_MAP.get(target_codecid, str(target_codecid))
+                logger.info(f"视频转码：B站API未提供{dst_codec}流，从{src_codec}转码→{dst_codec}，目标码率={_reencode_target_kbps}kbps(源={src_kbps}kbps)")
+            elif actual_codecid and actual_codecid > 0 and not _force_copy:
+                codec_label = _CODEC_NAME_MAP.get(actual_codecid, f'codecid={actual_codecid}')
+                encoder_base = _CODEC_ENCODER_MAP.get(actual_codecid,
+                    ['-c:v', 'libx264', '-preset', 'fast'])
+                _br_args = ['-b:v', f'{_reencode_target_kbps}k',
+                            '-maxrate', f'{_reencode_maxrate_kbps}k',
+                            '-bufsize', f'{_reencode_bufsize_kbps}k']
+                _crf_idx = next((i for i, x in enumerate(encoder_base) if x == '-crf'), -1)
+                if _crf_idx >= 0:
+                    _video_args = encoder_base[:_crf_idx] + _br_args + encoder_base[_crf_idx+2:]
+                else:
+                    _video_args = encoder_base + _br_args
+                logger.info(f"视频重编码：B站API提供{codec_label}流，ffmpeg重编码提升画质，"
+                           f"目标码率={_reencode_target_kbps}kbps(源={src_kbps}kbps, +{_reencode_target_kbps - src_kbps if src_kbps else '?'}kbps)")
+            else:
+                _video_args = ['-c:v', 'copy']
+                if _force_copy:
+                    logger.info(f"视频复制模式（用户选择）：保持B站原始数据流({src_kbps}kbps)，速度最快")
+                else:
+                    logger.info(f"视频copy模式：保持原始编码({video_codec})")
+
+            if decrypted_audio_path:
+                if not need_conversion and not is_amv:
+                    _is_copy = (_video_args == ['-c:v', 'copy'])
+                    _v_mode = "copy(原始编码)" if _is_copy else ("转码" if need_video_transcode else "重编码")
+
+                    _hwaccel_args = []
+                    if _is_copy and gpu_mode in ("full_gpu", "encode_only") and gpu_type:
+                        gpu_params = _gpu_encode_args(video_bitrate)
+                        if gpu_params and 'hwaccel' in gpu_params:
+                            _hwaccel_args = gpu_params['hwaccel']
+                            _v_mode = f"copy+GPU加速解码({gpu_type})"
+                            logger.info(f"复制数据流+GPU加速解码：使用{gpu_type} hwaccel加速读取，输出直接copy")
+
+                    logger.info(f"智能合并：视频{_v_mode}，音频{'转码' if _audio_args != ['-c:a', 'copy'] else 'copy'}")
+                    cmd = [
+                        ffmpeg_exec,
+                    ] + _hwaccel_args + [
+                        '-i', decrypted_video_path,
+                        '-i', decrypted_audio_path,
+                    ] + _video_args + _audio_args + [
+                    ]
+                    if output_ext in ('.mp4', '.mov', '.m4v', '.3gp'):
+                        cmd.extend(['-movflags', '+faststart'])
+                    cmd.extend([
+                        '-shortest',
+                        '-loglevel', 'error',
+                        '-y',
+                        merge_temp_output
+                    ])
+                    logger.info(f"[合并] 智能合并命令(视频{_v_mode})")
+                elif is_amv:
+                    cmd = [
+                        ffmpeg_exec,
+                        '-i', decrypted_video_path,
+                        '-i', decrypted_audio_path,
+                        '-c:v', 'amv',
+                        '-c:a', 'adpcm_ima_amv',
+                        '-ar', '22050',
+                        '-ac', '1',
+                        '-block_size', '735',
+                        '-strict', '-1',
+                        '-shortest',
+                        '-loglevel', 'error',
+                        '-y',
+                        merge_temp_output
+                    ]
+                elif gpu_mode in ("full_gpu", "encode_only") and not need_video_transcode:
+                    if gpu_mode == "full_gpu":
+                        logger.info(f"GPU加速已启用({gpu_type})，全GPU硬件编解码")
+                        gpu_params = _gpu_encode_args(video_bitrate)
+                        cmd = [
+                            ffmpeg_exec,
+                        ] + gpu_params['hwaccel'] + [
+                            '-i', decrypted_video_path,
+                            '-i', decrypted_audio_path,
+                        ] + gpu_params['encoder'] + _audio_args + [
+                            '-shortest',
+                            '-loglevel', 'error',
+                            '-y',
+                            merge_temp_output
+                        ]
+                    else:
+                        logger.info(f"GPU加速已启用({gpu_type})，混合模式(CPU解码+GPU编码)")
+                        gpu_params = _gpu_encode_args(video_bitrate)
+                        cmd = [
+                            ffmpeg_exec,
+                            '-i', decrypted_video_path,
+                            '-i', decrypted_audio_path,
+                        ] + gpu_params['encoder'] + _audio_args + [
+                            '-shortest',
+                            '-loglevel', 'error',
+                            '-y',
+                            merge_temp_output
+                        ]
+                elif need_conversion or need_video_transcode:
+                    # 不兼容则CPU转
+                    if need_video_transcode:
+                        logger.info(f"用户指定编码转换(目标={_CODEC_NAME_MAP.get(target_codecid,str(target_codecid))})，使用CPU转码")
+                    else:
+                        logger.info(f"格式不兼容({video_codec})，自动转换为H.264(自适应CRF={adaptive_crf})")
+                    cmd = [
+                        ffmpeg_exec,
+                        '-i', decrypted_video_path,
+                        '-i', decrypted_audio_path,
+                    ] + _video_args + _audio_args + [
+                        '-shortest',
+                        '-loglevel', 'error',
+                        '-y',
+                        merge_temp_output
+                    ]
+                else:
+                    cmd = [
+                        ffmpeg_exec,
+                        '-i', decrypted_video_path,
+                        '-i', decrypted_audio_path,
+                    ] + _video_args + _audio_args + [
+                        '-shortest',
+                        '-loglevel', 'error',
+                        '-y',
+                        merge_temp_output
+                    ]
+            else:
+                if is_amv:
+                    cmd = [
+                        ffmpeg_exec,
+                        '-i', decrypted_video_path,
+                        '-c:v', 'amv',
+                        '-loglevel', 'error',
+                        '-y',
+                        merge_temp_output
+                    ]
+                elif not need_conversion and not is_amv and not need_video_transcode:
+                    _is_copy = (_video_args == ['-c:v', 'copy'])
+
+                    _hwaccel_args_noaudio = []
+                    if _is_copy and gpu_mode in ("full_gpu", "encode_only") and gpu_type:
+                        gpu_params = _gpu_encode_args(video_bitrate)
+                        if gpu_params and 'hwaccel' in gpu_params:
+                            _hwaccel_args_noaudio = gpu_params['hwaccel']
+                            logger.info(f"复制数据流+GPU加速解码(无音频轨)：使用{gpu_type} hwaccel")
+
+                    logger.info(f"智能合并（无音频轨）：视频{'重编码' if not _is_copy else 'copy'}")
+                    cmd = [
+                        ffmpeg_exec,
+                    ] + _hwaccel_args_noaudio + [
+                        '-i', decrypted_video_path,
+                    ] + _video_args + [
+                        '-movflags', '+faststart',
+                        '-loglevel', 'error',
+                        '-y',
+                        merge_temp_output
+                    ]
+                elif gpu_mode in ("full_gpu", "encode_only") and not need_video_transcode and not need_conversion:
+                    if gpu_mode == "full_gpu":
+                        logger.info(f"GPU加速已启用({gpu_type})，全GPU编解码(无音频轨)")
+                        gpu_params = _gpu_encode_args(video_bitrate)
+                        cmd = [
+                            ffmpeg_exec,
+                        ] + gpu_params['hwaccel'] + [
+                            '-i', decrypted_video_path,
+                        ] + gpu_params['encoder'] + [
+                            '-loglevel', 'error',
+                            '-y',
+                            merge_temp_output
+                        ]
+                    else:
+                        logger.info(f"GPU加速已启用({gpu_type})，混合模式(无音频轨)")
+                        gpu_params = _gpu_encode_args(video_bitrate)
+                        cmd = [
+                            ffmpeg_exec,
+                            '-i', decrypted_video_path,
+                        ] + gpu_params['encoder'] + [
+                            '-loglevel', 'error',
+                            '-y',
+                            merge_temp_output
+                        ]
+                elif need_conversion or need_video_transcode:
+                    # 不兼容则CPU转
+                    if need_video_transcode:
+                        logger.info(f"用户指定编码转换(无音频轨, 目标={_CODEC_NAME_MAP.get(target_codecid,str(target_codecid))})")
+                    else:
+                        logger.info(f"格式不兼容({video_codec})，自动转码")
+                    cmd = [
+                        ffmpeg_exec,
+                        '-i', decrypted_video_path,
+                    ] + _video_args + [
+                        '-loglevel', 'error',
+                        '-y',
+                        merge_temp_output
+                    ]
+                else:
+                    # 最终回退：copy模式
+                    cmd = [
+                        ffmpeg_exec,
+                        '-i', decrypted_video_path,
+                    ] + _video_args + [
+                        '-loglevel', 'error',
+                        '-y',
+                        merge_temp_output
+                    ]
+
+            logger.debug(f"执行ffmpeg命令：{' '.join(cmd)}")
+            
+            try:
+                result = subprocess.run(
+                    cmd,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    stdin=subprocess.PIPE,
+                    shell=False,
+                    **subprocess_low_priority_kwargs()
+                )
+                logger.debug(f"ffmpeg执行成功，返回码：{result.returncode}")
+                try:
+                    stdout = result.stdout.decode('utf-8', errors='ignore')
+                    stderr = result.stderr.decode('utf-8', errors='ignore')
+                    if stdout:
+                        logger.debug(f"ffmpeg stdout：{stdout}")
+                    if stderr:
+                        logger.debug(f"ffmpeg stderr：{stderr}")
+                except Exception as decode_e:
+                    logger.warning(f"解码输出时发生错误：{str(decode_e)}")
+            except OSError as e:
+                logger.error(f"执行ffmpeg时发生系统错误：{str(e)}")
+                logger.error(f"命令：{' '.join(cmd)}")
+                logger.error(f"当前工作目录：{os.getcwd()}")
+                logger.error(f"ffmpeg路径是否存在：{os.path.exists(ffmpeg_exec)}")
+                logger.error(f"ffmpeg是否可执行：{os.access(ffmpeg_exec, os.X_OK)}")
+                logger.error(f"视频文件是否存在：{os.path.exists(decrypted_video_path)}")
+                logger.error(f"音频文件是否存在：{os.path.exists(decrypted_audio_path)}")
+
+                _cleanup_decrypted_files()
+                return False, f"执行ffmpeg失败：{str(e)}"
+            
+            if merge_temp_output and merge_temp_output != output_path and os.path.exists(merge_temp_output):
+                try:
+                    move_file_no_copy(merge_temp_output, output_path, logger=logger)
+                    logger.info(f"合并结果已移动到目标路径（同盘零拷贝）：{output_path}")
+                except Exception as move_e:
+                    logger.error(f"移动合并结果失败：{str(move_e)}")
+                    if os.path.exists(merge_temp_output):
+                        try:
+                            shutil.move(merge_temp_output, output_path)
+                        except Exception:
+                            pass
+            
+            if decrypted_video_path != video_path and os.path.exists(decrypted_video_path):
+                try:
+                    os.remove(decrypted_video_path)
+                    logger.debug(f"清理临时视频文件：{decrypted_video_path}")
+                except Exception as e:
+                    logger.warning(f"清理临时视频文件失败：{str(e)}")
+            
+            if decrypted_audio_path != audio_path and os.path.exists(decrypted_audio_path):
+                try:
+                    os.remove(decrypted_audio_path)
+                    logger.debug(f"清理临时音频文件：{decrypted_audio_path}")
+                except Exception as e:
+                    logger.warning(f"清理临时音频文件失败：{str(e)}")
+            
+            temp_files_to_clean = []
+            if decrypted_video_path != video_path:
+                temp_files_to_clean.append(decrypted_video_path)
+            if decrypted_audio_path != audio_path:
+                temp_files_to_clean.append(decrypted_audio_path)
+            
+            for temp_file in temp_files_to_clean:
+                if temp_file and os.path.exists(temp_file):
+                    try:
+                        os.remove(temp_file)
+                        logger.debug(f"清理临时文件成功：{temp_file}")
+                    except Exception as e:
+                        logger.warning(f"清理临时文件失败：{temp_file} - {str(e)}")
+
+            logger.debug(f"音视频合并完成：{output_path}")
+
+            return True, ""
+        except subprocess.CalledProcessError as e:
+            # GPU失败回退CPU
+            if gpu_mode != "off":
+                try:
+                    _gpu_err = (e.stderr or b'').decode('utf-8', errors='ignore')
+                except Exception:
+                    _gpu_err = str(e.stderr) if e.stderr else ''
+                logger.warning(
+                    f"GPU加速编码失败（{gpu_type}，模式={gpu_mode}），回退到CPU编码：返回码={e.returncode}\n"
+                    f"  ffmpeg stderr（前1000字符）: {_gpu_err[:1000]}"
+                )
+                try:
+                    # 回退用指定编码器
+                    if decrypted_audio_path:
+                        fallback_cmd = [
+                            ffmpeg_exec,
+                            '-i', decrypted_video_path,
+                            '-i', decrypted_audio_path,
+                        ] + _video_args + _audio_args + [
+                            '-shortest',
+                            '-loglevel', 'error',
+                            '-y',
+                            merge_temp_output
+                        ]
+                    else:
+                        fallback_cmd = [
+                            ffmpeg_exec,
+                            '-i', decrypted_video_path,
+                        ] + _video_args + [
+                            '-loglevel', 'error',
+                            '-y',
+                            merge_temp_output
+                        ]
+                    logger.info(f"回退到CPU编码执行ffmpeg")
+                    result = subprocess.run(
+                        fallback_cmd,
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        stdin=subprocess.PIPE,
+                        shell=False,
+                        **subprocess_low_priority_kwargs()
+                    )
+                    logger.info("CPU编码回退成功")
+                    if merge_temp_output and merge_temp_output != output_path and os.path.exists(merge_temp_output):
+                        try:
+                            # 同盘原子移动免双写
+                            move_file_no_copy(merge_temp_output, output_path, logger=logger)
+                        except Exception:
+                            if os.path.exists(merge_temp_output):
+                                try:
+                                    shutil.move(merge_temp_output, output_path)
+                                except Exception:
+                                    pass
+                    if decrypted_video_path != video_path and os.path.exists(decrypted_video_path):
+                        try:
+                            os.remove(decrypted_video_path)
+                        except Exception:
+                            pass
+                    if decrypted_audio_path != audio_path and os.path.exists(decrypted_audio_path):
+                        try:
+                            os.remove(decrypted_audio_path)
+                        except Exception:
+                            pass
+                    return True, "合并成功（GPU加速失败，已回退CPU编码）"
+                except Exception as fallback_e:
+                    logger.error(f"CPU编码回退也失败：{str(fallback_e)}")
+                    _cleanup_decrypted_files()
+                    return False, f"GPU和CPU编码均失败：{str(fallback_e)}"
+            logger.error(f"ffmpeg执行失败：返回码={e.returncode}, 标准错误={e.stderr}, 标准输出={e.stdout}")
+            return False, f"ffmpeg执行失败：{e.stderr}"
+        except Exception as e:
+            logger.error(f"音视频合并失败：{str(e)}", exc_info=True)
+            return False, f"音视频合并失败：{str(e)}"
+
+
+    # ============ 单流产物封装（仅音频 / 仅视频 / 无声视频） ============
+    #
+    # B站 DASH 下载得到的是 .m4s（fMP4 分片），HLS 场景是 .ts。历史上仅音频/仅视频
+    # 成品直接用 move_file_no_copy 改扩展名，容器与后缀不一致，导致：
+    #   1. 资源管理器「属性 → 详细信息」中时长、比特率、音频格式等全部为空
+    #      （Windows 按扩展名挑解析器，MP4 内容套 .mp3 后缀直接解析失败）；
+    #   2. 部分播放器与手机按后缀判断格式后无法播放。
+    # 所以产出成品前必须过一遍 ffmpeg：能 copy 就 copy，必须换编码才转码。
+
+    # 音质设置 → MP3/转码目标码率
+    _AUDIO_TARGET_BITRATE = {
+        100010: '320k',
+        30280: '192k',
+        100009: '192k',
+        30232: '128k',
+        100008: '128k',
+        30216: '64k',
+    }
+
+    def _resolve_ffmpeg_exec(self):
+        """返回可用的 ffmpeg 路径（绝对路径），找不到时返回空串。"""
+        ffmpeg_exec = getattr(self, 'ffmpeg_local', None)
+        if not ffmpeg_exec or not os.path.exists(ffmpeg_exec):
+            ffmpeg_exec = shutil.which('ffmpeg')
+        if not ffmpeg_exec or not os.path.exists(ffmpeg_exec):
+            return ''
+        return os.path.normpath(ffmpeg_exec)
+
+    def _probe_streams(self, media_path, show_format=False):
+        """调用 ffprobe 读取流信息，返回 (streams, format)；失败返回 ([], {})。"""
+        try:
+            ffmpeg_exec = self._resolve_ffmpeg_exec()
+            ffprobe_exec = ''
+            if ffmpeg_exec:
+                candidate = os.path.join(os.path.dirname(ffmpeg_exec), exe('ffprobe'))
+                if os.path.exists(candidate):
+                    ffprobe_exec = os.path.normpath(candidate)
+            if not ffprobe_exec:
+                ffprobe_exec = shutil.which('ffprobe') or ''
+            if not ffprobe_exec or not os.path.exists(ffprobe_exec):
+                return [], {}
+            cmd = [ffprobe_exec, '-v', 'quiet', '-print_format', 'json', '-show_streams']
+            if show_format:
+                cmd.append('-show_format')
+            cmd.append(media_path)
+            result = subprocess.run(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL, shell=False,
+                **subprocess_no_window_kwargs(), timeout=30
+            )
+            if result.returncode != 0:
+                return [], {}
+            data = json.loads(result.stdout.decode('utf-8', errors='ignore') or '{}')
+            return (data.get('streams') or []), (data.get('format') or {})
+        except Exception as e:
+            logger.debug(f"探测媒体信息失败：{e}")
+        return [], {}
+
+    def _probe_stream_codec(self, media_path, want='audio'):
+        """读取首个音频/视频流的编码名（小写），失败返回空串。"""
+        for stream in self._probe_streams(media_path)[0]:
+            if stream.get('codec_type') == want:
+                return (stream.get('codec_name') or '').lower()
+        return ''
+
+    def _probe_duration(self, media_path):
+        """读取容器时长（秒），取不到返回 0。"""
+        try:
+            fmt = self._probe_streams(media_path, show_format=True)[1]
+            value = fmt.get('duration')
+            if value is None:
+                return 0.0
+            text = str(value).strip()
+            if not text or text.upper() in ('N/A', 'UNKNOWN', 'NONE'):
+                return 0.0
+            return float(text)
+        except Exception:
+            return 0.0
+
+    def _pack_stream(self, src_path, dst_path, args, desc='媒体', require_duration=False):
+        """用 ffmpeg 把 src_path 按 args 封装/转码到 dst_path。
+
+        输出路径含非 ASCII 字符时先写安全临时文件，成功后再零拷贝移动
+        （与 merge_media 的处理方式一致，避免 ffmpeg 在中文路径上失败）。
+        require_duration=True 时，输出缺少总时长信息也算失败——FLAC 之类的
+        容器若拿不到总时长，资源管理器属性里的时长/码率依旧是空。
+        返回 (成功?, 错误信息)；失败时由调用方回退为「直接改扩展名」。
+        """
+        temp_out = None
+
+        def _cleanup_temp():
+            if temp_out and os.path.exists(temp_out):
+                try:
+                    os.remove(temp_out)
+                except Exception:
+                    pass
+
+        try:
+            if not src_path or not os.path.exists(src_path):
+                return False, "源文件不存在"
+            if os.path.getsize(src_path) < 1024:
+                return False, "源文件过小，可能未下载完整"
+
+            ffmpeg_exec = self._resolve_ffmpeg_exec()
+            if not ffmpeg_exec:
+                return False, "未找到 ffmpeg"
+
+            work_out = dst_path
+            dst_dir = os.path.dirname(os.path.abspath(dst_path))
+            if has_non_ascii(dst_path) or has_non_ascii(dst_dir):
+                try:
+                    safe_dir = get_safe_temp_dir(
+                        os.path.dirname(os.path.abspath(__file__)), "temp",
+                        cache_dir=None, prefer_dir=dst_dir)
+                except Exception:
+                    safe_dir = getattr(self, 'safe_temp_dir', '') or dst_dir
+                if not safe_dir:
+                    safe_dir = dst_dir
+                ext = os.path.splitext(dst_path)[1] or '.tmp'
+                temp_out = os.path.join(
+                    safe_dir, f"bili_pack_{int(time.time() * 1000) % 100000000}{ext}")
+                work_out = temp_out
+
+            cmd = [ffmpeg_exec, '-loglevel', 'error', '-y', '-i', src_path] \
+                + list(args) + [work_out]
+            logger.info(f"{desc}封装：{os.path.basename(src_path)} -> {os.path.basename(dst_path)}"
+                        f"，命令={' '.join(cmd)}")
+            result = subprocess.run(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL, shell=False,
+                **subprocess_no_window_kwargs(), timeout=7200
+            )
+            if (result.returncode != 0 or not os.path.exists(work_out)
+                    or os.path.getsize(work_out) < 1024):
+                err = (result.stderr or b'').decode('utf-8', errors='ignore').strip()[:300]
+                _cleanup_temp()
+                return False, f"ffmpeg 返回码={result.returncode}：{err or '输出文件无效'}"
+
+            if require_duration and self._probe_duration(work_out) <= 0:
+                _cleanup_temp()
+                return False, "输出文件缺少总时长信息"
+
+            if temp_out:
+                if os.path.exists(dst_path):
+                    try:
+                        os.remove(dst_path)
+                    except Exception:
+                        pass
+                move_file_no_copy(temp_out, dst_path, logger=logger)
+                temp_out = None
+            logger.info(f"{desc}封装完成：{dst_path}（{os.path.getsize(dst_path)} 字节）")
+            return True, ''
+        except subprocess.TimeoutExpired:
+            _cleanup_temp()
+            return False, "ffmpeg 处理超时"
+        except Exception as e:
+            _cleanup_temp()
+            logger.error(f"{desc}封装异常：{e}", exc_info=True)
+            return False, str(e)
+
+    def finalize_audio_output(self, src_path, dst_path, audio_format='m4a', audio_quality=None):
+        """把仅音频下载得到的原始流（.m4s/.ts）封装成真正的音频文件。
+
+        返回 (成功?, 错误信息)。失败时调用方应回退为直接改扩展名，保证下载不中断。
+        """
+        try:
+            fmt = (audio_format or 'm4a').strip().lower().lstrip('.')
+            if fmt in ('mp4', 'm4b', 'm4r'):
+                fmt = 'm4a'
+            elif fmt == 'mpeg':
+                fmt = 'mp3'
+            bitrate = self._AUDIO_TARGET_BITRATE.get(audio_quality, '192k')
+            audio_stream = {}
+            for _stream in self._probe_streams(src_path)[0]:
+                if _stream.get('codec_type') == 'audio':
+                    audio_stream = _stream
+                    break
+            src_codec = (audio_stream.get('codec_name') or '').lower()
+            src_sample_fmt = (audio_stream.get('sample_fmt') or '').lower()
+            try:
+                src_bits = int(audio_stream.get('bits_per_raw_sample') or 0)
+            except Exception:
+                src_bits = 0
+            # 只有「无损源且位深高于 16bit」才需要保位深；有损源按 16bit 处理即可，
+            # 否则 AAC/杜比转出来的 WAV、FLAC 会白白翻倍体积
+            _hires = (src_codec in ('flac', 'alac')
+                      and (src_bits > 16 or src_sample_fmt in ('s32', 's32p', 's64', 's64p')))
+            _s32_args = ['-sample_fmt', 's32'] if _hires else []
+            logger.info(f"仅音频封装：源编码={src_codec or '未知'}，采样格式={src_sample_fmt or '未知'}"
+                        f"，位深={src_bits or '未知'}，目标格式={fmt}，"
+                        f"音质设置={audio_quality}（目标码率={bitrate}）")
+
+            if fmt == 'm4a':
+                # 无损转封装：AAC/FLAC/EC-3 原样搬进 MP4
+                args = ['-vn', '-c:a', 'copy', '-movflags', '+faststart', '-f', 'mp4']
+            elif fmt == 'mp3':
+                if src_codec == 'mp3':
+                    args = ['-vn', '-c:a', 'copy', '-f', 'mp3']
+                else:
+                    # 必须是 MP3 编码，否则 Windows 属性与播放器都不认这个 .mp3
+                    args = ['-vn', '-c:a', 'libmp3lame', '-b:a', bitrate, '-ac', '2',
+                            '-id3v2_version', '3', '-write_xing', '1', '-f', 'mp3']
+            elif fmt == 'flac':
+                if src_codec == 'flac':
+                    # 先尝试无损 copy；碎片化 MP4 源 copy 出来的 FLAC 会丢总时长，
+                    # 那样资源管理器属性里时长/码率还是空，所以校验后再决定是否转码
+                    ok, err = self._pack_stream(
+                        src_path, dst_path, ['-vn', '-c:a', 'copy', '-f', 'flac'],
+                        desc='音频', require_duration=True)
+                    if ok:
+                        return True, ''
+                    logger.info(f"FLAC 无损封装不可用（{err}），改为转码以补齐时长信息")
+                    if os.path.exists(dst_path):
+                        try:
+                            os.remove(dst_path)
+                        except Exception:
+                            pass
+                    args = ['-vn', '-c:a', 'flac', '-compression_level', '8'] + _s32_args
+                else:
+                    # Hi-Res 以外的杜比/普通音轨要真转码才能进 FLAC 容器
+                    args = ['-vn', '-c:a', 'flac', '-compression_level', '8'] + _s32_args
+            elif fmt == 'aac':
+                if src_codec == 'aac':
+                    args = ['-vn', '-c:a', 'copy', '-f', 'adts']
+                else:
+                    args = ['-vn', '-c:a', 'aac', '-b:a', bitrate, '-f', 'adts']
+            elif fmt in ('wav', 'pcm'):
+                args = ['-vn', '-c:a', 'pcm_s24le' if _hires else 'pcm_s16le', '-f', 'wav']
+            elif fmt == 'ogg':
+                args = ['-vn', '-c:a', 'libvorbis', '-q:a', '6', '-f', 'ogg']
+            elif fmt == 'opus':
+                args = ['-vn', '-c:a', 'libopus', '-b:a', bitrate]
+            else:
+                return False, f"不支持的目标音频格式：{fmt}"
+            # mp3/m4a/flac/wav 的时长与码率是资源管理器属性的关键字段，必须校验；
+            # aac/ogg 这类裸流格式本身就不保证带总时长，不用它当失败判据
+            require_duration = fmt in ('mp3', 'm4a', 'flac', 'wav')
+            return self._pack_stream(src_path, dst_path, args, desc='音频',
+                                     require_duration=require_duration)
+        except Exception as e:
+            logger.error(f"音频封装异常：{e}", exc_info=True)
+            return False, str(e)
+
+    def finalize_video_output(self, src_path, dst_path, video_format='mp4'):
+        """把仅视频/无声下载得到的原始流封装成真正的视频文件（默认只 copy）。
+
+        返回 (成功?, 错误信息)。失败时调用方应回退为直接改扩展名。
+        """
+        try:
+            fmt = (video_format or 'mp4').strip().lower().lstrip('.')
+            if fmt in ('mp4', 'm4v'):
+                args = ['-c', 'copy', '-movflags', '+faststart', '-f', 'mp4']
+            elif fmt == 'mov':
+                args = ['-c', 'copy', '-movflags', '+faststart', '-f', 'mov']
+            elif fmt == 'ts':
+                args = ['-c', 'copy', '-f', 'mpegts']
+            else:
+                # 其余容器交给 ffmpeg 按扩展名推断，失败则由调用方回退改名
+                args = ['-c', 'copy']
+            return self._pack_stream(src_path, dst_path, args, desc='视频')
+        except Exception as e:
+            logger.error(f"视频封装异常：{e}", exc_info=True)
+            return False, str(e)
+
+
+    @staticmethod
+    def _sanitize_filename(filename):
+        invalid_chars = r'[\/:*?"<>|]'
+        return re.sub(invalid_chars, '_', filename).strip()
+
+    _MEDIA_EXT_RE = re.compile(
+        r'\.(mp4|flv|mkv|m4s|ts|avi|mov|wmv|webm|rmvb|f4v|mp3|m4a|flac|aac|wav)$',
+        re.IGNORECASE
+    )
+
+    @classmethod
+    def _is_junk_part_title(cls, part):
+        if part is None:
+            return True
+        s = str(part).strip()
+        if not s:
+            return True
+        if re.fullmatch(r'\d+', s):
+            return True
+        # 形如 xxx.mp4 / aaa.flv 的文件名
+        if cls._MEDIA_EXT_RE.search(s):
+            return True
+        return False
+
+    def _resolve_page_title(self, part, page_no, video_title='', multi=False):
+        """把分P标题规整为可用标题：垃圾名回落视频标题/第N集。"""
+        cleaned = self._sanitize_filename(str(part)) if part else ''
+        if self._is_junk_part_title(cleaned):
+            base = self._sanitize_filename(str(video_title)) if video_title else ''
+            if base:
+                return f"{base} P{page_no}" if multi else base
+            return f"第{page_no}集"
+        return cleaned
+
+    @staticmethod
+    def _bangumi_duration_sec(duration):
+        try:
+            val = int(duration)
+        except (TypeError, ValueError):
+            return 0
+        if val <= 0:
+            return 0
+        if val >= 86400:
+            return val // 1000
+        return val
+
+    @staticmethod
+    def _format_duration(duration):
+        """将秒数转换为 MM:SS 或 HH:MM:SS"""
+        try:
+            seconds = int(duration)
+            if seconds < 0:
+                return "00:00"
+            hours = seconds // 3600
+            minutes = (seconds % 3600) // 60
+            secs = seconds % 60
+            if hours > 0:
+                return f"{hours}:{minutes:02d}:{secs:02d}"
+            return f"{minutes:02d}:{secs:02d}"
+        except Exception:
+            return "00:00"
+
+    def _transcode_to_codec(self, inp, outp, tc, ffmpeg_exec=None):
+        """将视频转码到目标编码格式"""
+        import subprocess
+        if not ffmpeg_exec:
+            ffmpeg_exec = self._get_ffmpeg_executable()
+        CM = {7:'libx264', 12:'libx265', 13:'libaom-av1', 14:'libvpx-vp9'}
+        e = CM.get(tc, 'libx264')
+        c = [ffmpeg_exec, '-i', inp, '-c:v', e]
+        if tc == 12:
+            c += ['-preset', 'medium', '-crf', '23']
+        elif tc == 13:
+            c += ['-crf', '35', '-cpu-used', '4']
+        else:
+            c += ['-preset', 'fast', '-crf', '20']
+        c += ['-c:a', 'copy', '-y', outp]
+        try:
+            r = subprocess.run(c, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              stdin=subprocess.PIPE, shell=False, **subprocess_low_priority_kwargs())
+            if r.returncode != 0:
+                err_msg = (r.stderr or b'').decode('utf-8', errors='ignore')[:200]
+                return False, f"转码失败（返回码{r.returncode}）: {err_msg}"
+            return True, ""
+        except Exception as ex:
+            return False, str(ex)
